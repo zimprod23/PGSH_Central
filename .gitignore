@@ -1,0 +1,53 @@
+# Visual Studio Visual Studio
+.vs/
+
+.vs/
+*.user
+
+*.user
+*.suo
+
+*.suo
+
+
+
+# Build output
+# Build output
+
+bin/
+bin/
+
+obj/
+obj/
+
+
+# Rider
+
+
+.idea/
+# Rider
+
+
+# OS
+.idea/
+
+.DS_Store
+
+
+Thumbs.db
+# OS
+
+
+# Logs
+.DS_Store
+
+*.log
+Thumbs.db
+
+
+# Logs
+
+*.log
+
+
+

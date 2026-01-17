@@ -1,0 +1,21 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Worker">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>dotnet-PGSH.MigrationService-436557a8-1ed9-40b0-85cc-a10737d3d028</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Aspire.Npgsql.EntityFrameworkCore.PostgreSQL" />
+    <PackageReference Include="Bogus" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PGSH.Domain\PGSH.Domain.csproj" />
+    <ProjectReference Include="..\PGSH.Infrastructure\PGSH.Infrastructure.csproj" />
+    <ProjectReference Include="..\PGSH.ServiceDefaults\PGSH.ServiceDefaults.csproj" />
+  </ItemGroup>
+</Project>

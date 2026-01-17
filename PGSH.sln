@@ -1,0 +1,86 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.12.35707.178
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PGSH.API", "PGSH.API\PGSH.API.csproj", "{B22D4712-2E62-428D-BB44-98399EB7F285}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PGSH.AppHost", "PGSH.AppHost\PGSH.AppHost.csproj", "{00FA39E7-1723-4608-B2FA-3C435F3DF648}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PGSH.ServiceDefaults", "PGSH.ServiceDefaults\PGSH.ServiceDefaults.csproj", "{DE4EA697-2125-4489-B5C3-C7F1CD15298B}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{17C7AB0B-B6C7-4074-BB33-892216F73B41}"
+	ProjectSection(SolutionItems) = preProject
+		.editorconfig = .editorconfig
+		Directory.Build.props = Directory.Build.props
+		Directory.Packages.props = Directory.Packages.props
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Aspire", "Aspire", "{E11F3DB0-F2F1-42D1-9B90-AFA7404AFCAA}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{D36D3850-66FE-45B6-9F61-42F57AC8BBCF}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PGSH.Application", "PGSH.Application\PGSH.Application.csproj", "{DA095368-65C8-4B6D-9FE4-760CA166CE18}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PGSH.SharedKernel", "PGSH.SharedKernel\PGSH.SharedKernel.csproj", "{F1258A39-8CCD-481C-A20D-B75B0A8C85C5}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PGSH.Domain", "PGSH.Domain\PGSH.Domain.csproj", "{4B78B351-0B3A-4145-A3DE-A8A4D0208E75}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PGSH.Infrastructure", "PGSH.Infrastructure\PGSH.Infrastructure.csproj", "{C0571E03-6718-4CDC-A8B8-82E91A0E7EE8}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{A10F9EE5-56DA-4BD0-B897-39BF63060157}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PGSH.MigrationService", "PGSH.MigrationService\PGSH.MigrationService.csproj", "{18E82BE6-1B3D-4BD1-B536-80DC11DB70A7}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{B22D4712-2E62-428D-BB44-98399EB7F285}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B22D4712-2E62-428D-BB44-98399EB7F285}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B22D4712-2E62-428D-BB44-98399EB7F285}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B22D4712-2E62-428D-BB44-98399EB7F285}.Release|Any CPU.Build.0 = Release|Any CPU
+		{00FA39E7-1723-4608-B2FA-3C435F3DF648}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{00FA39E7-1723-4608-B2FA-3C435F3DF648}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{00FA39E7-1723-4608-B2FA-3C435F3DF648}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{00FA39E7-1723-4608-B2FA-3C435F3DF648}.Release|Any CPU.Build.0 = Release|Any CPU
+		{DE4EA697-2125-4489-B5C3-C7F1CD15298B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{DE4EA697-2125-4489-B5C3-C7F1CD15298B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{DE4EA697-2125-4489-B5C3-C7F1CD15298B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{DE4EA697-2125-4489-B5C3-C7F1CD15298B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{DA095368-65C8-4B6D-9FE4-760CA166CE18}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{DA095368-65C8-4B6D-9FE4-760CA166CE18}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{DA095368-65C8-4B6D-9FE4-760CA166CE18}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{DA095368-65C8-4B6D-9FE4-760CA166CE18}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F1258A39-8CCD-481C-A20D-B75B0A8C85C5}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F1258A39-8CCD-481C-A20D-B75B0A8C85C5}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F1258A39-8CCD-481C-A20D-B75B0A8C85C5}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F1258A39-8CCD-481C-A20D-B75B0A8C85C5}.Release|Any CPU.Build.0 = Release|Any CPU
+		{4B78B351-0B3A-4145-A3DE-A8A4D0208E75}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{4B78B351-0B3A-4145-A3DE-A8A4D0208E75}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{4B78B351-0B3A-4145-A3DE-A8A4D0208E75}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{4B78B351-0B3A-4145-A3DE-A8A4D0208E75}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C0571E03-6718-4CDC-A8B8-82E91A0E7EE8}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C0571E03-6718-4CDC-A8B8-82E91A0E7EE8}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C0571E03-6718-4CDC-A8B8-82E91A0E7EE8}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C0571E03-6718-4CDC-A8B8-82E91A0E7EE8}.Release|Any CPU.Build.0 = Release|Any CPU
+		{18E82BE6-1B3D-4BD1-B536-80DC11DB70A7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{18E82BE6-1B3D-4BD1-B536-80DC11DB70A7}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{18E82BE6-1B3D-4BD1-B536-80DC11DB70A7}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{18E82BE6-1B3D-4BD1-B536-80DC11DB70A7}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{B22D4712-2E62-428D-BB44-98399EB7F285} = {D36D3850-66FE-45B6-9F61-42F57AC8BBCF}
+		{00FA39E7-1723-4608-B2FA-3C435F3DF648} = {E11F3DB0-F2F1-42D1-9B90-AFA7404AFCAA}
+		{DE4EA697-2125-4489-B5C3-C7F1CD15298B} = {E11F3DB0-F2F1-42D1-9B90-AFA7404AFCAA}
+		{DA095368-65C8-4B6D-9FE4-760CA166CE18} = {D36D3850-66FE-45B6-9F61-42F57AC8BBCF}
+		{F1258A39-8CCD-481C-A20D-B75B0A8C85C5} = {D36D3850-66FE-45B6-9F61-42F57AC8BBCF}
+		{4B78B351-0B3A-4145-A3DE-A8A4D0208E75} = {D36D3850-66FE-45B6-9F61-42F57AC8BBCF}
+		{C0571E03-6718-4CDC-A8B8-82E91A0E7EE8} = {D36D3850-66FE-45B6-9F61-42F57AC8BBCF}
+	EndGlobalSection
+EndGlobal

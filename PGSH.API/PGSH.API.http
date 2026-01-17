@@ -1,0 +1,6 @@
+@PGSH.API_HostAddress = http://localhost:5199
+
+GET {{PGSH.API_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
