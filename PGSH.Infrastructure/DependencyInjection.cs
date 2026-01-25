@@ -14,6 +14,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
 using PGSH.SharedKernel;
 using MediatR;
+using Microsoft.AspNetCore.Authentication;
 
 namespace PGSH.Infrastructure;
 
@@ -97,6 +98,8 @@ public static class DependencyInjection
         services.AddTransient<IAuthorizationHandler, PermissionAuthorizationHandler>();
 
         services.AddTransient<IAuthorizationPolicyProvider, PermissionAuthorizationPolicyProvider>();
+
+        services.AddTransient<IClaimsTransformation, KeycloakRoleTransformer>();
 
         return services;
     }

@@ -60,8 +60,14 @@ internal sealed class UserConfiguration : IEntityTypeConfiguration<User>
          .HasValue<Employee>("Employee")
          .HasValue<Student>("Student");
 
+        builder.Property(u => u.IdentityProviderId)
+               .HasMaxLength(100);
 
-       
+        builder.HasIndex(u => u.IdentityProviderId)
+               .IsUnique()
+               .HasFilter("\"IdentityProviderId\" IS NOT NULL");
+
+
     }
 }
 

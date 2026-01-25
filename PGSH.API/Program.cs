@@ -12,7 +12,7 @@ using Scalar.AspNetCore;
 using Serilog;
 using System.Reflection;
 
-var MyAllowSpecificOrigins = "_myAllowSpecificOrigins";
+var MyAllowSpecificOrigins = "AllowAllForDev";
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -45,22 +45,33 @@ builder.Services.AddAuthentication(options =>
     options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
     options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
 })
-.AddJwtBearer(JwtBearerDefaults.AuthenticationScheme, options =>
-{
-    // Reading configuration from appsettings.json/appsettings.Development.json
-    // Keycloak:Authority must be the URL to your Keycloak server and realm 
-    // (e.g., "http://keycloak:8080/realms/fmpr")
-    options.Authority = builder.Configuration["Keycloak:Authority"];
+ .AddKeycloakJwtBearer(
+    serviceName: "keycloak",
+    realm: "pgsh",
+    configureOptions: options =>
+    {
+        //options.Audience = "pgsh.api";
+        options.Audience = "account";
+        options.RequireHttpsMetadata = false;
+    }
+    );
+builder.Services.AddAuthorization();
+//.AddJwtBearer(JwtBearerDefaults.AuthenticationScheme, options =>
+//{
+//    // Reading configuration from appsettings.json/appsettings.Development.json
+//    // Keycloak:Authority must be the URL to your Keycloak server and realm 
+//    // (e.g., "http://keycloak:8080/realms/fmpr")
+//    options.Authority = builder.Configuration["Keycloak:Authority"];
 
-    // Keycloak:Audience must match the Client ID of your API client in Keycloak
-    options.Audience = builder.Configuration["Keycloak:Audience"];
+//    // Keycloak:Audience must match the Client ID of your API client in Keycloak
+//    options.Audience = builder.Configuration["Keycloak:Audience"];
 
-    // Set to false for development/local Keycloak over HTTP
-    options.RequireHttpsMetadata = builder.Environment.IsProduction();
+//    // Set to false for development/local Keycloak over HTTP
+//    options.RequireHttpsMetadata = builder.Environment.IsProduction();
 
-    // Optional: Configure claim mapping if your user ID is not in 'sub'
-    // options.TokenValidationParameters.NameClaimType = "sub"; 
-});
+//    // Optional: Configure claim mapping if your user ID is not in 'sub'
+//    // options.TokenValidationParameters.NameClaimType = "sub"; 
+//});
 
 
 builder.Services
@@ -68,16 +79,32 @@ builder.Services
     .AddApplication()
     .AddPresentation();
 
+//builder.Services.AddOpenApi();
+
+builder.Services.AddApiDocumentation();
+
 builder.Services.AddEndpoints(Assembly.GetExecutingAssembly());
 builder.AddNpgsqlDbContext<ApplicationDbContext>(connectionName: "TodoDatabase");
 
 // Add services to the container.
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
-//builder.Services.AddOpenApi();
+// ONLY for development!
 
 WebApplication app = builder.Build();
-app.MapEndpoints();
 app.MapDefaultEndpoints();
+
+//app.UseSwaggerUI(c =>
+//{
+//    c.SwaggerEndpoint("/openapi/v1.json", "PGSH API v1");
+
+//    // OAuth2 PKCE
+//    c.OAuthClientId("pgsh-swagger");         // client in Keycloak
+//    c.OAuthAppName("PGSH Swagger UI");
+//    c.OAuthUsePkce();
+//    c.OAuthScopeSeparator(" ");
+//});
+
+
 
 if (app.Environment.IsDevelopment())
 {
@@ -110,6 +137,8 @@ app.UseExceptionHandler();
 app.UseAuthentication();
 
 app.UseAuthorization();
+
+app.MapEndpoints();
 
 app.MapControllers();
 

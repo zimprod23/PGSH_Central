@@ -374,12 +374,7 @@ namespace PGSH.Infrastructure.Migrations
                     b.Property<DateTime?>("StartDate")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<Guid>("UserId")
-                        .HasColumnType("uuid");
-
                     b.HasKey("Id");
-
-                    b.HasIndex("UserId");
 
                     b.ToTable("TodoItems", "public");
                 });
@@ -410,6 +405,10 @@ namespace PGSH.Infrastructure.Migrations
                     b.Property<int>("Gender")
                         .HasColumnType("integer");
 
+                    b.Property<string>("IdentityProviderId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
                     b.Property<string>("LastName")
                         .IsRequired()
                         .HasMaxLength(100)
@@ -434,6 +433,10 @@ namespace PGSH.Infrastructure.Migrations
 
                     b.HasIndex("Email")
                         .IsUnique();
+
+                    b.HasIndex("IdentityProviderId")
+                        .IsUnique()
+                        .HasFilter("\"IdentityProviderId\" IS NOT NULL");
 
                     b.ToTable("Users", "public");
 
@@ -742,15 +745,6 @@ namespace PGSH.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("Student");
-                });
-
-            modelBuilder.Entity("PGSH.Domain.Todos.TodoItem", b =>
-                {
-                    b.HasOne("PGSH.Domain.Users.User", null)
-                        .WithMany()
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
                 });
 
             modelBuilder.Entity("PGSH.Domain.Users.User", b =>

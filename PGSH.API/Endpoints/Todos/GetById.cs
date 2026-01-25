@@ -1,5 +1,6 @@
 ﻿
 using MediatR;
+using PGSH.API.Endpoints.Users;
 using PGSH.API.Extensions;
 using PGSH.API.Infrastructure;
 using PGSH.Application.Todos.GetById;
@@ -18,7 +19,7 @@ namespace PGSH.API.Endpoints.Todos
                 return result.Match(Results.Ok,CustomResults.Problem);
             })
             .WithTags(Tags.Todos)
-            .RequireAuthorization();
+            .RequireAuthorization(Permissions.UserGetItem);
         }
     }
 }

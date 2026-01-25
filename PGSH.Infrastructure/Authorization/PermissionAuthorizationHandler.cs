@@ -7,30 +7,31 @@ namespace PGSH.Infrastructure.Authorization;
 internal sealed class PermissionAuthorizationHandler(IServiceScopeFactory serviceScopeFactory)
     : AuthorizationHandler<PermissionRequirement>
 {
-    protected override async Task HandleRequirementAsync(
+    protected override Task HandleRequirementAsync(
         AuthorizationHandlerContext context,
         PermissionRequirement requirement)
     {
         // TODO: You definitely want to reject unauthenticated users here.
-        if (context.User is { Identity.IsAuthenticated: true })
+        if (context.User is { Identity.IsAuthenticated: true } && context.User.IsInRole(requirement.Permission))
         {
             // TODO: Remove this call when you implement the PermissionProvider.GetForUserIdAsync
             context.Succeed(requirement);
 
-            return;
+            //return;
         }
+        return Task.CompletedTask;
 
-        using IServiceScope scope = serviceScopeFactory.CreateScope();
+        //using IServiceScope scope = serviceScopeFactory.CreateScope();
 
-        PermissionProvider permissionProvider = scope.ServiceProvider.GetRequiredService<PermissionProvider>();
+        //PermissionProvider permissionProvider = scope.ServiceProvider.GetRequiredService<PermissionProvider>();
 
-        Guid userId = context.User.GetUserId();
+        //Guid userId = context.User.GetUserId();
 
-        HashSet<string> permissions = await permissionProvider.GetForUserIdAsync(userId);
+        //HashSet<string> permissions = await permissionProvider.GetForUserIdAsync(userId);
 
-        if (permissions.Contains(requirement.Permission))
-        {
-            context.Succeed(requirement);
-        }
+        //if (permissions.Contains(requirement.Permission))
+        //{
+        //    context.Succeed(requirement);
+        //}
     }
 }

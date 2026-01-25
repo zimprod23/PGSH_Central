@@ -16,7 +16,7 @@ internal sealed class CompleteTodoCommandHandler(
     public async Task<Result> Handle(CompleteTodoCommand command, CancellationToken cancellationToken)
     {
         TodoItem? todoItem = await context.TodoItems
-            .SingleOrDefaultAsync(t => t.Id == command.TodoItemId && t.UserId == userContext.UserId, cancellationToken);
+            .SingleOrDefaultAsync(t => t.Id == command.TodoItemId, cancellationToken);
 
         if (todoItem is null)
         {

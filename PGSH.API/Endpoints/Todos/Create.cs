@@ -12,7 +12,7 @@ namespace PGSH.API.Endpoints.Todos
     {
         public sealed record Request
         {
-            public Guid UserId { get; set; }
+            //public Guid UserId { get; set; }
             public string Description { get; set; }
             public DateTime? DueDate { get; set; }
             public List<string> Labels { get; set; } = [];
@@ -20,11 +20,11 @@ namespace PGSH.API.Endpoints.Todos
         };
         public void MapEndpoint(IEndpointRouteBuilder app)
         {
-            app.MapPost("todos",async(Request request,ISender sender, CancellationToken cancellationToken) =>
+            app.MapPost("todos", async (Request request, ISender sender, CancellationToken cancellationToken) =>
             {
                 var command = new CreateTodoCommand
                 {
-                    UserId = request.UserId,
+                    //UserId = request.UserId,
                     Description = request.Description,
                     DueDate = request.DueDate,
                     Labels = request.Labels,
@@ -34,7 +34,8 @@ namespace PGSH.API.Endpoints.Todos
                 return result.Match(Results.Ok, CustomResults.Problem);
             })
              .WithTags(Tags.Todos)
-             .RequireAuthorization();
+             .AllowAnonymous();
+             //.RequireAuthorization();
         }
     }
 }

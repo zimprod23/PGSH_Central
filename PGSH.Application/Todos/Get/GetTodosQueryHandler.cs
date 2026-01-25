@@ -18,11 +18,11 @@ internal sealed class GetTodosQueryHandler(IApplicationDbContext context, IUserC
         }
 
         List<TodoResponse> todos = await context.TodoItems
-            .Where(todoItem => todoItem.UserId == query.UserId)
+            //.Where(todoItem => todoItem.UserId == query.UserId)
             .Select(todoItem => new TodoResponse
             {
                 Id = todoItem.Id,
-                UserId = todoItem.UserId,
+                //UserId = todoItem.UserId,
                 Description = todoItem.Description,
                 DueDate = todoItem.DueDate,
                 Labels = todoItem.Labels,

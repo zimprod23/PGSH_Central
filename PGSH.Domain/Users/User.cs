@@ -19,4 +19,16 @@ public  class User : Entity
     public Status Status { get; set; } = new(CivilStatus.Civil, NationalityStatus.Marocaine);
     public DateOnly? DateOfBirth { get; set; }
     public string? PlaceOfBirth { get; set; }
+    public string? IdentityProviderId { get; private set; }
+
+    public void LinkIdentity(string providerId)
+    {
+        if (IdentityProviderId != null)
+            throw new InvalidOperationException("User already linked");
+
+        IdentityProviderId = providerId;
+        //IdentityLinkedAt = DateTime.UtcNow;
+    }
+
+
 }

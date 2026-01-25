@@ -14,10 +14,10 @@ namespace PGSH.API.Endpoints.Users
         {
             app.MapPost("users/login", async (Request request, ISender sender, CancellationToken cancellationToken) => 
             { 
-                var command = new LoginUserCommand(request.email, request.password);
-                Result<string> result = await sender.Send(command, cancellationToken);
+                //var command = new LoginUserCommand(request.email, request.password);
+                //Result<string> result = await sender.Send(command, cancellationToken);
 
-                return result.Match(Results.Ok,CustomResults.Problem); 
+                return Results.Ok();
             })
             .WithTags(Tags.Users);
         }
