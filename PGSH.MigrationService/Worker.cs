@@ -27,9 +27,9 @@ public class Worker(
             var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
 
             //Launch operations
-            await EnsureDatabaseCreated(dbContext, stoppingToken);
+            await EnsureDatabaseCreated(dbContext, stoppingToken);//To Remove later
             await RunMigrationAsync(dbContext, stoppingToken);
-            await Seeder.SeedDataAsync(dbContext, logger, stoppingToken);
+            await Seeder.SeedAsync(dbContext, logger, stoppingToken);
             //await SeedDataAsync(dbContext,logger, stoppingToken);
         }
         catch(Exception ex) 

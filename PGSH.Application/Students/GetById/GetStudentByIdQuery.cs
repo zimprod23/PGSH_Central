@@ -2,4 +2,4 @@
 
 namespace PGSH.Application.Students.GetById;
 
-public sealed record GetStudentByIdQuery(Guid UserId): IQuery<StudentResponse>;
+public sealed record GetStudentByIdQuery(Guid StudentId): IQuery<StudentResponse>;

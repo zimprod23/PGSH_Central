@@ -128,8 +128,6 @@ app.UseHttpsRedirection();
 
 app.UseCors(MyAllowSpecificOrigins);
 
-app.UseRequestLoggingMiddleware();
-
 app.UseSerilogRequestLogging();
 
 app.UseExceptionHandler();
@@ -137,6 +135,8 @@ app.UseExceptionHandler();
 app.UseAuthentication();
 
 app.UseAuthorization();
+
+app.UseRequestLoggingMiddleware();
 
 app.MapEndpoints();
 

@@ -13,6 +13,10 @@ public static class RegistrationErrors
         "Registrations.Duplicate",
         $"A registration for student '{studentId}' already exists for the academic year '{academicYear}'.");
 
+    public static Error Conflict(string Action, Guid Id) => Error.Validation(
+       "Registrations.Conflict",
+       $"Somthing Went wrong while trying the '{Action}' Action on the registration with the Id '{Id}'");
+
     public static readonly Error MissingStudentReference = Error.Validation(
         "Registrations.MissingStudentReference",
         "Each registration must be linked to a valid student.");

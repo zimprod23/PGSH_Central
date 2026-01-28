@@ -5,14 +5,10 @@ namespace PGSH.Domain.Users;
 public  class User : Entity
 {
     public Guid Id { get; set; }
-    public string Email { get; set; }
+    public string Email { get; set; } = string.Empty;
     public string? UserName { get; set; }
-    
     public string FirstName { get; set; } = string.Empty;
     public string LastName { get; set; } = string.Empty;
-    public string? PasswordHash { get; set; }
-    //public Profile? Profile { get; set; }
-
     public Address? Address { get; set; }
     public string? CIN { get; set; }
     public Gender Gender { get; set; }
@@ -20,6 +16,7 @@ public  class User : Entity
     public DateOnly? DateOfBirth { get; set; }
     public string? PlaceOfBirth { get; set; }
     public string? IdentityProviderId { get; private set; }
+    public DateTime IdentityLinkedAt { get; private set; }
 
     public void LinkIdentity(string providerId)
     {
@@ -27,8 +24,6 @@ public  class User : Entity
             throw new InvalidOperationException("User already linked");
 
         IdentityProviderId = providerId;
-        //IdentityLinkedAt = DateTime.UtcNow;
+        IdentityLinkedAt = DateTime.UtcNow;
     }
-
-
 }

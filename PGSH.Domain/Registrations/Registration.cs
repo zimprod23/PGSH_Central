@@ -9,10 +9,11 @@ public sealed class Registration : Entity
 {
     public Guid Id { get; set; }
     public DateOnly AcademicYear { get; set; }
-    public FailureReasons? failureReasons { get; set; }
     public string Status { get; set; }
+    public int LevelId { get; set; }
     public Level Level { get; set; }
     public Student Student { get; set; }
     public Guid StudentId { get; set; }
+    public FailureReasons? failureReasons { get; set; }
     public ICollection<InternshipAssignment> InternshipAssignments { get; set; } = new List<InternshipAssignment>();
 }

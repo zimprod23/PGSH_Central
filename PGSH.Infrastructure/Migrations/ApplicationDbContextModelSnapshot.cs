@@ -52,6 +52,7 @@ namespace PGSH.Infrastructure.Migrations
                         .HasColumnType("text");
 
                     b.Property<string>("Label")
+                        .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
@@ -60,7 +61,7 @@ namespace PGSH.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("Level", "public");
+                    b.ToTable("Levels", "public");
                 });
 
             modelBuilder.Entity("PGSH.Domain.Hospitals.Center", b =>
@@ -339,7 +340,7 @@ namespace PGSH.Infrastructure.Migrations
 
                     b.HasIndex("StudentId");
 
-                    b.ToTable("History", "public");
+                    b.ToTable("Histories", "public");
                 });
 
             modelBuilder.Entity("PGSH.Domain.Todos.TodoItem", b =>
@@ -405,6 +406,9 @@ namespace PGSH.Infrastructure.Migrations
                     b.Property<int>("Gender")
                         .HasColumnType("integer");
 
+                    b.Property<DateTime>("IdentityLinkedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("IdentityProviderId")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
@@ -413,9 +417,6 @@ namespace PGSH.Infrastructure.Migrations
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
-
-                    b.Property<string>("PasswordHash")
-                        .HasColumnType("text");
 
                     b.Property<string>("PlaceOfBirth")
                         .HasColumnType("text");

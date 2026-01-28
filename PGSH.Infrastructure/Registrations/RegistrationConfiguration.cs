@@ -63,7 +63,8 @@ internal sealed class LevelConfiguration : IEntityTypeConfiguration<Level>
         builder.HasKey(l => l.Id);
 
         builder.Property(l => l.Label)
-               .HasMaxLength(100);
+               .HasMaxLength(100)
+               .IsRequired();
 
         builder.Property(l => l.Year)
                .IsRequired();

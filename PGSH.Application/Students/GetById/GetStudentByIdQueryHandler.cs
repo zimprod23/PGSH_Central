@@ -1,39 +1,51 @@
-﻿//using PGSH.Application.Abstractions.Authentication;
-//using PGSH.Application.Abstractions.Data;
-//using PGSH.Application.Abstractions.Messaging;
-//using PGSH.Application.Users.GetById;
-//using PGSH.Domain.Users;
-//using PGSH.SharedKernel;
+﻿using Microsoft.EntityFrameworkCore;
+using PGSH.Application.Abstractions.Data;
+using PGSH.Application.Abstractions.Messaging;
+using PGSH.Application.Students.GetById;
+using PGSH.Domain.Students;
+using PGSH.SharedKernel;
 
-//namespace PGSH.Application.Students.GetById;
+internal sealed class GetStudentByIdQueryHandler(IApplicationDbContext context)
+    : IQueryHandler<GetStudentByIdQuery, StudentResponse>
+{
+    public async Task<Result<StudentResponse>> Handle(GetStudentByIdQuery request, CancellationToken ct)
+    {
+        var student = await context.Students
+            .AsNoTracking()
+            .Include(s => s.registrations) // Load the collection
+            .Include(s => s.history)       // Load the collection
+            .Where(s => s.Id == request.StudentId)
+            .Select(s => new StudentResponse(
+                s.Id,
+                s.Email,
+                s.FirstName,
+                s.LastName,
+                s.CIN,
+                s.Gender.ToString(),
+                s.Status.CivilStatus.ToString(),
+                s.Status.NationalityStatus.ToString(),
+                s.DateOfBirth,
+                s.PlaceOfBirth,
+                s.Address != null ? s.Address.FullAddress : null,
+                s.CNE,
+                s.Appogee,
+                s.AcademicProgram.ToString(),
+                s.BacSeries.ToString(),
+                s.BacYear,
+                s.AccessGrade,
+                s.Ranking
+                // Map the collections efficiently
+                //s.registrations.Select(r => new RegistrationResponse(
+                //    r.Id, r.AcademicYear, r.Status, r.Level.ToString())).ToList(),
+                //s.history.Select(h => new HistoryResponse(
+                //    h.Action, h.Date, h.Description)
+                
+                //).ToList()
+            ))
+            .FirstOrDefaultAsync(ct);
 
-
-//internal sealed class GetStudentByIdQueryHandler(IApplicationDbContext context)
-//    : IQueryHandler<GetStudentByIdQuery, StudentResponse>
-//{
-//    public async Task<Result<StudentResponse>> Handle(GetStudentByIdQuery query, CancellationToken cancellationToken)
-//    {
-//        if (query.UserId != userContext.UserId)
-//        {
-//            return Result.Failure<StudentResponse>(UserErrors.Unauthorized());
-//        }
-
-//        UserResponse? user = await context.Users
-//            .Where(u => u.Id == query.UserId)
-//            .Select(u => new UserResponse
-//            {
-//                Id = u.Id,
-//                FirstName = u.FirstName,
-//                LastName = u.LastName,
-//                Email = u.Email
-//            })
-//            .SingleOrDefaultAsync(cancellationToken);
-
-//        if (user is null)
-//        {
-//            return Result.Failure<UserResponse>(UserErrors.NotFound(query.UserId));
-//        }
-
-//        return user;
-//    }
-//}
+        return student is null
+            ? Result.Failure<StudentResponse>(StudentErrors.NotFound(request.StudentId))
+            : student;
+    }
+}

@@ -21,10 +21,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Folder Include="Students\GetMany\" />
-    <Folder Include="Students\Create\" />
     <Folder Include="Students\CreateMany\" />
-    <Folder Include="Students\Delete\" />
     <Folder Include="Students\Update\" />
   </ItemGroup>
 

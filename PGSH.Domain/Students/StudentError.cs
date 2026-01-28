@@ -14,7 +14,11 @@ public static class StudentErrors
 
     public static Error DuplicateCNE(string cne) => Error.Conflict(
         "Students.DuplicateCNE",
-        $"A student with CNE = '{cne}' already exists.");
+        $"A student with CNE/CIN = '{cne}' already exists.");
+
+    public static Error Conflict(string field, string value) => Error.Conflict(
+        "Students.Conflict",
+        $"A student with the {field} '{value}' already exists.");
 
     public static readonly Error InvalidBacYear = Error.Validation(
         "Students.InvalidBacYear",

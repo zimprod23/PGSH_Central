@@ -6,6 +6,7 @@ using PGSH.Domain.Hospitals;
 using PGSH.Domain.Registrations;
 using PGSH.Domain.Stages;
 using PGSH.Domain.Students;
+using PGSH.Domain.Common.Utils;
 
 namespace PGSH.Application.Abstractions.Data;
 
@@ -21,8 +22,10 @@ public interface IApplicationDbContext
     DbSet<AssignmentPeriod> AssignmentPeriods { get; set; }
     DbSet<Center> Centers { get; set; }
     DbSet<Hospital> Hospitals { get; set; }
+    DbSet<Level> Levels { get; set; }
     DbSet<Service> Services { get; set; }
     DbSet<Registration> Registrations { get; set; }
+    DbSet<History> Histories { get; set; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }

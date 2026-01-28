@@ -8,6 +8,16 @@ namespace PGSH.API.Infrastructure
         public async ValueTask<bool> TryHandleAsync(HttpContext httpContext, Exception exception, CancellationToken cancellationToken)
         {
             logger.LogError(exception, "Unhandled exception occured");
+
+            var (statusCode, title) = exception switch
+            {
+                // Handle your specific missing profile case
+                ApplicationException ex when ex.Message.Contains("Domain profile") =>
+                    (StatusCodes.Status403Forbidden, "Profile Not Found"),
+
+                _ => (StatusCodes.Status500InternalServerError, "Server failure")
+            };
+
             var problemDetails = new ProblemDetails
             {
                 Status = StatusCodes.Status500InternalServerError,

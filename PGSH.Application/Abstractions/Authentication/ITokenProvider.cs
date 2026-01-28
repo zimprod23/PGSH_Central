@@ -1,8 +1,8 @@
-﻿using PGSH.Domain.Users;
+﻿//using PGSH.Domain.Users;
 
-namespace PGSH.Application.Abstractions.Authentication;
+//namespace PGSH.Application.Abstractions.Authentication;
 
-public interface ITokenProvider
-{
-    string Create(User user);
-}
+//public interface ITokenProvider
+//{
+//    string Create(User user);
+//}

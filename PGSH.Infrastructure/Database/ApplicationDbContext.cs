@@ -14,6 +14,7 @@ using PGSH.Domain.Hospitals;
 using PGSH.Domain.Registrations;
 using Microsoft.EntityFrameworkCore.Design;
 using Microsoft.Extensions.Configuration;
+using PGSH.Domain.Common.Utils;
 
 namespace PGSH.Infrastructure.Database;
 
@@ -33,9 +34,10 @@ public sealed class ApplicationDbContext
     public DbSet<AssignmentPeriod> AssignmentPeriods { get; set; }
     public DbSet<Center> Centers { get; set; }
     public DbSet<Hospital> Hospitals { get; set; }
+    public DbSet<Level> Levels { get; set; }
     public DbSet<Service> Services { get; set; }
     public DbSet<Registration> Registrations { get; set; }
-
+    public DbSet<History> Histories { get ; set ; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -65,7 +67,7 @@ public sealed class ApplicationDbContext
 
     private async Task PublishDomainEventsAsync()
     {
-        if (_publisher != null) return;
+        if (_publisher == null) return;
         var domainEvents = ChangeTracker
             .Entries<Entity>()
             .Select(entry => entry.Entity)

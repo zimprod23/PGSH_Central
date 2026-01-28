@@ -82,9 +82,10 @@ public static class DependencyInjection
         //    });
 
         services.AddHttpContextAccessor();
+        services.AddMemoryCache();
         services.AddScoped<IUserContext, UserContext>();
-        services.AddSingleton<IPasswordHasher, PasswordHasher>();
-        services.AddSingleton<ITokenProvider, TokenProvider>();
+        //services.AddSingleton<IPasswordHasher, PasswordHasher>();
+        //services.AddSingleton<ITokenProvider, TokenProvider>();
 
         return services;
     }
