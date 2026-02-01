@@ -12,9 +12,10 @@ var keycloak = builder.AddKeycloak("keycloak", 8082)
 
 //var redis = builder.AddRedis("cache");
 
-builder.AddProject<Projects.PGSH_API>("pgsh-api")
+var apiService = builder.AddProject<Projects.PGSH_API>("pgsh-api")
     .WithReference(postgres)
     .WithReference(keycloak)
+    //.WithHealthCheck("/health")
     //.WithEnvironment("Keycloak:Authority", keycloak.GetEndpoint("http") + "/realms/fmpr") // <-- NEW
 
     //// Inject Keycloak Audience (Client ID)
@@ -26,6 +27,18 @@ builder.AddProject<Projects.PGSH_API>("pgsh-api")
     //.WithSwaggerUI()
     .WithScalarUI()
     .WithSwaggerUI();
+
+builder.AddViteApp(name: "pgsh-frontend", workingDirectory: "../PGSH.Frontend")
+    .WithEndpoint("http", endpoint =>
+    {
+        endpoint.Port = 5173; // Force the PORT to 5173 every time
+    })
+    .WithExternalHttpEndpoints()
+    .WithReference(apiService)
+    //.WithReference(keycloak) // This is the key!
+    //.WithEnvironment("VITE_KEYCLOAK_URL", keycloak.GetEndpoint("http"))
+    .WaitFor(apiService)
+    .WithNpmPackageInstallation();
 
 builder.AddProject<Projects.PGSH_MigrationService>("migrations")
         .WithReference(postgres)

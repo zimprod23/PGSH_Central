@@ -23,21 +23,38 @@ public sealed class ApplicationDbContext
 {
     private readonly IPublisher? _publisher;
     public ApplicationDbContext(DbContextOptions<ApplicationDbContext> options,IPublisher? publisher = null): base(options) => _publisher = publisher;
+    // ===== Identity / Core =====
     public DbSet<User> Users { get; set; }
-
     public DbSet<TodoItem> TodoItems { get; set; }
+
+    // ===== Academic / People =====
     public DbSet<Student> Students { get; set; }
     public DbSet<Employee> Employees { get; set; }
+    public DbSet<Registration> Registrations { get; set; }
+
+    // ===== Stages / Internships =====
     public DbSet<Stage> Stages { get; set; }
-    public DbSet<StageGroup> StagesGroup { get; set; }
+    public DbSet<StageGroup> StageGroups { get; set; }
+    public DbSet<StageGroupPeriod> StageGroupPeriods { get; set; }
+
     public DbSet<InternshipAssignment> InternshipAssignments { get; set; }
-    public DbSet<AssignmentPeriod> AssignmentPeriods { get; set; }
+
+    // ===== Attendance & Evaluation =====
+    public DbSet<AttendanceRecord> AttendanceRecords { get; set; }
+    public DbSet<StageObjective> StageObjectives { get; set; }
+    public DbSet<PeriodEvaluation> PeriodEvaluations { get; set; }
+    public DbSet<ObjectiveEvaluation> ObjectiveEvaluations { get; set; }
+
+    // ===== Hospital =====
     public DbSet<Center> Centers { get; set; }
     public DbSet<Hospital> Hospitals { get; set; }
-    public DbSet<Level> Levels { get; set; }
     public DbSet<Service> Services { get; set; }
-    public DbSet<Registration> Registrations { get; set; }
-    public DbSet<History> Histories { get ; set ; }
+
+    // ===== Academic Structure =====
+    public DbSet<Level> Levels  { get; set; }
+
+    // ===== Audit / History =====
+    public DbSet<History> Histories { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

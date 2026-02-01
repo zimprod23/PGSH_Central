@@ -1,7 +1,4 @@
 ﻿using PGSH.Domain.Common.Utils;
-using PGSH.Domain.Registrations;
-using PGSH.Domain.Students;
-using PGSH.Domain.Users;
 
 namespace PGSH.Application.Students.GetById;
 
@@ -23,4 +20,19 @@ public record StudentResponse(
     string BacSeries,
     string BacYear,
     decimal AccessGrade,
-    int? Ranking);
+    int? Ranking
+    , StudentRegistrationSummary? CurrentRegistration
+    );
+
+public sealed record StudentRegistrationSummary(
+    Guid Id,
+    DateOnly AcademicYear,
+    string Status,
+    LevelResponse Level);
+
+public sealed record LevelResponse(
+
+    string? Label,
+    int Year,
+    string AcademicProgram
+);

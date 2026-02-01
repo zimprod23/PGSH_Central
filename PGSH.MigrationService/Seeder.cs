@@ -1,9 +1,12 @@
 ﻿using Bogus;
-using PGSH.Domain.Students;
-using PGSH.Infrastructure.Database;
-using PGSH.Domain.Users;
-using PGSH.Domain.Common.Utils;
 using Microsoft.EntityFrameworkCore;
+using PGSH.Domain.Common.Utils;
+using PGSH.Domain.Hospitals;
+using PGSH.Domain.Registrations;
+using PGSH.Domain.Stages;
+using PGSH.Domain.Students;
+using PGSH.Domain.Users;
+using PGSH.Infrastructure.Database;
 
 namespace PGSH.MigrationService
 {
@@ -82,6 +85,20 @@ namespace PGSH.MigrationService
 
         public static async Task SeedAsync(ApplicationDbContext context, ILogger<Worker> logger, CancellationToken cancellationToken)
         {
+            logger.LogInformation("Starting database seeding...");
+
+            await SeedLevelsAsync(context, logger, cancellationToken);
+            await SeedCentersHospitalsServicesAsync(context, logger, cancellationToken);
+            await SeedStudentsAsync(context, logger, cancellationToken);
+            await SeedRegistrationsAsync(context, logger, cancellationToken);
+            await SeedStagesAsync(context, logger, cancellationToken);
+            await SeedStageGroupsAndAssignmentsAsync(context, logger, cancellationToken);
+
+            logger.LogInformation("Database seeding completed.");
+        }
+
+        private static async Task SeedStudentsAsync(ApplicationDbContext context, ILogger<Worker> logger, CancellationToken cancellationToken)
+        {
             // 1. Performance Guard: Don't seed if data exists
             if (await context.Students.AnyAsync()) return;
 
@@ -137,6 +154,268 @@ namespace PGSH.MigrationService
 
             logger.LogInformation("Successfully seeded {Count} Student entities.", allStudents.Count);
         }
+
+        private static async Task SeedLevelsAsync(
+            ApplicationDbContext context,
+            ILogger logger,
+            CancellationToken ct)
+        {
+            if (await context.Levels.AnyAsync(ct)) return;
+
+            var levels = new[]
+            {
+                new Level { Label = "1ère Année Médecine", Year = 1, AcademicProgram = AcademicProgram.Medecine },
+                new Level { Label = "2ème Année Médecine", Year = 2, AcademicProgram = AcademicProgram.Medecine },
+                new Level { Label = "Pharmacie – Année 1", Year = 1, AcademicProgram = AcademicProgram.Pharmacie },
+             };
+
+            await context.Levels.AddRangeAsync(levels, ct);
+            await context.SaveChangesAsync(ct);
+
+            logger.LogInformation("Seeded {Count} Levels", levels.Length);
+        }
+
+
+
+        private static async Task SeedCentersHospitalsServicesAsync(
+            ApplicationDbContext context,
+            ILogger logger,
+            CancellationToken ct)
+        {
+            if (await context.Centers.AnyAsync(ct)) return;
+
+            var center = new Center
+            {
+                Name = "Centre Hospitalier Universitaire Ibn Sina",
+                CenterType = CenterType.CHU,
+                City = "Rabat"
+            };
+
+            var hospital = new Hospital
+            {
+                Name = "Hôpital Ibn Sina",
+                City = "Rabat",
+                HospitalType = HospitalType.CHU,
+                Center = center
+            };
+
+            hospital.services.Add(new Service
+            {
+                Name = "Chirurgie Générale",
+                ServiceType = ServiceType.Chirurgie,
+                Description = "Service de chirurgie générale"
+            });
+
+            hospital.services.Add(new Service
+            {
+                Name = "Biologie Médicale",
+                ServiceType = ServiceType.Biologie,
+                Description = "Laboratoire central"
+            });
+
+            hospital.services.Add(new Service
+            {
+                Name = "Médecine Interne",
+                ServiceType = ServiceType.Medical,
+                Description = "Service de médecine interne"
+            });
+
+            center.Hospitals.Add(hospital);
+
+            await context.Centers.AddAsync(center, ct);
+            await context.SaveChangesAsync(ct);
+
+            logger.LogInformation("Seeded Centers, Hospitals and Services");
+        }
+
+        private static async Task SeedRegistrationsAsync(
+            ApplicationDbContext context,
+            ILogger logger,
+            CancellationToken ct)
+        {
+            if (await context.Registrations.AnyAsync(ct)) return;
+
+            var level = await context.Levels.FirstAsync(ct);
+            var students = await context.Students.ToListAsync(ct);
+
+            var registrations = students.Select(s => new Registration
+            {
+                Id = Guid.NewGuid(),
+                StudentId = s.Id,
+                LevelId = level.Id,
+                AcademicYear = new DateOnly(2024, 09, 01),
+                Status = "Active"
+            }).ToList();
+
+            await context.Registrations.AddRangeAsync(registrations, ct);
+            await context.SaveChangesAsync(ct);
+
+            logger.LogInformation("Seeded {Count} Registrations", registrations.Count);
+        }
+
+
+        public static async Task SeedStagesAsync(
+        ApplicationDbContext context,
+        ILogger logger,
+        CancellationToken cancellationToken)
+        {
+            if (await context.Stages.AnyAsync(cancellationToken))
+                return;
+
+            var levels = await context.Levels
+                //.Include(l => l.AcademicProgram)
+                .ToListAsync(cancellationToken);
+
+            if (!levels.Any())
+            {
+                logger.LogWarning("Stage seeding skipped: no Levels found.");
+                return;
+            }
+
+            var stages = new List<Stage>();
+
+            foreach (var level in levels)
+            {
+                stages.AddRange(CreateStagesForLevel(level));
+            }
+
+            await context.Stages.AddRangeAsync(stages, cancellationToken);
+            await context.SaveChangesAsync(cancellationToken);
+
+            logger.LogInformation("Seeded {Count} academic stages.", stages.Count);
+        }
+
+        private static IEnumerable<Stage> CreateStagesForLevel(Level level)
+        {
+            return level.AcademicProgram switch
+            {
+                AcademicProgram.Medecine => new[]
+                {
+                new Stage
+                {
+                    Name = "Médecine Interne",
+                    Description = "Stage fondamental en médecine interne",
+                    DurationInDays = 30,
+                    Coefficient = 2,
+                    Level = level
+                },
+                new Stage
+                {
+                    Name = "Chirurgie Générale",
+                    Description = "Introduction aux bases de la chirurgie",
+                    DurationInDays = 30,
+                    Coefficient = 2,
+                    Level = level
+                },
+                new Stage
+                {
+                    Name = "Urgences",
+                    Description = "Gestion des urgences médicales",
+                    DurationInDays = 15,
+                    Coefficient = 1,
+                    Level = level
+                }
+            },
+
+                AcademicProgram.Pharmacie => new[]
+                {
+                new Stage
+                {
+                    Name = "Pharmacie Clinique",
+                    DurationInDays = 30,
+                    Coefficient = 2,
+                    Level = level
+                },
+                new Stage
+                {
+                    Name = "Industrie Pharmaceutique",
+                    DurationInDays = 30,
+                    Coefficient = 1,
+                    Level = level
+                }
+            },
+
+                _ => Array.Empty<Stage>()
+            };
+        }
+
+        private static async Task SeedStageGroupsAndAssignmentsAsync(
+            ApplicationDbContext context,
+            ILogger logger,
+            CancellationToken ct)
+        {
+            // Guard
+            if (await context.InternshipAssignments.AnyAsync(ct))
+                return;
+
+            // 1. Get an existing Stage from DB
+            var stage = await context.Stages
+                .Include(s => s.Level)
+                .FirstOrDefaultAsync(ct);
+
+            if (stage is null)
+            {
+                logger.LogWarning("StageGroup seeding skipped: no Stage found.");
+                return;
+            }
+
+            // 2. Create StageGroup linked to existing Stage
+            var group = new StageGroup
+            {
+                Label = $"Groupe A – {stage.Name}",
+                StageId = stage.Id
+            };
+
+            // 3. Pick some services
+            var services = await context.Services
+                .Take(2)
+                .ToListAsync(ct);
+
+            if (!services.Any())
+            {
+                logger.LogWarning("StageGroup seeding skipped: no Services found.");
+                return;
+            }
+
+            foreach (var service in services)
+            {
+                group.Periods.Add(new StageGroupPeriod
+                {
+                    Start = new DateOnly(2025, 01, 01),
+                    End = new DateOnly(2025, 01, 30),
+                    ServiceId = service.Id
+                });
+            }
+
+            // 4. Pick registrations
+            var registrations = await context.Registrations
+                .Take(20)
+                .ToListAsync(ct);
+
+            foreach (var registration in registrations)
+            {
+                group.InternshipAssignments.Add(new InternshipAssignment
+                {
+                    Id = Guid.NewGuid(),
+                    RegistrationId = registration.Id,
+                    PlannedStart = group.Periods.Min(p => p.Start),
+                    PlannedEnd = group.Periods.Max(p => p.End),
+                    Status = InternshipStatus.Planned
+                });
+            }
+
+            // 5. Persist
+            await context.StageGroups.AddAsync(group, ct);
+            await context.SaveChangesAsync(ct);
+
+            logger.LogInformation(
+                "Seeded StageGroup '{Label}' with {Periods} periods and {Assignments} assignments.",
+                group.Label,
+                group.Periods.Count,
+                group.InternshipAssignments.Count
+            );
+        }
+
 
     }
 }

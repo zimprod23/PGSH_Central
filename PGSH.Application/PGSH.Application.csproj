@@ -21,6 +21,8 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Folder Include="Stages\Delete\" />
+    <Folder Include="Stages\GetById\" />
     <Folder Include="Students\CreateMany\" />
     <Folder Include="Students\Update\" />
   </ItemGroup>

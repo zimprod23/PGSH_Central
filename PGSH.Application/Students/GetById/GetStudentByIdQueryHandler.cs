@@ -33,14 +33,20 @@ internal sealed class GetStudentByIdQueryHandler(IApplicationDbContext context)
                 s.BacSeries.ToString(),
                 s.BacYear,
                 s.AccessGrade,
-                s.Ranking
-                // Map the collections efficiently
-                //s.registrations.Select(r => new RegistrationResponse(
-                //    r.Id, r.AcademicYear, r.Status, r.Level.ToString())).ToList(),
-                //s.history.Select(h => new HistoryResponse(
-                //    h.Action, h.Date, h.Description)
-                
-                //).ToList()
+                s.Ranking,
+                s.registrations
+                    .OrderByDescending(r => r.AcademicYear)
+                    .Select(r => new StudentRegistrationSummary(
+                        r.Id,
+                        r.AcademicYear,
+                        r.Status.ToString(),
+                        new LevelResponse(
+                            r.Level.Label,
+                            r.Level.Year,
+                            r.Level.AcademicProgram.ToString()
+                        )
+                    ))
+                    .FirstOrDefault()
             ))
             .FirstOrDefaultAsync(ct);
 

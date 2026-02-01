@@ -1,8 +1,9 @@
-﻿using PGSH.Application.Abstractions.Authentication;
-using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Caching.Memory;
-using PGSH.Application.Abstractions.Data;
+﻿using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
+using PGSH.Application.Abstractions.Authentication;
+using PGSH.Application.Abstractions.Data;
+using PGSH.Infrastructure.Exceptions;
 using System.Security.Claims;
 
 namespace PGSH.Infrastructure.Authentication;
@@ -60,7 +61,7 @@ internal sealed class UserContext : IUserContext
             return;
         }
 
-        throw new ApplicationException($"Domain profile for {email} not found.");
+        throw new UserProfileNotFoundException(keycloakId, email);
 
     }
 }

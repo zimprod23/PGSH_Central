@@ -23,23 +23,22 @@ internal sealed class StageConfiguration : IEntityTypeConfiguration<Stage>
         builder.Property(s => s.DurationInDays)
                .IsRequired();
 
-        //builder.OwnsOne(s => s.Level, lvl =>
-        //{
-        //    lvl.Property(l => l.Label).HasMaxLength(100);
-        //    lvl.Property(l => l.Year);
-        //    lvl.Property(l => l.AcademicProgram);
-        //});
-        builder.HasOne(r => r.Level)
-            .WithMany()
-            .HasForeignKey("LevelId") // shadow FK (pas dans la classe)
-            .OnDelete(DeleteBehavior.Restrict);
-        //builder.Property(s => s.Level)
-        //       .HasConversion<string>()
-        //       .IsRequired();
+        // Relationship with Level using explicit Key
+        builder.HasOne(s => s.Level)
+               .WithMany()
+               .HasForeignKey(s => s.LevelId) // Now a real property
+               .OnDelete(DeleteBehavior.Restrict);
+
+        // Explicit relationship with Objectives
+        builder.HasMany(s => s.Objectives)
+               .WithOne(o => o.Stage)
+               .HasForeignKey(o => o.StageId)
+               .OnDelete(DeleteBehavior.Cascade);
     }
 }
 
-internal sealed class StageGroupConfiguration : IEntityTypeConfiguration<StageGroup>
+internal sealed class StageGroupConfiguration
+    : IEntityTypeConfiguration<StageGroup>
 {
     public void Configure(EntityTypeBuilder<StageGroup> builder)
     {
@@ -49,24 +48,45 @@ internal sealed class StageGroupConfiguration : IEntityTypeConfiguration<StageGr
                .IsRequired()
                .HasMaxLength(100);
 
-        builder.Property(g => g.Description)
-               .HasMaxLength(500);
-
-        // One Stage -> Many StageGroups
         builder.HasOne(g => g.Stage)
                .WithMany()
                .HasForeignKey(g => g.StageId)
                .OnDelete(DeleteBehavior.Cascade);
 
-        // One StageGroup -> Many InternshipAssignments
-        builder.HasMany(g => g.internshipAssignments)
+        builder.HasMany(g => g.Periods)
+               .WithOne(p => p.StageGroup)
+               .HasForeignKey(p => p.StageGroupId)
+               .OnDelete(DeleteBehavior.Cascade);
+
+        builder.HasMany(g => g.InternshipAssignments)
                .WithOne(a => a.StageGroup)
                .HasForeignKey(a => a.StageGroupId)
-               .OnDelete(DeleteBehavior.Cascade);
+               .OnDelete(DeleteBehavior.Restrict);
     }
 }
 
-internal sealed class InternshipAssignmentConfiguration : IEntityTypeConfiguration<InternshipAssignment>
+
+internal sealed class StageGroupPeriodConfiguration
+    : IEntityTypeConfiguration<StageGroupPeriod>
+{
+    public void Configure(EntityTypeBuilder<StageGroupPeriod> builder)
+    {
+        builder.HasKey(p => p.Id);
+
+        builder.Property(p => p.Start).IsRequired();
+        builder.Property(p => p.End).IsRequired();
+
+        builder.HasOne(p => p.Service)
+               .WithMany()
+               .HasForeignKey(p => p.ServiceId)
+               .OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
+
+
+internal sealed class InternshipAssignmentConfiguration
+    : IEntityTypeConfiguration<InternshipAssignment>
 {
     public void Configure(EntityTypeBuilder<InternshipAssignment> builder)
     {
@@ -75,61 +95,90 @@ internal sealed class InternshipAssignmentConfiguration : IEntityTypeConfigurati
         builder.Property(a => a.PlannedStart).IsRequired();
         builder.Property(a => a.PlannedEnd).IsRequired();
 
-        builder.Property(a => a.Score)
-               .HasPrecision(5, 2)
+        builder.Property(a => a.Status)
+               .HasConversion<string>()
                .IsRequired();
 
-        // Relationship to StageGroup
-        builder.HasOne(a => a.StageGroup)
-               .WithMany(g => g.internshipAssignments)
-               .HasForeignKey(a => a.StageGroupId)
-               .OnDelete(DeleteBehavior.Cascade);
+        builder.Property(a => a.FinalScore)
+               .HasPrecision(5, 2);
+
+        builder.Property(a => a.Result)
+               .HasConversion<string>();
 
         builder.HasOne(a => a.Registration)
-               .WithMany(r => r.InternshipAssignments) // you may need to add this collection in Registration
+               .WithMany(r => r.InternshipAssignments)
                .HasForeignKey(a => a.RegistrationId)
                .OnDelete(DeleteBehavior.Cascade);
 
-        // Relationship to AssignmentPeriods
-        builder.HasMany(a => a.Periods)
-               .WithOne(p => p.InternshipAssignment)
-               .HasForeignKey(p => p.AssignementId)
+        builder.HasMany(a => a.AttendanceRecords)
+               .WithOne(ar => ar.InternshipAssignment)
+               .HasForeignKey(ar => ar.InternshipAssignmentId)
                .OnDelete(DeleteBehavior.Cascade);
 
-        //// StageEvaluation is a complex type, use OwnsOne
-        //builder.OwnsOne(a => a.evaluation, se =>
-        //{
-        //    se.Property(e => e.Score);
-        //    se.Property(e => e.AssignmentResult)
-        //      .HasConversion<string>()
-        //      .IsRequired();
-        //    se.Property(e => e.Notes)
-        //      .HasConversion(
-        //          v => string.Join(";", v ?? Array.Empty<string>()),
-        //          v => v.Split(";", StringSplitOptions.RemoveEmptyEntries));
-        //});
+        builder.HasMany(a => a.PeriodEvaluations)
+               .WithOne(pe => pe.InternshipAssignment)
+               .HasForeignKey(pe => pe.InternshipAssignmentId)
+               .OnDelete(DeleteBehavior.Cascade);
     }
 }
 
-internal sealed class AssignmentPeriodConfiguration : IEntityTypeConfiguration<AssignmentPeriod>
+
+
+
+internal sealed class AttendanceConfiguration
+    : IEntityTypeConfiguration<AttendanceRecord>
 {
-    public void Configure(EntityTypeBuilder<AssignmentPeriod> builder)
+    public void Configure(EntityTypeBuilder<AttendanceRecord> builder)
     {
-        builder.HasKey(p => p.Id);
+        builder.HasKey(a => a.Id);
 
-        builder.Property(p => p.Start).IsRequired();
-        builder.Property(p => p.End).IsRequired();
+        builder.Property(a => a.Date).IsRequired();
 
-        // Relationship to InternshipAssignment
-        builder.HasOne(p => p.InternshipAssignment)
-               .WithMany(a => a.Periods)
-               .HasForeignKey(p => p.AssignementId)
+        builder.Property(a => a.Status)
+               .HasConversion<string>()
+               .IsRequired();
+
+        builder.HasOne(a => a.StageGroupPeriod)
+               .WithMany()
+               .HasForeignKey(a => a.StageGroupPeriodId)
+               .OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
+internal sealed class StageObjectiveConfiguration
+    : IEntityTypeConfiguration<StageObjective>
+{
+    public void Configure(EntityTypeBuilder<StageObjective> builder)
+    {
+        builder.HasKey(o => o.Id);
+
+        builder.Property(o => o.Label)
+               .IsRequired()
+               .HasMaxLength(200);
+
+        builder.HasOne(o => o.Stage)
+               .WithMany(s => s.Objectives)
+               .HasForeignKey(o => o.StageId)
                .OnDelete(DeleteBehavior.Cascade);
+    }
+}
 
-        // Relationship to Service
-        builder.HasOne(p => p.Service)
-               .WithMany(s => s.assignmentPeriods)
-               .HasForeignKey(p => p.ServiceId)
-               .OnDelete(DeleteBehavior.Restrict); // do not delete service if period deleted
+
+internal sealed class PeriodEvaluationConfiguration
+    : IEntityTypeConfiguration<PeriodEvaluation>
+{
+    public void Configure(EntityTypeBuilder<PeriodEvaluation> builder)
+    {
+        builder.HasKey(e => e.Id);
+
+        builder.HasOne(e => e.StageGroupPeriod)
+               .WithMany()
+               .HasForeignKey(e => e.StageGroupPeriodId)
+               .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasMany(e => e.ObjectiveEvaluations)
+               .WithOne(oe => oe.PeriodEvaluation)
+               .HasForeignKey(oe => oe.PeriodEvaluationId)
+               .OnDelete(DeleteBehavior.Cascade);
     }
 }

@@ -1,5 +1,6 @@
 ﻿using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
+using PGSH.Infrastructure.Exceptions;
 
 namespace PGSH.API.Infrastructure
 {
@@ -12,7 +13,7 @@ namespace PGSH.API.Infrastructure
             var (statusCode, title) = exception switch
             {
                 // Handle your specific missing profile case
-                ApplicationException ex when ex.Message.Contains("Domain profile") =>
+                UserProfileNotFoundException =>
                     (StatusCodes.Status403Forbidden, "Profile Not Found"),
 
                 _ => (StatusCodes.Status500InternalServerError, "Server failure")
@@ -20,9 +21,9 @@ namespace PGSH.API.Infrastructure
 
             var problemDetails = new ProblemDetails
             {
-                Status = StatusCodes.Status500InternalServerError,
+                Status = statusCode,
                 Type = "https://datatracker.ietf.org/doc/html/rfc7231#section-6.6.1",
-                Title = "Server failure"
+                Title = title
             };
             httpContext.Response.StatusCode = problemDetails.Status.Value;
             await httpContext.Response.WriteAsJsonAsync(problemDetails);

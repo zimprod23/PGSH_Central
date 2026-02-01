@@ -17,15 +17,19 @@ public interface IApplicationDbContext
     DbSet<Student> Students { get; set; }
     DbSet<Employee> Employees { get; set; }
     DbSet<Stage> Stages { get; set; }
-    DbSet<StageGroup> StagesGroup { get; set; }
+    DbSet<StageGroup> StageGroups { get; set; }
     DbSet<InternshipAssignment> InternshipAssignments { get; set; }
-    DbSet<AssignmentPeriod> AssignmentPeriods { get; set; }
     DbSet<Center> Centers { get; set; }
     DbSet<Hospital> Hospitals { get; set; }
     DbSet<Level> Levels { get; set; }
     DbSet<Service> Services { get; set; }
     DbSet<Registration> Registrations { get; set; }
     DbSet<History> Histories { get; set; }
+    DbSet<StageGroupPeriod> StageGroupPeriods { get; set; }
+    DbSet<AttendanceRecord> AttendanceRecords { get; set; }
+    DbSet<StageObjective> StageObjectives { get; set; }
+    DbSet<PeriodEvaluation> PeriodEvaluations { get; set; }
+    DbSet<ObjectiveEvaluation> ObjectiveEvaluations { get; set; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }

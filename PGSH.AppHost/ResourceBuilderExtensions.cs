@@ -15,6 +15,8 @@ namespace PGSH.AppHost
         {
             return builder.WithOpenApiDocs("scalar-docs", "Scaler API Documentation", "scalar/v1");
         }
+
+        [Obsolete]
         private static IResourceBuilder<T> WithOpenApiDocs<T>(this IResourceBuilder<T> builder,
             string name,
             string displayName,

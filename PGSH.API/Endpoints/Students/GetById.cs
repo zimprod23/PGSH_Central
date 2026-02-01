@@ -10,7 +10,7 @@ namespace PGSH.API.Endpoints.Students
     {
         public void MapEndpoint(IEndpointRouteBuilder app)
         {
-            app.MapGet("students/{id:guid}", async (Guid id, ISender sender, CancellationToken ct) =>
+            app.MapGet("/students/{id:guid}", async (Guid id, ISender sender, CancellationToken ct) =>
             {
                 var query = new GetStudentByIdQuery(id);
                 var result = await sender.Send(query, ct);

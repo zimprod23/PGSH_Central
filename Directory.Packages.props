@@ -5,6 +5,7 @@
   <!-- API Layer -->
   <ItemGroup>
     <PackageVersion Include="Aspire.Hosting.Keycloak" Version="9.0.0-preview.4.24511.1" />
+    <PackageVersion Include="Aspire.Hosting.NodeJs" Version="9.5.2" />
     <PackageVersion Include="Aspire.Hosting.PostgreSQL" Version="9.1.0" />
     <PackageVersion Include="Aspire.Hosting.Redis" Version="9.1.0" />
     <PackageVersion Include="Aspire.Keycloak.Authentication" Version="9.0.0-preview.4.24511.1" />
@@ -14,6 +15,7 @@
     <PackageVersion Include="AspNetCore.HealthChecks.NpgSql" Version="9.0.0" />
     <PackageVersion Include="AspNetCore.HealthChecks.UI.Client" Version="9.0.0" />
     <PackageVersion Include="Bogus" Version="35.6.5" />
+    <PackageVersion Include="CommunityToolkit.Aspire.Hosting.NodeJS.Extensions" Version="9.5.1-beta.323" />
     <PackageVersion Include="EFCore.NamingConventions" Version="9.0.0" />
     <PackageVersion Include="FluentEmail.Smtp" Version="3.0.2" />
     <PackageVersion Include="FluentValidation.DependencyInjectionExtensions" Version="11.11.0" />
@@ -50,7 +52,7 @@
     <PackageVersion Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.9.0" />
     <PackageVersion Include="OpenTelemetry.Instrumentation.Http" Version="1.9.0" />
     <PackageVersion Include="OpenTelemetry.Instrumentation.Runtime" Version="1.9.0" />
-    <PackageVersion Include="Aspire.Hosting.AppHost" Version="9.1.0" />
+    <PackageVersion Include="Aspire.Hosting.AppHost" Version="9.5.2" />
     <PackageVersion Include="Microsoft.Extensions.Hosting" Version="9.0.1" />
   </ItemGroup>
 </Project>

@@ -123,6 +123,7 @@ if (app.Environment.IsDevelopment())
 //{
 //    ResponseWriter = UIResponseWriter.WriteHealthCheckUIResponse
 //});
+var apiGroup = app.MapGroup("api");
 
 app.UseHttpsRedirection();
 
@@ -138,7 +139,7 @@ app.UseAuthorization();
 
 app.UseRequestLoggingMiddleware();
 
-app.MapEndpoints();
+app.MapEndpoints(apiGroup);
 
 app.MapControllers();
 
