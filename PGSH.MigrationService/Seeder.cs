@@ -92,7 +92,7 @@ namespace PGSH.MigrationService
             await SeedStudentsAsync(context, logger, cancellationToken);
             await SeedRegistrationsAsync(context, logger, cancellationToken);
             await SeedStagesAsync(context, logger, cancellationToken);
-            await SeedStageGroupsAndAssignmentsAsync(context, logger, cancellationToken);
+            await SeedCohortsAndAssignmentsAsync(context, logger, cancellationToken);
 
             logger.LogInformation("Database seeding completed.");
         }
@@ -339,80 +339,101 @@ namespace PGSH.MigrationService
             };
         }
 
-        private static async Task SeedStageGroupsAndAssignmentsAsync(
-            ApplicationDbContext context,
-            ILogger logger,
-            CancellationToken ct)
+        private static async Task SeedCohortsAndAssignmentsAsync(
+        ApplicationDbContext context,
+        ILogger logger,
+        CancellationToken ct)
         {
-            // Guard
+            // Guard: Check if we already have data
             if (await context.InternshipAssignments.AnyAsync(ct))
                 return;
 
-            // 1. Get an existing Stage from DB
+            // 1. Get an existing Stage
             var stage = await context.Stages
-                .Include(s => s.Level)
                 .FirstOrDefaultAsync(ct);
 
             if (stage is null)
             {
-                logger.LogWarning("StageGroup seeding skipped: no Stage found.");
+                logger.LogWarning("Cohort seeding skipped: no Stage found.");
                 return;
             }
 
-            // 2. Create StageGroup linked to existing Stage
-            var group = new StageGroup
+            // 2. Create Cohort linked to Stage
+            var cohort = new Cohort
             {
-                Label = $"Groupe A – {stage.Name}",
-                StageId = stage.Id
+                Label = $"Promo {DateTime.Now.Year} - {stage.Name}",
+                StageId = stage.Id,
             };
 
-            // 3. Pick some services
-            var services = await context.Services
-                .Take(2)
-                .ToListAsync(ct);
-
+            // 3. Pick services and create Rotation Templates
+            var services = await context.Services.Take(2).ToListAsync(ct);
             if (!services.Any())
             {
-                logger.LogWarning("StageGroup seeding skipped: no Services found.");
+                logger.LogWarning("Cohort seeding skipped: no Services found.");
                 return;
             }
 
-            foreach (var service in services)
+            // Define the "Template" for this cohort (e.g., 2 rotations of 30 days)
+            for (int i = 0; i < services.Count; i++)
             {
-                group.Periods.Add(new StageGroupPeriod
+                cohort.RotationTemplates.Add(new CohortRotationTemplate
                 {
-                    Start = new DateOnly(2025, 01, 01),
-                    End = new DateOnly(2025, 01, 30),
-                    ServiceId = service.Id
+                    ServiceId = services[i].Id,
+                    SequenceOrder = i + 1,
+                    PlannedStart = new DateOnly(2026, 01, 30),
+                    PlannedEnd = new DateOnly(2026, 06, 30)
                 });
             }
 
-            // 4. Pick registrations
-            var registrations = await context.Registrations
-                .Take(20)
-                .ToListAsync(ct);
+            // We must add the cohort first or track it to link assignments
+            await context.Cohorts.AddAsync(cohort, ct);
+            // Persist cohort so we have an ID for the assignments if needed
+            await context.SaveChangesAsync(ct);
+
+            // 4. Pick registrations and create Assignments + History
+            var registrations = await context.Registrations.Take(10).ToListAsync(ct);
 
             foreach (var registration in registrations)
             {
-                group.InternshipAssignments.Add(new InternshipAssignment
+                var assignment = new InternshipAssignment
                 {
                     Id = Guid.NewGuid(),
                     RegistrationId = registration.Id,
-                    PlannedStart = group.Periods.Min(p => p.Start),
-                    PlannedEnd = group.Periods.Max(p => p.End),
-                    Status = InternshipStatus.Planned
+                    CurrentCohortId = cohort.Id,
+                    Status = InternshipStatus.Planned,
+                };
+
+                // Initialize History: This is crucial for your transfer tracking logic
+                assignment.MembershipHistory.Add(new CohortMembership
+                {
+                    Id = Guid.NewGuid(),
+                    CohortId = cohort.Id,
+                    StartDate = cohort.RotationTemplates.FirstOrDefault().PlannedStart,
+                    TransferReason = "Initial Assignment"
                 });
+
+                // Optional: Create the first ServicePeriod based on the first template
+                var firstTemplate = cohort.RotationTemplates.OrderBy(t => t.SequenceOrder).First();
+                assignment.ServicePeriods.Add(new ServicePeriod
+                {
+                    Id = Guid.NewGuid(),
+                    ServiceId = firstTemplate.ServiceId,
+                    StartDate = firstTemplate.PlannedStart,
+                    EndDate = firstTemplate.PlannedEnd,
+                    IsComplete = false
+                });
+
+                await context.InternshipAssignments.AddAsync(assignment, ct);
             }
 
-            // 5. Persist
-            await context.StageGroups.AddAsync(group, ct);
+            // 5. Final Persist
             await context.SaveChangesAsync(ct);
 
             logger.LogInformation(
-                "Seeded StageGroup '{Label}' with {Periods} periods and {Assignments} assignments.",
-                group.Label,
-                group.Periods.Count,
-                group.InternshipAssignments.Count
+                "Seeded Cohort '{Label}' with {Templates} templates and {Assignments} assignments with history.",
+                cohort.Label,
+                cohort.RotationTemplates.Count,
+                registrations.Count
             );
         }
 

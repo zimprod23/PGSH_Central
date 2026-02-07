@@ -8,5 +8,6 @@
         public const string Students = "Students";
         public const string Registrations = "Registrations";
         public const string Stages = "Stages";
+        public const string Levels = "Levels";
     }
 }

@@ -22,7 +22,7 @@ public sealed class ApplicationDbContext
     : DbContext, IApplicationDbContext
 {
     private readonly IPublisher? _publisher;
-    public ApplicationDbContext(DbContextOptions<ApplicationDbContext> options,IPublisher? publisher = null): base(options) => _publisher = publisher;
+    public ApplicationDbContext(DbContextOptions<ApplicationDbContext> options, IPublisher? publisher = null) : base(options) => _publisher = publisher;
     // ===== Identity / Core =====
     public DbSet<User> Users { get; set; }
     public DbSet<TodoItem> TodoItems { get; set; }
@@ -34,16 +34,11 @@ public sealed class ApplicationDbContext
 
     // ===== Stages / Internships =====
     public DbSet<Stage> Stages { get; set; }
-    public DbSet<StageGroup> StageGroups { get; set; }
-    public DbSet<StageGroupPeriod> StageGroupPeriods { get; set; }
-
     public DbSet<InternshipAssignment> InternshipAssignments { get; set; }
 
     // ===== Attendance & Evaluation =====
     public DbSet<AttendanceRecord> AttendanceRecords { get; set; }
     public DbSet<StageObjective> StageObjectives { get; set; }
-    public DbSet<PeriodEvaluation> PeriodEvaluations { get; set; }
-    public DbSet<ObjectiveEvaluation> ObjectiveEvaluations { get; set; }
 
     // ===== Hospital =====
     public DbSet<Center> Centers { get; set; }
@@ -51,10 +46,16 @@ public sealed class ApplicationDbContext
     public DbSet<Service> Services { get; set; }
 
     // ===== Academic Structure =====
-    public DbSet<Level> Levels  { get; set; }
+    public DbSet<Level> Levels { get; set; }
 
     // ===== Audit / History =====
     public DbSet<History> Histories { get; set; }
+    public DbSet<ObjectiveScore> ObjectiveScores { get; set; }
+    public DbSet<Cohort> Cohorts { get; set; }
+    public DbSet<CohortRotationTemplate> CohortRotationTemplates { get; set; }
+    public DbSet<CohortMembership> CohortMembership { get; set; }
+    public DbSet<ServiceEvaluation> ServiceEvaluation { get; set; }
+    public DbSet<ServicePeriod> ServicePeriods { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

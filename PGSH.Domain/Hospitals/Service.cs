@@ -15,7 +15,8 @@ public sealed class Service
     public Hospital Hospital { get; set; }
 
     public ICollection<Employee> Staff = new List<Employee>();
-    public ICollection<AssignmentPeriod> assignmentPeriods = new List<AssignmentPeriod>();
+    //public ICollection<ServicePeriod> ServicePeriods = new List<ServicePeriod>();
+   
     //[Obsolete("Must be removed")]
     // Private backing field for the ServiceChef property
     public Guid? ServiceChefId { get; private set; }

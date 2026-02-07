@@ -1,11 +1,4 @@
-﻿using PGSH.SharedKernel;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-
-namespace PGSH.Domain.Stages;
+﻿namespace PGSH.Domain.Stages;
 
 public sealed class StageObjective
 {

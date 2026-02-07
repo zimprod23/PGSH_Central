@@ -116,11 +116,10 @@ internal sealed class ServiceConfiguration : IEntityTypeConfiguration<Service>
         builder.HasMany(s => s.Staff)
                .WithMany(); // optional: if Employee has no navigation to Service
 
-        // One Service -> Many AssignmentPeriods
-        builder.HasMany(s => s.assignmentPeriods)
-               .WithOne()
-               .HasForeignKey("ServiceId")
-               .OnDelete(DeleteBehavior.Cascade);
+        //builder.HasMany(s => s.ServicePeriods)
+        //       .WithOne(p => p.Service)
+        //       .HasForeignKey(p => p.ServiceId)
+        //       .OnDelete(DeleteBehavior.Restrict);
 
         builder.HasOne(s => s.ServiceChef)
                    .WithMany()
