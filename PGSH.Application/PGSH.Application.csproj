@@ -21,8 +21,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Folder Include="Hospitals\Centers\" />
+    <Folder Include="Hospitals\Services\" />
     <Folder Include="Stages\Delete\" />
     <Folder Include="Stages\GetById\" />
+    <Folder Include="Stages\Levels\Delete\" />
+    <Folder Include="Stages\Levels\Get\" />
     <Folder Include="Students\CreateMany\" />
     <Folder Include="Students\Update\" />
   </ItemGroup>
