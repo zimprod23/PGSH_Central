@@ -22,4 +22,9 @@
     <ProjectReference Include="..\PGSH.ServiceDefaults\PGSH.ServiceDefaults.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="Endpoints\Hospitals\" />
+    <Folder Include="Endpoints\Services\" />
+  </ItemGroup>
+
 </Project>

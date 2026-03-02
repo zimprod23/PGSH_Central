@@ -21,8 +21,16 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Folder Include="Hospitals\Centers\" />
-    <Folder Include="Hospitals\Services\" />
+    <Folder Include="Hospitals\Create\" />
+    <Folder Include="Hospitals\Delete\" />
+    <Folder Include="Hospitals\GetById\" />
+    <Folder Include="Hospitals\GetMany\" />
+    <Folder Include="Hospitals\Services\Create\" />
+    <Folder Include="Hospitals\Services\Delete\" />
+    <Folder Include="Hospitals\Services\GetById\" />
+    <Folder Include="Hospitals\Services\GetMany\" />
+    <Folder Include="Hospitals\Services\Update\" />
+    <Folder Include="Hospitals\Update\" />
     <Folder Include="Stages\Delete\" />
     <Folder Include="Stages\GetById\" />
     <Folder Include="Stages\Levels\Delete\" />

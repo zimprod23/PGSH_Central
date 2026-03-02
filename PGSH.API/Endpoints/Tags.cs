@@ -9,5 +9,8 @@
         public const string Registrations = "Registrations";
         public const string Stages = "Stages";
         public const string Levels = "Levels";
+        public const string Hospital = "Hospital";
+        public const string Services = "Services";
+        public const string Centers = "Centers";
     }
 }
