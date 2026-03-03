@@ -27,7 +27,7 @@ internal sealed class CenterConfiguration : IEntityTypeConfiguration<Center>
         builder.HasMany(c => c.Hospitals)
                .WithOne(h => h.Center)
                .HasForeignKey(h => h.CenterId)
-               .OnDelete(DeleteBehavior.Cascade);
+               .OnDelete(DeleteBehavior.Restrict);
 
         builder.OwnsOne(a => a.LocalisationMaps, loc =>
         {
@@ -74,7 +74,7 @@ internal sealed class HospitalConfiguration : IEntityTypeConfiguration<Hospital>
         builder.HasMany(h => h.services)
                .WithOne(s => s.Hospital)
                .HasForeignKey(s => s.HospitalId)
-               .OnDelete(DeleteBehavior.Cascade);
+               .OnDelete(DeleteBehavior.Restrict);
         builder.OwnsOne(a => a.LocalisationMaps, loc =>
         {
             loc.Property(l => l.x)

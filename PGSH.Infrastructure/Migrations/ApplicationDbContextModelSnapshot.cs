@@ -742,7 +742,7 @@ namespace PGSH.Infrastructure.Migrations
                     b.HasOne("PGSH.Domain.Hospitals.Center", "Center")
                         .WithMany("Hospitals")
                         .HasForeignKey("CenterId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.OwnsOne("PGSH.Domain.Common.Utils.Localization", "LocalisationMaps", b1 =>
@@ -785,7 +785,7 @@ namespace PGSH.Infrastructure.Migrations
                     b.HasOne("PGSH.Domain.Hospitals.Hospital", "Hospital")
                         .WithMany("services")
                         .HasForeignKey("HospitalId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.HasOne("PGSH.Domain.Employees.Employee", "ServiceChef")
