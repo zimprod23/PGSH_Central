@@ -4,7 +4,7 @@ namespace PGSH.Application.Students.Registrations.Create;
 
 public sealed record CreateRegistrationCommand(
     Guid StudentId,
-    DateOnly AcademicYear,
+    int AcademicYearId,
     int LevelId,
     string Status = "Pending") :ICommand<Guid>;
 

@@ -10,7 +10,7 @@ public sealed class Update : IEndpoint
 {
     public sealed record Request(
         Guid StudentId,
-        DateOnly AcademicYear,
+        int AcademicYearId,
         int LevelId,
         string Status,
         string? FailureDescription = null,
@@ -28,7 +28,7 @@ public sealed class Update : IEndpoint
                 RegistrationId: id,
                 StudentId: request.StudentId,
                 Status: request.Status,
-                AcademicYear: request.AcademicYear,
+                AcademicYearId: request.AcademicYearId,
                 LevelId: request.LevelId,
                 FailureDescription: request.FailureDescription,
                 FailureNotes: request.FailureNotes,

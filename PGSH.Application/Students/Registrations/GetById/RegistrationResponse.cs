@@ -10,7 +10,7 @@ public sealed record RegistrationResponse(
     Guid Id,
     Guid StudentId,
     string StudentFullName,
-    DateOnly AcademicYear,
+    string AcademicYear,
     int LevelId,
     string Status,
     string? FailureDescription,

@@ -2,7 +2,7 @@
 
 public sealed record StudentRegistrationResponse(
     Guid Id,
-    DateOnly AcademicYear,
+    string AcademicYear,
     int LevelId,
     string Status,
     bool HasFailures, // Useful for showing a "Warning" icon in the UI

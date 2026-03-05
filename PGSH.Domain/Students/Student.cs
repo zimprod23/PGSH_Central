@@ -23,13 +23,21 @@ public sealed class Student: User
 
     public Result AddRegistration(Registration registration)
     {
-        if (registrations.Any(r => r.AcademicYear == registration.AcademicYear))
+        // Check for duplicate registrations by Year ID instead of DateOnly
+        if (registrations.Any(r => r.AcademicYearId == registration.AcademicYearId))
         {
-            return Result.Failure(RegistrationErrors.DuplicateRegistration(this.Id, registration.AcademicYear));
+            // Note: You may want to update RegistrationErrors to accept the Year ID or Label
+            return Result.Failure(RegistrationErrors.DuplicateRegistration(this.Id, registration.AcademicYearId));
         }
+
         registrations.Add(registration);
 
-        registration.Raise(new StudentRegisteredDomainEvent(registration.Id, this.Id, registration.LevelId, registration.AcademicYear));
+        // Event now carries the ID of the Year Entity
+        registration.Raise(new StudentRegisteredDomainEvent(
+            registration.Id,
+            this.Id,
+            registration.LevelId,
+            registration.AcademicYearId));
 
         return Result.Success();
     }
@@ -37,26 +45,26 @@ public sealed class Student: User
     public Result UpdateRegistration(
         Guid registrationId,
         string status,
-        DateOnly year,
+        int academicYearId, // Changed from DateOnly to int
         int levelId,
         FailureReasons? failure)
     {
         var registration = registrations.FirstOrDefault(r => r.Id == registrationId);
         if (registration is null) return Result.Failure(RegistrationErrors.NotFound(registrationId));
 
-        // If year is changing, check for duplicates again
-        if (registration.AcademicYear != year && registrations.Any(r => r.AcademicYear == year))
+        // Validation: If year is changing, ensure student isn't already registered for that Year ID
+        if (registration.AcademicYearId != academicYearId &&
+            registrations.Any(r => r.AcademicYearId == academicYearId))
         {
-            return Result.Failure(RegistrationErrors.DuplicateRegistration(this.Id, year));
+            return Result.Failure(RegistrationErrors.DuplicateRegistration(this.Id, academicYearId));
         }
 
         // Update properties
         registration.Status = status;
-        registration.AcademicYear = year;
+        registration.AcademicYearId = academicYearId;
         registration.LevelId = levelId;
         registration.failureReasons = failure;
 
-        // Raise an event if status changes to "Validated" or "Failed"
         registration.Raise(new RegistrationUpdatedDomainEvent(registration.Id, status));
 
         return Result.Success();

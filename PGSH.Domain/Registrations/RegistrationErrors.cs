@@ -9,7 +9,7 @@ public static class RegistrationErrors
         "Registrations.NotFound",
         $"The registration with Id = '{registrationId}' was not found.");
 
-    public static Error DuplicateRegistration(Guid studentId, DateOnly academicYear) => Error.Conflict(
+    public static Error DuplicateRegistration(Guid studentId, int academicYear) => Error.Conflict(
         "Registrations.Duplicate",
         $"A registration for student '{studentId}' already exists for the academic year '{academicYear}'.");
 

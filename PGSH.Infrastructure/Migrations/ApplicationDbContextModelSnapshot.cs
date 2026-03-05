@@ -170,17 +170,86 @@ namespace PGSH.Infrastructure.Migrations
                     b.ToTable("Services", "public");
                 });
 
+            modelBuilder.Entity("PGSH.Domain.Registrations.AcademicGroup", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("AcademicYearId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("GeographicZone")
+                        .HasColumnType("text");
+
+                    b.Property<int>("GroupNumber")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AcademicYearId")
+                        .IsUnique();
+
+                    b.HasIndex("GroupNumber")
+                        .IsUnique();
+
+                    b.ToTable("AcademicGroups", "public");
+                });
+
+            modelBuilder.Entity("PGSH.Domain.Registrations.AcademicYear", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateOnly>("EndDate")
+                        .HasColumnType("date");
+
+                    b.Property<bool>("IsCurrent")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateOnly>("StartDate")
+                        .HasColumnType("date");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Label")
+                        .IsUnique();
+
+                    b.ToTable("AcademicYears", "public");
+                });
+
             modelBuilder.Entity("PGSH.Domain.Registrations.Registration", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
-                    b.Property<DateOnly>("AcademicYear")
-                        .HasColumnType("date");
+                    b.Property<int?>("AcademicGroupId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("AcademicYearId")
+                        .HasColumnType("integer");
 
                     b.Property<int>("LevelId")
                         .HasColumnType("integer");
+
+                    b.Property<DateTime?>("RegistrationDate")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -191,6 +260,10 @@ namespace PGSH.Infrastructure.Migrations
                         .HasColumnType("uuid");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("AcademicGroupId");
+
+                    b.HasIndex("AcademicYearId");
 
                     b.HasIndex("LevelId");
 
@@ -230,6 +303,9 @@ namespace PGSH.Infrastructure.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<int>("AcademicGroupId")
+                        .HasColumnType("integer");
+
                     b.Property<string>("Label")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
@@ -238,6 +314,8 @@ namespace PGSH.Infrastructure.Migrations
                         .HasColumnType("integer");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("AcademicGroupId");
 
                     b.HasIndex("StageId");
 
@@ -319,6 +397,9 @@ namespace PGSH.Infrastructure.Migrations
                     b.Property<decimal?>("FinalScore")
                         .HasPrecision(5, 2)
                         .HasColumnType("numeric(5,2)");
+
+                    b.Property<int?>("GroupNumber")
+                        .HasColumnType("integer");
 
                     b.Property<Guid>("RegistrationId")
                         .HasColumnType("uuid");
@@ -798,8 +879,30 @@ namespace PGSH.Infrastructure.Migrations
                     b.Navigation("ServiceChef");
                 });
 
+            modelBuilder.Entity("PGSH.Domain.Registrations.AcademicGroup", b =>
+                {
+                    b.HasOne("PGSH.Domain.Registrations.AcademicYear", "AcademicYear")
+                        .WithMany("Groups")
+                        .HasForeignKey("AcademicYearId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("AcademicYear");
+                });
+
             modelBuilder.Entity("PGSH.Domain.Registrations.Registration", b =>
                 {
+                    b.HasOne("PGSH.Domain.Registrations.AcademicGroup", "AcademicGroup")
+                        .WithMany("Registrations")
+                        .HasForeignKey("AcademicGroupId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("PGSH.Domain.Registrations.AcademicYear", "AcademicYear")
+                        .WithMany()
+                        .HasForeignKey("AcademicYearId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("PGSH.Domain.Common.Utils.Level", "Level")
                         .WithMany()
                         .HasForeignKey("LevelId")
@@ -837,6 +940,10 @@ namespace PGSH.Infrastructure.Migrations
                                 .HasForeignKey("RegistrationId");
                         });
 
+                    b.Navigation("AcademicGroup");
+
+                    b.Navigation("AcademicYear");
+
                     b.Navigation("Level");
 
                     b.Navigation("Student");
@@ -857,11 +964,19 @@ namespace PGSH.Infrastructure.Migrations
 
             modelBuilder.Entity("PGSH.Domain.Stages.Cohort", b =>
                 {
+                    b.HasOne("PGSH.Domain.Registrations.AcademicGroup", "AcademicGroup")
+                        .WithMany("Cohorts")
+                        .HasForeignKey("AcademicGroupId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("PGSH.Domain.Stages.Stage", "Stage")
                         .WithMany()
                         .HasForeignKey("StageId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.Navigation("AcademicGroup");
 
                     b.Navigation("Stage");
                 });
@@ -905,7 +1020,7 @@ namespace PGSH.Infrastructure.Migrations
             modelBuilder.Entity("PGSH.Domain.Stages.InternshipAssignment", b =>
                 {
                     b.HasOne("PGSH.Domain.Stages.Cohort", "Cohort")
-                        .WithMany()
+                        .WithMany("Assignments")
                         .HasForeignKey("CurrentCohortId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
@@ -1082,6 +1197,18 @@ namespace PGSH.Infrastructure.Migrations
                     b.Navigation("services");
                 });
 
+            modelBuilder.Entity("PGSH.Domain.Registrations.AcademicGroup", b =>
+                {
+                    b.Navigation("Cohorts");
+
+                    b.Navigation("Registrations");
+                });
+
+            modelBuilder.Entity("PGSH.Domain.Registrations.AcademicYear", b =>
+                {
+                    b.Navigation("Groups");
+                });
+
             modelBuilder.Entity("PGSH.Domain.Registrations.Registration", b =>
                 {
                     b.Navigation("InternshipAssignments");
@@ -1089,6 +1216,8 @@ namespace PGSH.Infrastructure.Migrations
 
             modelBuilder.Entity("PGSH.Domain.Stages.Cohort", b =>
                 {
+                    b.Navigation("Assignments");
+
                     b.Navigation("RotationTemplates");
                 });
 

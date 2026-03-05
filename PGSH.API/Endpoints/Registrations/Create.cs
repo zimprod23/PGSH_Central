@@ -11,7 +11,7 @@ public sealed class Create: IEndpoint
 {
     public sealed record Request(
         Guid StudentId,
-        DateOnly AcademicYear,
+        int AcademicYearId,
         int LevelId,
         string Status);
     public void MapEndpoint(IEndpointRouteBuilder app)
@@ -23,7 +23,7 @@ public sealed class Create: IEndpoint
         {
             var command = new CreateRegistrationCommand(
                 StudentId: request.StudentId,
-                AcademicYear: request.AcademicYear,
+                AcademicYearId: request.AcademicYearId,
                 LevelId: request.LevelId,
                 Status: request.Status
                 );

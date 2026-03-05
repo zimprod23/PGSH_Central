@@ -26,7 +26,7 @@ public record StudentResponse(
 
 public sealed record StudentRegistrationSummary(
     Guid Id,
-    DateOnly AcademicYear,
+    string AcademicYear,
     string Status,
     LevelResponse Level);
 

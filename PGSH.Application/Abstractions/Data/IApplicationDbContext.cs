@@ -27,6 +27,8 @@ public interface IApplicationDbContext
     DbSet<AttendanceRecord> AttendanceRecords { get; set; }
     DbSet<StageObjective> StageObjectives { get; set; }
     DbSet<ObjectiveScore> ObjectiveScores { get; set; }
+    DbSet<AcademicYear> AcademicYears { get; set; }
+    DbSet<AcademicGroup> AcademicGroups { get; set; }
     DbSet<Cohort> Cohorts { get; set; }
     DbSet<CohortRotationTemplate> CohortRotationTemplates { get; set; }
     DbSet<CohortMembership> CohortMembership { get; set; }

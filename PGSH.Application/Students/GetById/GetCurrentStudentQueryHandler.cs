@@ -40,10 +40,10 @@ internal sealed class GetCurrentStudentQueryHandler(IApplicationDbContext dbCont
                s.AccessGrade,
                s.Ranking,
                s.registrations
-                    .OrderByDescending(r => r.AcademicYear)
+                    .OrderByDescending(r => r.RegistrationDate)
                     .Select(r => new StudentRegistrationSummary(
                         r.Id,
-                        r.AcademicYear,
+                        r.AcademicYear.Label,
                         r.Status.ToString(),
                         new LevelResponse(
                             r.Level.Label,

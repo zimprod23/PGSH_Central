@@ -6,4 +6,4 @@ public sealed record StudentRegisteredDomainEvent(
     Guid RegistrationId,
     Guid StudentId,
     int LevelId,
-    DateOnly AcademicYear): IDomainEvent;
+    int AcademicYear): IDomainEvent;

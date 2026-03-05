@@ -3,11 +3,6 @@ using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
 using PGSH.Domain.Students;
 using PGSH.SharedKernel;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace PGSH.Application.Students.Registrations.GetByStudent;
 
@@ -32,7 +27,7 @@ internal sealed class GetStudentRegistrationsQueryHandler(IApplicationDbContext 
             .OrderByDescending(r => r.AcademicYear) // Most recent first
             .Select(r => new StudentRegistrationResponse(
                 r.Id,
-                r.AcademicYear,
+                r.AcademicYear.Label,
                 r.LevelId,
                 r.Status,
                 r.failureReasons != null,

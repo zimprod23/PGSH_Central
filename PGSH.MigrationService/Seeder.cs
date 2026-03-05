@@ -164,26 +164,47 @@ namespace PGSH.MigrationService
             ILogger logger,
             CancellationToken ct)
         {
+            // 1. Safety check
             if (await context.Registrations.AnyAsync(ct)) return;
 
+            // 2. Fetch or Create the Academic Year record
+            var academicYear = await context.AcademicYears
+                .FirstOrDefaultAsync(y => y.Label == "2024-2025", ct);
+
+            if (academicYear == null)
+            {
+                academicYear = new AcademicYear
+                {
+                    Label = "2024-2025",
+                    StartDate = new DateOnly(2024, 09, 01),
+                    EndDate = new DateOnly(2025, 08, 31),
+                    IsCurrent = true
+                };
+                context.AcademicYears.Add(academicYear);
+                await context.SaveChangesAsync(ct);
+            }
+
+            // 3. Fetch dependencies
             var level = await context.Levels.FirstAsync(ct);
             var students = await context.Students.ToListAsync(ct);
 
+            // 4. Create Registrations linked to the Year ID
             var registrations = students.Select(s => new Registration
             {
                 Id = Guid.NewGuid(),
                 StudentId = s.Id,
                 LevelId = level.Id,
-                AcademicYear = new DateOnly(2024, 09, 01),
-                Status = "Active"
+                AcademicYearId = academicYear.Id, // Link to the new Entity ID
+                Status = "Active",
+                RegistrationDate = DateTime.UtcNow
             }).ToList();
 
             await context.Registrations.AddRangeAsync(registrations, ct);
             await context.SaveChangesAsync(ct);
 
-            logger.LogInformation("Seeded {Count} Registrations", registrations.Count);
+            logger.LogInformation("Seeded {Count} Registrations for Academic Year {Year}",
+                registrations.Count, academicYear.Label);
         }
-
 
         public static async Task SeedStagesAsync(
         ApplicationDbContext context,
@@ -271,32 +292,32 @@ namespace PGSH.MigrationService
         }
 
         private static async Task SeedCohortsAndAssignmentsAsync(
-        ApplicationDbContext context,
-        ILogger logger,
-        CancellationToken ct)
+    ApplicationDbContext context,
+    ILogger logger,
+    CancellationToken ct)
         {
-            // Guard: Check if we already have data
             if (await context.InternshipAssignments.AnyAsync(ct))
                 return;
 
-            // 1. Get an existing Stage
-            var stage = await context.Stages
-                .FirstOrDefaultAsync(ct);
+            var stage = await context.Stages.FirstOrDefaultAsync(ct);
 
-            if (stage is null)
+            // 1. MUST GET A GROUP: Cohorts now require an AcademicGroupId
+            var group = await context.AcademicGroups.FirstOrDefaultAsync(ct);
+
+            if (stage is null || group is null)
             {
-                logger.LogWarning("Cohort seeding skipped: no Stage found.");
+                logger.LogWarning("Cohort seeding skipped: no Stage or AcademicGroup found.");
                 return;
             }
 
-            // 2. Create Cohort linked to Stage
+            // 2. Create Cohort - Added AcademicGroupId
             var cohort = new Cohort
             {
-                Label = $"Promo {DateTime.Now.Year} - {stage.Name}",
+                Label = $"Promo {DateTime.Now.Year} - {stage.Name} - {group.Label}",
                 StageId = stage.Id,
+                AcademicGroupId = group.Id, // <--- THIS WAS THE MISSING LINK
             };
 
-            // 3. Pick services and create Rotation Templates
             var services = await context.Services.Take(2).ToListAsync(ct);
             if (!services.Any())
             {
@@ -304,7 +325,7 @@ namespace PGSH.MigrationService
                 return;
             }
 
-            // Define the "Template" for this cohort (e.g., 2 rotations of 30 days)
+            // Define the Template
             for (int i = 0; i < services.Count; i++)
             {
                 cohort.RotationTemplates.Add(new CohortRotationTemplate
@@ -316,13 +337,14 @@ namespace PGSH.MigrationService
                 });
             }
 
-            // We must add the cohort first or track it to link assignments
             await context.Cohorts.AddAsync(cohort, ct);
-            // Persist cohort so we have an ID for the assignments if needed
             await context.SaveChangesAsync(ct);
 
-            // 4. Pick registrations and create Assignments + History
-            var registrations = await context.Registrations.Take(10).ToListAsync(ct);
+            // 4. Use registrations that belong to the SAME group for consistency
+            var registrations = await context.Registrations
+                .Where(r => r.AcademicGroupId == group.Id) // Filter for group members
+                .Take(10)
+                .ToListAsync(ct);
 
             foreach (var registration in registrations)
             {
@@ -334,16 +356,14 @@ namespace PGSH.MigrationService
                     Status = InternshipStatus.Planned,
                 };
 
-                // Initialize History: This is crucial for your transfer tracking logic
                 assignment.MembershipHistory.Add(new CohortMembership
                 {
                     Id = Guid.NewGuid(),
                     CohortId = cohort.Id,
-                    StartDate = cohort.RotationTemplates.FirstOrDefault().PlannedStart,
+                    StartDate = cohort.RotationTemplates.First().PlannedStart,
                     TransferReason = "Initial Assignment"
                 });
 
-                // Optional: Create the first ServicePeriod based on the first template
                 var firstTemplate = cohort.RotationTemplates.OrderBy(t => t.SequenceOrder).First();
                 assignment.ServicePeriods.Add(new ServicePeriod
                 {
@@ -357,17 +377,15 @@ namespace PGSH.MigrationService
                 await context.InternshipAssignments.AddAsync(assignment, ct);
             }
 
-            // 5. Final Persist
             await context.SaveChangesAsync(ct);
 
             logger.LogInformation(
-                "Seeded Cohort '{Label}' with {Templates} templates and {Assignments} assignments with history.",
+                "Seeded Cohort '{Label}' for Group '{Group}' with {Assignments} assignments.",
                 cohort.Label,
-                cohort.RotationTemplates.Count,
+                group.Label,
                 registrations.Count
             );
         }
-
 
     }
 }

@@ -34,6 +34,11 @@ internal sealed class CohortConfiguration : IEntityTypeConfiguration<Cohort>
         builder.HasKey(c => c.Id);
         builder.Property(c => c.Label).HasMaxLength(100);
 
+        builder.HasOne(x => x.AcademicGroup)
+           .WithMany(x => x.Cohorts)
+           .HasForeignKey(x => x.AcademicGroupId)
+           .OnDelete(DeleteBehavior.Restrict);
+
         builder.HasOne(c => c.Stage)
                .WithMany()
                .HasForeignKey(c => c.StageId)
@@ -81,10 +86,15 @@ internal sealed class InternshipAssignmentConfiguration
                .HasForeignKey(a => a.RegistrationId)
                .OnDelete(DeleteBehavior.Cascade);
 
+        //builder.HasOne(a => a.Cohort)
+        //        .WithMany()
+        //        .HasForeignKey(a => a.CurrentCohortId)
+        //        .OnDelete(DeleteBehavior.Restrict);
+
         builder.HasOne(a => a.Cohort)
-                .WithMany()
-                .HasForeignKey(a => a.CurrentCohortId)
-                .OnDelete(DeleteBehavior.Restrict);
+               .WithMany(c => c.Assignments) // lie explicitement la navigation vers Cohort.Assignments
+               .HasForeignKey(a => a.CurrentCohortId)
+               .OnDelete(DeleteBehavior.Restrict);
 
         builder.HasMany(a => a.MembershipHistory)
                .WithOne() // We don't necessarily need a navigation property back in Membership

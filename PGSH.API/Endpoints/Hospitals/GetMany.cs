@@ -15,6 +15,6 @@ public sealed class GetMany : IEndpoint
 
             return result.Match(Results.Ok, CustomResults.Problem);
         })
-        .WithTags("Hospitals");
+        .WithTags(Tags.Hospital);
     }
 }

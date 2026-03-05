@@ -1,4 +1,5 @@
 ﻿using PGSH.Domain.Hospitals;
+using PGSH.Domain.Registrations;
 
 namespace PGSH.Domain.Stages;
 
@@ -8,6 +9,9 @@ public sealed class Cohort
     public string? Label { get; set; }
     public int StageId { get; set; }
     public Stage Stage { get; set; }
+    public int AcademicGroupId { get; set; }
+    public AcademicGroup AcademicGroup { get; set; }
+    public ICollection<InternshipAssignment> Assignments { get; set; } = new List<InternshipAssignment>();
     public ICollection<CohortRotationTemplate> RotationTemplates { get; set; } = new List<CohortRotationTemplate>();
 }
 

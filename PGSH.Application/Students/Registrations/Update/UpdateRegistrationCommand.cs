@@ -6,7 +6,7 @@ public sealed record UpdateRegistrationCommand(
     Guid RegistrationId,
     Guid StudentId,
     string Status,
-    DateOnly AcademicYear,
+    int AcademicYearId,
     int LevelId,
     string? FailureDescription = null,
     List<string>? FailureNotes = null,

@@ -14,6 +14,7 @@ public sealed class InternshipAssignment : Entity
     public Registration Registration { get; set; }
 
     public int CurrentCohortId { get; set; }
+    public int? GroupNumber { get; set; }
     public Cohort Cohort { get; set; }
 
     public ICollection<ServicePeriod> ServicePeriods { get; set; } = new List<ServicePeriod>();

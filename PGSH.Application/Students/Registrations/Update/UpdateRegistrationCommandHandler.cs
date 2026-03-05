@@ -22,7 +22,7 @@ internal class UpdateRegistrationCommandHandler(IApplicationDbContext dbContext)
         var result = student.UpdateRegistration(
             request.RegistrationId,
             request.Status,
-            request.AcademicYear,
+            request.AcademicYearId,
             request.LevelId,
             failureReasons);
 

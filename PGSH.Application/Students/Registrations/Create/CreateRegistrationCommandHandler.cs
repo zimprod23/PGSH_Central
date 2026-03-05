@@ -18,15 +18,15 @@ internal sealed class CreateRegistrationCommandHandler(
         bool levelExists = await dbContext.Levels.AnyAsync(l => l.Id == request.LevelId, cancellationToken);
         if (!levelExists) return Result.Failure<Guid>(RegistrationErrors.MissingLevel);
 
-        var alreadyRegistered = await dbContext.Registrations.AnyAsync(s => s.StudentId == request.StudentId && s.AcademicYear == request.AcademicYear, cancellationToken);
-        if (alreadyRegistered) return Result.Failure<Guid>(RegistrationErrors.DuplicateRegistration(request.StudentId, request.AcademicYear));
+        var alreadyRegistered = await dbContext.Registrations.AnyAsync(s => s.StudentId == request.StudentId && s.AcademicYearId == request.AcademicYearId, cancellationToken);
+        if (alreadyRegistered) return Result.Failure<Guid>(RegistrationErrors.DuplicateRegistration(request.StudentId, request.AcademicYearId));
 
 
         var registration = new Registration
         {
             Id = Guid.NewGuid(),
             StudentId = request.StudentId,
-            AcademicYear = request.AcademicYear,
+            AcademicYearId = request.AcademicYearId,
             LevelId = request.LevelId,
             Status = request.Status
         };
@@ -35,7 +35,7 @@ internal sealed class CreateRegistrationCommandHandler(
             registration.Id,
             request.StudentId,
             request.LevelId,
-            request.AcademicYear));
+            request.AcademicYearId));
 
         dbContext.Registrations.Add(registration);
 

@@ -31,6 +31,8 @@ public sealed class ApplicationDbContext
     public DbSet<Student> Students { get; set; }
     public DbSet<Employee> Employees { get; set; }
     public DbSet<Registration> Registrations { get; set; }
+    public DbSet<AcademicYear> AcademicYears { get; set; }
+    public DbSet<AcademicGroup> AcademicGroups { get; set; }
 
     // ===== Stages / Internships =====
     public DbSet<Stage> Stages { get; set; }

@@ -21,11 +21,20 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Folder Include="Stages\Assignements\ManualAssign\" />
+    <Folder Include="Stages\Assignements\BulkAssign\" />
+    <Folder Include="Stages\Assignements\GenerateRotations\" />
+    <Folder Include="Stages\Cohorts\GetMany\" />
+    <Folder Include="Stages\Cohorts\Delete\" />
+    <Folder Include="Stages\Cohorts\Templates\" />
+    <Folder Include="Stages\Cohorts\Update\" />
     <Folder Include="Stages\Delete\" />
     <Folder Include="Stages\GetById\" />
     <Folder Include="Hospitals\Centers\" />
     <Folder Include="Stages\Levels\Delete\" />
     <Folder Include="Stages\Levels\Get\" />
+    <Folder Include="Stages\Rotations\Attendance\" />
+    <Folder Include="Stages\Rotations\Evaluation\" />
     <Folder Include="Students\CreateMany\" />
     <Folder Include="Students\Update\" />
   </ItemGroup>
