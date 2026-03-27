@@ -21,6 +21,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Folder Include="AcademicGroups\Create\" />
+    <Folder Include="AcademicGroups\Delete\" />
+    <Folder Include="AcademicGroups\Get\" />
+    <Folder Include="AcademicGroups\Update\" />
     <Folder Include="Stages\Assignements\ManualAssign\" />
     <Folder Include="Stages\Assignements\BulkAssign\" />
     <Folder Include="Stages\Assignements\GenerateRotations\" />

@@ -13,5 +13,7 @@
         public const string Services = "Services";
         public const string Centers = "Centers";
         public const string Cohorts = "Cohorts";
+        public const string Groups = "AcademicGroups";
+
     }
 }

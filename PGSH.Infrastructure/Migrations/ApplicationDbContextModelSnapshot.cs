@@ -194,11 +194,13 @@ namespace PGSH.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("AcademicYearId")
-                        .IsUnique();
+                    b.HasIndex("AcademicYearId", "GroupNumber")
+                        .IsUnique()
+                        .HasDatabaseName("IX_AcademicGroup_Year_Number");
 
-                    b.HasIndex("GroupNumber")
-                        .IsUnique();
+                    b.HasIndex("AcademicYearId", "Label")
+                        .IsUnique()
+                        .HasDatabaseName("IX_AcademicGroup_Year_Label");
 
                     b.ToTable("AcademicGroups", "public");
                 });

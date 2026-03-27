@@ -105,8 +105,13 @@ internal sealed class AcademicGroupConfiguration : IEntityTypeConfiguration<Acad
         builder.Property(x => x.Label).IsRequired().HasMaxLength(100);
 
         // Ensure Group Numbers are unique within a specific Academic Year
-        builder.HasIndex(x => x.AcademicYearId).IsUnique();
-        builder.HasIndex(x => x.GroupNumber).IsUnique();
+        builder.HasIndex(x => new { x.AcademicYearId, x.GroupNumber })
+         .IsUnique()
+         .HasDatabaseName("IX_AcademicGroup_Year_Number");
+
+        builder.HasIndex(x => new { x.AcademicYearId, x.Label })
+            .IsUnique()
+            .HasDatabaseName("IX_AcademicGroup_Year_Label");
 
         builder.HasMany(x => x.Registrations)
            .WithOne(x => x.AcademicGroup)

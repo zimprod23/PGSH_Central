@@ -18,22 +18,49 @@ namespace PGSH.MigrationService
         {
             logger.LogInformation("Starting database seeding...");
 
+            // 1. Independent Entities (Static Data)
             await SeedLevelsAsync(context, logger, cancellationToken);
+            await SeedAcademicYearsAsync(context, logger, cancellationToken);
             await SeedCentersHospitalsServicesAsync(context, logger, cancellationToken);
-            await SeedStudentsAsync(context, logger, cancellationToken);
+            await SeedStagesAsync(context, logger, cancellationToken); // Now uses Bogus as requested
+
+            // 2. Entities with Dependencies
+            await SeedStudentsAsync(context, logger, cancellationToken); // Needs nothing
+
+            // 3. Junction Entities
+            // This one was crashing because it depends on Levels and Years being done above!
             await SeedRegistrationsAsync(context, logger, cancellationToken);
-            await SeedStagesAsync(context, logger, cancellationToken);
-            await SeedCohortsAndAssignmentsAsync(context, logger, cancellationToken);
+            //await SeedCohortsAndAssignmentsAsync(context, logger, cancellationToken);
 
             logger.LogInformation("Database seeding completed.");
         }
 
-        private static async Task SeedStudentsAsync(ApplicationDbContext context, ILogger<Worker> logger, CancellationToken cancellationToken)
+        private static async Task SeedAcademicYearsAsync(
+            ApplicationDbContext context,
+            ILogger logger,
+            CancellationToken ct)
         {
-            // 1. Performance Guard: Don't seed if data exists
-            if (await context.Students.AnyAsync()) return;
+            if (await context.AcademicYears.AnyAsync(ct)) return;
 
-            // 2. Define the "Golden" Static Student
+            var academicYear = new AcademicYear
+            {
+                Label = "2024-2025",
+                StartDate = new DateOnly(2024, 09, 01),
+                EndDate = new DateOnly(2025, 08, 31),
+                IsCurrent = true
+            };
+
+            context.AcademicYears.Add(academicYear);
+            await context.SaveChangesAsync(ct);
+
+            logger.LogInformation("Seeded Academic Year: {Label}", academicYear.Label);
+        }
+
+        private static async Task SeedStudentsAsync(ApplicationDbContext context, ILogger<Worker> logger, CancellationToken ct)
+        {
+            if (await context.Students.AnyAsync(ct)) return;
+
+            // 1. The "Golden" Static Student
             var staticStudent = new Student
             {
                 Id = Guid.NewGuid(),
@@ -49,43 +76,41 @@ namespace PGSH.MigrationService
                 BacYear = "2023",
                 Gender = Gender.Male,
                 Status = new Status(CivilStatus.Civil, NationalityStatus.Marocaine),
-                //Address = new UserAddress { FullAddress = "Hay Riad, Rabat" },
                 PlaceOfBirth = "Rabat",
-                DateOfBirth = new DateOnly(2005, 08, 12)
+                DateOfBirth = new DateOnly(2005, 08, 12),
+                Address = new Address("Hay Riad, Rabat")
             };
 
-            // 3. Configure Faker for Bulk Data
+            // 2. Configure Bogus for Mass Production
             var faker = new Faker<Student>()
                 .RuleFor(s => s.Id, f => Guid.NewGuid())
                 .RuleFor(s => s.FirstName, f => f.Name.FirstName())
                 .RuleFor(s => s.LastName, f => f.Name.LastName())
-                .RuleFor(s => s.Email, (f, s) => $"{s.FirstName.ToLower()}.{s.LastName.ToLower()}@um5.ac.ma")
-                .RuleFor(s => s.CNE, f => f.Random.Replace("?#########")) // Letter + 9 digits
+                .RuleFor(s => s.Email, (f, s) => $"{s.FirstName.ToLower()}.{s.LastName.ToLower()}{f.UniqueIndex}@um5.ac.ma")
+                .RuleFor(s => s.CIN, f => f.Random.Replace("??######"))
+                .RuleFor(s => s.CNE, f => f.Random.Replace("?#########"))
                 .RuleFor(s => s.Appogee, f => f.Random.Number(20000000, 25000000).ToString())
                 .RuleFor(s => s.AccessGrade, f => f.Random.Decimal(10, 20))
-                .RuleFor(s => s.AcademicProgram, f => f.PickRandom<AcademicProgram>())
                 .RuleFor(s => s.BacSeries, f => f.PickRandom<BacSeries>())
-                .RuleFor(s => s.BacYear, f => f.Random.Int(2020, 2025).ToString())
+                .RuleFor(s => s.BacYear, f => f.Random.Int(2020, 2024).ToString())
                 .RuleFor(s => s.Gender, f => f.PickRandom<Gender>())
-                // Matching your Domain Structure (Owned Entities)
                 .RuleFor(s => s.Status, f => new Status(f.PickRandom<CivilStatus>(), f.PickRandom<NationalityStatus>()))
                 .RuleFor(s => s.Address, f => new Address(f.Address.FullAddress()))
-                .RuleFor(s => s.DateOfBirth, f => DateOnly.FromDateTime(f.Date.Past(20, DateTime.Now.AddYears(-18))));
+                .RuleFor(s => s.DateOfBirth, f => DateOnly.FromDateTime(f.Date.Past(5, DateTime.Now.AddYears(-18))));
 
-            // 4. Generate 50 fake students
-            var fakeStudents = faker.Generate(50);
+            // 3. Generate Specific Counts
+            // Amine is 1. We need 399 more Med and 3100 Pharm.
+            var medStudents = faker.RuleFor(s => s.AcademicProgram, _ => AcademicProgram.Medecine).Generate(399);
+            var pharmStudents = faker.RuleFor(s => s.AcademicProgram, _ => AcademicProgram.Pharmacie).Generate(3100);
 
-            // 5. Combine and Insert
             var allStudents = new List<Student> { staticStudent };
-            allStudents.AddRange(fakeStudents);
+            allStudents.AddRange(medStudents);
+            allStudents.AddRange(pharmStudents);
 
-            // Optimal Performance: Single Batch Save
-            await context.Students.AddRangeAsync(allStudents);
-            await context.SaveChangesAsync();
-
-            logger.LogInformation("Successfully seeded {Count} Student entities.", allStudents.Count);
+            await context.Students.AddRangeAsync(allStudents, ct);
+            await context.SaveChangesAsync(ct);
+            logger.LogInformation("Seeded 3500 Students (400 Med, 3100 Pharm)");
         }
-
         private static async Task SeedLevelsAsync(
             ApplicationDbContext context,
             ILogger logger,
@@ -109,134 +134,163 @@ namespace PGSH.MigrationService
 
 
         private static async Task SeedCentersHospitalsServicesAsync(
-            ApplicationDbContext context,
-            ILogger logger,
-            CancellationToken ct)
+    ApplicationDbContext context,
+    ILogger logger,
+    CancellationToken ct)
         {
             if (await context.Centers.AnyAsync(ct)) return;
 
             var center = new Center
             {
-                Name = "Centre Hospitalier Universitaire Ibn Sina",
+                Name = "CHU Ibn Sina - Rabat",
                 CenterType = CenterType.CHU,
                 City = "Rabat"
             };
 
-            var hospital = new Hospital
-            {
-                Name = "Hôpital Ibn Sina",
-                City = "Rabat",
-                HospitalType = HospitalType.CHU,
-                Center = center
-            };
+            // Use Bogus to define hospital names
+            var hospitalNames = new[] { "Hôpital Ibn Sina", "Hôpital des Spécialités", "Hôpital d'Enfants" };
 
-            hospital.services.Add(new Service
-            {
-                Name = "Chirurgie Générale",
-                ServiceType = ServiceType.Chirurgie,
-                Description = "Service de chirurgie générale"
-            });
+            var serviceFaker = new Faker<Service>()
+                .RuleFor(s => s.Name, f => f.PickRandom(
+                    "Cardiologie", "Neurologie", "Gastro-entérologie", "Pneumologie",
+                    "Urologie", "Traumatologie", "ORL", "Ophtalmologie",
+                    "Réanimation", "Urgences", "Dermatologie", "Endocrinologie",
+                    "Néphrologie", "Hématologie", "Oncologie", "Rhumatologie"
+                ))
+                // Varied capacities to test the "Skip" logic
+                .RuleFor(s => s.Capacity, f => f.Random.WeightedRandom(
+                    new[] { 5, 15, 30, 50 },
+                    new[] { 0.1f, 0.4f, 0.4f, 0.1f } // 10% are tiny, 40% are medium, etc.
+                ))
+                .RuleFor(s => s.ServiceType, f => f.PickRandom<ServiceType>())
+                .RuleFor(s => s.Description, f => f.Lorem.Sentence());
 
-            hospital.services.Add(new Service
+            foreach (var name in hospitalNames)
             {
-                Name = "Biologie Médicale",
-                ServiceType = ServiceType.Biologie,
-                Description = "Laboratoire central"
-            });
+                var hospital = new Hospital
+                {
+                    Name = name,
+                    City = "Rabat",
+                    HospitalType = HospitalType.CHU,
+                    Center = center
+                };
 
-            hospital.services.Add(new Service
-            {
-                Name = "Médecine Interne",
-                ServiceType = ServiceType.Medical,
-                Description = "Service de médecine interne"
-            });
+                // Generate 12 unique services per hospital
+                var uniqueServices = serviceFaker.Generate(12)
+                    .GroupBy(s => s.Name)
+                    .Select(g => g.First())
+                    .ToList();
 
-            center.Hospitals.Add(hospital);
+                foreach (var s in uniqueServices) hospital.services.Add(s);
+                center.Hospitals.Add(hospital);
+            }
 
             await context.Centers.AddAsync(center, ct);
             await context.SaveChangesAsync(ct);
-
-            logger.LogInformation("Seeded Centers, Hospitals and Services");
+            logger.LogInformation("Seeded 3 Hospitals with 36 total Services.");
         }
 
         private static async Task SeedRegistrationsAsync(
-            ApplicationDbContext context,
-            ILogger logger,
-            CancellationToken ct)
+          ApplicationDbContext context,
+          ILogger logger,
+          CancellationToken ct)
         {
-            // 1. Safety check
+            // 1. Performance/Safety Check
             if (await context.Registrations.AnyAsync(ct)) return;
 
-            // 2. Fetch or Create the Academic Year record
-            var academicYear = await context.AcademicYears
-                .FirstOrDefaultAsync(y => y.Label == "2024-2025", ct);
+            // 2. Fetch Dependencies Safely
+            var currentYear = await context.AcademicYears.FirstOrDefaultAsync(y => y.IsCurrent, ct);
+            var medLevel = await context.Levels.FirstOrDefaultAsync(l => l.AcademicProgram == AcademicProgram.Medecine, ct);
+            var pharmLevel = await context.Levels.FirstOrDefaultAsync(l => l.AcademicProgram == AcademicProgram.Pharmacie, ct);
 
-            if (academicYear == null)
+            if (currentYear == null || medLevel == null || pharmLevel == null)
             {
-                academicYear = new AcademicYear
-                {
-                    Label = "2024-2025",
-                    StartDate = new DateOnly(2024, 09, 01),
-                    EndDate = new DateOnly(2025, 08, 31),
-                    IsCurrent = true
-                };
-                context.AcademicYears.Add(academicYear);
-                await context.SaveChangesAsync(ct);
+                logger.LogError("CRITICAL: Registration seeding failed. Ensure AcademicYears and Levels are seeded first.");
+                return;
             }
 
-            // 3. Fetch dependencies
-            var level = await context.Levels.FirstAsync(ct);
+            // 3. Fetch Students to Register
             var students = await context.Students.ToListAsync(ct);
-
-            // 4. Create Registrations linked to the Year ID
-            var registrations = students.Select(s => new Registration
+            if (!students.Any())
             {
-                Id = Guid.NewGuid(),
-                StudentId = s.Id,
-                LevelId = level.Id,
-                AcademicYearId = academicYear.Id, // Link to the new Entity ID
-                Status = "Active",
-                RegistrationDate = DateTime.UtcNow
-            }).ToList();
+                logger.LogWarning("No students found in database to register.");
+                return;
+            }
 
+            var registrations = new List<Registration>();
+
+            foreach (var student in students)
+            {
+                // Route student to the correct Level based on their Program
+                var targetLevelId = student.AcademicProgram == AcademicProgram.Medecine
+                    ? medLevel.Id
+                    : pharmLevel.Id;
+
+                registrations.Add(new Registration
+                {
+                    Id = Guid.NewGuid(),
+                    StudentId = student.Id,
+                    LevelId = targetLevelId,
+                    AcademicYearId = currentYear.Id,
+                    Status = "Active",
+                    RegistrationDate = DateTime.UtcNow,
+                    // Keep AcademicGroupId NULL to test your Auto-Group-Builder engine
+                    AcademicGroupId = null
+                });
+            }
+
+            // 4. Batch Insert for Performance
             await context.Registrations.AddRangeAsync(registrations, ct);
             await context.SaveChangesAsync(ct);
 
-            logger.LogInformation("Seeded {Count} Registrations for Academic Year {Year}",
-                registrations.Count, academicYear.Label);
+            logger.LogInformation("Successfully registered {Count} students for the {Year} academic year (Ungrouped).",
+                registrations.Count, currentYear.Label);
         }
-
         public static async Task SeedStagesAsync(
-        ApplicationDbContext context,
-        ILogger logger,
-        CancellationToken cancellationToken)
+      ApplicationDbContext context,
+      ILogger logger,
+      CancellationToken ct)
         {
-            if (await context.Stages.AnyAsync(cancellationToken))
-                return;
+            if (await context.Stages.AnyAsync(ct)) return;
 
-            var levels = await context.Levels
-                //.Include(l => l.AcademicProgram)
-                .ToListAsync(cancellationToken);
+            var medLevel = await context.Levels.FirstAsync(l => l.AcademicProgram == AcademicProgram.Medecine, ct);
+            var pharmLevel = await context.Levels.FirstAsync(l => l.AcademicProgram == AcademicProgram.Pharmacie, ct);
 
-            if (!levels.Any())
-            {
-                logger.LogWarning("Stage seeding skipped: no Levels found.");
-                return;
-            }
+            var stageFaker = new Faker<Stage>()
+                .RuleFor(s => s.Description, f => f.Lorem.Paragraph())
+                .RuleFor(s => s.Coefficient, f => f.Random.Int(1, 4))
+                .RuleFor(s => s.DurationInDays, f => f.PickRandom(15, 30, 45, 60));
 
             var stages = new List<Stage>();
 
-            foreach (var level in levels)
+            // 20 Medicine Stages
+            var medStageNames = new[] {
+                "Stage de sémiologie", "Stage de pédiatrie", "Stage de gynécologie",
+                "Stage de psychiatrie", "Stage de médecine légale", "Stage de santé publique" 
+                // ... Bogus will fill the rest with unique titles
+            };
+
+            for (int i = 0; i < 20; i++)
             {
-                stages.AddRange(CreateStagesForLevel(level));
+                var s = stageFaker.Generate();
+                s.Name = i < medStageNames.Length ? medStageNames[i] : $"Stage Médical Spécialisé {i}";
+                s.LevelId = medLevel.Id;
+                stages.Add(s);
             }
 
-            await context.Stages.AddRangeAsync(stages, cancellationToken);
-            await context.SaveChangesAsync(cancellationToken);
+            // 20 Pharmacy Stages
+            for (int i = 0; i < 20; i++)
+            {
+                var s = stageFaker.Generate();
+                s.Name = $"Stage Pharmacie {i + 1}";
+                s.LevelId = pharmLevel.Id;
+                stages.Add(s);
+            }
 
-            logger.LogInformation("Seeded {Count} academic stages.", stages.Count);
+            await context.Stages.AddRangeAsync(stages, ct);
+            await context.SaveChangesAsync(ct);
+            logger.LogInformation("Seeded 40 Academic Stages via Bogus.");
         }
-
         private static IEnumerable<Stage> CreateStagesForLevel(Level level)
         {
             return level.AcademicProgram switch
