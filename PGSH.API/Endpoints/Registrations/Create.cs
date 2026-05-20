@@ -3,6 +3,7 @@ using PGSH.API.Extensions;
 using PGSH.API.Infrastructure;
 using PGSH.Application.Abstractions.Messaging;
 using PGSH.Application.Students.Registrations.Create;
+using PGSH.Domain.Registrations;
 using PGSH.SharedKernel;
 
 namespace PGSH.API.Endpoints.Registrations;
@@ -13,7 +14,7 @@ public sealed class Create: IEndpoint
         Guid StudentId,
         int AcademicYearId,
         int LevelId,
-        string Status);
+        RegistrationStatus Status = RegistrationStatus.Pending);
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
         app.MapPost("/registrations", async (

@@ -6,7 +6,7 @@ namespace PGSH.Domain.Stages;
 public sealed class Cohort
 {
     public int Id { get; set; }
-    public string? Label { get; set; }
+    public string Label { get; set; } = string.Empty;
     public int StageId { get; set; }
     public Stage Stage { get; set; }
     public int AcademicGroupId { get; set; }

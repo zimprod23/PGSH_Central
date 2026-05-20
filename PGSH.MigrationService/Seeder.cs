@@ -232,7 +232,7 @@ namespace PGSH.MigrationService
                     StudentId = student.Id,
                     LevelId = targetLevelId,
                     AcademicYearId = currentYear.Id,
-                    Status = "Active",
+                    Status = RegistrationStatus.Active,
                     RegistrationDate = DateTime.UtcNow,
                     // Keep AcademicGroupId NULL to test your Auto-Group-Builder engine
                     AcademicGroupId = null

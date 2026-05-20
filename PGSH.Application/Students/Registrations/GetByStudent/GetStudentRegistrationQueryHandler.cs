@@ -29,7 +29,7 @@ internal sealed class GetStudentRegistrationsQueryHandler(IApplicationDbContext 
                 r.Id,
                 r.AcademicYear.Label,
                 r.LevelId,
-                r.Status,
+                r.Status.ToString(),
                 r.failureReasons != null,
                 r.failureReasons != null ? r.failureReasons.Description : null
             ))

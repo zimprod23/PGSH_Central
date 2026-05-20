@@ -11,7 +11,7 @@ public sealed class UpdateRegistrationCommandValidator : AbstractValidator<Updat
 {
     public UpdateRegistrationCommandValidator()
     {
-        RuleFor(x => x.Status).NotEmpty().MaximumLength(50);
+        RuleFor(x => x.Status).IsInEnum();
         RuleFor(x => x.LevelId).GreaterThan(0);
         RuleFor(x => x.FailureDescription).MaximumLength(500);
     }

@@ -44,8 +44,8 @@ public sealed class Student: User
 
     public Result UpdateRegistration(
         Guid registrationId,
-        string status,
-        int academicYearId, // Changed from DateOnly to int
+        RegistrationStatus status,
+        int academicYearId,
         int levelId,
         FailureReasons? failure)
     {
@@ -78,7 +78,7 @@ public sealed class Student: User
             return Result.Failure(RegistrationErrors.NotFound(registrationId));
 
         // Optional: Add business rules, e.g., "Cannot delete a validated registration"
-        if (registration.Status == "Validated")
+        if (registration.Status == RegistrationStatus.Validated)
             return Result.Failure(RegistrationErrors.Conflict("Delete",registrationId));
 
         registrations.Remove(registration);

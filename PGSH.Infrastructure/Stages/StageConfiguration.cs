@@ -32,7 +32,7 @@ internal sealed class CohortConfiguration : IEntityTypeConfiguration<Cohort>
     public void Configure(EntityTypeBuilder<Cohort> builder)
     {
         builder.HasKey(c => c.Id);
-        builder.Property(c => c.Label).HasMaxLength(100);
+        builder.Property(c => c.Label).IsRequired().HasMaxLength(100);
 
         builder.HasOne(x => x.AcademicGroup)
            .WithMany(x => x.Cohorts)
@@ -97,15 +97,20 @@ internal sealed class InternshipAssignmentConfiguration
                .OnDelete(DeleteBehavior.Restrict);
 
         builder.HasMany(a => a.MembershipHistory)
-               .WithOne() // We don't necessarily need a navigation property back in Membership
+               .WithOne()
                .HasForeignKey(m => m.InternshipAssignmentId)
                .OnDelete(DeleteBehavior.Cascade);
 
-        // 2. Explicitly map the Service Periods
         builder.HasMany(a => a.ServicePeriods)
-               .WithOne(p => p.InternshipAssignment) // Navigation back exists here
+               .WithOne(p => p.InternshipAssignment)
                .HasForeignKey(p => p.InternshipAssignmentId)
                .OnDelete(DeleteBehavior.Cascade);
+
+        builder.HasIndex(a => a.RegistrationId)
+               .HasDatabaseName("IX_InternshipAssignment_RegistrationId");
+
+        builder.HasIndex(a => a.CurrentCohortId)
+               .HasDatabaseName("IX_InternshipAssignment_CohortId");
     }
 }
 
@@ -121,10 +126,8 @@ internal sealed class CohortMembershipConfiguration : IEntityTypeConfiguration<C
                 .HasForeignKey(m => m.CohortId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-        builder.HasOne<InternshipAssignment>()
-                .WithMany(a => a.MembershipHistory)
-                .HasForeignKey(m => m.InternshipAssignmentId)
-                .OnDelete(DeleteBehavior.Cascade);
+        builder.HasIndex(m => m.InternshipAssignmentId)
+               .HasDatabaseName("IX_CohortMembership_AssignmentId");
     }
 }
 
@@ -143,6 +146,18 @@ internal sealed class ServicePeriodConfiguration : IEntityTypeConfiguration<Serv
                 .WithMany()
                 .HasForeignKey(p => p.ServiceId)
                 .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasOne(p => p.CohortRotationTemplate)
+                .WithMany()
+                .HasForeignKey(p => p.CohortRotationTemplateId)
+                .IsRequired(false)
+                .OnDelete(DeleteBehavior.SetNull);
+
+        builder.HasIndex(p => p.ServiceId)
+               .HasDatabaseName("IX_ServicePeriod_ServiceId");
+
+        builder.HasIndex(p => p.InternshipAssignmentId)
+               .HasDatabaseName("IX_ServicePeriod_AssignmentId");
 
         // One-to-One relationship for Evaluation
         builder.HasOne(p => p.Evaluation)
@@ -196,7 +211,11 @@ internal sealed class AttendanceConfiguration
                 .WithMany(p => p.Attendance)
                 .HasForeignKey(a => a.ServicePeriodId)
                 .OnDelete(DeleteBehavior.Cascade);
-        }
+
+        builder.HasIndex(a => new { a.ServicePeriodId, a.Date })
+               .IsUnique()
+               .HasDatabaseName("IX_AttendanceRecord_Period_Date");
+    }
 }
 
 internal sealed class StageObjectiveConfiguration : IEntityTypeConfiguration<StageObjective>

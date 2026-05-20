@@ -13,8 +13,8 @@ internal sealed class RegistrationConfiguration : IEntityTypeConfiguration<Regis
         builder.HasKey(r => r.Id);
 
         builder.Property(r => r.Status)
-               .IsRequired()
-               .HasMaxLength(50);
+               .HasConversion<string>()
+               .IsRequired();
         // Enum mapping
         //builder.Property(r => r.Level)
         //       .HasConversion<string>()
@@ -27,7 +27,7 @@ internal sealed class RegistrationConfiguration : IEntityTypeConfiguration<Regis
         //});
         builder.HasOne(r => r.Level)
             .WithMany()
-            .HasForeignKey("LevelId") // shadow FK (pas dans la classe)
+            .HasForeignKey(r => r.LevelId)
             .OnDelete(DeleteBehavior.Restrict);
 
         builder.OwnsOne(e => e.failureReasons, fr =>
@@ -38,8 +38,8 @@ internal sealed class RegistrationConfiguration : IEntityTypeConfiguration<Regis
             fr.Property(f => f.Notes)
                 .HasConversion(
                     v => JsonSerializer.Serialize(v, (JsonSerializerOptions)null),
-                    v => JsonSerializer.Deserialize<List<string>>(v, (JsonSerializerOptions)null));
-                //.HasColumnType("nvarchar(max)");
+                    v => JsonSerializer.Deserialize<List<string>>(v, (JsonSerializerOptions)null))
+                .HasColumnType("jsonb");
 
             fr.Property(f => f.Cheat);
         });
@@ -58,8 +58,10 @@ internal sealed class RegistrationConfiguration : IEntityTypeConfiguration<Regis
         builder.HasOne(r => r.Student)
                .WithMany(s => s.registrations)
                .HasForeignKey(r => r.StudentId)
-               .OnDelete(DeleteBehavior.Cascade); // optional: choose Restrict if needed
+               .OnDelete(DeleteBehavior.Cascade);
 
+        builder.HasIndex(r => new { r.StudentId, r.AcademicYearId })
+               .HasDatabaseName("IX_Registration_Student_Year");
     }
 }
 
@@ -79,6 +81,10 @@ internal sealed class LevelConfiguration : IEntityTypeConfiguration<Level>
         builder.Property(l => l.AcademicProgram)
                .HasConversion<string>()
                .IsRequired();
+
+        builder.HasIndex(l => new { l.Year, l.AcademicProgram })
+               .IsUnique()
+               .HasDatabaseName("IX_Level_Year_Program");
     }
 }
 

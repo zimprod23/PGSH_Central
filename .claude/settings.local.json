@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\LEGION\\\\source\\\\repos\\\\PGSH\" -Force)",
+      "Bash(Select-Object Name, Mode)",
+      "Bash(xargs grep -l \"test\\\\|Test\")",
+      "Bash(git *)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\LEGION\\\\source\\\\repos\\\\PGSH\" -Recurse -Directory)",
+      "Bash(Select-Object -ExpandProperty FullName)",
+      "PowerShell(head *)",
+      "Bash(Get-ChildItem *)",
+      "Bash(Select-Object Name)",
+      "Bash(Remove-Item \"C:\\\\Users\\\\LEGION\\\\source\\\\repos\\\\PGSH\\\\PGSH.Domain\\\\Profiles\\\\Profile.cs\" -Force)",
+      "Bash(Remove-Item \"C:\\\\Users\\\\LEGION\\\\source\\\\repos\\\\PGSH\\\\PGSH.Domain\\\\HospitalServices\" -Recurse -Force)",
+      "Bash(Remove-Item \"C:\\\\Users\\\\LEGION\\\\source\\\\repos\\\\PGSH\\\\PGSH.Domain\\\\Hospitals\\\\Nature.cs\" -Force)",
+      "Bash(Write-Host \"Done\")",
+      "Bash(dotnet build *)",
+      "Bash(dotnet ef *)"
+    ]
+  }
+}

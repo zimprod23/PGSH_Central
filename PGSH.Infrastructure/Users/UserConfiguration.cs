@@ -88,7 +88,10 @@ internal sealed class StudentConfiguration : IEntityTypeConfiguration<Student>
     {
         // --- Student-specific properties ---
         builder.Property(s => s.CNE).HasMaxLength(50).IsRequired();
+        builder.HasIndex(s => s.CNE).IsUnique().HasDatabaseName("IX_Student_CNE");
+
         builder.Property(s => s.Appogee).HasMaxLength(50);
+        builder.HasIndex(s => s.Appogee).IsUnique().HasFilter("\"Appogee\" IS NOT NULL").HasDatabaseName("IX_Student_Appogee");
         builder.Property(s => s.BacYear).HasMaxLength(10);
         builder.Property(s => s.AccessGrade).HasPrecision(5, 2);
         builder.Property(s => s.AgreementType).HasDefaultValue(AgreementType.None);

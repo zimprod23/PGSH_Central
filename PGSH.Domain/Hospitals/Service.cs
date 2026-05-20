@@ -9,7 +9,6 @@ public sealed class Service
     public string Name { get; set; }
     public string Description { get; set; }
     public ServiceType ServiceType { get; set; }
-    //public Nature Nature { get; set; }
     public int Capacity { get; set; } = 20;
     public int HospitalId { get; set; }
     public Hospital Hospital { get; set; }

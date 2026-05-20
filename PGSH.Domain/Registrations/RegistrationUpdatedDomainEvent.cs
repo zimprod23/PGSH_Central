@@ -2,4 +2,4 @@
 
 namespace PGSH.Domain.Registrations;
 
-public sealed record RegistrationUpdatedDomainEvent(Guid RegistrationId, string NewStatus) : IDomainEvent;
+public sealed record RegistrationUpdatedDomainEvent(Guid RegistrationId, RegistrationStatus NewStatus) : IDomainEvent;

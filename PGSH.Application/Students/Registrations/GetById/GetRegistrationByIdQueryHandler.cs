@@ -18,7 +18,7 @@ internal sealed class GetRegistrationByIdQueryHandler(IApplicationDbContext dbCo
                 $"{r.Student.FirstName} {r.Student.LastName}", // Joining student name efficiently
                 r.AcademicYear.Label,
                 r.LevelId,
-                r.Status,
+                r.Status.ToString(),
                 r.failureReasons != null ? r.failureReasons.Description : null,
                 r.failureReasons != null ? r.failureReasons.Notes : new List<string>(),
                 r.failureReasons != null && r.failureReasons.Cheat

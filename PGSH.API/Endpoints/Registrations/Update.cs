@@ -1,8 +1,8 @@
-﻿
-using MediatR;
+﻿using MediatR;
 using PGSH.API.Extensions;
 using PGSH.API.Infrastructure;
 using PGSH.Application.Students.Registrations.Update;
+using PGSH.Domain.Registrations;
 
 namespace PGSH.API.Endpoints.Registrations;
 
@@ -12,7 +12,7 @@ public sealed class Update : IEndpoint
         Guid StudentId,
         int AcademicYearId,
         int LevelId,
-        string Status,
+        RegistrationStatus Status,
         string? FailureDescription = null,
         List<string>? FailureNotes = null, // Matches the Command type
         bool? Cheat = null);

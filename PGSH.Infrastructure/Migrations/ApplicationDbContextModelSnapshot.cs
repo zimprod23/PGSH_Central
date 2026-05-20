@@ -61,6 +61,10 @@ namespace PGSH.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("Year", "AcademicProgram")
+                        .IsUnique()
+                        .HasDatabaseName("IX_Level_Year_Program");
+
                     b.ToTable("Levels", "public");
                 });
 
@@ -255,8 +259,7 @@ namespace PGSH.Infrastructure.Migrations
 
                     b.Property<string>("Status")
                         .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
+                        .HasColumnType("text");
 
                     b.Property<Guid>("StudentId")
                         .HasColumnType("uuid");
@@ -269,7 +272,8 @@ namespace PGSH.Infrastructure.Migrations
 
                     b.HasIndex("LevelId");
 
-                    b.HasIndex("StudentId");
+                    b.HasIndex("StudentId", "AcademicYearId")
+                        .HasDatabaseName("IX_Registration_Student_Year");
 
                     b.ToTable("Registrations", "public");
                 });
@@ -292,7 +296,9 @@ namespace PGSH.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ServicePeriodId");
+                    b.HasIndex("ServicePeriodId", "Date")
+                        .IsUnique()
+                        .HasDatabaseName("IX_AttendanceRecord_Period_Date");
 
                     b.ToTable("AttendanceRecords", "public");
                 });
@@ -309,6 +315,7 @@ namespace PGSH.Infrastructure.Migrations
                         .HasColumnType("integer");
 
                     b.Property<string>("Label")
+                        .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
@@ -350,7 +357,8 @@ namespace PGSH.Infrastructure.Migrations
 
                     b.HasIndex("CohortId");
 
-                    b.HasIndex("InternshipAssignmentId");
+                    b.HasIndex("InternshipAssignmentId")
+                        .HasDatabaseName("IX_CohortMembership_AssignmentId");
 
                     b.ToTable("CohortMembership", "public");
                 });
@@ -400,9 +408,6 @@ namespace PGSH.Infrastructure.Migrations
                         .HasPrecision(5, 2)
                         .HasColumnType("numeric(5,2)");
 
-                    b.Property<int?>("GroupNumber")
-                        .HasColumnType("integer");
-
                     b.Property<Guid>("RegistrationId")
                         .HasColumnType("uuid");
 
@@ -415,9 +420,11 @@ namespace PGSH.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("CurrentCohortId");
+                    b.HasIndex("CurrentCohortId")
+                        .HasDatabaseName("IX_InternshipAssignment_CohortId");
 
-                    b.HasIndex("RegistrationId");
+                    b.HasIndex("RegistrationId")
+                        .HasDatabaseName("IX_InternshipAssignment_RegistrationId");
 
                     b.ToTable("InternshipAssignments", "public");
                 });
@@ -479,6 +486,9 @@ namespace PGSH.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<int?>("CohortRotationTemplateId")
+                        .HasColumnType("integer");
+
                     b.Property<DateOnly>("EndDate")
                         .HasColumnType("date");
 
@@ -496,9 +506,13 @@ namespace PGSH.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("InternshipAssignmentId");
+                    b.HasIndex("CohortRotationTemplateId");
 
-                    b.HasIndex("ServiceId");
+                    b.HasIndex("InternshipAssignmentId")
+                        .HasDatabaseName("IX_ServicePeriod_AssignmentId");
+
+                    b.HasIndex("ServiceId")
+                        .HasDatabaseName("IX_ServicePeriod_ServiceId");
 
                     b.ToTable("ServicePeriods", "public");
                 });
@@ -767,6 +781,15 @@ namespace PGSH.Infrastructure.Migrations
                     b.Property<int?>("Ranking")
                         .HasColumnType("integer");
 
+                    b.HasIndex("Appogee")
+                        .IsUnique()
+                        .HasDatabaseName("IX_Student_Appogee")
+                        .HasFilter("\"Appogee\" IS NOT NULL");
+
+                    b.HasIndex("CNE")
+                        .IsUnique()
+                        .HasDatabaseName("IX_Student_CNE");
+
                     b.HasDiscriminator().HasValue("Student");
                 });
 
@@ -932,7 +955,7 @@ namespace PGSH.Infrastructure.Migrations
 
                             b1.Property<string>("Notes")
                                 .IsRequired()
-                                .HasColumnType("text");
+                                .HasColumnType("jsonb");
 
                             b1.HasKey("RegistrationId");
 
@@ -1070,6 +1093,11 @@ namespace PGSH.Infrastructure.Migrations
 
             modelBuilder.Entity("PGSH.Domain.Stages.ServicePeriod", b =>
                 {
+                    b.HasOne("PGSH.Domain.Stages.CohortRotationTemplate", "CohortRotationTemplate")
+                        .WithMany()
+                        .HasForeignKey("CohortRotationTemplateId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("PGSH.Domain.Stages.InternshipAssignment", "InternshipAssignment")
                         .WithMany("ServicePeriods")
                         .HasForeignKey("InternshipAssignmentId")
@@ -1081,6 +1109,8 @@ namespace PGSH.Infrastructure.Migrations
                         .HasForeignKey("ServiceId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.Navigation("CohortRotationTemplate");
 
                     b.Navigation("InternshipAssignment");
 

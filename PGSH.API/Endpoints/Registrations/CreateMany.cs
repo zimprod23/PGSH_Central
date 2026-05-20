@@ -2,6 +2,7 @@
 using PGSH.API.Extensions;
 using PGSH.API.Infrastructure;
 using PGSH.Application.Students.Registrations.CreateMany;
+using PGSH.Domain.Registrations;
 using PGSH.SharedKernel;
 
 namespace PGSH.API.Endpoints.Registrations;
@@ -12,7 +13,7 @@ public sealed class CreateMany : IEndpoint
         List<Guid> StudentIds,
         int AcademicYearId,
         int LevelId,
-        string Status = "Pending");
+        RegistrationStatus Status = RegistrationStatus.Pending);
 
     public void MapEndpoint(IEndpointRouteBuilder app)
     {

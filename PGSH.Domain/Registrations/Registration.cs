@@ -10,7 +10,7 @@ public sealed class Registration : Entity
     public Guid Id { get; set; }
     public int AcademicYearId { get; set; }
     public AcademicYear AcademicYear { get; set; }
-    public string Status { get; set; }
+    public RegistrationStatus Status { get; set; } = RegistrationStatus.Pending;
     public int LevelId { get; set; }
     public Level Level { get; set; }
     public Student Student { get; set; }

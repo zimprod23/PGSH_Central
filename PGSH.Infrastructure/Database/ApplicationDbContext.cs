@@ -1,28 +1,25 @@
-﻿using PGSH.Application.Abstractions.Data;
-using PGSH.Domain.Todos;
-using PGSH.Domain.Users;
-//using MediatR;
-using Microsoft.EntityFrameworkCore;
-using PGSH.SharedKernel;
-using System.Reflection;
 using MediatR;
-using Microsoft.AspNetCore.Builder;
-using PGSH.Domain.Students;
+using Microsoft.EntityFrameworkCore;
+using PGSH.Application.Abstractions.Data;
+using PGSH.Domain.Common.Utils;
 using PGSH.Domain.Employees;
-using PGSH.Domain.Stages;
 using PGSH.Domain.Hospitals;
 using PGSH.Domain.Registrations;
-using Microsoft.EntityFrameworkCore.Design;
-using Microsoft.Extensions.Configuration;
-using PGSH.Domain.Common.Utils;
+using PGSH.Domain.Stages;
+using PGSH.Domain.Students;
+using PGSH.Domain.Todos;
+using PGSH.Domain.Users;
+using PGSH.SharedKernel;
 
 namespace PGSH.Infrastructure.Database;
 
-public sealed class ApplicationDbContext
-    : DbContext, IApplicationDbContext
+public sealed class ApplicationDbContext : DbContext, IApplicationDbContext
 {
     private readonly IPublisher? _publisher;
-    public ApplicationDbContext(DbContextOptions<ApplicationDbContext> options, IPublisher? publisher = null) : base(options) => _publisher = publisher;
+
+    public ApplicationDbContext(DbContextOptions<ApplicationDbContext> options, IPublisher? publisher = null)
+        : base(options) => _publisher = publisher;
+
     // ===== Identity / Core =====
     public DbSet<User> Users { get; set; }
     public DbSet<TodoItem> TodoItems { get; set; }
@@ -62,42 +59,28 @@ public sealed class ApplicationDbContext
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(ApplicationDbContext).Assembly);
-
         modelBuilder.HasDefaultSchema(Schemas.Default);
     }
 
     public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
-        // When should you publish domain events?
-        //
-        // 1. BEFORE calling SaveChangesAsync
-        //     - domain events are part of the same transaction
-        //     - immediate consistency
-        // 2. AFTER calling SaveChangesAsync
-        //     - domain events are a separate transaction
-        //     - eventual consistency
-        //     - handlers can fail
-
         int result = await base.SaveChangesAsync(cancellationToken);
-
         await PublishDomainEventsAsync();
-
         return result;
     }
 
     private async Task PublishDomainEventsAsync()
     {
-        if (_publisher == null) return;
+        if (_publisher is null) return;
+
         var domainEvents = ChangeTracker
             .Entries<Entity>()
             .Select(entry => entry.Entity)
             .SelectMany(entity =>
             {
-                List<IDomainEvent> domainEvents = entity.DomainEvents;
-
+                var events = entity.DomainEvents;
                 entity.ClearDomainEvents();
-
-                return domainEvents;
+                return events;
             })
             .ToList();
 

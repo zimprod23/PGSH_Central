@@ -9,6 +9,6 @@ public sealed class CreateRegistrationCommandValidator : AbstractValidator<Creat
         RuleFor(x => x.StudentId).NotEmpty();
         RuleFor(x => x.LevelId).GreaterThan(0);
         RuleFor(x => x.AcademicYearId).NotEmpty();
-        RuleFor(x => x.Status).NotEmpty().MaximumLength(50);
+        RuleFor(x => x.Status).IsInEnum();
     }
 }
