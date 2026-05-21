@@ -33,6 +33,10 @@ public static class RegistrationErrors
         "Registrations.MissingLevel",
         "Each registration must have a valid academic level.");
 
+    public static readonly Error ProgramMismatch = Error.Validation(
+        "Registrations.ProgramMismatch",
+        "The selected level does not belong to the student's academic program.");
+
     // === FailureReasons ===
     public static Error FailureReasonNotFound(Guid registrationId) => Error.NotFound(
         "FailureReasons.NotFound",

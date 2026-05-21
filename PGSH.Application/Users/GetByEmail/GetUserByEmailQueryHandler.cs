@@ -4,6 +4,7 @@ using PGSH.Application.Abstractions.Messaging;
 using PGSH.Domain.Users;
 using Microsoft.EntityFrameworkCore;
 using PGSH.SharedKernel;
+using PGSH.Application.Users;
 
 namespace PGSH.Application.Users.GetByEmail;
 
@@ -14,13 +15,7 @@ internal sealed class GetUserByEmailQueryHandler(IApplicationDbContext context, 
     {
         UserResponse? user = await context.Users
             .Where(u => u.Email == query.Email)
-            .Select(u => new UserResponse
-            {
-                Id = u.Id,
-                FirstName = u.FirstName,
-                LastName = u.LastName,
-                Email = u.Email
-            })
+            .Select(u => new UserResponse(u.Id, u.Email, u.FirstName, u.LastName))
             .SingleOrDefaultAsync(cancellationToken);
 
         if (user is null)

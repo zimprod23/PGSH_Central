@@ -15,7 +15,7 @@ public sealed class ManageGroups : IEndpoint
 
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
-        app.MapPost("/groups/auto-arrange", async (
+        app.MapPost("groups/auto-arrange", async (
             Request request,
             ISender sender,
             CancellationToken cancellationToken) =>

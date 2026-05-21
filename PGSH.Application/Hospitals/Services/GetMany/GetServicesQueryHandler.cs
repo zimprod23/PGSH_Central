@@ -10,10 +10,8 @@ internal class GetServicesQueryHandler(IApplicationDbContext dbContext) : IQuery
 {
     public async Task<Result<PaginatedResponse<ServiceSummaryResponse>>> Handle(GetServicesQuery request, CancellationToken cancellationToken)
     {
-        // 1. Setup Query
         IQueryable<Service> query = dbContext.Services.AsNoTracking();
 
-        // 2. Apply Filters
         if (request.HospitalId.HasValue)
             query = query.Where(s => s.HospitalId == request.HospitalId.Value);
 
@@ -25,10 +23,8 @@ internal class GetServicesQueryHandler(IApplicationDbContext dbContext) : IQuery
             string term = request.SearchTerm.ToLower();
             query = query.Where(s => s.Name.ToLower().Contains(term));
         }
-        // 3. Total Count
         int totalCount = await query.CountAsync(cancellationToken);
 
-        // 4. Projection
         // We project to include the parent Hospital Name and the Chef's full name
         var items = await query
             .OrderBy(s => s.Name)

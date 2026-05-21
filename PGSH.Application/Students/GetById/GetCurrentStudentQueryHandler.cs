@@ -1,3 +1,4 @@
+using PGSH.Application.Stages.Levels;
 ﻿using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Authentication;
 using PGSH.Application.Abstractions.Data;
@@ -46,6 +47,7 @@ internal sealed class GetCurrentStudentQueryHandler(IApplicationDbContext dbCont
                         r.AcademicYear.Label,
                         r.Status.ToString(),
                         new LevelResponse(
+                            r.Level.Id,
                             r.Level.Label,
                             r.Level.Year,
                             r.Level.AcademicProgram.ToString()

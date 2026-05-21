@@ -14,7 +14,7 @@ public sealed class Create : IEndpoint
             var result = await sender.Send(command, ct);
 
             return result.Match(
-                id => Results.Created($"/api/cohorts/{id}", id),
+                id => Results.Created($"/cohorts/{id}", id),
                 CustomResults.Problem);
         })
         .WithTags(Tags.Cohorts);

@@ -14,5 +14,5 @@ public sealed record BulkItemResult<TIdentifier, TResponse>(
     TResponse? Data,
     Error? Error)
 {
-    public bool IsSuccess => Error == Error.None || Error == null;
+    public bool IsSuccess => Error is null || Error == Error.None;
 }

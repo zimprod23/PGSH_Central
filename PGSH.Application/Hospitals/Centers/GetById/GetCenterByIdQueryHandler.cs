@@ -9,20 +9,17 @@ internal sealed class GetCenterByIdQueryHandler(IApplicationDbContext dbContext)
 {
     public async Task<Result<CenterDetailResponse>> Handle(GetCenterByIdQuery request, CancellationToken cancellationToken)
     {
-        // 1. Fetch with Include for all related data
         var center = await dbContext.Centers
             .AsNoTracking()
             .Include(c => c.Hospitals)
             .FirstOrDefaultAsync(c => c.Id == request.HospitalId, cancellationToken);
 
-        // 2. Handle Not Found
         if (center is null)
         {
             return Result.Failure<CenterDetailResponse>(
                 Error.NotFound("Centers.NotFound", $"The center with ID {request.HospitalId} was not found."));
         }
 
-        // 3. Map to Detail Response
         var response = new CenterDetailResponse(
             center.Id,
             center.Name,

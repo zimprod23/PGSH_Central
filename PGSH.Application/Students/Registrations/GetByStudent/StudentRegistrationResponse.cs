@@ -2,8 +2,10 @@
 
 public sealed record StudentRegistrationResponse(
     Guid Id,
+    int AcademicYearId,
     string AcademicYear,
     int LevelId,
+    string? LevelLabel,
     string Status,
-    bool HasFailures, // Useful for showing a "Warning" icon in the UI
+    bool HasFailures,
     string? FailureDescription);

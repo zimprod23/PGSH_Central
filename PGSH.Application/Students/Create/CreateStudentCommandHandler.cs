@@ -12,8 +12,6 @@ namespace PGSH.Application.Students.Create
     {
         public async Task<Result<Guid>> Handle(CreateStudentCommand request, CancellationToken ct)
         {
-            // 1. Uniqueness check
-            // 1. Single DB trip to find any matching record
             var existing = await context.Students
                 .Where(s => s.CNE == request.CNE ||
                             s.Email == request.Email ||
@@ -23,7 +21,6 @@ namespace PGSH.Application.Students.Create
 
             if (existing is not null)
             {
-                // 2. Determine which field matched using a simple check
                 var culprit = existing.CNE == request.CNE ? ("CNE", request.CNE) :
                               existing.Email == request.Email ? ("Email", request.Email) :
                               existing.Appogee == request.Appogee ? ("Appogee", request.Appogee) :
@@ -32,7 +29,6 @@ namespace PGSH.Application.Students.Create
                 return Result.Failure<Guid>(StudentErrors.Conflict(culprit.Item1, culprit.Item2));
             }
 
-            // 2. Map Entity
             var student = new Student
             {
                 Id = Guid.NewGuid(),

@@ -1,4 +1,5 @@
-﻿using PGSH.Domain.Common.Utils;
+using PGSH.Application.Stages.Levels;
+using PGSH.Domain.Common.Utils;
 
 namespace PGSH.Application.Students.GetById;
 
@@ -29,10 +30,4 @@ public sealed record StudentRegistrationSummary(
     string AcademicYear,
     string Status,
     LevelResponse Level);
-
-public sealed record LevelResponse(
-
-    string? Label,
-    int Year,
-    string AcademicProgram
-);
+

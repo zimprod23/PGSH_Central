@@ -9,7 +9,6 @@ internal class DeleteServiceCommandHandler(IApplicationDbContext dbContext) : IC
 {
     public async Task<Result> Handle(DeleteServiceCommand request, CancellationToken cancellationToken)
     {
-        // 1. Fetch the service
         var service = await dbContext.Services
             .FirstOrDefaultAsync(s => s.Id == request.Id, cancellationToken);
 
@@ -18,10 +17,8 @@ internal class DeleteServiceCommandHandler(IApplicationDbContext dbContext) : IC
             return Result.Failure(Error.NotFound("Services.NotFound", "Service not found."));
         }
 
-        // 2. Placeholder for Domain Validation
         // (e.g., Check if students are currently assigned to this service)
 
-        // 3. Perform Deletion
         dbContext.Services.Remove(service);
         await dbContext.SaveChangesAsync(cancellationToken);
 

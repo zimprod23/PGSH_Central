@@ -7,7 +7,6 @@ using PGSH.Domain.Hospitals;
 using PGSH.Domain.Registrations;
 using PGSH.Domain.Stages;
 using PGSH.Domain.Students;
-using PGSH.Domain.Todos;
 using PGSH.Domain.Users;
 using PGSH.SharedKernel;
 
@@ -22,7 +21,6 @@ public sealed class ApplicationDbContext : DbContext, IApplicationDbContext
 
     // ===== Identity / Core =====
     public DbSet<User> Users { get; set; }
-    public DbSet<TodoItem> TodoItems { get; set; }
 
     // ===== Academic / People =====
     public DbSet<Student> Students { get; set; }

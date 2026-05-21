@@ -1,5 +1,4 @@
-﻿using PGSH.Domain.Todos;
-using PGSH.Domain.Users;
+﻿using PGSH.Domain.Users;
 using Microsoft.EntityFrameworkCore;
 using PGSH.Domain.Employees;
 using PGSH.Domain.Hospitals;
@@ -13,7 +12,6 @@ namespace PGSH.Application.Abstractions.Data;
 public interface IApplicationDbContext
 {
     DbSet<User> Users { get; }
-    DbSet<TodoItem> TodoItems { get; }
     DbSet<Student> Students { get; set; }
     DbSet<Employee> Employees { get; set; }
     DbSet<Stage> Stages { get; set; }

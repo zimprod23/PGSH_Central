@@ -1,21 +1,19 @@
-﻿using MediatR;
+using MediatR;
 using PGSH.API.Extensions;
 using PGSH.API.Infrastructure;
 using PGSH.Application.Stages.Delete;
 
-namespace PGSH.API.Endpoints.Stages
+namespace PGSH.API.Endpoints.Stages;
+
+public sealed class Delete : IEndpoint
 {
-    public class Delete : IEndpoint
+    public void MapEndpoint(IEndpointRouteBuilder app)
     {
-        public void MapEndpoint(IEndpointRouteBuilder app)
+        app.MapDelete("stages/{id:int}", async (int id, ISender sender, CancellationToken ct) =>
         {
-            app.MapDelete("stages/{id:int}", async (int Id, ISender Sender, CancellationToken cancellationToken) =>
-            {
-                var command = new DeleteStageCommand(Id);
-                var result = await Sender.Send(command);
-                return result.Match(Results.NoContent, CustomResults.Problem);
-            })
-            .WithTags(Tags.Stages);
-        }
+            var result = await sender.Send(new DeleteStageCommand(id), ct);
+            return result.Match(Results.NoContent, CustomResults.Problem);
+        })
+        .WithTags(Tags.Stages);
     }
 }

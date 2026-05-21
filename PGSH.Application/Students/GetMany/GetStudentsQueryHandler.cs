@@ -1,23 +1,28 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
+using PGSH.Application.Extensions;
 using PGSH.Domain.Students;
 using PGSH.SharedKernel;
 
 namespace PGSH.Application.Students.GetMany;
 
-internal sealed class GetStudentsQueryHandler(IApplicationDbContext context): IQueryHandler<GetStudentsQuery, PaginatedResponse<StudentSummaryResponse>>
+internal sealed class GetStudentsQueryHandler(IApplicationDbContext context)
+    : IQueryHandler<GetStudentsQuery, PaginatedResponse<StudentSummaryResponse>>
 {
     public async Task<Result<PaginatedResponse<StudentSummaryResponse>>> Handle(
-        GetStudentsQuery request,
-        CancellationToken ct)
+        GetStudentsQuery request, CancellationToken ct)
     {
-        // 1. Setup Query with AsNoTracking (Best performance for reads)
         IQueryable<Student> query = context.Students.AsNoTracking();
 
-        // 2. Apply Filters (Only if they have values)
         if (!string.IsNullOrWhiteSpace(request.CNE))
             query = query.Where(s => s.CNE == request.CNE);
+
+        if (!string.IsNullOrWhiteSpace(request.Appogee))
+            query = query.Where(s => s.Appogee == request.Appogee);
+
+        if (!string.IsNullOrWhiteSpace(request.CIN))
+            query = query.Where(s => s.CIN == request.CIN);
 
         if (!string.IsNullOrWhiteSpace(request.SearchTerm))
         {
@@ -25,36 +30,18 @@ internal sealed class GetStudentsQueryHandler(IApplicationDbContext context): IQ
             query = query.Where(s =>
                 s.FirstName.ToLower().Contains(term) ||
                 s.LastName.ToLower().Contains(term) ||
-                s.Email.ToLower().Contains(term));
+                s.Email.ToLower().Contains(term)     ||
+                s.CNE.ToLower().Contains(term)       ||
+                s.Appogee.Contains(term)             ||
+                (s.CIN != null && s.CIN.ToLower().Contains(term)));
         }
 
-        // 3. Count Total (Required for UI pagination metadata)
-        // We do this BEFORE Skip/Take
-        int totalCount = await query.CountAsync(ct);
-
-        // 4. Projection & Pagination
-        // Performance: We only 'Select' the summary fields to keep the SQL row narrow
-        var items = await query
+        var response = await query
             .OrderBy(s => s.LastName)
-            .Skip((request.PageNumber - 1) * request.PageSize)
-            .Take(request.PageSize)
-            .Select(s => new StudentSummaryResponse(
-                s.Id,
-                s.Email,
-                s.FirstName,
-                s.LastName,
-                s.CNE,
-                s.Appogee,
-                s.AcademicProgram.ToString(),
-                s.CIN))
-            .ToListAsync(ct);
-
-        // 5. Wrap in Result and PagedResponse
-        var response = new PaginatedResponse<StudentSummaryResponse>(
-            items,
-            request.PageNumber,
-            request.PageSize,
-            totalCount);
+            .ToPaginatedResponseAsync(
+                request.PageNumber, request.PageSize,
+                s => new StudentSummaryResponse(s.Id, s.Email, s.FirstName, s.LastName, s.CNE, s.Appogee, s.AcademicProgram.ToString(), s.CIN),
+                ct);
 
         return Result.Success(response);
     }

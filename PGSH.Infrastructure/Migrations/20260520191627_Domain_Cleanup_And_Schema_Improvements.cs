@@ -62,15 +62,9 @@ namespace PGSH.Infrastructure.Migrations
                 type: "integer",
                 nullable: true);
 
-            migrationBuilder.AlterColumn<string>(
-                name: "failureReasons_Notes",
-                schema: "public",
-                table: "Registrations",
-                type: "jsonb",
-                nullable: true,
-                oldClrType: typeof(string),
-                oldType: "text",
-                oldNullable: true);
+            // AlterColumn cannot cast text→jsonb automatically; use explicit USING clause
+            migrationBuilder.Sql(
+                @"ALTER TABLE public.""Registrations"" ALTER COLUMN ""failureReasons_Notes"" TYPE jsonb USING ""failureReasons_Notes""::jsonb;");
 
             migrationBuilder.AlterColumn<string>(
                 name: "Status",
@@ -220,15 +214,8 @@ namespace PGSH.Infrastructure.Migrations
                 table: "CohortMembership",
                 newName: "IX_CohortMembership_InternshipAssignmentId");
 
-            migrationBuilder.AlterColumn<string>(
-                name: "failureReasons_Notes",
-                schema: "public",
-                table: "Registrations",
-                type: "text",
-                nullable: true,
-                oldClrType: typeof(string),
-                oldType: "jsonb",
-                oldNullable: true);
+            migrationBuilder.Sql(
+                @"ALTER TABLE public.""Registrations"" ALTER COLUMN ""failureReasons_Notes"" TYPE text USING ""failureReasons_Notes""::text;");
 
             migrationBuilder.AlterColumn<string>(
                 name: "Status",

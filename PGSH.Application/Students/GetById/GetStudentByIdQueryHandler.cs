@@ -1,3 +1,4 @@
+using PGSH.Application.Stages.Levels;
 ﻿using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
@@ -41,6 +42,7 @@ internal sealed class GetStudentByIdQueryHandler(IApplicationDbContext context)
                         r.AcademicYear.Label,
                         r.Status.ToString(),
                         new LevelResponse(
+                            r.Level.Id,
                             r.Level.Label,
                             r.Level.Year,
                             r.Level.AcademicProgram.ToString()

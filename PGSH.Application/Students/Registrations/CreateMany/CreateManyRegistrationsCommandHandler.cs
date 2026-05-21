@@ -15,11 +15,9 @@ internal sealed class CreateManyRegistrationsCommandHandler(
         CreateManyRegistrationsCommand request,
         CancellationToken cancellationToken)
     {
-        // 1. Initial Infrastructure check
         bool levelExists = await dbContext.Levels.AnyAsync(l => l.Id == request.LevelId, cancellationToken);
         if (!levelExists) return Result.Failure<BulkResponse<Guid, Guid>>(RegistrationErrors.MissingLevel);
 
-        // 2. Optimization: Bulk fetch existing data for O(1) in-memory checks
         var existingRegistrationIds = await dbContext.Registrations
             .Where(r => r.AcademicYearId == request.AcademicYearId && request.StudentIds.Contains(r.StudentId))
             .Select(r => r.StudentId)
@@ -36,7 +34,6 @@ internal sealed class CreateManyRegistrationsCommandHandler(
         var itemResults = new List<BulkItemResult<Guid, Guid>>();
         var newRegistrations = new List<Registration>();
 
-        // 3. Process each Student ID
         foreach (var studentId in request.StudentIds.Distinct())
         {
             // Error: Student doesn't exist in the system
@@ -71,14 +68,12 @@ internal sealed class CreateManyRegistrationsCommandHandler(
             itemResults.Add(new BulkItemResult<Guid, Guid>(studentId, reg.Id, null));
         }
 
-        // 4. Atomic Save for the valid subset
         if (newRegistrations.Any())
         {
             dbContext.Registrations.AddRange(newRegistrations);
             await dbContext.SaveChangesAsync(cancellationToken);
         }
 
-        // 5. Construct the Generic Bulk Response
         var response = new BulkResponse<Guid, Guid>(
             itemResults,
             request.StudentIds.Count,

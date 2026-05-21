@@ -11,7 +11,6 @@ public sealed class CreateLevelCommandHandler(IApplicationDbContext dbContext) :
 {
     async Task<Result<int>> IRequestHandler<CreateLevelCommand, Result<int>>.Handle(CreateLevelCommand request, CancellationToken cancellationToken)
     {
-        // 1. Performance check: Does this level already exist?
         bool exists = await dbContext.Levels
             .AnyAsync(l => l.Label == request.Label && l.Year == request.Year, cancellationToken);
 
@@ -20,7 +19,6 @@ public sealed class CreateLevelCommandHandler(IApplicationDbContext dbContext) :
             return Result.Failure<int>(Error.Conflict("Level.AlreadyExists", "This level already exists."));
         }
 
-        // 2. Map and Create
         var level = new Level
         {
             Label = request.Label,

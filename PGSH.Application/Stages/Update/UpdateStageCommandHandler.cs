@@ -21,14 +21,12 @@ internal class UpdateStageCommandHandler(IApplicationDbContext dbContext) : ICom
                 return Result.Failure(StageErrors.MissingLevel);
         }
 
-        // 3. Update main properties
         stage.Name = request.Name;
         stage.Description = request.Description;
         stage.Coefficient = request.Coefficient;
         stage.DurationInDays = request.DurationInDays;
         stage.LevelId = request.LevelId;
 
-        // 4. Update Objectives (Optimal strategy: Replace the collection)
         stage.Objectives.Clear();
         ((List<StageObjective>)stage.Objectives).AddRange(request.Objectives.Select(o => new StageObjective
         {

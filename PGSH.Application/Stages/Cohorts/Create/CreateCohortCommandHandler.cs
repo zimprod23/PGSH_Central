@@ -10,7 +10,6 @@ internal class CreateCohortCommandHandler(IApplicationDbContext dbContext) : ICo
 {
     public async Task<Result<int>> Handle(CreateCohortCommand request, CancellationToken cancellationToken)
     {
-        // 1. Verify the Stage (Academic Definition) exists
         var stageExists = await dbContext.Stages
             .AnyAsync(s => s.Id == request.StageId, cancellationToken);
 
@@ -19,7 +18,6 @@ internal class CreateCohortCommandHandler(IApplicationDbContext dbContext) : ICo
             return Result.Failure<int>(StageErrors.NotFound(request.StageId));
         }
 
-        // 2. Initialize the Cohort
         var cohort = new Cohort
         {
             StageId = request.StageId,

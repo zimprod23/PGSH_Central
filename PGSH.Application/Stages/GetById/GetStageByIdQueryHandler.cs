@@ -1,3 +1,4 @@
+using PGSH.Application.Stages.Levels;
 ﻿using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
@@ -24,6 +25,7 @@ internal sealed class GetStageByIdQueryHandler(
                             s.Description,
                             s.DurationInDays,
                             new LevelResponse(
+                                s.Level.Id,
                                 s.Level.Label,
                                 s.Level.Year,
                                 s.Level.AcademicProgram.ToString()

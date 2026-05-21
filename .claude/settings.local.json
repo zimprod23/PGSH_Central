@@ -15,7 +15,13 @@
       "Bash(Remove-Item \"C:\\\\Users\\\\LEGION\\\\source\\\\repos\\\\PGSH\\\\PGSH.Domain\\\\Hospitals\\\\Nature.cs\" -Force)",
       "Bash(Write-Host \"Done\")",
       "Bash(dotnet build *)",
-      "Bash(dotnet ef *)"
+      "Bash(dotnet ef *)",
+      "Bash(xargs grep -l \"Todo\\\\|TodoItem\")",
+      "Bash(python3 *)",
+      "Bash(node *)",
+      "Bash(Sort-Object)",
+      "Bash(npm run *)",
+      "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\LEGION\\\\source\\\\repos\\\\PGSH\\\\PGSH.Frontend\" -Recurse -File | Where-Object { $_.Extension -match '\\\\.\\(png|jpg|jpeg|webp|gif|md\\)$' } | Select-Object FullName)"
     ]
   }
 }

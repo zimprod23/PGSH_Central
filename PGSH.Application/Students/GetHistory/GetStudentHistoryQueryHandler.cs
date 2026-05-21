@@ -12,14 +12,12 @@ internal sealed class GetStudentHistoryQueryHandler(
 {
     public async Task<Result<List<StudentHistoryResponse>>> Handle(GetStudentHistoryQuery request, CancellationToken cancellationToken)
     {
-        // 1. Check if student exists
         var studentExists = await dbContext.Students
             .AnyAsync(s => s.Id == request.StudentId, cancellationToken);
 
         if (!studentExists)
             return Result.Failure<List<StudentHistoryResponse>>(StudentErrors.NotFound(request.StudentId));
 
-        // 2. Query the dedicated History table
         var history = await dbContext.Histories// Accessing the History set
             .AsNoTracking()
             .Where(h => h.StudentId == request.StudentId)

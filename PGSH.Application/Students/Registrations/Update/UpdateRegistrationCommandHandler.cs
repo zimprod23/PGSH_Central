@@ -16,6 +16,16 @@ internal class UpdateRegistrationCommandHandler(IApplicationDbContext dbContext)
 
         if (student is null) return Result.Failure(StudentErrors.NotFound(request.StudentId));
 
+        var level = await dbContext.Levels
+            .Where(l => l.Id == request.LevelId)
+            .Select(l => new { l.AcademicProgram })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (level is null) return Result.Failure(RegistrationErrors.MissingLevel);
+
+        if (level.AcademicProgram != student.AcademicProgram)
+            return Result.Failure(RegistrationErrors.ProgramMismatch);
+
         FailureReasons? failureReasons = request.FailureDescription is not null
             ? new FailureReasons(request.FailureDescription, request.FailureNotes ?? new(),request.Cheat ?? false)
             : null;

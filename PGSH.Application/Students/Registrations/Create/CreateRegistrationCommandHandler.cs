@@ -12,13 +12,27 @@ internal sealed class CreateRegistrationCommandHandler(
 {
     public async Task<Result<Guid>> Handle(CreateRegistrationCommand request, CancellationToken cancellationToken)
     {
-        var studentExists = await dbContext.Students.AnyAsync(s => s.Id == request.StudentId, cancellationToken);
-        if (!studentExists) return Result.Failure<Guid>(StudentErrors.NotFound(request.StudentId));
+        var student = await dbContext.Students
+            .Where(s => s.Id == request.StudentId)
+            .Select(s => new { s.Id, s.AcademicProgram })
+            .FirstOrDefaultAsync(cancellationToken);
 
-        bool levelExists = await dbContext.Levels.AnyAsync(l => l.Id == request.LevelId, cancellationToken);
-        if (!levelExists) return Result.Failure<Guid>(RegistrationErrors.MissingLevel);
+        if (student is null) return Result.Failure<Guid>(StudentErrors.NotFound(request.StudentId));
 
-        var alreadyRegistered = await dbContext.Registrations.AnyAsync(s => s.StudentId == request.StudentId && s.AcademicYearId == request.AcademicYearId, cancellationToken);
+        var level = await dbContext.Levels
+            .Where(l => l.Id == request.LevelId)
+            .Select(l => new { l.Id, l.AcademicProgram })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (level is null) return Result.Failure<Guid>(RegistrationErrors.MissingLevel);
+
+        if (level.AcademicProgram != student.AcademicProgram)
+            return Result.Failure<Guid>(RegistrationErrors.ProgramMismatch);
+
+        var alreadyRegistered = await dbContext.Registrations.AnyAsync(
+            r => r.StudentId == request.StudentId && r.AcademicYearId == request.AcademicYearId,
+            cancellationToken);
+
         if (alreadyRegistered) return Result.Failure<Guid>(RegistrationErrors.DuplicateRegistration(request.StudentId, request.AcademicYearId));
 
 

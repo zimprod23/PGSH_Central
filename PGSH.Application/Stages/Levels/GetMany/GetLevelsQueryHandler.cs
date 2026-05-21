@@ -1,23 +1,22 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
-using PGSH.Application.Students.GetById;
+using PGSH.Application.Extensions;
+using PGSH.Domain.Common.Utils;
 using PGSH.SharedKernel;
 
 namespace PGSH.Application.Stages.Levels.GetMany;
 
-internal sealed class GetLevelsQueryHandler(IApplicationDbContext dbContext) : IQueryHandler<GetLevelsQuery, PaginatedResponse<LevelResponse>>
+internal sealed class GetLevelsQueryHandler(IApplicationDbContext dbContext)
+    : IQueryHandler<GetLevelsQuery, PaginatedResponse<LevelResponse>>
 {
-    public async Task<Result<PaginatedResponse<LevelResponse>>> Handle(GetLevelsQuery request, CancellationToken cancellationToken)
+    public async Task<Result<PaginatedResponse<LevelResponse>>> Handle(
+        GetLevelsQuery request, CancellationToken cancellationToken)
     {
-        // 1. Base Query with NoTracking
-        var query = dbContext.Levels.AsNoTracking();
+        var query = dbContext.Levels.AsNoTracking().AsQueryable();
 
-        // 2. Filters
         if (request.AcademicProgram.HasValue)
-        {
-            query = query.Where(l => (int)l.AcademicProgram == request.AcademicProgram);
-        }
+            query = query.Where(l => l.AcademicProgram == request.AcademicProgram.Value);
 
         if (!string.IsNullOrWhiteSpace(request.SearchTerm))
         {
@@ -25,26 +24,13 @@ internal sealed class GetLevelsQueryHandler(IApplicationDbContext dbContext) : I
             query = query.Where(l => l.Label.ToLower().Contains(term));
         }
 
-        // 3. Count
-        int totalCount = await query.CountAsync(cancellationToken);
+        var response = await query
+            .OrderBy(l => l.Year).ThenBy(l => l.Label)
+            .ToPaginatedResponseAsync(
+                request.PageNumber, request.PageSize,
+                l => new LevelResponse(l.Id, l.Label, l.Year, l.AcademicProgram.ToString()),
+                cancellationToken);
 
-        // 4. Pagination & Projection
-        var items = await query
-            .OrderBy(l => l.Year)
-            .ThenBy(l => l.Label)
-            .Skip((request.PageNumber - 1) * request.PageSize)
-            .Take(request.PageSize)
-            .Select(l => new LevelResponse(
-                //l.Id,
-                l.Label,
-                l.Year,
-                l.AcademicProgram.ToString()))
-            .ToListAsync(cancellationToken);
-
-        return Result.Success(new PaginatedResponse<LevelResponse>(
-            items,
-            request.PageNumber,
-            request.PageSize,
-            totalCount));
+        return Result.Success(response);
     }
 }

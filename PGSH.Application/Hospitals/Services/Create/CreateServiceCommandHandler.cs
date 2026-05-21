@@ -10,14 +10,12 @@ internal sealed class CreateServiceCommandHandler(IApplicationDbContext dbContex
 {
     public async Task<Result<int>> Handle(CreateServiceCommand request, CancellationToken cancellationToken)
     {
-        // 1. Check if Hospital exists
         var hospitalExists = await dbContext.Hospitals.AnyAsync(h => h.Id == request.HospitalId, cancellationToken);
         if (!hospitalExists)
         {
             return Result.Failure<int>(Error.NotFound("Hospitals.NotFound", "The target hospital does not exist."));
         }
 
-        // 2. Uniqueness check within the same Hospital
         bool nameExists = await dbContext.Services.AnyAsync(s =>
             s.HospitalId == request.HospitalId &&
             s.Name.ToLower() == request.Name.ToLower(), cancellationToken);
@@ -27,7 +25,6 @@ internal sealed class CreateServiceCommandHandler(IApplicationDbContext dbContex
             return Result.Failure<int>(Error.Conflict("Services.DuplicateName", "This service already exists in this hospital."));
         }
 
-        // 3. Map and Persist
         var service = new Service
         {
             HospitalId = request.HospitalId,

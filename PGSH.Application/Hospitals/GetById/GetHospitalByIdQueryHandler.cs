@@ -20,7 +20,6 @@ internal sealed class GetHospitalByIdQueryHandler(IApplicationDbContext dbContex
                 Error.NotFound("Hospitals.NotFound", $"Hospital with ID {request.Id} not found."));
         }
 
-        // 3. Map to Detail Response
         var response = new HospitalDetailResponse(
             hospital.Id,
             hospital.Name,
