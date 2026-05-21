@@ -1,9 +1,10 @@
 ﻿using PGSH.Application.Abstractions.Messaging;
+using PGSH.Domain.Common.Utils;
 
 namespace PGSH.Application.Stages.Levels.Update;
 
 public sealed record UpdateLevelCommand(
     int Id,
-    string Label,
+    string? Label,
     int Year,
-    int AcademicProgram): ICommand;
+    AcademicProgram AcademicProgram) : ICommand;

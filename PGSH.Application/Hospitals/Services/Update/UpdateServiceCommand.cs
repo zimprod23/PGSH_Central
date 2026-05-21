@@ -9,4 +9,5 @@ public record UpdateServiceCommand(
     string Description,
     ServiceType ServiceType,
     int Capacity,
-    int HospitalId) : ICommand;
+    int HospitalId,
+    string? Specialty) : ICommand;

@@ -8,4 +8,5 @@ public record CreateServiceCommand(
     string Name,
     ServiceType ServiceType,
     int Capacity,
-    string Description) : ICommand<int>;
+    string Description,
+    string? Specialty) : ICommand<int>;

@@ -146,7 +146,8 @@ internal static class Seeder
                 new[] { 8, 16, 24, 32 },
                 new[] { 0.15f, 0.40f, 0.35f, 0.10f }))
             .RuleFor(s => s.ServiceType, f => f.PickRandom<ServiceType>())
-            .RuleFor(s => s.Description, f => f.Lorem.Sentence());
+            .RuleFor(s => s.Description, f => f.Lorem.Sentence())
+            .RuleFor(s => s.Specialty, _ => null);
 
         var centersData = new[]
         {
@@ -174,7 +175,8 @@ internal static class Seeder
                 foreach (var svcName in allServiceNames.OrderBy(_ => Guid.NewGuid()).Take(10))
                 {
                     var svc = serviceFaker.Generate();
-                    svc.Name = svcName;
+                    svc.Name      = svcName;
+                    svc.Specialty = svcName;
                     hospital.services.Add(svc);
                 }
 

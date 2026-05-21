@@ -14,7 +14,7 @@ internal sealed class GetAcademicYearsQueryHandler(IApplicationDbContext dbConte
         var years = await dbContext.AcademicYears
             .AsNoTracking()
             .OrderByDescending(y => y.StartDate)
-            .Select(y => new AcademicYearResponse(y.Id, y.Label, y.IsCurrent))
+            .Select(y => new AcademicYearResponse(y.Id, y.Label, y.StartDate, y.EndDate, y.IsCurrent))
             .ToListAsync(ct);
 
         return years;

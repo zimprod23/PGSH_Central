@@ -33,6 +33,7 @@ internal sealed class UpdateServiceCommandHandler(IApplicationDbContext dbContex
 
         service.Name = request.Name;
         service.Description = request.Description;
+        service.Specialty = request.Specialty;
         service.ServiceType = request.ServiceType;
         service.Capacity = request.Capacity;
 

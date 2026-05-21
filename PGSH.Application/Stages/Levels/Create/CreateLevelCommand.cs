@@ -1,8 +1,9 @@
 ﻿using PGSH.Application.Abstractions.Messaging;
+using PGSH.Domain.Common.Utils;
 
 namespace PGSH.Application.Stages.Levels.Create;
 
 public sealed record CreateLevelCommand(
-    string Label,
+    string? Label,
     int Year,
-    int AcademicProgram): ICommand<int>;
+    AcademicProgram AcademicProgram) : ICommand<int>;

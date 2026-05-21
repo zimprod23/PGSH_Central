@@ -1,5 +1,4 @@
 ﻿using PGSH.Application.Abstractions.Messaging;
-using System.Windows.Input;
 
 namespace PGSH.Application.Stages.Create;
 

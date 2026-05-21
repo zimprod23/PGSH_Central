@@ -9,10 +9,18 @@ namespace PGSH.API
         {
             services.AddEndpointsApiExplorer();
             services.AddOpenApi();
-            services.AddControllers();
+
+            // Register the enum-as-string converter for both minimal API endpoints and MVC controllers
+            // (AddControllers registers a separate JSON pipeline from ConfigureHttpJsonOptions)
+            services.AddControllers()
+                .AddJsonOptions(opts =>
+                    opts.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 
             services.ConfigureHttpJsonOptions(options =>
-                options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
+            {
+                options.SerializerOptions.Converters.Add(new JsonStringEnumConverter());
+                options.SerializerOptions.PropertyNameCaseInsensitive = true;
+            });
 
             services.AddExceptionHandler<GlobalExceptionHandler>();
             services.AddProblemDetails();

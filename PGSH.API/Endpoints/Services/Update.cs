@@ -13,7 +13,8 @@ public sealed class Update : IEndpoint
         string Description,
         ServiceType ServiceType,
         int Capacity,
-        int HospitalId);
+        int HospitalId,
+        string? Specialty);
 
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
@@ -21,7 +22,7 @@ public sealed class Update : IEndpoint
         {
             var command = new UpdateServiceCommand(
                 id, request.Name, request.Description, request.ServiceType,
-                request.Capacity, request.HospitalId);
+                request.Capacity, request.HospitalId, request.Specialty);
 
             var result = await sender.Send(command, ct);
             return result.Match(Results.NoContent, CustomResults.Problem);

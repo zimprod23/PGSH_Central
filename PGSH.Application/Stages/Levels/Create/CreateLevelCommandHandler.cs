@@ -12,18 +12,17 @@ public sealed class CreateLevelCommandHandler(IApplicationDbContext dbContext) :
     async Task<Result<int>> IRequestHandler<CreateLevelCommand, Result<int>>.Handle(CreateLevelCommand request, CancellationToken cancellationToken)
     {
         bool exists = await dbContext.Levels
-            .AnyAsync(l => l.Label == request.Label && l.Year == request.Year, cancellationToken);
+            .AnyAsync(l => l.Year == request.Year && l.AcademicProgram == request.AcademicProgram, cancellationToken);
 
         if (exists)
-        {
-            return Result.Failure<int>(Error.Conflict("Level.AlreadyExists", "This level already exists."));
-        }
+            return Result.Failure<int>(Error.Conflict("Level.AlreadyExists",
+                $"A level for Year {request.Year} in {request.AcademicProgram} already exists."));
 
         var level = new Level
         {
             Label = request.Label,
             Year = request.Year,
-            AcademicProgram = (AcademicProgram)request.AcademicProgram
+            AcademicProgram = request.AcademicProgram,
         };
 
         dbContext.Levels.Add(level);

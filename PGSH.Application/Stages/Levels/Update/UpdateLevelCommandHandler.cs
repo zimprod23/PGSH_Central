@@ -18,15 +18,16 @@ internal sealed class UpdateLevelCommandHandler(IApplicationDbContext dbContext)
 
         bool alreadyExists = await dbContext.Levels
             .AnyAsync(l => l.Id != request.Id &&
-                           l.Label == request.Label &&
-                           l.Year == request.Year, cancellationToken);
+                           l.Year == request.Year &&
+                           l.AcademicProgram == request.AcademicProgram, cancellationToken);
 
         if (alreadyExists)
-            return Result.Failure(Error.Conflict("Level.Duplicate", "Another level with this name and year already exists."));
+            return Result.Failure(Error.Conflict("Level.Duplicate",
+                $"A level for Year {request.Year} in {request.AcademicProgram} already exists."));
 
         level.Label = request.Label;
         level.Year = request.Year;
-        level.AcademicProgram = (AcademicProgram)request.AcademicProgram;
+        level.AcademicProgram = request.AcademicProgram;
 
         await dbContext.SaveChangesAsync(cancellationToken);
 

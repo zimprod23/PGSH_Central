@@ -8,6 +8,7 @@ public sealed class Service
     public int Id { get; set; }
     public string Name { get; set; }
     public string Description { get; set; }
+    public string? Specialty { get; set; }
     public ServiceType ServiceType { get; set; }
     public int Capacity { get; set; } = 20;
     public int HospitalId { get; set; }

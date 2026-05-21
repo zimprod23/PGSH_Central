@@ -49,6 +49,7 @@ Entities: `AcademicYear → AcademicGroup`, `Level`
 - `AcademicGroup`: scoped to a year, `GroupNumber` + `Label` both unique per year, `GeographicZone` for clustering
 - `Level`: `(Year, AcademicProgram)` unique constraint, used as FK by both Stage and Registration
 - Auto-arrange endpoint: distributes unassigned registrations into groups of configurable size
+- `GET /academic-years` endpoint added: returns all years ordered by StartDate descending (`GetAcademicYearsQuery` + handler + endpoint)
 
 ---
 
@@ -66,6 +67,9 @@ Entities: `Student`, `Registration`, `History`
 - `History` audit trail with `HistoryType` enum and free-form `Metadata` (jsonb)
 - Bulk registration endpoint (`CreateManyRegistrationsCommand`): O(1) duplicate detection with HashSet
 - `IX_Registration_Student_Year` composite index
+- **Business rule — Program mismatch**: `CreateRegistration` and `UpdateRegistration` reject a level whose `AcademicProgram` doesn't match the student's program (`RegistrationErrors.ProgramMismatch`)
+- **Business rule — Chronological consistency**: `CreateRegistration` and `UpdateRegistration` reject any (level, year) pair that contradicts the student's existing registration progression — higher level must always be in a later academic year (`RegistrationErrors.ChronologicalInconsistency`)
+- **`searchTerm` extended**: `GetStudentsQueryHandler` now searches CNE, Appogee, and CIN in addition to name/email
 
 ---
 
@@ -214,6 +218,29 @@ Current state: `PermissionAuthorizationHandler` checks Keycloak roles only. `Per
 - Coordinator screens: group management, rotation planning, assignment overview
 - Hospital admin: service capacity, attendance validation, evaluation submission
 - Auto-arrange groups UI with preview before commit
+
+---
+
+## 🔲 Phase 11.5 — Performance Audit
+
+**Status: Not started — to be run before Phase 12**
+
+A mandatory optimization pass before production deployment.
+
+### Backend
+- **EF Core query audit**: run `EnableSensitiveDataLogging` + `LogTo` in dev and capture all SQL; look for N+1 patterns, missing `.AsNoTracking()`, unneeded `.Include()`, and queries inside loops
+- **Projection completeness**: ensure every `GetMany` handler uses `.ToPaginatedResponseAsync` with a `Select` projection (never loads full entities for list views)
+- **Index coverage**: verify all FK columns used in `WHERE` / `JOIN` have indexes; check slow queries with `EXPLAIN ANALYZE` in PostgreSQL
+- **Compiled queries**: consider `EF.CompileAsyncQuery` for the hottest read paths (student list, registration list)
+- **Connection pooling**: verify Npgsql pool size is appropriate for expected concurrency
+- **`SaveChangesAsync` batching**: multiple entity modifications in one handler should all save in a single call, never multiple `SaveChangesAsync` per request
+
+### Frontend
+- **RTK Query tag hygiene**: audit `providesTags` / `invalidatesTags` — over-broad invalidation (e.g., `['Student']` wiping all students on a single update) causes unnecessary refetches
+- **Debounce coverage**: all search inputs use `useDebouncedValue(search, 350)` — verify no direct query params without debounce
+- **Pagination discipline**: no endpoint called with `pageSize: 999` "load all" patterns; large reference lists (hospitals for select, levels for select) should be cached and paginated or fetched once and memoized
+- **Code splitting**: verify all page-level components are `lazy()`-loaded — no accidental eager imports in `routes/index.tsx`
+- **Mantine component imports**: use direct imports (`import { Button } from '@mantine/core'`) not barrel re-exports to keep bundle splits clean
 
 ---
 

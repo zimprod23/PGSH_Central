@@ -37,6 +37,10 @@ public static class RegistrationErrors
         "Registrations.ProgramMismatch",
         "The selected level does not belong to the student's academic program.");
 
+    public static readonly Error ChronologicalInconsistency = Error.Validation(
+        "Registrations.ChronologicalInconsistency",
+        "The registration year and level are inconsistent with the student's existing academic progression.");
+
     // === FailureReasons ===
     public static Error FailureReasonNotFound(Guid registrationId) => Error.NotFound(
         "FailureReasons.NotFound",

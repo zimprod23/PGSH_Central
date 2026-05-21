@@ -31,7 +31,8 @@ internal sealed class CreateServiceCommandHandler(IApplicationDbContext dbContex
             Name = request.Name,
             ServiceType = request.ServiceType,
             Capacity = request.Capacity,
-            Description = request.Description
+            Description = request.Description,
+            Specialty = request.Specialty,
         };
 
         dbContext.Services.Add(service);

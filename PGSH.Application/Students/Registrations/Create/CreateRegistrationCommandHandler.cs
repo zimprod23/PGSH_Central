@@ -21,13 +21,33 @@ internal sealed class CreateRegistrationCommandHandler(
 
         var level = await dbContext.Levels
             .Where(l => l.Id == request.LevelId)
-            .Select(l => new { l.Id, l.AcademicProgram })
+            .Select(l => new { l.Id, l.AcademicProgram, l.Year })
             .FirstOrDefaultAsync(cancellationToken);
 
         if (level is null) return Result.Failure<Guid>(RegistrationErrors.MissingLevel);
 
         if (level.AcademicProgram != student.AcademicProgram)
             return Result.Failure<Guid>(RegistrationErrors.ProgramMismatch);
+
+        var newStartDate = await dbContext.AcademicYears
+            .Where(y => y.Id == request.AcademicYearId)
+            .Select(y => (DateOnly?)y.StartDate)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (newStartDate is null) return Result.Failure<Guid>(RegistrationErrors.MissingAcademicYear);
+
+        var existingProgression = await dbContext.Registrations
+            .Where(r => r.StudentId == request.StudentId)
+            .Select(r => new { LevelYear = r.Level.Year, AcademicYearStart = r.AcademicYear.StartDate })
+            .ToListAsync(cancellationToken);
+
+        foreach (var existing in existingProgression)
+        {
+            int levelDiff = existing.LevelYear - level.Year;
+            int dateDiff = existing.AcademicYearStart.CompareTo(newStartDate.Value);
+            if (levelDiff != 0 && Math.Sign(levelDiff) != Math.Sign(dateDiff))
+                return Result.Failure<Guid>(RegistrationErrors.ChronologicalInconsistency);
+        }
 
         var alreadyRegistered = await dbContext.Registrations.AnyAsync(
             r => r.StudentId == request.StudentId && r.AcademicYearId == request.AcademicYearId,

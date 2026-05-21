@@ -105,6 +105,9 @@ internal sealed class ServiceConfiguration : IEntityTypeConfiguration<Service>
         builder.Property(s => s.Description)
                .HasMaxLength(500);
 
+        builder.Property(s => s.Specialty)
+               .HasMaxLength(100);
+
         builder.Property(s => s.ServiceType)
                .HasConversion<string>()
                .IsRequired();
