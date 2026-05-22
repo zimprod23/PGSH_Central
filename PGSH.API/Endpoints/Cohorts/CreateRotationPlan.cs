@@ -1,21 +1,21 @@
 using MediatR;
 using PGSH.API.Extensions;
 using PGSH.API.Infrastructure;
-using PGSH.Application.Stages.Cohorts.Delete;
+using PGSH.Application.Stages.Cohorts.RotationPlan;
 
 namespace PGSH.API.Endpoints.Cohorts;
 
-public sealed class DeleteCohort : IEndpoint
+public sealed class CreateRotationPlan : IEndpoint
 {
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
-        app.MapDelete("cohorts/{id:int}", async (
-            int id,
+        app.MapPost("cohorts/rotation-plan", async (
+            CreateRotationPlanCommand command,
             ISender sender,
             CancellationToken ct) =>
         {
-            var result = await sender.Send(new DeleteCohortCommand(id), ct);
-            return result.Match(Results.NoContent, CustomResults.Problem);
+            var result = await sender.Send(command, ct);
+            return result.Match(Results.Ok, CustomResults.Problem);
         })
         .WithTags(Tags.Cohorts)
         .RequireAuthorization();

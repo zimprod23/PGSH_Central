@@ -2,4 +2,4 @@
 
 namespace PGSH.Application.Stages.Cohorts.GetById;
 
-public record GetCohortByIdQuery(int Id) : IQuery<CohortResponse>;
+public record GetCohortByIdQuery(int Id) : IQuery<CohortDetailResponse>;

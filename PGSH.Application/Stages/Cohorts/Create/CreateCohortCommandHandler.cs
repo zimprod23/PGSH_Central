@@ -23,6 +23,13 @@ internal sealed class CreateCohortCommandHandler(IApplicationDbContext dbContext
                 "AcademicGroups.NotFound",
                 $"The academic group with Id = '{request.AcademicGroupId}' was not found."));
 
+        bool duplicate = await dbContext.Cohorts
+            .AnyAsync(c => c.StageId == request.StageId && c.AcademicGroupId == request.AcademicGroupId, cancellationToken);
+        if (duplicate)
+            return Result.Failure<int>(Error.Conflict(
+                "Cohorts.Duplicate",
+                "A cohort for this group and stage already exists."));
+
         var cohort = new Cohort
         {
             StageId         = request.StageId,
