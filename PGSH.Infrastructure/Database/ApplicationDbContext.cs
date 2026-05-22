@@ -1,6 +1,7 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
+using PGSH.Domain.Audit;
 using PGSH.Domain.Common.Utils;
 using PGSH.Domain.Employees;
 using PGSH.Domain.Hospitals;
@@ -47,6 +48,7 @@ public sealed class ApplicationDbContext : DbContext, IApplicationDbContext
 
     // ===== Audit / History =====
     public DbSet<History> Histories { get; set; }
+    public DbSet<AuditLog> AuditLogs { get; set; }
     public DbSet<ObjectiveScore> ObjectiveScores { get; set; }
     public DbSet<Cohort> Cohorts { get; set; }
     public DbSet<CohortRotationTemplate> CohortRotationTemplates { get; set; }

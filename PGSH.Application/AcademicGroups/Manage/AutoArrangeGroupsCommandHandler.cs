@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
 using PGSH.Domain.Registrations;
@@ -6,9 +6,11 @@ using PGSH.SharedKernel;
 
 namespace PGSH.Application.AcademicGroups.Manage;
 
-internal class AutoArrangeGroupsCommandHandler(IApplicationDbContext dbContext) : ICommandHandler<AutoArrangeGroupsCommand, BulkResponse<Guid, int>>
+internal sealed class AutoArrangeGroupsCommandHandler(IApplicationDbContext dbContext)
+    : ICommandHandler<AutoArrangeGroupsCommand, BulkResponse<Guid, int>>
 {
-    public async Task<Result<BulkResponse<Guid, int>>> Handle(AutoArrangeGroupsCommand request, CancellationToken cancellationToken)
+    public async Task<Result<BulkResponse<Guid, int>>> Handle(
+        AutoArrangeGroupsCommand request, CancellationToken cancellationToken)
     {
         var registrations = await dbContext.Registrations
             .Where(r => r.LevelId == request.LevelId &&
@@ -18,13 +20,33 @@ internal class AutoArrangeGroupsCommandHandler(IApplicationDbContext dbContext) 
             .ToListAsync(cancellationToken);
 
         if (!registrations.Any())
-            return Result.Failure<BulkResponse<Guid, int>>(Error.Problem("Groups.Empty", "No unassigned students found for the selected level and year."));
+            return Result.Failure<BulkResponse<Guid, int>>(Error.NotFound(
+                "Groups.NoUnassignedStudents",
+                "No unassigned students found for the selected level and year."));
 
-        int totalStudents = registrations.Count;
-        int groupCount = (int)Math.Ceiling((double)totalStudents / request.GroupSize);
+        // GroupNumber is unique per year — continue from the highest existing number
+        // so running auto-arrange for multiple levels in the same year doesn't conflict
+        int nextNumber = (await dbContext.AcademicGroups
+            .Where(g => g.AcademicYearId == request.AcademicYearId)
+            .Select(g => (int?)g.GroupNumber)
+            .MaxAsync(cancellationToken) ?? 0) + 1;
 
-        var newGroups = Enumerable.Range(1, groupCount)
-            .Select(i => new AcademicGroup { Label = $"Groupe {i}", GroupNumber = i, AcademicYearId = request.AcademicYearId })
+        // Include the level label so admins can tell which level owns each group
+        var levelLabel = await dbContext.Levels
+            .Where(l => l.Id == request.LevelId)
+            .Select(l => l.Label)
+            .FirstOrDefaultAsync(cancellationToken)
+            ?? $"Niveau {request.LevelId}";
+
+        int groupCount = (int)Math.Ceiling((double)registrations.Count / request.GroupSize);
+
+        var newGroups = Enumerable.Range(0, groupCount)
+            .Select(i => new AcademicGroup
+            {
+                Label          = $"Groupe {nextNumber + i} — {levelLabel}",
+                GroupNumber    = nextNumber + i,
+                AcademicYearId = request.AcademicYearId,
+            })
             .ToList();
 
         dbContext.AcademicGroups.AddRange(newGroups);
@@ -44,7 +66,7 @@ internal class AutoArrangeGroupsCommandHandler(IApplicationDbContext dbContext) 
 
         return Result.Success(new BulkResponse<Guid, int>(
             itemResults,
-            totalStudents,
+            registrations.Count,
             itemResults.Count(x => x.IsSuccess),
             itemResults.Count(x => !x.IsSuccess)));
     }

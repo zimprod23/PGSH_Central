@@ -14,9 +14,12 @@ public sealed class History
 
 public enum HistoryType
 {
-    ValidationStage,
     Inscription,
+    ValidationStage,
     NonValidation,
     Fraud,
-    Revalidation
+    Revalidation,
+    GroupTransfer,
+    CohortTransfer,
+    StatusChange,
 }

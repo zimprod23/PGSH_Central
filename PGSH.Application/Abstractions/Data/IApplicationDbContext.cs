@@ -1,11 +1,12 @@
-﻿using PGSH.Domain.Users;
-using Microsoft.EntityFrameworkCore;
+﻿using PGSH.Domain.Audit;
+using PGSH.Domain.Common.Utils;
 using PGSH.Domain.Employees;
 using PGSH.Domain.Hospitals;
 using PGSH.Domain.Registrations;
 using PGSH.Domain.Stages;
 using PGSH.Domain.Students;
-using PGSH.Domain.Common.Utils;
+using PGSH.Domain.Users;
+using Microsoft.EntityFrameworkCore;
 
 namespace PGSH.Application.Abstractions.Data;
 
@@ -32,6 +33,7 @@ public interface IApplicationDbContext
     DbSet<CohortMembership> CohortMembership { get; set; }
     DbSet<ServiceEvaluation> ServiceEvaluation { get; set; }
     DbSet<ServicePeriod> ServicePeriods { get; set; }
+    DbSet<AuditLog> AuditLogs { get; set; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }

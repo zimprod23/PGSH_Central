@@ -255,3 +255,42 @@ A mandatory optimization pass before production deployment.
 - Aspire deployment manifest for container orchestration
 - Structured log shipping (Seq or equivalent)
 - CI/CD pipeline
+
+---
+
+## 🔲 Phase 13 — Performance Hardening
+
+**Status: Not started — run after Phase 12, before first large cohort**
+
+Known issues identified during design review. All are low-risk at current scale (~360 students) but must be resolved before scaling.
+
+### Critical (data correctness)
+
+- **`FinalScore` computation**: `InternshipAssignment.FinalScore` is declared but never written. Add a domain method `RecomputeFinalScore(IEnumerable<ServiceEvaluation>)` that aggregates `ObjectiveScore.Score × StageObjective.Weight`. Call it from a domain event handler whenever `ObjectiveScore` records change, and persist via `SaveChangesAsync`. Until this is done, score-based sorting and transcript generation return null.
+
+- **`IsCurrent` uniqueness on `AcademicYear`**: Nothing prevents two years having `IsCurrent = true` simultaneously. Add a PostgreSQL partial unique index:
+  ```sql
+  CREATE UNIQUE INDEX IX_AcademicYear_IsCurrent ON "AcademicYears" (true) WHERE "IsCurrent" = true;
+  ```
+  Also add a guard in `UpdateAcademicYearCommandHandler` (if built) mirroring the `POST` logic.
+
+### High (FK index gaps)
+
+- **`Registration.LevelId` missing index**: Used in every `WHERE` clause of auto-arrange and registration queries. Add in a migration:
+  ```csharp
+  builder.HasIndex(r => r.LevelId).HasDatabaseName("IX_Registration_LevelId");
+  ```
+- **`Registration.AcademicGroupId` missing index**: Same — used in auto-arrange unassigned-student query and any group membership report.
+  ```csharp
+  builder.HasIndex(r => r.AcademicGroupId).HasDatabaseName("IX_Registration_AcademicGroupId");
+  ```
+
+### Medium (correctness under concurrency)
+
+- **`GenerateScheduleCommandHandler` occupancy tracker is not concurrency-safe**: The in-memory `_occupancy` dictionary is populated from a DB snapshot at request start. Two simultaneous schedule-generation requests can both see sufficient capacity and both over-assign the same service. Fix: use `SELECT ... FOR UPDATE` on the relevant `ServicePeriods` rows, or add a post-save capacity validation step, or serialize schedule generation via a distributed lock (Redis `IDistributedLock`).
+
+### Low (query efficiency at scale)
+
+- **TPH table growth**: `Users` table holds Student, Employee, and base User rows with discriminator. At 10 k+ rows consider Table-Per-Type (TPT) migration to separate `Students` and `Employees` tables. Low priority at faculty scale (<1 000 students).
+- **`HydrateOccupancyAsync` loads all ServicePeriods**: For large academic years the occupancy loader pulls the full `ServicePeriods` table. Add a filter: only load periods overlapping the requested date range.
+- **`UserContext.SyncAsync` memory cache is process-local**: In a multi-instance deployment each instance maintains a separate cache. Migrate the sync cache key to the Redis distributed cache already provisioned in `AppHost`.

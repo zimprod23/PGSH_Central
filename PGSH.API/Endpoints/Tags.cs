@@ -13,6 +13,9 @@
         public const string Centers = "Centers";
         public const string Cohorts = "Cohorts";
         public const string Groups = "AcademicGroups";
-
+        public const string InternshipAssignments = "InternshipAssignments";
+        public const string ServicePeriods = "ServicePeriods";
+        public const string Attendance = "Attendance";
+        public const string ServiceEvaluations = "ServiceEvaluations";
     }
 }

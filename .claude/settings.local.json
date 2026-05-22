@@ -24,7 +24,12 @@
       "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\LEGION\\\\source\\\\repos\\\\PGSH\\\\PGSH.Frontend\" -Recurse -File | Where-Object { $_.Extension -match '\\\\.\\(png|jpg|jpeg|webp|gif|md\\)$' } | Select-Object FullName)",
       "PowerShell(Get-ChildItem \"C:\\\\Users\\\\LEGION\\\\source\\\\repos\\\\PGSH\\\\PGSH.API\\\\Endpoints\" -Recurse -File | Select-Object -ExpandProperty FullName | ForEach-Object { $_.Replace\\(\"C:\\\\Users\\\\LEGION\\\\source\\\\repos\\\\PGSH\\\\PGSH.API\\\\Endpoints\\\\\", \"\"\\) })",
       "PowerShell(Get-ChildItem \"C:\\\\Users\\\\LEGION\\\\source\\\\repos\\\\PGSH\\\\PGSH.Application\\\\AcademicYears\" -Recurse -File | Select-Object -ExpandProperty FullName | ForEach-Object { $_.Replace\\(\"C:\\\\Users\\\\LEGION\\\\source\\\\repos\\\\PGSH\\\\PGSH.Application\\\\AcademicYears\\\\\", \"\"\\) })",
-      "PowerShell(Get-ChildItem \"C:\\\\Users\\\\LEGION\\\\source\\\\repos\\\\PGSH\\\\PGSH.Application\\\\Stages\\\\Levels\" -Recurse -File | Select-Object -ExpandProperty FullName | ForEach-Object { $_.Replace\\(\"C:\\\\Users\\\\LEGION\\\\source\\\\repos\\\\PGSH\\\\PGSH.Application\\\\Stages\\\\Levels\\\\\", \"\"\\) })"
+      "PowerShell(Get-ChildItem \"C:\\\\Users\\\\LEGION\\\\source\\\\repos\\\\PGSH\\\\PGSH.Application\\\\Stages\\\\Levels\" -Recurse -File | Select-Object -ExpandProperty FullName | ForEach-Object { $_.Replace\\(\"C:\\\\Users\\\\LEGION\\\\source\\\\repos\\\\PGSH\\\\PGSH.Application\\\\Stages\\\\Levels\\\\\", \"\"\\) })",
+      "Bash(Remove-Item *)",
+      "PowerShell(Get-ChildItem \"C:\\\\Users\\\\LEGION\\\\source\\\\repos\\\\PGSH\\\\PGSH.Application\\\\Students\" -File -Recurse | Where-Object { $_.Name -match \"Current|GetMe\" } | Select-Object FullName)",
+      "PowerShell(dotnet build *)",
+      "PowerShell(Get-ChildItem \"C:\\\\Users\\\\LEGION\\\\source\\\\repos\\\\PGSH\\\\PGSH.Application\\\\Hospitals\" -Recurse -File | Where-Object { $_.Name -match \"Service\" } | Select-Object Name, FullName)",
+      "Bash(Select-Object FullName)"
     ]
   }
 }

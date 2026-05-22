@@ -77,8 +77,26 @@ internal static class Seeder
             await context.Employees.AddAsync(admin, ct);
         }
 
+        if (!await context.Employees.AnyAsync(e => e.Email == "employee.test@um5.ac.ma", ct))
+        {
+            var employee = new Employee
+            {
+                Id = new Guid("33333333-3333-3333-3333-333333333333"),
+                Email = "employee.test@um5.ac.ma",
+                FirstName = "Youssef",
+                LastName = "Alaoui",
+                CIN = "JC445566",
+                Gender = Gender.Male,
+                Status = new Status(CivilStatus.Civil, NationalityStatus.Marocaine),
+                Grade = Grade.PH,
+                Position = Position.Normal,
+                WorkPlace = WorkPlace.Hospital,
+            };
+            await context.Employees.AddAsync(employee, ct);
+        }
+
         await context.SaveChangesAsync(ct);
-        logger.LogInformation("Static users ready (student: amine.bennani@um5.ac.ma, admin: admin.pgsh@um5.ac.ma).");
+        logger.LogInformation("Static users ready (student: amine.bennani@um5.ac.ma, admin: admin.pgsh@um5.ac.ma, employee: employee.test@um5.ac.ma).");
     }
 
     // -------------------------------------------------------------------------

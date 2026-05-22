@@ -19,6 +19,9 @@ internal class GetServicesQueryHandler(IApplicationDbContext dbContext) : IQuery
         if (request.ServiceType.HasValue)
             query = query.Where(s => s.ServiceType == request.ServiceType.Value);
 
+        if (request.ServiceChefId.HasValue)
+            query = query.Where(s => s.ServiceChefId == request.ServiceChefId.Value);
+
         if (!string.IsNullOrWhiteSpace(request.SearchTerm))
         {
             string term = request.SearchTerm.ToLower();

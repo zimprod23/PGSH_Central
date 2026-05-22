@@ -1,4 +1,5 @@
-﻿using PGSH.SharedKernel;
+﻿using PGSH.Domain.Common.Utils;
+using PGSH.SharedKernel;
 
 namespace PGSH.Domain.Stages;
 
@@ -71,4 +72,31 @@ public static class StageErrors
     public static readonly Error MissingService = Error.Validation(
         "AssignmentPeriods.MissingService",
         "Each assignment period must be associated with a valid hospital service.");
+
+    // === Attendance ===
+    public static readonly Error AttendanceDuplicate = Error.Conflict(
+        "AttendanceRecords.Duplicate",
+        "An attendance record already exists for this date and period.");
+
+    // === ServiceEvaluation ===
+    public static Error EvaluationNotFound(Guid periodId) => Error.NotFound(
+        "ServiceEvaluations.NotFound",
+        $"No evaluation found for service period '{periodId}'.");
+
+    public static Error EvaluationAlreadyExists(Guid periodId) => Error.Conflict(
+        "ServiceEvaluations.AlreadyExists",
+        $"An evaluation already exists for service period '{periodId}'.");
+
+    // === InternshipAssignment lifecycle ===
+    public static Error InvalidStatusTransition(string action, InternshipStatus current) => Error.Validation(
+        "InternshipAssignments.InvalidStatusTransition",
+        $"Cannot '{action}' an assignment in status '{current}'.");
+
+    public static Error PeriodAlreadyComplete(Guid periodId) => Error.Conflict(
+        "AssignmentPeriods.AlreadyComplete",
+        $"Service period '{periodId}' is already marked as complete.");
+
+    public static Error PeriodNotComplete(Guid periodId) => Error.Validation(
+        "AssignmentPeriods.NotComplete",
+        $"Service period '{periodId}' must be completed before submitting an evaluation.");
 }

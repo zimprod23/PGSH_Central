@@ -6,11 +6,8 @@ public sealed class CreateCohortCommandValidator : AbstractValidator<CreateCohor
 {
     public CreateCohortCommandValidator()
     {
-        RuleFor(x => x.StageId)
-            .NotEmpty().WithMessage("The Stage ID is required.");
-
-        RuleFor(x => x.Label)
-            .NotEmpty().WithMessage("A label for the cohort is required (e.g., 'Promotion 2025/2026').")
-            .MaximumLength(100);
+        RuleFor(x => x.StageId).GreaterThan(0);
+        RuleFor(x => x.AcademicGroupId).GreaterThan(0);
+        RuleFor(x => x.Label).NotEmpty().MaximumLength(100);
     }
 }

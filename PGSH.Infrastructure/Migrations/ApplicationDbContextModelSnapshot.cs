@@ -38,6 +38,49 @@ namespace PGSH.Infrastructure.Migrations
                     b.ToTable("EmployeeService", "public");
                 });
 
+            modelBuilder.Entity("PGSH.Domain.Audit.AuditLog", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("EntityId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("EntityType")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Metadata")
+                        .HasColumnType("jsonb");
+
+                    b.Property<Guid?>("PerformedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedAt")
+                        .HasDatabaseName("IX_AuditLog_CreatedAt");
+
+                    b.HasIndex("PerformedByUserId")
+                        .HasDatabaseName("IX_AuditLog_PerformedBy");
+
+                    b.HasIndex("EntityType", "EntityId")
+                        .HasDatabaseName("IX_AuditLog_Entity");
+
+                    b.ToTable("AuditLogs", "public");
+                });
+
             modelBuilder.Entity("PGSH.Domain.Common.Utils.Level", b =>
                 {
                     b.Property<int>("Id")
