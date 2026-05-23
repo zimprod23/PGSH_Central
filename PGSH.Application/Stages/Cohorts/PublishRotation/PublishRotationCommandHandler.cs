@@ -49,6 +49,26 @@ internal sealed class PublishRotationCommandHandler(IApplicationDbContext dbCont
             .OrderBy(s => s.SequenceOrder)
             .ToList();
 
+        // Capacity check: for each slot, count existing concurrent ServicePeriods at that service
+        var slotServiceIds = slots.Select(s => s.ServiceId).Distinct().ToList();
+        var capacities = await dbContext.Services
+            .Where(s => slotServiceIds.Contains(s.Id))
+            .Select(s => new { s.Id, s.Capacity })
+            .ToDictionaryAsync(s => s.Id, s => s.Capacity, cancellationToken);
+
+        foreach (var slot in slots)
+        {
+            int occupancy = await dbContext.ServicePeriods
+                .CountAsync(p =>
+                    p.ServiceId == slot.ServiceId &&
+                    p.StartDate < slot.PlannedEnd &&
+                    p.EndDate > slot.PlannedStart,
+                    cancellationToken);
+
+            if (occupancy + assignments.Count > capacities[slot.ServiceId])
+                return Result.Failure<int>(StageErrors.CapacityExceeded(slot.SequenceOrder, slot.ServiceId));
+        }
+
         var periods = new List<ServicePeriod>(assignments.Count * slots.Count);
         foreach (var assignment in assignments)
         {

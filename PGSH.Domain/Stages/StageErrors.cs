@@ -96,7 +96,11 @@ public static class StageErrors
         "Cohorts.NotFound",
         $"The cohort with Id = '{cohortId}' was not found.");
 
-    // === RotationPlan ===
+    // === RotationPlan / Capacity ===
+    public static Error CapacityExceeded(int slotOrder, int serviceId) => Error.Conflict(
+        "RotationPlan.CapacityExceeded",
+        $"Service {serviceId} does not have enough capacity for rotation slot {slotOrder}: the service would be over its limit.");
+
     public static readonly Error RotationPlanNotAssigned = Error.Validation(
         "RotationPlan.NotAssigned",
         "This cohort does not have a rotation plan assigned. Assign a plan before publishing.");
