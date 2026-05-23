@@ -31,7 +31,8 @@
       "PowerShell(Get-ChildItem \"C:\\\\Users\\\\LEGION\\\\source\\\\repos\\\\PGSH\\\\PGSH.Application\\\\Hospitals\" -Recurse -File | Where-Object { $_.Name -match \"Service\" } | Select-Object Name, FullName)",
       "Bash(Select-Object FullName)",
       "Bash(grep -v \"^\\\\s*$\")",
-      "Bash(xargs grep -l \"class Tags\")"
+      "Bash(xargs grep -l \"class Tags\")",
+      "Bash(xargs grep -l \"StudentErrors\\\\|Error\\\\.\")"
     ]
   }
 }

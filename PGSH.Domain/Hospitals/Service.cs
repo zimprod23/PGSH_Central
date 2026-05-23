@@ -1,5 +1,6 @@
 ﻿using PGSH.Domain.Employees;
 using PGSH.Domain.Stages;
+using PGSH.SharedKernel;
 
 namespace PGSH.Domain.Hospitals;
 
@@ -14,33 +15,44 @@ public sealed class Service
     public int HospitalId { get; set; }
     public Hospital Hospital { get; set; }
 
-    public ICollection<Employee> Staff = new List<Employee>();
-    //public ICollection<ServicePeriod> ServicePeriods = new List<ServicePeriod>();
-   
-    //[Obsolete("Must be removed")]
-    // Private backing field for the ServiceChef property
+    public ICollection<Employee> Staff { get; set; } = new List<Employee>();
+
     public Guid? ServiceChefId { get; private set; }
-    public Employee? ServiceChef
-    {
-        get;
-        private set;
-    }
+    public Employee? ServiceChef { get; private set; }
+
     public void AddStaff(Employee employee)
     {
-        if (!Staff.Contains(employee))
+        if (!Staff.Any(e => e.Id == employee.Id))
             Staff.Add(employee);
     }
 
-    public void AssignChef(Employee employee)
+    public void RemoveStaff(Employee employee)
     {
-        if (!Staff.Contains(employee))
-            throw new InvalidOperationException("The chef must be part of the service staff.");
+        var member = Staff.FirstOrDefault(e => e.Id == employee.Id);
+        if (member is null) return;
+        Staff.Remove(member);
+        if (ServiceChefId == employee.Id)
+        {
+            ServiceChef = null;
+            ServiceChefId = null;
+        }
+    }
 
+    public Result AssignChef(Employee employee)
+    {
+        if (!Staff.Any(e => e.Id == employee.Id))
+            return Result.Failure(EmployeeErrors.NotInStaff);
         if (employee.Position != Position.ServiceChef)
-            throw new InvalidOperationException("This employee cannot be assigned as ServiceChef.");
-
+            return Result.Failure(EmployeeErrors.WrongPosition);
         ServiceChef = employee;
         ServiceChefId = employee.Id;
+        return Result.Success();
+    }
+
+    public void RemoveChef()
+    {
+        ServiceChef = null;
+        ServiceChefId = null;
     }
 }
 

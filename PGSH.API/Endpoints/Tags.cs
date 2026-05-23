@@ -5,6 +5,7 @@
         public const string Users = "Users";
         public const string Auth = "Auth";
         public const string Students = "Students";
+        public const string Employees = "Employees";
         public const string Registrations = "Registrations";
         public const string Stages = "Stages";
         public const string Levels = "Levels";
