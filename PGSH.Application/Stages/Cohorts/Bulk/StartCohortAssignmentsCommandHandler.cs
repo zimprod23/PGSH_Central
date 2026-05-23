@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
 using PGSH.Domain.Common.Utils;
+using PGSH.Domain.Stages;
 using PGSH.SharedKernel;
 
 namespace PGSH.Application.Stages.Cohorts.Bulk;
@@ -12,6 +13,14 @@ internal sealed class StartCohortAssignmentsCommandHandler(IApplicationDbContext
     public async Task<Result<int>> Handle(
         StartCohortAssignmentsCommand request, CancellationToken cancellationToken)
     {
+        bool hasServicePeriods = await dbContext.InternshipAssignments
+            .Where(a => a.CurrentCohortId == request.CohortId)
+            .SelectMany(a => a.ServicePeriods)
+            .AnyAsync(cancellationToken);
+
+        if (!hasServicePeriods)
+            return Result.Failure<int>(StageErrors.RotationNotPublished);
+
         var assignments = await dbContext.InternshipAssignments
             .Where(a => a.CurrentCohortId == request.CohortId
                      && a.Status == InternshipStatus.Planned)

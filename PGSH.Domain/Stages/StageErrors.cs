@@ -87,6 +87,28 @@ public static class StageErrors
         "ServiceEvaluations.AlreadyExists",
         $"An evaluation already exists for service period '{periodId}'.");
 
+    // === Cohort ===
+    public static Error CohortNotFound(int cohortId) => Error.NotFound(
+        "Cohorts.NotFound",
+        $"The cohort with Id = '{cohortId}' was not found.");
+
+    // === RotationPlan ===
+    public static readonly Error RotationPlanNotAssigned = Error.Validation(
+        "RotationPlan.NotAssigned",
+        "This cohort does not have a rotation plan assigned. Assign a plan before publishing.");
+
+    public static readonly Error RotationAlreadyPublished = Error.Conflict(
+        "RotationPlan.AlreadyPublished",
+        "This cohort's rotation has already been published. ServicePeriods already exist for its assignments.");
+
+    public static readonly Error RotationNotPublished = Error.Validation(
+        "RotationPlan.NotPublished",
+        "The cohort rotation has not been published yet. Publish the rotation before starting assignments.");
+
+    public static readonly Error NoPlannedAssignments = Error.Validation(
+        "RotationPlan.NoPlannedAssignments",
+        "No assignments in 'Planned' status were found for this cohort.");
+
     // === InternshipAssignment lifecycle ===
     public static Error InvalidStatusTransition(string action, InternshipStatus current) => Error.Validation(
         "InternshipAssignments.InvalidStatusTransition",

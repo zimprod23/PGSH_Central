@@ -2,6 +2,7 @@ using MediatR;
 using PGSH.API.Extensions;
 using PGSH.API.Infrastructure;
 using PGSH.Application.Stages.Cohorts.Bulk;
+using PGSH.Application.Stages.Cohorts.PublishRotation;
 
 namespace PGSH.API.Endpoints.Cohorts;
 
@@ -9,6 +10,15 @@ public sealed class CohortBulkActions : IEndpoint
 {
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
+        app.MapPost("cohorts/{id:int}/publish-rotation", async (
+            int id, ISender sender, CancellationToken ct) =>
+        {
+            var result = await sender.Send(new PublishRotationCommand(id), ct);
+            return result.Match(count => Results.Ok(new { published = count }), CustomResults.Problem);
+        })
+        .WithTags(Tags.Cohorts)
+        .RequireAuthorization();
+
         app.MapPost("cohorts/{id:int}/start-assignments", async (
             int id, ISender sender, CancellationToken ct) =>
         {
