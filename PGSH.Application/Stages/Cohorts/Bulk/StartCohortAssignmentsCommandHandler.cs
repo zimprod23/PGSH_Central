@@ -19,7 +19,7 @@ internal sealed class StartCohortAssignmentsCommandHandler(IApplicationDbContext
             .AnyAsync(cancellationToken);
 
         if (!hasServicePeriods)
-            return Result.Failure<int>(StageErrors.RotationNotPublished);
+            return Result.Failure<int>(StageErrors.ScheduleNotPublished);
 
         var assignments = await dbContext.InternshipAssignments
             .Where(a => a.CurrentCohortId == request.CohortId

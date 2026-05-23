@@ -16,16 +16,22 @@ Each `AcademicYear` (e.g., "2025-2026") has a set of `AcademicGroups` (e.g., "Gr
 
 ### How rotations work
 
-A `Stage` defines a rotation type tied to a `Level` (e.g., "Cardiology Rotation, Year 4 Medicine"). It has a duration, coefficient, and objectives (scored criteria). A `Cohort` is a specific instance of a Stage for a particular AcademicGroup in a given year. `CohortRotationTemplates` are the *plan* — the ordered list of services and planned dates the cohort will rotate through. When the rotation actually runs, `ServicePeriods` are created (the *execution*), optionally linked back to the template that spawned them.
+A `Stage` defines a rotation type tied to a `Level` (e.g., "Cardiology Rotation, Year 4 Medicine"). It has a duration, coefficient, and objectives (scored criteria). A `Cohort` is a specific instance of a Stage for a particular AcademicGroup in a given year.
+
+The schedule is modelled as a **grid**: rows = cohorts, columns = time periods (StageSlots), cells = service assignments (CohortSlotAssignments). `StageSlot` defines a named time period (P1, P2...) belonging to a Stage with start/end dates. `CohortSlotAssignment` is a grid cell — it maps one Cohort to one Service for one StageSlot. This mirrors the actual paper scheduling documents used by the faculty.
+
+When an admin **publishes** a cohort's schedule (`POST /cohorts/{id}/publish-schedule`), the system creates `ServicePeriod` records for each student in the cohort × each slot assignment. The capacity check (sum of students across all cohorts assigned to the same service in the same slot ≤ `Service.Capacity`) runs at publish time. Unpublishing (`DELETE`) removes all those ServicePeriods (setting `CohortSlotAssignmentId` to NULL on any that must be preserved for other reasons).
 
 ### The student journey through the system
 
 ```
 Enrollment:  Student → Registration (year + level + group)
 Planning:    AcademicGroup → Cohort (group + stage)
-             Cohort → CohortRotationTemplate (planned service sequence)
+             Stage → StageSlot (time period columns P1, P2, ...)
+             Cohort → CohortSlotAssignment (service per slot — the grid cell)
 Assignment:  Registration → InternshipAssignment (student in cohort)
-Execution:   InternshipAssignment → ServicePeriod (at a specific service)
+Publishing:  POST /cohorts/{id}/publish-schedule → creates ServicePeriods
+Execution:   InternshipAssignment → ServicePeriod (at a specific service, real dates)
              ServicePeriod → AttendanceRecord (daily presence)
              ServicePeriod → ServiceEvaluation → ObjectiveScores (graded)
 Result:      InternshipAssignment.FinalScore (cached aggregate of scores)
@@ -37,8 +43,9 @@ Result:      InternshipAssignment.FinalScore (cached aggregate of scores)
 |---|---|
 | Stage | A type of hospital rotation (e.g., "Chirurgie S6") |
 | Cohort | A group doing a specific stage together in a given year |
-| Template | `CohortRotationTemplate` — the rotation plan (planned dates + services) |
-| Period | `ServicePeriod` — actual execution of one rotation slot |
+| StageSlot | Time period column (P1, P2...) in the schedule grid — belongs to a Stage |
+| CohortSlotAssignment | Grid cell — maps one Cohort to one Service in one StageSlot |
+| Period | `ServicePeriod` — actual execution record for a student in a service |
 | Assignment | `InternshipAssignment` — one student enrolled in one cohort |
 | Level | Academic year of study (Year 1–6 in Medicine/Pharmacy) |
 | CNE | Code National de l'Étudiant — unique national student ID |
@@ -48,6 +55,7 @@ Result:      InternshipAssignment.FinalScore (cached aggregate of scores)
 | Grade | Academic rank: `MC` (Maître de Conférences), `PES` (Professeur Enseignement Supérieur), `PH` (Praticien Hospitalier), Nurse, Administrator |
 | ServiceChef | Head of a hospital department; evaluates students in that service |
 | GeographicZone | Field on AcademicGroup used by the auto-arrange clustering algorithm |
+| Revalidation | A student retaking a stage they previously failed (`NonValidé`). Tracked as a new `InternshipAssignment` + `History(Revalidation)`. The old failed assignment is never deleted. |
 
 ---
 
@@ -65,7 +73,9 @@ These are rules enforced in domain or application code — not always obvious fr
 - **Level uniqueness**: `(Year, AcademicProgram)` is unique — you can't have two "Year 4 Medicine" levels.
 - **Attendance uniqueness**: `(ServicePeriodId, Date)` is unique — one attendance record per student per day per rotation.
 - **FinalScore is a cache**: `InternshipAssignment.FinalScore` is described as "stored, not authoritative" — it must be recomputed from `ObjectiveScore.Score × StageObjective.Weight`. Currently never written. (Phase 7 item.)
-- **Ad-hoc vs. planned periods**: `ServicePeriod.CohortRotationTemplateId` is NULL for ad-hoc rotations (created outside the template plan), non-null for template-driven ones.
+- **Ad-hoc vs. planned periods**: `ServicePeriod.CohortSlotAssignmentId` is NULL for ad-hoc rotations (created outside the published schedule), non-null for schedule-driven ones (created by publish-schedule).
+
+- **Non-validated stages stay with the student (revalidation)**: A student who receives `Result = NonValidé` on a stage does **not** stop progressing. They continue through subsequent academic years normally. The failed stage "sticks" with them — the original `InternshipAssignment` with `Result = NonValidé` remains in the system as a permanent record. At some later year (could be final year), the student is assigned to a cohort doing that same stage again and receives a new `InternshipAssignment` for that attempt. If they pass, that new assignment gets `Result = Validé`. The old failed assignment is never deleted or modified — it is the audit trail. A `History` record of type `Revalidation` marks when this process begins. **Implication:** a student can have multiple `InternshipAssignment` records for the same `Stage` across different academic years. Queries that check "has the student passed Stage X" must look for any `InternshipAssignment` where the `Cohort.StageId == X` and `Result == Validé`, not just the most recent one.
 
 ---
 
@@ -110,8 +120,12 @@ This means: **a local `User` record must exist before anyone can log in**. The s
 ### CohortMembership tracks transfer history, not current cohort
 `InternshipAssignment.CurrentCohortId` is the FK for the *current* cohort. `CohortMembership` is a history table — it records every cohort a student has ever been in, with start/end dates and transfer reason. A null `EndDate` means they're currently in that cohort. This enables tracking cohort transfers mid-rotation.
 
-### GenerateScheduleCommandHandler is the complex core operation
-Located at `Application/AcademicGroups/Manage/Schedule/GenerateScheduleCommandHandler.cs`. This is the operation that converts `CohortRotationTemplate` plans into actual `InternshipAssignment` + `ServicePeriod` records for students. It is the most complex piece of business logic in the codebase and has not been reviewed/cleaned yet. It will be the focus of the next cleanup session.
+### GenerateScheduleCommandHandler creates Cohorts and CohortSlotAssignments
+Located at `Application/AcademicGroups/Manage/Schedule/GenerateScheduleCommandHandler.cs`. This operation:
+1. Creates `StageSlot` records per-Stage (find-or-create, saves to get IDs)
+2. Creates `Cohort` records per AcademicGroup per Stage
+3. Creates `CohortSlotAssignment` grid cells (one per Cohort × StageSlot, assigning services by rotation)
+It does **not** create `ServicePeriod` records — that is done later by `POST /cohorts/{id}/publish-schedule`.
 
 ### GetStudentsQueryHandler filters CNE, Appogee, CIN as exact match
 These are not partial-text filters — they use `==` equality. The `SearchTerm` filter does a `Contains` on FirstName, LastName, Email. This is intentional: CNE/Appogee/CIN are precise identifiers.
@@ -190,3 +204,5 @@ return Result.Success();
 - **`Employee.WorkPlace`**: The enum has values `Hospital` and `Fmpr`. Is `Fmpr` still the correct name for the faculty workplace, or should it be renamed to match the actual institution name?
 - **Domain events on Hospital/Center/Service**: Currently no domain events are raised on creation or modification of these entities. If downstream notifications (e.g., service capacity changes affecting rotation scheduling) are needed, events should be added.
 - **`Student.Ranking`**: What is this field for? National ranking for program entry? It's nullable and has no business logic around it.
+- **Revalidation cohort assignment**: When a Year 4 student needs to redo a Year 1 Stage, which `AcademicGroup` / `Cohort` do they get assigned to? Are there dedicated revalidation cohorts mixing students from different years and groups, or are they slotted into an existing cohort for that stage? The current `Cohort.AcademicGroupId` FK assumes a cohort is for one specific group. Needs clarification before implementing the revalidation assignment flow.
+- **Graduation gate on revalidation**: Is there a check before a student can graduate (registration `Status → Validated`) that all stages in their program have at least one `InternshipAssignment` with `Result = Validé`? This would be the enforcement point for the revalidation rule. Not yet implemented.

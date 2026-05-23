@@ -19,10 +19,14 @@ internal sealed class StageConfiguration : IEntityTypeConfiguration<Stage>
                .HasForeignKey(s => s.LevelId) // Now a real property
                .OnDelete(DeleteBehavior.Restrict);
 
-        // Explicit relationship with Objectives
         builder.HasMany(s => s.Objectives)
                .WithOne(o => o.Stage)
                .HasForeignKey(o => o.StageId)
+               .OnDelete(DeleteBehavior.Cascade);
+
+        builder.HasMany(s => s.Slots)
+               .WithOne(sl => sl.Stage)
+               .HasForeignKey(sl => sl.StageId)
                .OnDelete(DeleteBehavior.Cascade);
     }
 }
@@ -43,44 +47,50 @@ internal sealed class CohortConfiguration : IEntityTypeConfiguration<Cohort>
                .WithMany()
                .HasForeignKey(c => c.StageId)
                .OnDelete(DeleteBehavior.Restrict);
-
-        builder.HasOne(c => c.RotationPlan)
-               .WithMany(p => p.Cohorts)
-               .HasForeignKey(c => c.RotationPlanId)
-               .IsRequired(false)
-               .OnDelete(DeleteBehavior.SetNull);
     }
 }
 
-internal sealed class RotationPlanConfiguration : IEntityTypeConfiguration<RotationPlan>
+internal sealed class StageSlotConfiguration : IEntityTypeConfiguration<StageSlot>
 {
-    public void Configure(EntityTypeBuilder<RotationPlan> builder)
-    {
-        builder.HasKey(p => p.Id);
-        builder.Property(p => p.Label).HasMaxLength(100);
-
-        builder.HasOne(p => p.Stage)
-               .WithMany()
-               .HasForeignKey(p => p.StageId)
-               .OnDelete(DeleteBehavior.Cascade);
-
-        builder.HasMany(p => p.Slots)
-               .WithOne(s => s.RotationPlan)
-               .HasForeignKey(s => s.RotationPlanId)
-               .OnDelete(DeleteBehavior.Cascade);
-    }
-}
-
-internal sealed class RotationPlanSlotConfiguration : IEntityTypeConfiguration<RotationPlanSlot>
-{
-    public void Configure(EntityTypeBuilder<RotationPlanSlot> builder)
+    public void Configure(EntityTypeBuilder<StageSlot> builder)
     {
         builder.HasKey(s => s.Id);
 
-        builder.HasOne(s => s.Service)
+        builder.HasOne(s => s.Stage)
+               .WithMany(st => st.Slots)
+               .HasForeignKey(s => s.StageId)
+               .OnDelete(DeleteBehavior.Cascade);
+
+        builder.HasIndex(s => new { s.StageId, s.PeriodNumber })
+               .IsUnique()
+               .HasDatabaseName("IX_StageSlot_Stage_Period");
+    }
+}
+
+internal sealed class CohortSlotAssignmentConfiguration : IEntityTypeConfiguration<CohortSlotAssignment>
+{
+    public void Configure(EntityTypeBuilder<CohortSlotAssignment> builder)
+    {
+        builder.HasKey(a => a.Id);
+
+        builder.HasOne(a => a.Cohort)
+               .WithMany(c => c.SlotAssignments)
+               .HasForeignKey(a => a.CohortId)
+               .OnDelete(DeleteBehavior.Cascade);
+
+        builder.HasOne(a => a.StageSlot)
+               .WithMany(s => s.Assignments)
+               .HasForeignKey(a => a.StageSlotId)
+               .OnDelete(DeleteBehavior.Cascade);
+
+        builder.HasOne(a => a.Service)
                .WithMany()
-               .HasForeignKey(s => s.ServiceId)
+               .HasForeignKey(a => a.ServiceId)
                .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasIndex(a => new { a.CohortId, a.StageSlotId })
+               .IsUnique()
+               .HasDatabaseName("IX_CohortSlotAssignment_Cohort_Slot");
     }
 }
 
@@ -167,9 +177,9 @@ internal sealed class ServicePeriodConfiguration : IEntityTypeConfiguration<Serv
                 .HasForeignKey(p => p.ServiceId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-        builder.HasOne(p => p.RotationPlanSlot)
+        builder.HasOne(p => p.CohortSlotAssignment)
                 .WithMany()
-                .HasForeignKey(p => p.RotationPlanSlotId)
+                .HasForeignKey(p => p.CohortSlotAssignmentId)
                 .IsRequired(false)
                 .OnDelete(DeleteBehavior.SetNull);
 

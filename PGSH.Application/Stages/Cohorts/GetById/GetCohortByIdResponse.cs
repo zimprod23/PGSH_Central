@@ -7,8 +7,11 @@ public sealed record CohortResponse(
     int    AcademicGroupId,
     string AcademicGroupLabel,
     string Label,
-    int?   RotationPlanId,
-    int    StudentAssignmentCount);
+    int    StudentAssignmentCount,
+    int    SlotAssignmentCount,
+    bool   IsSchedulePublished,
+    int    AcademicYearId,
+    string AcademicYearLabel);
 
 public sealed record CohortDetailResponse(
     int    Id,
@@ -18,14 +21,16 @@ public sealed record CohortDetailResponse(
     string AcademicGroupLabel,
     string Label,
     int    StudentAssignmentCount,
-    int?   RotationPlanId,
-    IReadOnlyList<RotationSlotResponse> RotationSlots);
+    bool   IsSchedulePublished,
+    IReadOnlyList<CohortSlotDetail> SlotAssignments);
 
-public sealed record RotationSlotResponse(
-    int      Id,
+public sealed record CohortSlotDetail(
+    int      AssignmentId,
+    int      StageSlotId,
+    int      PeriodNumber,
+    string?  PeriodLabel,
+    DateOnly StartDate,
+    DateOnly EndDate,
     int      ServiceId,
     string   ServiceName,
-    string   HospitalName,
-    DateOnly PlannedStart,
-    DateOnly PlannedEnd,
-    int      SequenceOrder);
+    string   HospitalName);

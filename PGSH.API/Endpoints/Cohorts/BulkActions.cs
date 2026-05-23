@@ -2,7 +2,8 @@ using MediatR;
 using PGSH.API.Extensions;
 using PGSH.API.Infrastructure;
 using PGSH.Application.Stages.Cohorts.Bulk;
-using PGSH.Application.Stages.Cohorts.PublishRotation;
+using PGSH.Application.Stages.Cohorts.PublishSchedule;
+using PGSH.Application.Stages.Cohorts.UnpublishSchedule;
 
 namespace PGSH.API.Endpoints.Cohorts;
 
@@ -10,11 +11,20 @@ public sealed class CohortBulkActions : IEndpoint
 {
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
-        app.MapPost("cohorts/{id:int}/publish-rotation", async (
+        app.MapPost("cohorts/{id:int}/publish-schedule", async (
             int id, ISender sender, CancellationToken ct) =>
         {
-            var result = await sender.Send(new PublishRotationCommand(id), ct);
-            return result.Match(count => Results.Ok(new { published = count }), CustomResults.Problem);
+            var result = await sender.Send(new PublishCohortScheduleCommand(id), ct);
+            return result.Match(Results.NoContent, CustomResults.Problem);
+        })
+        .WithTags(Tags.Cohorts)
+        .RequireAuthorization();
+
+        app.MapDelete("cohorts/{id:int}/publish-schedule", async (
+            int id, ISender sender, CancellationToken ct) =>
+        {
+            var result = await sender.Send(new UnpublishCohortScheduleCommand(id), ct);
+            return result.Match(count => Results.Ok(new { removed = count }), CustomResults.Problem);
         })
         .WithTags(Tags.Cohorts)
         .RequireAuthorization();

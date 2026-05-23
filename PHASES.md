@@ -77,13 +77,17 @@ Entities: `Student`, `Registration`, `History`
 
 **Status: Complete**
 
-Entities: `Stage`, `StageObjective`, `Cohort`, `CohortRotationTemplate`
+Entities: `Stage`, `StageObjective`, `Cohort`, `StageSlot`, `CohortSlotAssignment`
 
 - `Stage`: ties a curriculum unit to a `Level` with `DurationInDays` and `Coefficient`
 - `StageObjective`: weighted evaluation criteria per Stage (`Weight`, `IsMandatory`)
 - `Cohort`: groups an `AcademicGroup` with a `Stage` for a rotation cycle; `Label` required
-- `CohortRotationTemplate`: the rotation *plan* — ordered sequence of Service assignments with planned dates (`SequenceOrder`, `PlannedStart`, `PlannedEnd`)
+- `StageSlot`: time period column (P1, P2...) belonging to a Stage — `PeriodNumber`, `Label?`, `StartDate`, `EndDate`; unique on `(StageId, PeriodNumber)`
+- `CohortSlotAssignment`: grid cell — maps one Cohort to one Service in one StageSlot; unique on `(CohortId, StageSlotId)`
 - Full CRUD endpoints for Stages, Levels, Cohorts
+- Schedule grid endpoints: `GET /stages/{id}/schedule`, slot CRUD (`POST/PUT/DELETE /stages/{id}/slots`), assignment CRUD (`PUT/DELETE /stages/{id}/slots/{slotId}/cohorts/{cohortId}`)
+- Publish/unpublish: `POST/DELETE /cohorts/{id}/publish-schedule` — creates/removes ServicePeriods with capacity check
+- Migration: `ScheduleGridRework` (2026-05-23) — replaced `RotationPlans`/`RotationPlanSlots` with `StageSlots`/`CohortSlotAssignments`
 
 ---
 
@@ -104,6 +108,7 @@ Entities: `InternshipAssignment`, `CohortMembership`, `ServicePeriod`, `ServiceE
 **Still needed:**
 - Endpoints to create/update InternshipAssignments, ServicePeriods, Evaluations, Attendance
 - Business logic to transition `InternshipStatus` through its lifecycle
+- **Revalidation support**: a student who receives `Result = NonValidé` continues through their academic years and can be assigned to a future cohort doing the same stage. A new `InternshipAssignment` is created for that attempt. The old failed assignment is preserved as history. A `History(Revalidation)` record marks the start of the revalidation. Queries for "has the student passed Stage X" must check for any `Validé` result across all their assignments for that stage, not just the latest.
 
 ---
 
@@ -163,13 +168,13 @@ Entities: `InternshipAssignment`, `CohortMembership`, `ServicePeriod`, `ServiceE
 
 ## 🔲 Phase 7 — Scheduling Automation
 
-**Status: Not started**
+**Status: Partially complete**
 
-- Generate `ServicePeriod` records from `CohortRotationTemplate` plans in bulk (the "publish rotation" operation)
-- Conflict detection: service capacity vs. concurrent student count, date overlaps between templates
-- `InternshipAssignment.FinalScore` computation: aggregate `ObjectiveScore.Score × StageObjective.Weight` across all ServiceEvaluations, persist back to assignment
-- `InternshipStatus` lifecycle transitions with guard rules (e.g., cannot Validate without a completed Evaluation)
-- Batch attendance generation for a ServicePeriod (pre-create records for each working day)
+- ✅ `POST /cohorts/{id}/publish-schedule`: creates ServicePeriods from CohortSlotAssignments with capacity check
+- ✅ `DELETE /cohorts/{id}/publish-schedule`: removes published ServicePeriods
+- 🔲 `InternshipAssignment.FinalScore` computation: aggregate `ObjectiveScore.Score × StageObjective.Weight` across all ServiceEvaluations, persist back to assignment
+- 🔲 `InternshipStatus` lifecycle transitions with guard rules (e.g., cannot Validate without a completed Evaluation)
+- 🔲 Batch attendance generation for a ServicePeriod (pre-create records for each working day)
 
 ---
 
@@ -292,5 +297,5 @@ Known issues identified during design review. All are low-risk at current scale 
 ### Low (query efficiency at scale)
 
 - **TPH table growth**: `Users` table holds Student, Employee, and base User rows with discriminator. At 10 k+ rows consider Table-Per-Type (TPT) migration to separate `Students` and `Employees` tables. Low priority at faculty scale (<1 000 students).
-- **`HydrateOccupancyAsync` loads all ServicePeriods**: For large academic years the occupancy loader pulls the full `ServicePeriods` table. Add a filter: only load periods overlapping the requested date range.
+- **`GetStageScheduleQueryHandler` occupancy map**: The query handler loads all `ServicePeriods` with a non-null `CohortSlotAssignmentId` for the stage to build an in-memory occupancy count per cell. At large scale, filter to only periods within the requested stage's slot date range.
 - **`UserContext.SyncAsync` memory cache is process-local**: In a multi-instance deployment each instance maintains a separate cache. Migrate the sync cache key to the Redis distributed cache already provisioned in `AppHost`.

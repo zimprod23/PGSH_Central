@@ -23,8 +23,11 @@ internal sealed class GetCohortByStageIdQueryHandler(IApplicationDbContext dbCon
                 c.AcademicGroupId,
                 c.AcademicGroup.Label,
                 c.Label,
-                c.RotationPlanId,
-                c.Assignments.Count))
+                c.Assignments.Count,
+                c.SlotAssignments.Count,
+                c.Assignments.Any(a => a.ServicePeriods.Any(p => p.CohortSlotAssignmentId != null)),
+                c.AcademicGroup.AcademicYearId,
+                c.AcademicGroup.AcademicYear.Label))
             .ToListAsync(cancellationToken);
 
         return cohorts;

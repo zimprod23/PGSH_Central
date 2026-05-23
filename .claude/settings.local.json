@@ -32,7 +32,10 @@
       "Bash(Select-Object FullName)",
       "Bash(grep -v \"^\\\\s*$\")",
       "Bash(xargs grep -l \"class Tags\")",
-      "Bash(xargs grep -l \"StudentErrors\\\\|Error\\\\.\")"
+      "Bash(xargs grep -l \"StudentErrors\\\\|Error\\\\.\")",
+      "Bash(taskkill /F /IM \"PGSH.API.exe\")",
+      "Bash(taskkill /F /IM \"PGSH.AppHost.exe\")",
+      "PowerShell(Stop-Process *)"
     ]
   }
 }

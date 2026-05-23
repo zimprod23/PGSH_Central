@@ -96,25 +96,34 @@ public static class StageErrors
         "Cohorts.NotFound",
         $"The cohort with Id = '{cohortId}' was not found.");
 
-    // === RotationPlan / Capacity ===
-    public static Error CapacityExceeded(int slotOrder, int serviceId) => Error.Conflict(
-        "RotationPlan.CapacityExceeded",
-        $"Service {serviceId} does not have enough capacity for rotation slot {slotOrder}: the service would be over its limit.");
+    // === Schedule / StageSlot ===
+    public static Error SlotNotFound(int slotId) => Error.NotFound(
+        "Schedule.SlotNotFound",
+        $"The stage slot with Id = '{slotId}' was not found.");
 
-    public static readonly Error RotationPlanNotAssigned = Error.Validation(
-        "RotationPlan.NotAssigned",
-        "This cohort does not have a rotation plan assigned. Assign a plan before publishing.");
+    public static Error DuplicatePeriodNumber(int periodNumber) => Error.Conflict(
+        "Schedule.DuplicatePeriodNumber",
+        $"A slot with period number {periodNumber} already exists for this stage.");
 
-    public static readonly Error RotationAlreadyPublished = Error.Conflict(
-        "RotationPlan.AlreadyPublished",
-        "This cohort's rotation has already been published. ServicePeriods already exist for its assignments.");
+    public static Error CapacityExceeded(
+        int periodNumber, string serviceName, DateOnly start, DateOnly end, int occupancy, int capacity) => Error.Conflict(
+        "Schedule.CapacityExceeded",
+        $"Period {periodNumber} cannot be published: service \"{serviceName}\" ({start:dd/MM/yyyy} – {end:dd/MM/yyyy}) already has {occupancy} student(s) and its capacity is {capacity}. Reduce the number of cohorts assigned to this service or choose a service with higher capacity.");
 
-    public static readonly Error RotationNotPublished = Error.Validation(
-        "RotationPlan.NotPublished",
-        "The cohort rotation has not been published yet. Publish the rotation before starting assignments.");
+    public static readonly Error ScheduleNotConfigured = Error.Validation(
+        "Schedule.NotConfigured",
+        "This cohort has no slot assignments configured. Set up the schedule grid before publishing.");
+
+    public static readonly Error ScheduleAlreadyPublished = Error.Conflict(
+        "Schedule.AlreadyPublished",
+        "This cohort's schedule has already been published. Unpublish it first before making changes.");
+
+    public static readonly Error ScheduleNotPublished = Error.Validation(
+        "Schedule.NotPublished",
+        "This cohort's schedule has not been published yet. Nothing to unpublish.");
 
     public static readonly Error NoPlannedAssignments = Error.Validation(
-        "RotationPlan.NoPlannedAssignments",
+        "Schedule.NoPlannedAssignments",
         "No assignments in 'Planned' status were found for this cohort.");
 
     // === InternshipAssignment lifecycle ===

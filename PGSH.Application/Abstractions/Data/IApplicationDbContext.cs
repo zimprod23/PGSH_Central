@@ -29,8 +29,8 @@ public interface IApplicationDbContext
     DbSet<AcademicYear> AcademicYears { get; set; }
     DbSet<AcademicGroup> AcademicGroups { get; set; }
     DbSet<Cohort> Cohorts { get; set; }
-    DbSet<RotationPlan> RotationPlans { get; set; }
-    DbSet<RotationPlanSlot> RotationPlanSlots { get; set; }
+    DbSet<StageSlot> StageSlots { get; set; }
+    DbSet<CohortSlotAssignment> CohortSlotAssignments { get; set; }
     DbSet<CohortMembership> CohortMembership { get; set; }
     DbSet<ServiceEvaluation> ServiceEvaluation { get; set; }
     DbSet<ServicePeriod> ServicePeriods { get; set; }

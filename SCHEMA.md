@@ -28,11 +28,12 @@ AcademicYear (int)
 Level (int)
   └── Stage (int)
         ├── StageObjective (int)          ← ObjectiveScore references these
+        ├── StageSlot (int)               ← time period columns (P1, P2, ...)
         └── Cohort (int)
-              ├── CohortRotationTemplate (int)  → Service
-              └── InternshipAssignment          [CurrentCohortId FK]
+              ├── CohortSlotAssignment (int)  → StageSlot + Service (grid cells)
+              └── InternshipAssignment         [CurrentCohortId FK]
 
-ServicePeriod → CohortRotationTemplate (nullable, tracks planned vs. ad-hoc)
+ServicePeriod → CohortSlotAssignment (nullable, tracks planned vs. ad-hoc)
 Student → History (audit trail)
 ```
 
@@ -241,16 +242,37 @@ Student → History (audit trail)
 
 ---
 
-### `CohortRotationTemplates`
+### `StageSlots`
+
+Time period columns for the schedule grid — one row per period (P1, P2, ...) per Stage.
+
+| Column | Type | Constraints |
+|---|---|---|
+| `Id` | int | PK (identity) |
+| `StageId` | int | FK → Stages, CASCADE |
+| `PeriodNumber` | int | NOT NULL — display order (1, 2, 3, ...) |
+| `Label` | varchar(50) | nullable — optional human-readable name (e.g., "Janvier") |
+| `StartDate` | date | NOT NULL |
+| `EndDate` | date | NOT NULL |
+
+**Indexes:** `IX_StageSlot_Stage_Period` (StageId, PeriodNumber) UNIQUE
+
+---
+
+### `CohortSlotAssignments`
+
+Grid cells — maps one Cohort to one Service for one StageSlot. Unique per (Cohort, Slot) pair.
 
 | Column | Type | Constraints |
 |---|---|---|
 | `Id` | int | PK (identity) |
 | `CohortId` | int | FK → Cohorts, CASCADE |
+| `StageSlotId` | int | FK → StageSlots, CASCADE |
 | `ServiceId` | int | FK → Services, RESTRICT |
-| `PlannedStart` | date | NOT NULL |
-| `PlannedEnd` | date | NOT NULL |
-| `SequenceOrder` | int | NOT NULL — position within the rotation plan |
+
+**Indexes:** `IX_CohortSlotAssignment_Cohort_Slot` (CohortId, StageSlotId) UNIQUE
+
+> **Capacity rule:** For each (StageSlot × Service) pair, the sum of students across all cohorts assigned there must not exceed `Service.Capacity`. Enforced at publish time by `PublishCohortScheduleCommandHandler`.
 
 ---
 
@@ -293,14 +315,14 @@ Student → History (audit trail)
 | `Id` | uuid | PK |
 | `InternshipAssignmentId` | uuid | FK → InternshipAssignments, CASCADE |
 | `ServiceId` | int | FK → Services, RESTRICT |
-| `CohortRotationTemplateId` | int | FK → CohortRotationTemplates, SET NULL, nullable |
+| `CohortSlotAssignmentId` | int | FK → CohortSlotAssignments, SET NULL, nullable |
 | `StartDate` | date | NOT NULL |
 | `EndDate` | date | NOT NULL |
 | `IsComplete` | bool | NOT NULL |
 
 **Indexes:** `IX_ServicePeriod_ServiceId`, `IX_ServicePeriod_AssignmentId`
 
-> `CohortRotationTemplateId` links execution back to plan. NULL means the period was created ad-hoc outside the rotation template.
+> `CohortSlotAssignmentId` links execution back to the schedule grid cell. NULL means the period was created ad-hoc (outside the published schedule). Set to NULL (not deleted) when the assignment is removed, preserving the execution record.
 
 ---
 
@@ -370,11 +392,14 @@ Student → History (audit trail)
 | ServicePeriod → ServiceEvaluation | CASCADE | Evaluation follows the period |
 | ServiceEvaluation → ObjectiveScore | CASCADE | Scores follow the evaluation |
 | Stage → StageObjective | CASCADE | Objectives are part of the stage definition |
-| Cohort → CohortRotationTemplate | CASCADE | Templates are part of the cohort plan |
-| ServicePeriod → CohortRotationTemplate | SET NULL | Period survives template deletion (keeps execution record) |
+| Stage → StageSlot | CASCADE | Slots are part of the stage schedule definition |
+| StageSlot → CohortSlotAssignment | CASCADE | Grid cells are invalidated when the slot is deleted |
+| Cohort → CohortSlotAssignment | CASCADE | Grid cells belong to the cohort |
+| ServicePeriod → CohortSlotAssignment | SET NULL | Period survives assignment deletion (keeps execution record) |
 | Hospital → Service | RESTRICT | Cannot delete a hospital with active services |
 | Center → Hospital | RESTRICT | Cannot delete a center with hospitals |
 | Service (chef/staff) → Employee | RESTRICT | Cannot delete an employee assigned to a service |
+| CohortSlotAssignment → Service | RESTRICT | Cannot delete a service that is referenced in the schedule grid |
 
 ---
 

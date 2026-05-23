@@ -365,17 +365,12 @@ namespace PGSH.Infrastructure.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
-                    b.Property<int?>("RotationPlanId")
-                        .HasColumnType("integer");
-
                     b.Property<int>("StageId")
                         .HasColumnType("integer");
 
                     b.HasKey("Id");
 
                     b.HasIndex("AcademicGroupId");
-
-                    b.HasIndex("RotationPlanId");
 
                     b.HasIndex("StageId");
 
@@ -412,6 +407,36 @@ namespace PGSH.Infrastructure.Migrations
                         .HasDatabaseName("IX_CohortMembership_AssignmentId");
 
                     b.ToTable("CohortMembership", "public");
+                });
+
+            modelBuilder.Entity("PGSH.Domain.Stages.CohortSlotAssignment", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("CohortId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("ServiceId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("StageSlotId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ServiceId");
+
+                    b.HasIndex("StageSlotId");
+
+                    b.HasIndex("CohortId", "StageSlotId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_CohortSlotAssignment_Cohort_Slot");
+
+                    b.ToTable("CohortSlotAssignments", "public");
                 });
 
             modelBuilder.Entity("PGSH.Domain.Stages.InternshipAssignment", b =>
@@ -475,60 +500,6 @@ namespace PGSH.Infrastructure.Migrations
                     b.ToTable("ObjectiveScores", "public");
                 });
 
-            modelBuilder.Entity("PGSH.Domain.Stages.RotationPlan", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<string>("Label")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<int>("StageId")
-                        .HasColumnType("integer");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("StageId");
-
-                    b.ToTable("RotationPlans", "public");
-                });
-
-            modelBuilder.Entity("PGSH.Domain.Stages.RotationPlanSlot", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<DateOnly>("PlannedEnd")
-                        .HasColumnType("date");
-
-                    b.Property<DateOnly>("PlannedStart")
-                        .HasColumnType("date");
-
-                    b.Property<int>("RotationPlanId")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("SequenceOrder")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("ServiceId")
-                        .HasColumnType("integer");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("RotationPlanId");
-
-                    b.HasIndex("ServiceId");
-
-                    b.ToTable("RotationPlanSlots", "public");
-                });
-
             modelBuilder.Entity("PGSH.Domain.Stages.ServiceEvaluation", b =>
                 {
                     b.Property<Guid>("Id")
@@ -559,6 +530,9 @@ namespace PGSH.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<int?>("CohortSlotAssignmentId")
+                        .HasColumnType("integer");
+
                     b.Property<DateOnly>("EndDate")
                         .HasColumnType("date");
 
@@ -568,9 +542,6 @@ namespace PGSH.Infrastructure.Migrations
                     b.Property<bool>("IsComplete")
                         .HasColumnType("boolean");
 
-                    b.Property<int?>("RotationPlanSlotId")
-                        .HasColumnType("integer");
-
                     b.Property<int>("ServiceId")
                         .HasColumnType("integer");
 
@@ -579,10 +550,10 @@ namespace PGSH.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("CohortSlotAssignmentId");
+
                     b.HasIndex("InternshipAssignmentId")
                         .HasDatabaseName("IX_ServicePeriod_AssignmentId");
-
-                    b.HasIndex("RotationPlanSlotId");
 
                     b.HasIndex("ServiceId")
                         .HasDatabaseName("IX_ServicePeriod_ServiceId");
@@ -652,6 +623,38 @@ namespace PGSH.Infrastructure.Migrations
                     b.HasIndex("StageId");
 
                     b.ToTable("StageObjectives", "public");
+                });
+
+            modelBuilder.Entity("PGSH.Domain.Stages.StageSlot", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateOnly>("EndDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("Label")
+                        .HasColumnType("text");
+
+                    b.Property<int>("PeriodNumber")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("StageId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateOnly>("StartDate")
+                        .HasColumnType("date");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("StageId", "PeriodNumber")
+                        .IsUnique()
+                        .HasDatabaseName("IX_StageSlot_Stage_Period");
+
+                    b.ToTable("StageSlots", "public");
                 });
 
             modelBuilder.Entity("PGSH.Domain.Students.History", b =>
@@ -1031,11 +1034,6 @@ namespace PGSH.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.HasOne("PGSH.Domain.Stages.RotationPlan", "RotationPlan")
-                        .WithMany("Cohorts")
-                        .HasForeignKey("RotationPlanId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
                     b.HasOne("PGSH.Domain.Stages.Stage", "Stage")
                         .WithMany()
                         .HasForeignKey("StageId")
@@ -1043,8 +1041,6 @@ namespace PGSH.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("AcademicGroup");
-
-                    b.Navigation("RotationPlan");
 
                     b.Navigation("Stage");
                 });
@@ -1064,6 +1060,33 @@ namespace PGSH.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("Cohort");
+                });
+
+            modelBuilder.Entity("PGSH.Domain.Stages.CohortSlotAssignment", b =>
+                {
+                    b.HasOne("PGSH.Domain.Stages.Cohort", "Cohort")
+                        .WithMany("SlotAssignments")
+                        .HasForeignKey("CohortId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("PGSH.Domain.Hospitals.Service", "Service")
+                        .WithMany()
+                        .HasForeignKey("ServiceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("PGSH.Domain.Stages.StageSlot", "StageSlot")
+                        .WithMany("Assignments")
+                        .HasForeignKey("StageSlotId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Cohort");
+
+                    b.Navigation("Service");
+
+                    b.Navigation("StageSlot");
                 });
 
             modelBuilder.Entity("PGSH.Domain.Stages.InternshipAssignment", b =>
@@ -1104,36 +1127,6 @@ namespace PGSH.Infrastructure.Migrations
                     b.Navigation("StageObjective");
                 });
 
-            modelBuilder.Entity("PGSH.Domain.Stages.RotationPlan", b =>
-                {
-                    b.HasOne("PGSH.Domain.Stages.Stage", "Stage")
-                        .WithMany()
-                        .HasForeignKey("StageId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Stage");
-                });
-
-            modelBuilder.Entity("PGSH.Domain.Stages.RotationPlanSlot", b =>
-                {
-                    b.HasOne("PGSH.Domain.Stages.RotationPlan", "RotationPlan")
-                        .WithMany("Slots")
-                        .HasForeignKey("RotationPlanId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("PGSH.Domain.Hospitals.Service", "Service")
-                        .WithMany()
-                        .HasForeignKey("ServiceId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("RotationPlan");
-
-                    b.Navigation("Service");
-                });
-
             modelBuilder.Entity("PGSH.Domain.Stages.ServiceEvaluation", b =>
                 {
                     b.HasOne("PGSH.Domain.Stages.ServicePeriod", "ServicePeriod")
@@ -1147,16 +1140,16 @@ namespace PGSH.Infrastructure.Migrations
 
             modelBuilder.Entity("PGSH.Domain.Stages.ServicePeriod", b =>
                 {
+                    b.HasOne("PGSH.Domain.Stages.CohortSlotAssignment", "CohortSlotAssignment")
+                        .WithMany()
+                        .HasForeignKey("CohortSlotAssignmentId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("PGSH.Domain.Stages.InternshipAssignment", "InternshipAssignment")
                         .WithMany("ServicePeriods")
                         .HasForeignKey("InternshipAssignmentId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
-
-                    b.HasOne("PGSH.Domain.Stages.RotationPlanSlot", "RotationPlanSlot")
-                        .WithMany()
-                        .HasForeignKey("RotationPlanSlotId")
-                        .OnDelete(DeleteBehavior.SetNull);
 
                     b.HasOne("PGSH.Domain.Hospitals.Service", "Service")
                         .WithMany()
@@ -1164,9 +1157,9 @@ namespace PGSH.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.Navigation("InternshipAssignment");
+                    b.Navigation("CohortSlotAssignment");
 
-                    b.Navigation("RotationPlanSlot");
+                    b.Navigation("InternshipAssignment");
 
                     b.Navigation("Service");
                 });
@@ -1186,6 +1179,17 @@ namespace PGSH.Infrastructure.Migrations
                 {
                     b.HasOne("PGSH.Domain.Stages.Stage", "Stage")
                         .WithMany("Objectives")
+                        .HasForeignKey("StageId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Stage");
+                });
+
+            modelBuilder.Entity("PGSH.Domain.Stages.StageSlot", b =>
+                {
+                    b.HasOne("PGSH.Domain.Stages.Stage", "Stage")
+                        .WithMany("Slots")
                         .HasForeignKey("StageId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
@@ -1303,6 +1307,8 @@ namespace PGSH.Infrastructure.Migrations
             modelBuilder.Entity("PGSH.Domain.Stages.Cohort", b =>
                 {
                     b.Navigation("Assignments");
+
+                    b.Navigation("SlotAssignments");
                 });
 
             modelBuilder.Entity("PGSH.Domain.Stages.InternshipAssignment", b =>
@@ -1310,13 +1316,6 @@ namespace PGSH.Infrastructure.Migrations
                     b.Navigation("MembershipHistory");
 
                     b.Navigation("ServicePeriods");
-                });
-
-            modelBuilder.Entity("PGSH.Domain.Stages.RotationPlan", b =>
-                {
-                    b.Navigation("Cohorts");
-
-                    b.Navigation("Slots");
                 });
 
             modelBuilder.Entity("PGSH.Domain.Stages.ServiceEvaluation", b =>
@@ -1334,6 +1333,13 @@ namespace PGSH.Infrastructure.Migrations
             modelBuilder.Entity("PGSH.Domain.Stages.Stage", b =>
                 {
                     b.Navigation("Objectives");
+
+                    b.Navigation("Slots");
+                });
+
+            modelBuilder.Entity("PGSH.Domain.Stages.StageSlot", b =>
+                {
+                    b.Navigation("Assignments");
                 });
 
             modelBuilder.Entity("PGSH.Domain.Students.Student", b =>

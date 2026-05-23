@@ -36,6 +36,33 @@ internal sealed class GenerateScheduleCommandHandler(IApplicationDbContext dbCon
             int duration  = stageReq.RotationDurationDays;
             int rotations = Math.Max(1, stageReq.NumberOfRotations);
 
+            // Create or reuse StageSlots for this stage (one per period, shared across all cohorts)
+            var stageSlots = new List<StageSlot>();
+            for (int r = 0; r < rotations; r++)
+            {
+                DateOnly start = stageReq.GlobalStartDate.AddDays(r * duration);
+                DateOnly end   = stageReq.GlobalStartDate.AddDays(((r + 1) * duration) - 1);
+
+                var slot = await dbContext.StageSlots
+                    .FirstOrDefaultAsync(s => s.StageId == stageReq.StageId && s.PeriodNumber == r + 1, cancellationToken);
+
+                if (slot is null)
+                {
+                    slot = new StageSlot
+                    {
+                        StageId      = stageReq.StageId,
+                        PeriodNumber = r + 1,
+                        StartDate    = start,
+                        EndDate      = end,
+                    };
+                    dbContext.StageSlots.Add(slot);
+                }
+
+                stageSlots.Add(slot);
+            }
+
+            await dbContext.SaveChangesAsync(cancellationToken); // flush slot IDs
+
             foreach (var group in groups)
             {
                 var cohort = new Cohort
@@ -45,17 +72,15 @@ internal sealed class GenerateScheduleCommandHandler(IApplicationDbContext dbCon
                     Label           = $"Cohort-{group.Id}-Stage{stageReq.StageId}",
                 };
 
-                bool allPlaced = true;
-                var  tempSlots = new List<(int ServiceId, DateOnly Start, DateOnly End, int Order)>();
+                bool allPlaced   = true;
+                var  tempSlotSvc = new List<(StageSlot Slot, int ServiceId)>();
 
                 for (int r = 0; r < rotations; r++)
                 {
-                    DateOnly start = stageReq.GlobalStartDate.AddDays(r * duration);
-                    DateOnly end   = stageReq.GlobalStartDate.AddDays(((r + 1) * duration) - 1);
-
+                    var slot      = stageSlots[r];
                     int serviceId = FindAvailableService(
                         request.AvailableServiceIds, groupIndex, r,
-                        start, end, group.Registrations.Count, services);
+                        slot.StartDate, slot.EndDate, group.Registrations.Count, services);
 
                     if (serviceId == -1)
                     {
@@ -65,25 +90,20 @@ internal sealed class GenerateScheduleCommandHandler(IApplicationDbContext dbCon
                         break;
                     }
 
-                    tempSlots.Add((serviceId, start, end, r + 1));
-                    Track(serviceId, start, end, group.Registrations.Count);
+                    tempSlotSvc.Add((slot, serviceId));
+                    Track(serviceId, slot.StartDate, slot.EndDate, group.Registrations.Count);
                 }
 
                 if (allPlaced)
                 {
-                    var plan = new RotationPlan { StageId = stageReq.StageId };
-                    foreach (var (svcId, start, end, order) in tempSlots)
+                    foreach (var (slot, svcId) in tempSlotSvc)
                     {
-                        plan.Slots.Add(new RotationPlanSlot
+                        cohort.SlotAssignments.Add(new CohortSlotAssignment
                         {
-                            ServiceId     = svcId,
-                            PlannedStart  = start,
-                            PlannedEnd    = end,
-                            SequenceOrder = order,
+                            StageSlot = slot,
+                            ServiceId = svcId,
                         });
                     }
-
-                    cohort.RotationPlan = plan;
 
                     foreach (var reg in group.Registrations)
                     {
@@ -93,17 +113,6 @@ internal sealed class GenerateScheduleCommandHandler(IApplicationDbContext dbCon
                             RegistrationId = reg.Id,
                             Cohort         = cohort,
                         };
-
-                        foreach (var (svcId, start, end, _) in tempSlots)
-                        {
-                            assignment.ServicePeriods.Add(new ServicePeriod
-                            {
-                                ServiceId  = svcId,
-                                StartDate  = start,
-                                EndDate    = end,
-                                IsComplete = false,
-                            });
-                        }
 
                         assignment.MembershipHistory.Add(new CohortMembership
                         {
@@ -148,12 +157,18 @@ internal sealed class GenerateScheduleCommandHandler(IApplicationDbContext dbCon
 
     private async Task HydrateOccupancyAsync(CancellationToken ct)
     {
-        var existing = await dbContext.ServicePeriods
-            .Select(p => new { p.ServiceId, p.StartDate, p.EndDate })
+        var existing = await dbContext.CohortSlotAssignments
+            .Select(a => new
+            {
+                a.ServiceId,
+                Start    = a.StageSlot.StartDate,
+                End      = a.StageSlot.EndDate,
+                Students = a.Cohort.Assignments.Count,
+            })
             .ToListAsync(ct);
 
-        foreach (var p in existing)
-            Track(p.ServiceId, p.StartDate, p.EndDate, 1);
+        foreach (var a in existing)
+            Track(a.ServiceId, a.Start, a.End, a.Students);
     }
 
     private bool CanFit(int serviceId, DateOnly start, DateOnly end, int count, int capacity)
