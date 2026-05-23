@@ -1,3 +1,6 @@
+using PGSH.Domain.Common.Utils;
+using PGSH.Domain.Stages;
+
 namespace PGSH.Application.Stages.InternshipAssignments;
 
 public sealed record InternshipAssignmentSummaryResponse(
@@ -7,9 +10,9 @@ public sealed record InternshipAssignmentSummaryResponse(
     int CohortId,
     string CohortLabel,
     int StageId,
-    string Status,
+    InternshipStatus Status,
     decimal? FinalScore,
-    string? Result);
+    StageAssignmentResult? Result);
 
 public sealed record InternshipAssignmentResponse(
     Guid Id,
@@ -17,9 +20,9 @@ public sealed record InternshipAssignmentResponse(
     string StudentFullName,
     int CohortId,
     string CohortLabel,
-    string Status,
+    InternshipStatus Status,
     decimal? FinalScore,
-    string? Result,
+    StageAssignmentResult? Result,
     IReadOnlyList<ServicePeriodSummary> ServicePeriods);
 
 public sealed record ServicePeriodSummary(

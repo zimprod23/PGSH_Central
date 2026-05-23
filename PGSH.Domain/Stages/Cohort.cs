@@ -1,4 +1,3 @@
-﻿using PGSH.Domain.Hospitals;
 using PGSH.Domain.Registrations;
 
 namespace PGSH.Domain.Stages;
@@ -11,21 +10,9 @@ public sealed class Cohort
     public Stage Stage { get; set; }
     public int AcademicGroupId { get; set; }
     public AcademicGroup AcademicGroup { get; set; }
+    public int? RotationPlanId { get; set; }
+    public RotationPlan? RotationPlan { get; set; }
     public ICollection<InternshipAssignment> Assignments { get; set; } = new List<InternshipAssignment>();
-    public ICollection<CohortRotationTemplate> RotationTemplates { get; set; } = new List<CohortRotationTemplate>();
-}
-
-public sealed class CohortRotationTemplate
-{
-    public int Id { get; set; }
-    public int CohortId { get; set; }
-    public Cohort Cohort { get; set; }
-    public DateOnly PlannedStart { get; set; }
-    public DateOnly PlannedEnd { get; set; }
-    public int ServiceId { get; set; }
-    public Service Service { get; set; }
-    public int SequenceOrder { get; set; } // e.g., 1st rotation, 2nd rotation
-    //public int DurationDays { get; set; }
 }
 
 public sealed class CohortMembership
@@ -35,6 +22,6 @@ public sealed class CohortMembership
     public int CohortId { get; set; }
     public Cohort Cohort { get; set; }
     public DateOnly StartDate { get; set; }
-    public DateOnly? EndDate { get; set; } // Null means currently active in this cohort
+    public DateOnly? EndDate { get; set; }
     public string? TransferReason { get; set; }
 }

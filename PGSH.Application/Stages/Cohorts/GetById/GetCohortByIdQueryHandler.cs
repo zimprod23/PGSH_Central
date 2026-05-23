@@ -22,17 +22,20 @@ internal sealed class GetCohortByIdQueryHandler(IApplicationDbContext dbContext)
                 c.AcademicGroup.Label,
                 c.Label,
                 c.Assignments.Count,
-                c.RotationTemplates
-                    .OrderBy(t => t.SequenceOrder)
-                    .Select(t => new RotationTemplateResponse(
-                        t.Id,
-                        t.ServiceId,
-                        t.Service.Name,
-                        t.Service.Hospital.Name,
-                        t.PlannedStart,
-                        t.PlannedEnd,
-                        t.SequenceOrder))
-                    .ToList()))
+                c.RotationPlanId,
+                c.RotationPlan == null
+                    ? new List<RotationSlotResponse>()
+                    : c.RotationPlan.Slots
+                        .OrderBy(s => s.SequenceOrder)
+                        .Select(s => new RotationSlotResponse(
+                            s.Id,
+                            s.ServiceId,
+                            s.Service.Name,
+                            s.Service.Hospital.Name,
+                            s.PlannedStart,
+                            s.PlannedEnd,
+                            s.SequenceOrder))
+                        .ToList()))
             .FirstOrDefaultAsync(cancellationToken);
 
         if (cohort is null)

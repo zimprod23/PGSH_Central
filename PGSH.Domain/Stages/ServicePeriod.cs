@@ -10,8 +10,8 @@ public sealed class ServicePeriod
     public int ServiceId { get; set; }
     public Service Service { get; set; }
 
-    public int? CohortRotationTemplateId { get; set; }
-    public CohortRotationTemplate? CohortRotationTemplate { get; set; }
+    public int? RotationPlanSlotId { get; set; }
+    public RotationPlanSlot? RotationPlanSlot { get; set; }
 
     public DateOnly StartDate { get; set; }
     public DateOnly EndDate { get; set; }

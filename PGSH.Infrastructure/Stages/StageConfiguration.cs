@@ -43,23 +43,43 @@ internal sealed class CohortConfiguration : IEntityTypeConfiguration<Cohort>
                .WithMany()
                .HasForeignKey(c => c.StageId)
                .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasOne(c => c.RotationPlan)
+               .WithMany(p => p.Cohorts)
+               .HasForeignKey(c => c.RotationPlanId)
+               .IsRequired(false)
+               .OnDelete(DeleteBehavior.SetNull);
     }
 }
 
-internal sealed class CohortRotationTemplateConfiguration : IEntityTypeConfiguration<CohortRotationTemplate>
+internal sealed class RotationPlanConfiguration : IEntityTypeConfiguration<RotationPlan>
 {
-    public void Configure(EntityTypeBuilder<CohortRotationTemplate> builder)
+    public void Configure(EntityTypeBuilder<RotationPlan> builder)
     {
-        builder.HasKey(t => t.Id);
+        builder.HasKey(p => p.Id);
+        builder.Property(p => p.Label).HasMaxLength(100);
 
-        builder.HasOne(t => t.Cohort)
-               .WithMany(c => c.RotationTemplates)
-               .HasForeignKey(t => t.CohortId)
+        builder.HasOne(p => p.Stage)
+               .WithMany()
+               .HasForeignKey(p => p.StageId)
                .OnDelete(DeleteBehavior.Cascade);
 
-        builder.HasOne(t => t.Service)
+        builder.HasMany(p => p.Slots)
+               .WithOne(s => s.RotationPlan)
+               .HasForeignKey(s => s.RotationPlanId)
+               .OnDelete(DeleteBehavior.Cascade);
+    }
+}
+
+internal sealed class RotationPlanSlotConfiguration : IEntityTypeConfiguration<RotationPlanSlot>
+{
+    public void Configure(EntityTypeBuilder<RotationPlanSlot> builder)
+    {
+        builder.HasKey(s => s.Id);
+
+        builder.HasOne(s => s.Service)
                .WithMany()
-               .HasForeignKey(t => t.ServiceId)
+               .HasForeignKey(s => s.ServiceId)
                .OnDelete(DeleteBehavior.Restrict);
     }
 }
@@ -147,9 +167,9 @@ internal sealed class ServicePeriodConfiguration : IEntityTypeConfiguration<Serv
                 .HasForeignKey(p => p.ServiceId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-        builder.HasOne(p => p.CohortRotationTemplate)
+        builder.HasOne(p => p.RotationPlanSlot)
                 .WithMany()
-                .HasForeignKey(p => p.CohortRotationTemplateId)
+                .HasForeignKey(p => p.RotationPlanSlotId)
                 .IsRequired(false)
                 .OnDelete(DeleteBehavior.SetNull);
 

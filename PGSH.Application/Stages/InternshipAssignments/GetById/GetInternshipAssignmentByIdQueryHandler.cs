@@ -21,9 +21,9 @@ internal sealed class GetInternshipAssignmentByIdQueryHandler(IApplicationDbCont
                 (a.Registration.Student.FirstName ?? "") + " " + (a.Registration.Student.LastName ?? ""),
                 a.CurrentCohortId,
                 a.Cohort.Label,
-                a.Status.ToString(),
+                a.Status,
                 a.FinalScore,
-                a.Result.ToString(),
+                a.Result,
                 a.ServicePeriods
                     .OrderBy(p => p.StartDate)
                     .Select(p => new ServicePeriodSummary(

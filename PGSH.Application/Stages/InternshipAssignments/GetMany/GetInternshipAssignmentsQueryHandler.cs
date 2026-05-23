@@ -14,8 +14,8 @@ internal sealed class GetInternshipAssignmentsQueryHandler(IApplicationDbContext
     {
         var query = dbContext.InternshipAssignments.AsNoTracking().AsQueryable();
 
-        if (request.CohortId.HasValue)
-            query = query.Where(a => a.CurrentCohortId == request.CohortId.Value);
+        if (request.CohortIds is { Count: > 0 })
+            query = query.Where(a => request.CohortIds.Contains(a.CurrentCohortId));
 
         if (request.RegistrationId.HasValue)
             query = query.Where(a => a.RegistrationId == request.RegistrationId.Value);
@@ -38,9 +38,9 @@ internal sealed class GetInternshipAssignmentsQueryHandler(IApplicationDbContext
                     a.CurrentCohortId,
                     a.Cohort.Label,
                     a.Cohort.StageId,
-                    a.Status.ToString(),
+                    a.Status,
                     a.FinalScore,
-                    a.Result.ToString()),
+                    a.Result),
                 cancellationToken);
 
         return Result.Success(response);

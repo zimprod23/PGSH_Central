@@ -11,6 +11,10 @@ internal sealed class GlobalExceptionHandler(ILogger<GlobalExceptionHandler> log
         Exception exception,
         CancellationToken cancellationToken)
     {
+        // Client disconnected — not a real error, nothing to respond to.
+        if (exception is OperationCanceledException)
+            return true;
+
         logger.LogError(exception, "Unhandled exception occurred");
 
         var (statusCode, title) = exception switch
@@ -27,7 +31,10 @@ internal sealed class GlobalExceptionHandler(ILogger<GlobalExceptionHandler> log
         };
 
         httpContext.Response.StatusCode = statusCode;
-        await httpContext.Response.WriteAsJsonAsync(problemDetails, cancellationToken);
+
+        // Use CancellationToken.None so that writing the error response itself
+        // is not aborted if the original request token is already cancelled.
+        await httpContext.Response.WriteAsJsonAsync(problemDetails, CancellationToken.None);
         return true;
     }
 }

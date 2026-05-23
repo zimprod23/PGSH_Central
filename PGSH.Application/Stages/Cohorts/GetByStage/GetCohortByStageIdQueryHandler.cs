@@ -23,7 +23,7 @@ internal sealed class GetCohortByStageIdQueryHandler(IApplicationDbContext dbCon
                 c.AcademicGroupId,
                 c.AcademicGroup.Label,
                 c.Label,
-                c.RotationTemplates.Count,
+                c.RotationPlanId,
                 c.Assignments.Count))
             .ToListAsync(cancellationToken);
 

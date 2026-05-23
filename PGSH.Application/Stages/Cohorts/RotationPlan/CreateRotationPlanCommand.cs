@@ -1,14 +1,18 @@
 using PGSH.Application.Abstractions.Messaging;
-using PGSH.SharedKernel;
 
 namespace PGSH.Application.Stages.Cohorts.RotationPlan;
 
 public sealed record CreateRotationPlanCommand(
-    List<int>               CohortIds,
-    List<int>               ServiceIds,
-    List<RotationSlotRequest> Slots) : ICommand<BulkResponse<int, int>>;
+    int StageId,
+    List<int> CohortIds,
+    List<RotationSlotRequest> Slots,
+    bool AutoMirror) : ICommand<CreateRotationPlanResponse>;
 
 public sealed record RotationSlotRequest(
-    int      SequenceOrder,
+    int ServiceId,
     DateOnly StartDate,
     DateOnly EndDate);
+
+public sealed record CreateRotationPlanResponse(
+    int PlanId,
+    int? MirrorPlanId);

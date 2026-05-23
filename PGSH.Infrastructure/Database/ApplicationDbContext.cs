@@ -51,7 +51,8 @@ public sealed class ApplicationDbContext : DbContext, IApplicationDbContext
     public DbSet<AuditLog> AuditLogs { get; set; }
     public DbSet<ObjectiveScore> ObjectiveScores { get; set; }
     public DbSet<Cohort> Cohorts { get; set; }
-    public DbSet<CohortRotationTemplate> CohortRotationTemplates { get; set; }
+    public DbSet<RotationPlan> RotationPlans { get; set; }
+    public DbSet<RotationPlanSlot> RotationPlanSlots { get; set; }
     public DbSet<CohortMembership> CohortMembership { get; set; }
     public DbSet<ServiceEvaluation> ServiceEvaluation { get; set; }
     public DbSet<ServicePeriod> ServicePeriods { get; set; }

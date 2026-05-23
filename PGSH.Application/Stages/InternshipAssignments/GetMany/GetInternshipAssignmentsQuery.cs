@@ -5,7 +5,7 @@ using PGSH.SharedKernel;
 namespace PGSH.Application.Stages.InternshipAssignments.GetMany;
 
 public sealed record GetInternshipAssignmentsQuery(
-    int? CohortId,
+    List<int>? CohortIds,
     int? StageId,
     Guid? RegistrationId,
     InternshipStatus? Status,

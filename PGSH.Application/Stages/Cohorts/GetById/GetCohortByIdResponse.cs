@@ -7,7 +7,7 @@ public sealed record CohortResponse(
     int    AcademicGroupId,
     string AcademicGroupLabel,
     string Label,
-    int    RotationTemplateCount,
+    int?   RotationPlanId,
     int    StudentAssignmentCount);
 
 public sealed record CohortDetailResponse(
@@ -18,9 +18,10 @@ public sealed record CohortDetailResponse(
     string AcademicGroupLabel,
     string Label,
     int    StudentAssignmentCount,
-    IReadOnlyList<RotationTemplateResponse> RotationTemplates);
+    int?   RotationPlanId,
+    IReadOnlyList<RotationSlotResponse> RotationSlots);
 
-public sealed record RotationTemplateResponse(
+public sealed record RotationSlotResponse(
     int      Id,
     int      ServiceId,
     string   ServiceName,

@@ -40,13 +40,13 @@ internal sealed class GenerateScheduleCommandHandler(IApplicationDbContext dbCon
             {
                 var cohort = new Cohort
                 {
-                    StageId        = stageReq.StageId,
+                    StageId         = stageReq.StageId,
                     AcademicGroupId = group.Id,
-                    Label          = $"Cohort-{group.Id}-Stage{stageReq.StageId}",
+                    Label           = $"Cohort-{group.Id}-Stage{stageReq.StageId}",
                 };
 
-                bool allPlaced     = true;
-                var  tempTemplates = new List<CohortRotationTemplate>();
+                bool allPlaced = true;
+                var  tempSlots = new List<(int ServiceId, DateOnly Start, DateOnly End, int Order)>();
 
                 for (int r = 0; r < rotations; r++)
                 {
@@ -65,20 +65,25 @@ internal sealed class GenerateScheduleCommandHandler(IApplicationDbContext dbCon
                         break;
                     }
 
-                    tempTemplates.Add(new CohortRotationTemplate
-                    {
-                        ServiceId     = serviceId,
-                        PlannedStart  = start,
-                        PlannedEnd    = end,
-                        SequenceOrder = r + 1,
-                    });
-
+                    tempSlots.Add((serviceId, start, end, r + 1));
                     Track(serviceId, start, end, group.Registrations.Count);
                 }
 
                 if (allPlaced)
                 {
-                    cohort.RotationTemplates = tempTemplates;
+                    var plan = new RotationPlan { StageId = stageReq.StageId };
+                    foreach (var (svcId, start, end, order) in tempSlots)
+                    {
+                        plan.Slots.Add(new RotationPlanSlot
+                        {
+                            ServiceId     = svcId,
+                            PlannedStart  = start,
+                            PlannedEnd    = end,
+                            SequenceOrder = order,
+                        });
+                    }
+
+                    cohort.RotationPlan = plan;
 
                     foreach (var reg in group.Registrations)
                     {
@@ -89,13 +94,13 @@ internal sealed class GenerateScheduleCommandHandler(IApplicationDbContext dbCon
                             Cohort         = cohort,
                         };
 
-                        foreach (var t in cohort.RotationTemplates)
+                        foreach (var (svcId, start, end, _) in tempSlots)
                         {
                             assignment.ServicePeriods.Add(new ServicePeriod
                             {
-                                ServiceId = t.ServiceId,
-                                StartDate = t.PlannedStart,
-                                EndDate   = t.PlannedEnd,
+                                ServiceId  = svcId,
+                                StartDate  = start,
+                                EndDate    = end,
                                 IsComplete = false,
                             });
                         }
