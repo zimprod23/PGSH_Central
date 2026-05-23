@@ -78,6 +78,10 @@ public static class StageErrors
         "AttendanceRecords.Duplicate",
         "An attendance record already exists for this date and period.");
 
+    public static readonly Error AttendanceAlreadyGenerated = Error.Conflict(
+        "AttendanceRecords.AlreadyGenerated",
+        "Attendance records have already been generated for this service period.");
+
     // === ServiceEvaluation ===
     public static Error EvaluationNotFound(Guid periodId) => Error.NotFound(
         "ServiceEvaluations.NotFound",
