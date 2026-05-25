@@ -8,7 +8,8 @@ public sealed class AcademicGroup
     public int Id { get; set; }
     public string Label { get; set; } = default!; // e.g., "G22 - Temara Cluster"
     public int GroupNumber { get; set; }
-    public string? GeographicZone { get; set; } // For your AI clustering logic
+    public string? GeographicZone { get; set; }
+    public string? RotationGroup  { get; set; } // Persistent partition label (A, B, C…) across all stages
 
     public int AcademicYearId { get; set; }
     public AcademicYear AcademicYear { get; set; } = default!;

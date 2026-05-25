@@ -49,18 +49,6 @@ internal sealed class PublishCohortScheduleCommandHandler(IApplicationDbContext 
         if (assignments.Count == 0)
             return Result.Failure(StageErrors.NoPlannedAssignments);
 
-        foreach (var sa in slotAssignments)
-        {
-            int occupancy = await dbContext.ServicePeriods
-                .CountAsync(p => p.CohortSlotAssignment != null
-                              && p.CohortSlotAssignment.StageSlotId == sa.StageSlotId
-                              && p.CohortSlotAssignment.ServiceId == sa.ServiceId, cancellationToken);
-
-            if (occupancy + assignments.Count > sa.ServiceCapacity)
-                return Result.Failure(StageErrors.CapacityExceeded(
-                    sa.SlotPeriod, sa.ServiceName, sa.SlotStart, sa.SlotEnd, occupancy, sa.ServiceCapacity));
-        }
-
         // Generate ServicePeriods
         var newPeriods = new List<ServicePeriod>();
         foreach (var sa in slotAssignments)

@@ -19,6 +19,7 @@ internal sealed class GetGroupByIdQueryHandler(IApplicationDbContext dbContext)
                 g.Label,
                 g.GroupNumber,
                 g.GeographicZone,
+                g.RotationGroup,
                 g.AcademicYearId,
                 g.AcademicYear.Label,
                 g.Registrations

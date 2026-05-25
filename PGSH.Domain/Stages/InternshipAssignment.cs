@@ -113,6 +113,8 @@ public sealed class InternshipAssignment : Entity
 
     // ─── Score computation ────────────────────────────────────────────────────
 
+    public void RecalculateFinalScore() => RecomputeFinalScore();
+
     private void RecomputeFinalScore()
     {
         var evaluations = ServicePeriods

@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using PGSH.API.Extensions;
 using PGSH.API.Infrastructure;
 using PGSH.Application.Stages.Schedule;
+using PGSH.Application.Stages.Schedule.AutoArrange;
 using PGSH.Application.Stages.Slots;
 
 namespace PGSH.API.Endpoints.Stages;
@@ -59,6 +60,14 @@ internal sealed class StageScheduleEndpoints : IEndpoint
             {
                 var result = await sender.Send(new ClearCohortSlotAssignmentCommand(cohortId, slotId), ct);
                 return result.Match(Results.NoContent, CustomResults.Problem);
+            })
+            .WithTags("Stages");
+
+        app.MapPost("stages/{stageId:int}/schedule/auto-arrange",
+            async (int stageId, int? partitionCount, ISender sender, CancellationToken ct) =>
+            {
+                var result = await sender.Send(new AutoArrangeStageScheduleCommand(stageId, partitionCount), ct);
+                return result.Match(Results.Ok, CustomResults.Problem);
             })
             .WithTags("Stages");
     }

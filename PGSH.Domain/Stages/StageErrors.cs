@@ -83,6 +83,10 @@ public static class StageErrors
         "Attendance records have already been generated for this service period.");
 
     // === ServiceEvaluation ===
+    public static Error EvaluationReadOnly(InternshipStatus status) => Error.Conflict(
+        "ServiceEvaluations.ReadOnly",
+        $"Evaluation cannot be modified because the assignment is already '{status}'.");
+
     public static Error EvaluationNotFound(Guid periodId) => Error.NotFound(
         "ServiceEvaluations.NotFound",
         $"No evaluation found for service period '{periodId}'.");
@@ -125,6 +129,11 @@ public static class StageErrors
     public static readonly Error NoPlannedAssignments = Error.Validation(
         "Schedule.NoPlannedAssignments",
         "No assignments in 'Planned' status were found for this cohort.");
+
+    // === Allowed services ===
+    public static Error ServiceNotAllowed(int serviceId, int stageId) => Error.Conflict(
+        "Stages.ServiceNotAllowed",
+        $"Service {serviceId} is not in the allowed-services list for stage {stageId}.");
 
     // === InternshipAssignment lifecycle ===
     public static Error InvalidStatusTransition(string action, InternshipStatus current) => Error.Validation(

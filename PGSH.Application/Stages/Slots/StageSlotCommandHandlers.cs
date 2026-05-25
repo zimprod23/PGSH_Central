@@ -90,6 +90,24 @@ internal sealed class SetCohortSlotAssignmentCommandHandler(IApplicationDbContex
         if (!serviceExists)
             return Result.Failure<int>(Error.NotFound("Services.NotFound", $"Service {request.ServiceId} was not found."));
 
+        // Enforce allowed-services whitelist when configured
+        int stageId = await dbContext.StageSlots
+            .Where(s => s.Id == request.StageSlotId)
+            .Select(s => s.StageId)
+            .FirstAsync(cancellationToken);
+
+        bool hasWhitelist = await dbContext.Stages
+            .AnyAsync(s => s.Id == stageId && s.AllowedServices.Any(), cancellationToken);
+
+        if (hasWhitelist)
+        {
+            bool allowed = await dbContext.Stages
+                .AnyAsync(s => s.Id == stageId && s.AllowedServices.Any(svc => svc.Id == request.ServiceId), cancellationToken);
+
+            if (!allowed)
+                return Result.Failure<int>(StageErrors.ServiceNotAllowed(request.ServiceId, stageId));
+        }
+
         bool isPublished = await dbContext.InternshipAssignments
             .Where(a => a.CurrentCohortId == request.CohortId)
             .AnyAsync(a => a.ServicePeriods.Any(p => p.CohortSlotAssignmentId != null), cancellationToken);

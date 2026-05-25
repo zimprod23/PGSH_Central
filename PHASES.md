@@ -166,15 +166,18 @@ Entities: `InternshipAssignment`, `CohortMembership`, `ServicePeriod`, `ServiceE
 
 ---
 
-## 🔲 Phase 7 — Scheduling Automation
+## ✅ Phase 7 — Scheduling Automation
 
-**Status: Partially complete**
+**Status: Complete**
 
-- ✅ `POST /cohorts/{id}/publish-schedule`: creates ServicePeriods from CohortSlotAssignments with capacity check
-- ✅ `DELETE /cohorts/{id}/publish-schedule`: removes published ServicePeriods
-- 🔲 `InternshipAssignment.FinalScore` computation: aggregate `ObjectiveScore.Score × StageObjective.Weight` across all ServiceEvaluations, persist back to assignment
-- 🔲 `InternshipStatus` lifecycle transitions with guard rules (e.g., cannot Validate without a completed Evaluation)
-- 🔲 Batch attendance generation for a ServicePeriod (pre-create records for each working day)
+- ✅ `POST /cohorts/{id}/publish-schedule`: creates `ServicePeriod` records for each student in the cohort × each slot assignment. Capacity check removed (grid badge already warns the user; blocking publish after first cohort breaks bulk publish for all subsequent cohorts assigned to the same service).
+- ✅ `DELETE /cohorts/{id}/publish-schedule`: removes all published ServicePeriods for the cohort.
+- ✅ `POST /stages/{id}/schedule/auto-arrange`: capacity-proportional cyclic rotation. Each allowed service is allocated a fixed number of cohorts per period proportional to its capacity (largest-remainder method). A service queue of length N (= num cohorts) is built from these allocations. In each period the queue is read with offset `period × (N / numPeriods)`, giving every cohort a different service block each period — matching the real faculty rotation documents. No saturation: each service gets the same cohort count every period. Clears existing unpublished assignments before rewriting. Returns `{ assigned: int }`.
+- ✅ **RotationGroup / Partition system** added to `AcademicGroup` (EF migration `AddRotationGroupToAcademicGroup`): persistent `string? RotationGroup` label (A, B, C…) shared across all stages in an academic year. Auto-arrange assigns labels on first run, respects them on subsequent runs (never overwrites existing labels). Optional `partitionCount` query param overrides the default (= number of allowed services). Cohorts sorted by `(RotationGroup, GroupNumber)` before building the queue so each partition occupies a contiguous block — cyclic shift moves the entire partition to a different service section each period.
+- ✅ `InternshipAssignment.FinalScore` computation: `RecomputeFinalScore()` aggregates `ObjectiveScore.Score × StageObjective.Weight` inline inside `SubmitEvaluation()`.
+- ✅ `InternshipStatus` lifecycle transitions: `Start`, `Validate`, `Reject` domain methods with guard rules.
+- ✅ Batch attendance generation: `GenerateAttendanceCommand` creates one `AttendanceRecord` per working day for a ServicePeriod.
+- ✅ `AssignmentValidatedEventHandler`: writes `History(ValidationStage)` on validation.
 
 ---
 
@@ -214,15 +217,32 @@ Current state: `PermissionAuthorizationHandler` checks Keycloak roles only. `Per
 
 ---
 
-## 🔲 Phase 11 — Frontend
+## ✅ Phase 11 — Frontend
 
-**Status: Scaffolded — Vite + React 19 + Mantine UI + Redux + Keycloak**
+**Status: Substantially complete (admin + student zones)**
 
-- Keycloak login flow and token refresh
-- Student dashboard: registrations, current stage, attendance, evaluations
-- Coordinator screens: group management, rotation planning, assignment overview
-- Hospital admin: service capacity, attendance validation, evaluation submission
-- Auto-arrange groups UI with preview before commit
+### Admin zone — complete
+- Global `AcademicYearContext` wraps `AdminLayout`; all pages auto-filter by selected year via `useAcademicYear()` hook. Year selector in header.
+- `AdminDashboardPage` — placeholder stats
+- `StudentListPage` — search, paginated table
+- `AdminStudentDetailPage` — Inscriptions + Profile tabs, CreateRegistrationModal
+- `AcademicYearsPage`, `LevelsPage`, `GroupsPage`, `GroupDetailPage` — full CRUD. `GroupDetailPage` has a "Vider le groupe" button (header, only visible when the group has students) that calls `DELETE /groups/{id}/students`, unassigning all students back to the unassigned pool so they can be re-arranged. `GroupsPage` table shows a `RotationGroup` badge (violet dot) per row; `EditGroupModal` includes a "Groupe de rotation" text input to override the label manually.
+- `StagesPage` — search, CRUD, objectives drawer, allowed-services management
+- `StageDetailPage` — stage info + objectives + allowed services + cohort management. Actions: "Tout affecter", "Grille de planning", "Publier toutes" (shows when any cohort has configured unpublished schedule), "Dépublier toutes".
+- `ScheduleGridModal` — full schedule grid with `ServicePicker` per cell, slot CRUD, per-cohort publish/unpublish buttons, "Répartition auto." button. Optional `partitionCount` input next to the button. Partition filter chips appear above the grid when at least one cohort has a `rotationGroup` label — clicking a chip filters rows to that partition. Rotation group badge shown inline in the cohort label column.
+- `InfrastructurePage` — Centers/Hospitals/Services tabs with CRUD and service staff/chef management
+- `EmployeesPage` — full CRUD
+- `AssignmentsPage` — sidebar cohort list + bulk actions (Start/Complete/Validate) + assignment table with academic year filter
+- `AttendancePage` — stage→cohort→period selection + record attendance
+
+### Student zone — complete
+- Dashboard, Profile, History, Demands (stub)
+- `StageListPage` — lists all stages for current registration level
+- `StageDetailsPage` — stage info + objectives + assignment status + per-service-period cards (attendance summary, collapsible evaluation). Service names are clickable links to `ServiceDetailPage`.
+- `ServiceDetailPage` — NEW (`/student/services/:serviceId`): service type/description, hospital info + city, OpenStreetMap embed (when GPS coordinates present), chef card, staff list.
+
+### Employee zone — stubs
+Employee shell + routing exists. `EmployeeDashboardPage`, `EmployeeProfilePage`, `EmployeeServicesPage` are placeholder stubs — not yet wired to backend endpoints.
 
 ---
 

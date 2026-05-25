@@ -17,6 +17,7 @@ internal sealed class GetStageByIdQueryHandler(
                         .AsNoTracking()
                         .Include(s => s.Level)
                         .Include(s => s.Objectives)
+                        .Include(s => s.AllowedServices)
                         .Where(s => s.Id == request.StageId)
                         .Select(s => new StageResponse(
                             s.Id,
@@ -38,6 +39,10 @@ internal sealed class GetStageByIdQueryHandler(
                                     o.Weight,
                                     o.IsMandatory
                                     ))
+                                .ToArray(),
+                            s.AllowedServices
+                                .OrderBy(svc => svc.Hospital.Name).ThenBy(svc => svc.Name)
+                                .Select(svc => new AllowedServiceSummary(svc.Id, svc.Name, svc.Hospital.Name))
                                 .ToArray()
                             ))
                         .FirstOrDefaultAsync(cancellationToken);

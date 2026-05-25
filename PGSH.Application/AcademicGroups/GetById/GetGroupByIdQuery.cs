@@ -9,6 +9,7 @@ public sealed record GroupDetailResponse(
     string Label,
     int    GroupNumber,
     string? GeographicZone,
+    string? RotationGroup,
     int    AcademicYearId,
     string AcademicYearLabel,
     IReadOnlyList<GroupStudentResponse> Students);

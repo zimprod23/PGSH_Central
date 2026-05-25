@@ -17,12 +17,13 @@ public sealed record StageSlotResponse(
     DateOnly EndDate);
 
 public sealed record CohortScheduleRow(
-    int    CohortId,
-    string CohortLabel,
-    int    AcademicGroupId,
-    string AcademicGroupLabel,
-    int    StudentCount,
-    bool   IsSchedulePublished,
+    int     CohortId,
+    string  CohortLabel,
+    int     AcademicGroupId,
+    string  AcademicGroupLabel,
+    string? RotationGroup,
+    int     StudentCount,
+    bool    IsSchedulePublished,
     IReadOnlyList<SlotCellResponse?> Cells);
 
 public sealed record SlotCellResponse(

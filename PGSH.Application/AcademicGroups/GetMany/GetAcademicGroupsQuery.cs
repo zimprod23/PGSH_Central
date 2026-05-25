@@ -6,8 +6,9 @@ public sealed record GetAcademicGroupsQuery(int? AcademicYearId = null, int? Lev
     : IQuery<List<AcademicGroupResponse>>;
 
 public sealed record AcademicGroupResponse(
-    int Id,
-    string Label,
-    int GroupNumber,
-    int AcademicYearId,
-    string AcademicYearLabel);
+    int     Id,
+    string  Label,
+    int     GroupNumber,
+    int     AcademicYearId,
+    string  AcademicYearLabel,
+    string? RotationGroup);

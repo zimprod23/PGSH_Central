@@ -30,6 +30,10 @@ internal sealed class GetServiceByIdQueryHandler(IApplicationDbContext dbContext
             service.Capacity,
             service.HospitalId,
             service.Hospital.Name,
+            service.Hospital.City,
+            service.Hospital.Description,
+            service.Hospital.LocalisationMaps?.y,
+            service.Hospital.LocalisationMaps?.x,
             service.ServiceChef != null ? new ServiceChefResponse(
                 service.ServiceChef.Id,
                 service.ServiceChef.FirstName,

@@ -8,6 +8,10 @@ public record ServiceDetailResponse(
     int Capacity,
     int HospitalId,
     string HospitalName,
+    string HospitalCity,
+    string? HospitalDescription,
+    string? Latitude,
+    string? Longitude,
     ServiceChefResponse? ServiceChef,
     List<StaffMemberResponse> Staff);
 

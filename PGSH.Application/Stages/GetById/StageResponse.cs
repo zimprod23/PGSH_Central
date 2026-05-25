@@ -9,8 +9,11 @@ public sealed record StageResponse(
     string? Description,
     int DurationInDays,
     LevelResponse? LevelResponse,
-    StageObjectiveResponse[] StageObjectiveResponse
+    StageObjectiveResponse[] StageObjectiveResponse,
+    AllowedServiceSummary[] AllowedServices
     );
+
+public sealed record AllowedServiceSummary(int Id, string Name, string HospitalName);
 
 public record StageObjectiveResponse(
     string Label,

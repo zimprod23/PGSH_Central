@@ -1,17 +1,18 @@
 namespace PGSH.Application.Stages.Cohorts.GetById;
 
 public sealed record CohortResponse(
-    int    Id,
-    int    StageId,
-    string StageName,
-    int    AcademicGroupId,
-    string AcademicGroupLabel,
-    string Label,
-    int    StudentAssignmentCount,
-    int    SlotAssignmentCount,
-    bool   IsSchedulePublished,
-    int    AcademicYearId,
-    string AcademicYearLabel);
+    int     Id,
+    int     StageId,
+    string  StageName,
+    int     AcademicGroupId,
+    string  AcademicGroupLabel,
+    string  Label,
+    int     StudentAssignmentCount,
+    int     SlotAssignmentCount,
+    bool    IsSchedulePublished,
+    int     AcademicYearId,
+    string  AcademicYearLabel,
+    string? RotationGroup);
 
 public sealed record CohortDetailResponse(
     int    Id,

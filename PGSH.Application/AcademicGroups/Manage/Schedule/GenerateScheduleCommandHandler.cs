@@ -22,8 +22,24 @@ internal sealed class GenerateScheduleCommandHandler(IApplicationDbContext dbCon
             .Include(g => g.Registrations)
             .ToListAsync(cancellationToken);
 
+        // Per-stage service pool: use allowed-services whitelist when configured,
+        // fall back to the explicit AvailableServiceIds list otherwise.
+        var stageServicePool = new Dictionary<int, List<int>>();
+        foreach (var stageReq in request.Stages)
+        {
+            var allowed = await dbContext.Stages
+                .Where(s => s.Id == stageReq.StageId)
+                .Select(s => s.AllowedServices.Select(svc => svc.Id).ToList())
+                .FirstOrDefaultAsync(cancellationToken) ?? [];
+
+            stageServicePool[stageReq.StageId] = allowed.Count > 0
+                ? allowed
+                : request.AvailableServiceIds;
+        }
+
+        var allServiceIds = stageServicePool.Values.SelectMany(x => x).Distinct().ToList();
         var services = await dbContext.Services
-            .Where(s => request.AvailableServiceIds.Contains(s.Id))
+            .Where(s => allServiceIds.Contains(s.Id))
             .ToDictionaryAsync(s => s.Id, s => s, cancellationToken);
 
         await HydrateOccupancyAsync(cancellationToken);
@@ -79,7 +95,7 @@ internal sealed class GenerateScheduleCommandHandler(IApplicationDbContext dbCon
                 {
                     var slot      = stageSlots[r];
                     int serviceId = FindAvailableService(
-                        request.AvailableServiceIds, groupIndex, r,
+                        stageServicePool[stageReq.StageId], groupIndex, r,
                         slot.StartDate, slot.EndDate, group.Registrations.Count, services);
 
                     if (serviceId == -1)

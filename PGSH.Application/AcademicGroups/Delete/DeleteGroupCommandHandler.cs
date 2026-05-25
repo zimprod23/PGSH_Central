@@ -26,6 +26,14 @@ internal sealed class DeleteGroupCommandHandler(IApplicationDbContext dbContext)
                 "AcademicGroups.HasCohorts",
                 "Cannot delete a group that has active cohorts. Remove all cohorts first."));
 
+        bool hasStudents = await dbContext.Registrations
+            .AnyAsync(r => r.AcademicGroupId == request.Id, cancellationToken);
+
+        if (hasStudents)
+            return Result.Failure(Error.Conflict(
+                "AcademicGroups.HasStudents",
+                "Cannot delete a group that has students assigned. Empty the group first."));
+
         dbContext.AcademicGroups.Remove(group);
         await dbContext.SaveChangesAsync(cancellationToken);
         return Result.Success();

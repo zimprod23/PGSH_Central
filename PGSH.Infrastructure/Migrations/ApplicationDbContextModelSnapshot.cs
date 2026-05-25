@@ -242,6 +242,9 @@ namespace PGSH.Infrastructure.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
+                    b.Property<string>("RotationGroup")
+                        .HasColumnType("text");
+
                     b.HasKey("Id");
 
                     b.HasIndex("AcademicYearId", "GroupNumber")
@@ -747,6 +750,24 @@ namespace PGSH.Infrastructure.Migrations
                     b.HasDiscriminator<string>("UserType").HasValue("User");
 
                     b.UseTphMappingStrategy();
+                });
+
+            modelBuilder.Entity("StageAllowedServices", b =>
+                {
+                    b.Property<int>("StageId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("ServiceId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("StageId", "ServiceId");
+
+                    b.HasIndex("ServiceId");
+
+                    b.HasIndex("StageId", "ServiceId")
+                        .HasDatabaseName("IX_StageAllowedServices_Stage_Service");
+
+                    b.ToTable("StageAllowedServices", "public");
                 });
 
             modelBuilder.Entity("PGSH.Domain.Employees.Employee", b =>
@@ -1274,6 +1295,21 @@ namespace PGSH.Infrastructure.Migrations
                     b.Navigation("Address");
 
                     b.Navigation("Status")
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("StageAllowedServices", b =>
+                {
+                    b.HasOne("PGSH.Domain.Hospitals.Service", null)
+                        .WithMany()
+                        .HasForeignKey("ServiceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("PGSH.Domain.Stages.Stage", null)
+                        .WithMany()
+                        .HasForeignKey("StageId")
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 

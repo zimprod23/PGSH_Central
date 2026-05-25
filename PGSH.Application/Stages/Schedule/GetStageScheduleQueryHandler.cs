@@ -27,7 +27,8 @@ internal sealed class GetStageScheduleQueryHandler(IApplicationDbContext dbConte
                 c.Id,
                 c.Label,
                 c.AcademicGroupId,
-                AcademicGroupLabel = c.AcademicGroup.Label,
+                AcademicGroupLabel  = c.AcademicGroup.Label,
+                RotationGroup       = c.AcademicGroup.RotationGroup,
                 StudentCount       = c.Assignments.Count,
                 IsSchedulePublished = c.Assignments.Any(a => a.ServicePeriods.Any(p => p.CohortSlotAssignmentId != null)),
                 SlotAssignments    = c.SlotAssignments.Select(a => new
@@ -42,23 +43,13 @@ internal sealed class GetStageScheduleQueryHandler(IApplicationDbContext dbConte
             })
             .ToListAsync(cancellationToken);
 
-        // For each slot+service combination, count total occupied seats across all cohorts
-        var allAssignmentIds = cohorts.SelectMany(c => c.SlotAssignments.Select(a => a.Id)).ToList();
-
-        var occupancyMap = await dbContext.ServicePeriods
-            .AsNoTracking()
-            .Where(p => p.CohortSlotAssignmentId != null && allAssignmentIds.Contains(p.CohortSlotAssignmentId!.Value))
-            .GroupBy(p => p.CohortSlotAssignmentId!.Value)
-            .Select(g => new { AssignmentId = g.Key, Count = g.Count() })
-            .ToDictionaryAsync(x => x.AssignmentId, x => x.Count, cancellationToken);
-
-        // Build per-slot occupancy: slotId → serviceId → total students
+        // Sum planned student counts per (slot, service) across all cohorts — published or not
         var slotServiceOccupancy = cohorts
-            .SelectMany(c => c.SlotAssignments)
+            .SelectMany(c => c.SlotAssignments.Select(a => new { a.StageSlotId, a.ServiceId, c.StudentCount }))
             .GroupBy(a => new { a.StageSlotId, a.ServiceId })
             .ToDictionary(
                 g => g.Key,
-                g => g.Sum(a => occupancyMap.GetValueOrDefault(a.Id, 0)));
+                g => g.Sum(x => x.StudentCount));
 
         var slotIds = slots.Select(s => s.Id).ToHashSet();
 
@@ -77,7 +68,7 @@ internal sealed class GetStageScheduleQueryHandler(IApplicationDbContext dbConte
                 return new SlotCellResponse(a.Id, a.StageSlotId, a.ServiceId, a.ServiceName, a.HospitalName, a.ServiceCapacity, occupied);
             }).ToList();
 
-            return new CohortScheduleRow(c.Id, c.Label, c.AcademicGroupId, c.AcademicGroupLabel, c.StudentCount, c.IsSchedulePublished, cells);
+            return new CohortScheduleRow(c.Id, c.Label, c.AcademicGroupId, c.AcademicGroupLabel, c.RotationGroup, c.StudentCount, c.IsSchedulePublished, cells);
         }).ToList();
 
         return new StageScheduleResponse(request.StageId, slots, cohortRows);

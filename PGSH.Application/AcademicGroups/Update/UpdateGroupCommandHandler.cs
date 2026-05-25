@@ -31,6 +31,7 @@ internal sealed class UpdateGroupCommandHandler(IApplicationDbContext dbContext)
 
         group.Label          = request.Label;
         group.GeographicZone = request.GeographicZone;
+        group.RotationGroup  = request.RotationGroup;
 
         await dbContext.SaveChangesAsync(cancellationToken);
         return Result.Success();

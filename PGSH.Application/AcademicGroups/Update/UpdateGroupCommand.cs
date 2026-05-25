@@ -5,7 +5,8 @@ namespace PGSH.Application.AcademicGroups.Update;
 public sealed record UpdateGroupCommand(
     int     Id,
     string  Label,
-    string? GeographicZone)
+    string? GeographicZone,
+    string? RotationGroup)
     : ICommand, IAuditableCommand
 {
     public string  AuditAction     => "GROUP_UPDATED";

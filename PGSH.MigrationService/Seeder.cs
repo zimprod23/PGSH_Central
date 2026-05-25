@@ -21,6 +21,7 @@ internal static class Seeder
         await SeedAcademicYearsAsync(context, logger, ct);
         await SeedLevelsAsync(context, logger, ct);
         await SeedCentersAsync(context, logger, ct);
+        await SeedShowcaseServiceAsync(context, logger, ct);
         await SeedStagesAsync(context, logger, ct);
         await SeedStudentsAsync(context, logger, ct);
         await SeedRegistrationsAsync(context, logger, ct);
@@ -143,6 +144,100 @@ internal static class Seeder
     }
 
     // -------------------------------------------------------------------------
+    // Showcase service — GPS + staff for preview (runs after centers)
+    // -------------------------------------------------------------------------
+
+    private static async Task SeedShowcaseServiceAsync(ApplicationDbContext context, ILogger logger, CancellationToken ct)
+    {
+        if (await context.Hospitals.AnyAsync(h => h.LocalisationMaps != null, ct)) return;
+
+        var hospital = await context.Hospitals
+            .Include(h => h.services)
+                .ThenInclude(s => s.Staff)
+            .FirstOrDefaultAsync(h => h.Name == "Hôpital Ibn Sina", ct);
+
+        if (hospital is null)
+        {
+            logger.LogWarning("Showcase seeding skipped: 'Hôpital Ibn Sina' not found.");
+            return;
+        }
+
+        hospital.LocalisationMaps = new Localization("-6.8498", "34.0167", null);
+        hospital.Description = "Centre hospitalier universitaire de référence à Rabat, offrant des soins de pointe dans de nombreuses spécialités médicales et chirurgicales.";
+
+        var service = hospital.services.FirstOrDefault(s => s.Name == "Cardiologie")
+                   ?? hospital.services.FirstOrDefault();
+
+        if (service is null)
+        {
+            await context.SaveChangesAsync(ct);
+            return;
+        }
+
+        service.Description = "Le service de Cardiologie prend en charge l'ensemble des pathologies cardiovasculaires, incluant l'insuffisance cardiaque, les troubles du rythme et les maladies coronariennes. Équipé d'une salle de cathétérisme interventionnel et d'un laboratoire d'électrophysiologie de pointe.";
+        service.ServiceType = ServiceType.Medical;
+        service.Capacity = 24;
+
+        var youssef = await context.Employees
+            .FirstOrDefaultAsync(e => e.Id == new Guid("33333333-3333-3333-3333-333333333333"), ct);
+
+        if (youssef is not null)
+        {
+            youssef.Position = Position.ServiceChef;
+            youssef.Label = "Chef de service — Cardiologie";
+            youssef.PPR = "PHC-10042";
+        }
+
+        var staffSeed = new (string First, string Last, Grade Grd, string Ppr, string Cin, Gender Sex)[]
+        {
+            ("Karim", "Bensouda", Grade.PH,  "PH-20156", "AA112345", Gender.Male),
+            ("Sara",  "El Ouafi", Grade.MC,  "MC-30289", "BE234567", Gender.Female),
+            ("Omar",  "Tahiri",   Grade.PES, "PE-40318", "CD345678", Gender.Male),
+        };
+
+        var created = new List<Employee>();
+        foreach (var (First, Last, Grd, Ppr, Cin, Sex) in staffSeed)
+        {
+            if (!await context.Employees.AnyAsync(e => e.CIN == Cin, ct))
+            {
+                var emp = new Employee
+                {
+                    Id        = Guid.NewGuid(),
+                    Email     = $"{Slug(First)}.{Slug(Last)}@chuibnsina.ma",
+                    FirstName = First,
+                    LastName  = Last,
+                    CIN       = Cin,
+                    Gender    = Sex,
+                    Status    = new Status(CivilStatus.Civil, NationalityStatus.Marocaine),
+                    Grade     = Grd,
+                    Position  = Position.Normal,
+                    WorkPlace = WorkPlace.Hospital,
+                    PPR       = Ppr,
+                };
+                created.Add(emp);
+                await context.Employees.AddAsync(emp, ct);
+            }
+        }
+
+        await context.SaveChangesAsync(ct);
+
+        foreach (var emp in created)
+            service.AddStaff(emp);
+
+        if (youssef is not null)
+        {
+            service.AddStaff(youssef);
+            var result = service.AssignChef(youssef);
+            if (!result.IsSuccess)
+                logger.LogWarning("Could not assign chef to {Service}.", service.Name);
+        }
+
+        await context.SaveChangesAsync(ct);
+        context.ChangeTracker.Clear();
+        logger.LogInformation("Showcase seeded: {Service} at {Hospital} with GPS + {Count} staff.", service.Name, hospital.Name, created.Count + (youssef is not null ? 1 : 0));
+    }
+
+    // -------------------------------------------------------------------------
     // Centers / Hospitals / Services — 4 real Moroccan medical centers
     // -------------------------------------------------------------------------
 
@@ -205,6 +300,7 @@ internal static class Seeder
         }
 
         await context.SaveChangesAsync(ct);
+        context.ChangeTracker.Clear();
         logger.LogInformation("Seeded {Count} medical centers.", centersData.Length);
     }
 
@@ -284,9 +380,9 @@ internal static class Seeder
             .RuleFor(s => s.FirstName,    f  => f.Name.FirstName())
             .RuleFor(s => s.LastName,     f  => f.Name.LastName())
             .RuleFor(s => s.Email,        (f, s) => $"{Slug(s.FirstName)}.{Slug(s.LastName)}{f.UniqueIndex}@um5.ac.ma")
-            .RuleFor(s => s.CIN,          f  => f.Random.Replace("??######").ToUpper())
-            .RuleFor(s => s.CNE,          f  => f.Random.Replace("?#########").ToUpper())
-            .RuleFor(s => s.Appogee,      f  => f.Random.Number(20_000_000, 25_999_999).ToString())
+            .RuleFor(s => s.CIN,          f  => $"MA{f.UniqueIndex:D6}")
+            .RuleFor(s => s.CNE,          f  => $"G{f.UniqueIndex:D9}".ToUpper())
+            .RuleFor(s => s.Appogee,      f  => (20_000_000 + f.UniqueIndex).ToString())
             .RuleFor(s => s.AccessGrade,  f  => Math.Round(f.Random.Decimal(10, 20), 2))
             .RuleFor(s => s.BacSeries,    f  => f.PickRandom<BacSeries>())
             .RuleFor(s => s.BacYear,      f  => f.Random.Int(2018, 2024).ToString())
@@ -294,15 +390,23 @@ internal static class Seeder
             .RuleFor(s => s.Status,       f  => new Status(f.PickRandom<CivilStatus>(), f.PickRandom<NationalityStatus>()))
             .RuleFor(s => s.Address,      f  => new Address(f.Address.FullAddress()))
             .RuleFor(s => s.DateOfBirth,  f  => DateOnly.FromDateTime(f.Date.Past(8, DateTime.Now.AddYears(-18))))
-            .RuleFor(s => s.Ranking,      f  => f.Random.Int(1, 500));
+            .RuleFor(s => s.Ranking,      f  => f.Random.Int(1, 700));
 
-        // 30 students per Med level (7 levels = 210), 25 per Pharm level (6 levels = 150)
-        var medStudents   = faker.RuleFor(s => s.AcademicProgram, _ => AcademicProgram.Medecine ).Generate(7 * 30);
-        var pharmStudents = faker.RuleFor(s => s.AcademicProgram, _ => AcademicProgram.Pharmacie).Generate(6 * 25);
+        // ~600 students per Med level (7 levels = 4200), ~250 per Pharm level (6 levels = 1500)
+        var medStudents   = faker.RuleFor(s => s.AcademicProgram, _ => AcademicProgram.Medecine ).Generate(7 * 600);
+        var pharmStudents = faker.RuleFor(s => s.AcademicProgram, _ => AcademicProgram.Pharmacie).Generate(6 * 250);
 
         var all = medStudents.Concat(pharmStudents).ToList();
-        await context.Students.AddRangeAsync(all, ct);
-        await context.SaveChangesAsync(ct);
+
+        const int batchSize = 500;
+        for (int i = 0; i < all.Count; i += batchSize)
+        {
+            var batch = all.GetRange(i, Math.Min(batchSize, all.Count - i));
+            await context.Students.AddRangeAsync(batch, ct);
+            await context.SaveChangesAsync(ct);
+            context.ChangeTracker.Clear();
+        }
+
         logger.LogInformation("Seeded {Count} dynamic students.", all.Count);
     }
 
@@ -321,18 +425,25 @@ internal static class Seeder
             return;
         }
 
-        var medLevels   = await context.Levels.Where(l => l.AcademicProgram == AcademicProgram.Medecine ).OrderBy(l => l.Year).ToListAsync(ct);
-        var pharmLevels = await context.Levels.Where(l => l.AcademicProgram == AcademicProgram.Pharmacie).OrderBy(l => l.Year).ToListAsync(ct);
+        var medLevels   = await context.Levels.AsNoTracking().Where(l => l.AcademicProgram == AcademicProgram.Medecine ).OrderBy(l => l.Year).ToListAsync(ct);
+        var pharmLevels = await context.Levels.AsNoTracking().Where(l => l.AcademicProgram == AcademicProgram.Pharmacie).OrderBy(l => l.Year).ToListAsync(ct);
 
-        var medStudents   = await context.Students.Where(s => s.AcademicProgram == AcademicProgram.Medecine ).ToListAsync(ct);
-        var pharmStudents = await context.Students.Where(s => s.AcademicProgram == AcademicProgram.Pharmacie).ToListAsync(ct);
+        var medStudents   = await context.Students.AsNoTracking().Where(s => s.AcademicProgram == AcademicProgram.Medecine ).ToListAsync(ct);
+        var pharmStudents = await context.Students.AsNoTracking().Where(s => s.AcademicProgram == AcademicProgram.Pharmacie).ToListAsync(ct);
 
         var registrations = new List<Registration>();
         Distribute(medStudents,   medLevels,   currentYear.Id, registrations);
         Distribute(pharmStudents, pharmLevels, currentYear.Id, registrations);
 
-        await context.Registrations.AddRangeAsync(registrations, ct);
-        await context.SaveChangesAsync(ct);
+        const int batchSize = 500;
+        for (int i = 0; i < registrations.Count; i += batchSize)
+        {
+            var batch = registrations.GetRange(i, Math.Min(batchSize, registrations.Count - i));
+            await context.Registrations.AddRangeAsync(batch, ct);
+            await context.SaveChangesAsync(ct);
+            context.ChangeTracker.Clear();
+        }
+
         logger.LogInformation("Registered {Count} students for {Year}.", registrations.Count, currentYear.Label);
     }
 

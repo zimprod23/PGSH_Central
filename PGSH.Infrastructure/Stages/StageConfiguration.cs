@@ -28,6 +28,22 @@ internal sealed class StageConfiguration : IEntityTypeConfiguration<Stage>
                .WithOne(sl => sl.Stage)
                .HasForeignKey(sl => sl.StageId)
                .OnDelete(DeleteBehavior.Cascade);
+
+        builder.HasMany(s => s.AllowedServices)
+               .WithMany()
+               .UsingEntity("StageAllowedServices",
+                   r => r.HasOne(typeof(PGSH.Domain.Hospitals.Service)).WithMany()
+                          .HasForeignKey("ServiceId")
+                          .OnDelete(DeleteBehavior.Cascade),
+                   l => l.HasOne(typeof(Stage)).WithMany()
+                          .HasForeignKey("StageId")
+                          .OnDelete(DeleteBehavior.Cascade),
+                   j =>
+                   {
+                       j.HasKey("StageId", "ServiceId");
+                       j.HasIndex(new[] { "StageId", "ServiceId" })
+                        .HasDatabaseName("IX_StageAllowedServices_Stage_Service");
+                   });
     }
 }
 

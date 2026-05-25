@@ -27,7 +27,8 @@ internal sealed class GetAcademicGroupsQueryHandler(IApplicationDbContext dbCont
                 g.Label,
                 g.GroupNumber,
                 g.AcademicYearId,
-                g.AcademicYear.Label))
+                g.AcademicYear.Label,
+                g.RotationGroup))
             .ToListAsync(cancellationToken);
 
         return Result.Success(groups);

@@ -1,4 +1,5 @@
 using PGSH.Domain.Common.Utils;
+using PGSH.Domain.Hospitals;
 
 namespace PGSH.Domain.Stages;
 
@@ -13,4 +14,5 @@ public sealed class Stage
     public Level Level { get; set; } = default!;
     public ICollection<StageObjective> Objectives { get; set; } = new List<StageObjective>();
     public ICollection<StageSlot> Slots { get; set; } = new List<StageSlot>();
+    public ICollection<Service> AllowedServices { get; set; } = new List<Service>();
 }

@@ -20,7 +20,7 @@ A `Stage` defines a rotation type tied to a `Level` (e.g., "Cardiology Rotation,
 
 The schedule is modelled as a **grid**: rows = cohorts, columns = time periods (StageSlots), cells = service assignments (CohortSlotAssignments). `StageSlot` defines a named time period (P1, P2...) belonging to a Stage with start/end dates. `CohortSlotAssignment` is a grid cell — it maps one Cohort to one Service for one StageSlot. This mirrors the actual paper scheduling documents used by the faculty.
 
-When an admin **publishes** a cohort's schedule (`POST /cohorts/{id}/publish-schedule`), the system creates `ServicePeriod` records for each student in the cohort × each slot assignment. The capacity check (sum of students across all cohorts assigned to the same service in the same slot ≤ `Service.Capacity`) runs at publish time. Unpublishing (`DELETE`) removes all those ServicePeriods (setting `CohortSlotAssignmentId` to NULL on any that must be preserved for other reasons).
+When an admin **publishes** a cohort's schedule (`POST /cohorts/{id}/publish-schedule`), the system creates `ServicePeriod` records for each student in the cohort × each slot assignment. **The capacity check was removed** — it blocked bulk-publishing multiple cohorts assigned to the same service (after the first cohort published, occupancy exceeded capacity for subsequent cohorts even when the total was valid). The schedule grid UI already shows a red capacity badge as a warning. Unpublishing (`DELETE`) removes all ServicePeriods for that cohort where `CohortSlotAssignmentId != null`.
 
 ### The student journey through the system
 
@@ -87,12 +87,16 @@ All orphan models removed. Entities correctly model the domain with proper navig
 ### Infrastructure — Clean
 EF configurations are complete and well-structured. All relationships are explicitly configured. The 10 new indexes are in place. `PermissionProvider` is a stub. The Aspire connection name `"TodoDatabase"` is a legacy artifact from scaffolding — it has no functional meaning and refers to the main PostgreSQL database.
 
-### Application — Cleaned, partially built
-- **Hospital/Center/Service**: Full CRUD — complete.
-- **Academic (Level, AcademicYear, AcademicGroup)**: Read/create/update complete. The `AutoArrangeGroupsCommandHandler` is functional. `GenerateScheduleCommandHandler` in `AcademicGroups/Manage/Schedule/` is complex and needs review — this is the next major piece of work.
+### Application — Complete through Phase 7
+- **Hospital/Center/Service**: Full CRUD + GetById (returns chef, staff list, hospital city/GPS). `GetServiceByIdResponse` includes `HospitalCity`, `HospitalDescription`, `Latitude` (y), `Longitude` (x).
+- **Academic**: AcademicYear (GetMany, Create), AcademicGroup (GetMany, GetById, Update — now includes `RotationGroup`, Delete, **EmptyGroup**, TransferStudent, AutoArrange), Level (full CRUD). `DeleteGroup` guards against both active cohorts AND assigned registrations (returns `Error.Conflict` for each). `EmptyGroup` (`DELETE /groups/{id}/students`) sets `AcademicGroupId = null` on all registrations in the group, returning the count of students unassigned. `AcademicGroup.RotationGroup` is a persistent partition label (A, B, C…) used by auto-arrange to ensure consistent rotation across all stages of the year; also exposed via `GetMany`, `GetById`, `Update`, and `GetStageSchedule` responses.
 - **Student/Registration**: Full CRUD complete. Bulk registration works. History read works.
-- **Stage/Cohort**: Create/update/delete complete. `GetCohortByStageId` handler exists but the response was an empty class — needs implementation.
-- **InternshipAssignment/ServicePeriod/Evaluation/Attendance**: **No endpoints exist**. Entities and EF config are done; the entire execution and evaluation layer is unbuilt at the Application/API level.
+- **Stage/Cohort**: Full CRUD + AssignStudents + AssignAllByStage + Bulk (Start/Complete/Validate). Schedule grid (GetStageSchedule, slot CRUD, assignment CRUD). Publish/Unpublish. Auto-arrange (`AutoArrangeStageScheduleCommandHandler`) — capacity-proportional cyclic rotation (see dedicated section below).
+- **InternshipAssignment**: GetMany, GetById, Start, Validate, Reject.
+- **ServicePeriod**: GetMany, Complete, GenerateAttendance.
+- **Attendance**: GetByPeriod, Record.
+- **ServiceEvaluation**: GetByPeriod, Create. (Update handler exists in Application but no endpoint yet.)
+- **Employee**: Full CRUD + GetCurrent + service staff ops (AssignStaff, RemoveStaff, AssignChef, RemoveChef).
 - **Users**: GetById and GetByEmail work. `UserRegisteredDomainEventHandler` is an empty placeholder.
 
 ### API — Clean
@@ -100,6 +104,21 @@ All endpoints follow the `IEndpoint` pattern. All dead files removed. All routes
 
 ### SharedKernel — Clean
 All types are correct and concise. `BulkResponse<TId, TResponse>` is well-designed for partial-success scenarios (used by bulk registration).
+
+---
+
+## Frontend Architecture Notes
+
+### RTK Query cache tags — known gotchas
+- `assignStudentsToCohort` and `assignAllStudentsByStage` both invalidate `Stage.cohorts-{stageId}` in addition to `Assignment.LIST`. Without this, `CohortResponse.studentAssignmentCount` stays stale (0) after assigning students, which hid the "Publier toutes" button.
+- `publishSchedule` and `unpublishSchedule` invalidate `Stage.schedule-{stageId}`, `Stage.cohorts-{stageId}`, `Stage.cohort-detail-{cohortId}`, and `Assignment.LIST`.
+- `autoArrangeStageSchedule` now accepts `{ stageId, partitionCount? }` and invalidates `Stage.schedule-{stageId}` + `Level.GROUPS` (since it may write `RotationGroup` labels onto `AcademicGroup` records for the first time).
+
+### Global AcademicYear context
+`AcademicYearContext` (`src/features/admin/contexts/AcademicYearContext.tsx`) wraps `AdminLayout`. All admin pages access `useAcademicYear()` to get `currentYearId` / `currentYear` / `setCurrentYearId`. The selector in the header updates this globally. `StageDetailPage` and `AssignmentsPage` sync their local year filter from this context via `useEffect`.
+
+### ServiceDetailPage (student)
+Route: `/student/services/:serviceId`. Loaded lazily in `routes/index.tsx`. Entry point: clicking a service name in `PeriodCard` inside `StageDetailsPage`. Uses `GET /services/{id}` which returns `hospitalCity`, `hospitalDescription`, `latitude` (Hospital.LocalisationMaps.y), `longitude` (Hospital.LocalisationMaps.x). Layout: back-nav + title → stats chips row (serviceType, capacity, chef badge, staff count) → full-width 360 px OpenStreetMap iframe embed with overlaid "Ouvrir dans OpenStreetMap" link button → hospital address strip (name + city + coordinates) → two-column grid: left = description card + chef card (teal-tinted panel with initials avatar), right = staff list (per-member rows with grade badge and PPR). Falls back to a placeholder when coordinates are missing.
 
 ---
 
@@ -127,11 +146,43 @@ Located at `Application/AcademicGroups/Manage/Schedule/GenerateScheduleCommandHa
 3. Creates `CohortSlotAssignment` grid cells (one per Cohort × StageSlot, assigning services by rotation)
 It does **not** create `ServicePeriod` records — that is done later by `POST /cohorts/{id}/publish-schedule`.
 
+### Seeder scale and safety patterns
+The `MigrationService/Seeder.cs` generates ~5700 students (Med: 7 promos × 600, Pharma: 6 promos × 250). Three critical patterns:
+
+1. **UniqueIndex-based identifiers** — `f.UniqueIndex` in Bogus is a sequential counter (per `Faker` instance) that guarantees uniqueness. CIN uses `$"MA{f.UniqueIndex:D6}"`, CNE uses `$"G{f.UniqueIndex:D9}"`, Appogee uses `(20_000_000 + f.UniqueIndex).ToString()`. Using `f.Random.Number(range)` is dangerous at this scale: with 5700 students and 6 M possible Appogee values the birthday-problem collision probability is ~93% per run.
+
+2. **Batch inserts with ChangeTracker.Clear()** — students and registrations are inserted in batches of 500, with `ChangeTracker.Clear()` after each `SaveChangesAsync`. Without clearing, all previously tracked entities accumulate in the change tracker across seeder steps, making each subsequent `SaveChangesAsync` progressively slower (and eventually OOM).
+
+3. **`SeedShowcaseServiceAsync`** — runs after `SeedCentersAsync`, before `SeedStagesAsync`. Sets GPS coordinates on Hôpital Ibn Sina (Rabat: lon=-6.8498, lat=34.0167), updates Youssef Alaoui to Position.ServiceChef with PPR "PHC-10042", creates 3 staff members (Karim/Bensouda PH, Sara/El Ouafi MC, Omar/Tahiri PES), assigns them to the Cardiologie service. Guard: `if (await context.Hospitals.AnyAsync(h => h.LocalisationMaps != null, ct)) return;`
+
 ### GetStudentsQueryHandler filters CNE, Appogee, CIN as exact match
 These are not partial-text filters — they use `==` equality. The `SearchTerm` filter does a `Contains` on FirstName, LastName, Email. This is intentional: CNE/Appogee/CIN are precise identifiers.
 
 ### The `int? AcademicProgram` bug in GetLevelsQuery is now fixed
 Previously the query accepted `int?` and the handler cast it: `(int)l.AcademicProgram == request.AcademicProgram`. This was type-unsafe and broke JSON deserialization from string enums. Now correctly typed as `AcademicProgram?`.
+
+### Auto-arrange algorithm (capacity-proportional cyclic rotation + RotationGroup partitions)
+`AutoArrangeStageScheduleCommandHandler` uses the same pattern visible in the faculty rotation documents (`example_stage_assignement/`):
+
+**How it works:**
+1. **Proportional allocation** (largest-remainder method): each service is allocated `floor(capacity / totalCapacity × N)` cohort slots. Leftover slots go to services with the largest fractional remainders. Result: `allocated[i]` cohorts per service per period, summing to exactly N.
+2. **Service queue**: build an ordered list `[S1 × allocated[0], S2 × allocated[1], ...]` of length N.
+3. **Cyclic shift per period**: period P reads the queue at offset `P × (N / numSlots)`. Every cohort visits a different service block each period.
+
+**Why this matches the faculty documents:**
+- Service "Méd A" takes 2 groups per period: P1=groups 1-2, P2=21-22, P3=41-42, P4=61-62. The offset is 80/4=20. This exact pattern falls out of the cyclic rotation naturally.
+- No service is ever over-capacity as long as total allowed-service capacity ≥ total cohort count (the real-world invariant; admin is responsible for configuring this correctly).
+
+**RotationGroup / Partition system:**
+- `AcademicGroup.RotationGroup` is a persistent nullable string label (A, B, C…). It is shared across all stages of the academic year and is set once (auto-arrange assigns it on the first run, subsequent runs only label groups that don't already have one).
+- `numPartitions` = `existingLabels.Count` if any groups already carry a label; otherwise = `request.PartitionCount ?? services.Count`. This respects the structure set up on a previous stage's auto-arrange.
+- Unassigned groups are distributed round-robin into the smallest partition (by current count) in `GroupNumber` order.
+- Cohorts are sorted by `(RotationGroup, GroupNumber)` before building the queue. All cohorts in partition A occupy a contiguous block → the cyclic shift moves the entire A-block to a different service section each period, consistent across stages.
+- **Frontend**: `ScheduleGridModal` shows a violet dot badge per cohort row and filter chips above the grid when `rotationGroup` is populated. A `partitionCount` number input next to the "Répartition auto." button passes the override value as a query param. `GroupsPage` table shows `RotationGroup` badge; `EditGroupModal` has a text input to set/override the label manually.
+
+**Why the greedy approach (previous version) was wrong:**
+- The greedy treated each period as an independent assignment race — large cohorts competed for capacity every period, consistently over-filling high-capacity services and under-filling others.
+- The `visited` tracking plus capacity competition caused cascading saturation in later periods.
 
 ### Endpoint binding pattern (POST / PUT / GET)
 
