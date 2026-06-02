@@ -17,7 +17,11 @@ internal sealed class GetAcademicGroupsQueryHandler(IApplicationDbContext dbCont
             query = query.Where(g => g.AcademicYearId == request.AcademicYearId.Value);
 
         if (request.LevelId.HasValue)
-            query = query.Where(g => g.Registrations.Any(r => r.LevelId == request.LevelId.Value));
+            query = query.Where(g => g.LevelId == request.LevelId.Value
+                                  || g.Registrations.Any(r => r.LevelId == request.LevelId.Value));
+
+        if (request.StudentId.HasValue)
+            query = query.Where(g => g.Registrations.Any(r => r.StudentId == request.StudentId.Value));
 
         var groups = await query
             .OrderBy(g => g.AcademicYearId)
@@ -28,7 +32,9 @@ internal sealed class GetAcademicGroupsQueryHandler(IApplicationDbContext dbCont
                 g.GroupNumber,
                 g.AcademicYearId,
                 g.AcademicYear.Label,
-                g.RotationGroup))
+                g.RotationGroup,
+                g.LevelId,
+                g.Level != null ? g.Level.Label : null))
             .ToListAsync(cancellationToken);
 
         return Result.Success(groups);

@@ -242,10 +242,15 @@ namespace PGSH.Infrastructure.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
+                    b.Property<int?>("LevelId")
+                        .HasColumnType("integer");
+
                     b.Property<string>("RotationGroup")
                         .HasColumnType("text");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("LevelId");
 
                     b.HasIndex("AcademicYearId", "GroupNumber")
                         .IsUnique()
@@ -972,7 +977,14 @@ namespace PGSH.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.HasOne("PGSH.Domain.Common.Utils.Level", "Level")
+                        .WithMany()
+                        .HasForeignKey("LevelId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.Navigation("AcademicYear");
+
+                    b.Navigation("Level");
                 });
 
             modelBuilder.Entity("PGSH.Domain.Registrations.Registration", b =>

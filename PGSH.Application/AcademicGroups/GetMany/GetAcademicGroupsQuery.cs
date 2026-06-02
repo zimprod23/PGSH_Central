@@ -2,7 +2,7 @@ using PGSH.Application.Abstractions.Messaging;
 
 namespace PGSH.Application.AcademicGroups.GetMany;
 
-public sealed record GetAcademicGroupsQuery(int? AcademicYearId = null, int? LevelId = null)
+public sealed record GetAcademicGroupsQuery(int? AcademicYearId = null, int? LevelId = null, Guid? StudentId = null)
     : IQuery<List<AcademicGroupResponse>>;
 
 public sealed record AcademicGroupResponse(
@@ -11,4 +11,6 @@ public sealed record AcademicGroupResponse(
     int     GroupNumber,
     int     AcademicYearId,
     string  AcademicYearLabel,
-    string? RotationGroup);
+    string? RotationGroup,
+    int?    LevelId,
+    string? LevelLabel);

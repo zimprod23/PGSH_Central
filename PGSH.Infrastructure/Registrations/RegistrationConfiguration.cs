@@ -110,18 +110,22 @@ internal sealed class AcademicGroupConfiguration : IEntityTypeConfiguration<Acad
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Label).IsRequired().HasMaxLength(100);
 
-        // Ensure Group Numbers are unique within a specific Academic Year
         builder.HasIndex(x => new { x.AcademicYearId, x.GroupNumber })
-         .IsUnique()
-         .HasDatabaseName("IX_AcademicGroup_Year_Number");
+            .IsUnique()
+            .HasDatabaseName("IX_AcademicGroup_Year_Number");
 
         builder.HasIndex(x => new { x.AcademicYearId, x.Label })
             .IsUnique()
             .HasDatabaseName("IX_AcademicGroup_Year_Label");
 
+        builder.HasOne(x => x.Level)
+            .WithMany()
+            .HasForeignKey(x => x.LevelId)
+            .OnDelete(DeleteBehavior.SetNull);
+
         builder.HasMany(x => x.Registrations)
-           .WithOne(x => x.AcademicGroup)
-           .HasForeignKey(x => x.AcademicGroupId)
-           .OnDelete(DeleteBehavior.SetNull);
+            .WithOne(x => x.AcademicGroup)
+            .HasForeignKey(x => x.AcademicGroupId)
+            .OnDelete(DeleteBehavior.SetNull);
     }
 }

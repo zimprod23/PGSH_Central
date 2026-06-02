@@ -2,6 +2,7 @@ using MediatR;
 using Microsoft.AspNetCore.Mvc;
 using PGSH.API.Extensions;
 using PGSH.API.Infrastructure;
+using PGSH.Application.Stages.Cohorts.PublishSchedule;
 using PGSH.Application.Stages.Schedule;
 using PGSH.Application.Stages.Schedule.AutoArrange;
 using PGSH.Application.Stages.Slots;
@@ -63,10 +64,35 @@ internal sealed class StageScheduleEndpoints : IEndpoint
             })
             .WithTags("Stages");
 
-        app.MapPost("stages/{stageId:int}/schedule/auto-arrange",
-            async (int stageId, int? partitionCount, ISender sender, CancellationToken ct) =>
+        app.MapDelete("stages/{stageId:int}/slots/{slotId:int}/cohorts",
+            async (int slotId, ISender sender, CancellationToken ct) =>
             {
-                var result = await sender.Send(new AutoArrangeStageScheduleCommand(stageId, partitionCount), ct);
+                var result = await sender.Send(new ClearSlotAssignmentsCommand(slotId), ct);
+                return result.Match(count => Results.Ok(new { cleared = count }), CustomResults.Problem);
+            })
+            .WithTags("Stages");
+
+        app.MapPost("stages/{stageId:int}/schedule/auto-arrange",
+            async (int stageId, [FromBody] AutoArrangeRequest? request, ISender sender, CancellationToken ct) =>
+            {
+                var command = new AutoArrangeStageScheduleCommand(
+                    stageId,
+                    request?.PartitionCount,
+                    request?.PartitionLabels,
+                    request?.PeriodNumbers);
+                var result = await sender.Send(command, ct);
+                return result.Match(Results.Ok, CustomResults.Problem);
+            })
+            .WithTags("Stages");
+
+        app.MapPost("stages/{stageId:int}/schedule/publish",
+            async (int stageId, [FromBody] PublishStageRequest? request, ISender sender, CancellationToken ct) =>
+            {
+                var command = new PublishStageScheduleCommand(
+                    stageId,
+                    request?.PartitionLabels,
+                    request?.PeriodNumbers);
+                var result = await sender.Send(command, ct);
                 return result.Match(Results.Ok, CustomResults.Problem);
             })
             .WithTags("Stages");
@@ -75,3 +101,5 @@ internal sealed class StageScheduleEndpoints : IEndpoint
 
 internal sealed record SlotRequest(int PeriodNumber, string? Label, DateOnly StartDate, DateOnly EndDate);
 internal sealed record SetAssignmentRequest(int ServiceId);
+internal sealed record AutoArrangeRequest(int? PartitionCount, IReadOnlyList<string>? PartitionLabels, IReadOnlyList<int>? PeriodNumbers);
+internal sealed record PublishStageRequest(IReadOnlyList<string>? PartitionLabels, IReadOnlyList<int>? PeriodNumbers);

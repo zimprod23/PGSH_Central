@@ -3,4 +3,6 @@ using PGSH.SharedKernel;
 
 namespace PGSH.Application.Stages.Cohorts.AssignByStage;
 
-public sealed record AssignAllStudentsByStageCommand(int StageId) : ICommand<BulkResponse<Guid, Guid>>;
+public sealed record AssignAllStudentsByStageCommand(
+    int StageId,
+    IReadOnlyList<string>? PartitionLabels = null) : ICommand<BulkResponse<Guid, Guid>>;

@@ -1,4 +1,5 @@
-﻿using PGSH.Domain.Stages;
+﻿using PGSH.Domain.Common.Utils;
+using PGSH.Domain.Stages;
 using PGSH.Domain.Students;
 
 namespace PGSH.Domain.Registrations;
@@ -13,6 +14,10 @@ public sealed class AcademicGroup
 
     public int AcademicYearId { get; set; }
     public AcademicYear AcademicYear { get; set; } = default!;
+
+    // Optional level association — set on manual creation, inferred from students for auto-arranged groups
+    public int? LevelId { get; set; }
+    public Level? Level { get; set; }
 
     // The 20 fixed students
     public ICollection<Registration> Registrations { get; set; } = new List<Registration>();

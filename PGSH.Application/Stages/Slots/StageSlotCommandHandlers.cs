@@ -162,6 +162,28 @@ internal sealed class ClearCohortSlotAssignmentCommandHandler(IApplicationDbCont
     }
 }
 
+internal sealed class ClearSlotAssignmentsCommandHandler(IApplicationDbContext dbContext)
+    : ICommandHandler<ClearSlotAssignmentsCommand, int>
+{
+    public async Task<Result<int>> Handle(ClearSlotAssignmentsCommand request, CancellationToken cancellationToken)
+    {
+        bool slotExists = await dbContext.StageSlots.AnyAsync(s => s.Id == request.StageSlotId, cancellationToken);
+        if (!slotExists)
+            return Result.Failure<int>(StageErrors.SlotNotFound(request.StageSlotId));
+
+        var unpublishedAssignments = await dbContext.CohortSlotAssignments
+            .Where(a => a.StageSlotId == request.StageSlotId
+                     && !dbContext.InternshipAssignments
+                            .Where(ia => ia.CurrentCohortId == a.CohortId)
+                            .Any(ia => ia.ServicePeriods.Any(p => p.CohortSlotAssignmentId == a.Id)))
+            .ToListAsync(cancellationToken);
+
+        dbContext.CohortSlotAssignments.RemoveRange(unpublishedAssignments);
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return unpublishedAssignments.Count;
+    }
+}
+
 internal sealed class CreateStageSlotCommandValidator : AbstractValidator<CreateStageSlotCommand>
 {
     public CreateStageSlotCommandValidator()

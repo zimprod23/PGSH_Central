@@ -38,7 +38,8 @@
       "PowerShell(Stop-Process *)",
       "Bash(findstr /r /s /i \"CohortSlotAssignment\" \"C:\\\\Users\\\\LEGION\\\\source\\\\repos\\\\PGSH\\\\PGSH.Domain\")",
       "Bash(Select-Object -ExpandProperty Name)",
-      "Bash(npx tsc *)"
+      "Bash(npx tsc *)",
+      "Bash(xargs grep -l \"AcademicGroup\")"
     ]
   }
 }

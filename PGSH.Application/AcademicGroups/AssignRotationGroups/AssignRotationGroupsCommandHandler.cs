@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
+using PGSH.Application.Stages.Planning;
 using PGSH.SharedKernel;
 
 namespace PGSH.Application.AcademicGroups.AssignRotationGroups;
@@ -21,38 +22,16 @@ internal sealed class AssignRotationGroupsCommandHandler(IApplicationDbContext d
         if (groups.Count == 0)
             return Result.Success(0);
 
-        // Preserve existing labels; only fill in groups that have none
-        var existingLabels = groups
-            .Select(g => g.RotationGroup)
-            .OfType<string>()
-            .Distinct()
-            .OrderBy(l => l)
-            .ToList();
+        var assignments = PartitionAllocator.AssignUnlabelled(
+            groups.Select(g => (g.Id, g.RotationGroup)).ToList(),
+            request.PartitionCount);
 
-        int numPartitions = existingLabels.Count > 0
-            ? existingLabels.Count
-            : Math.Max(1, request.PartitionCount);
+        foreach (var group in groups.Where(g => assignments.ContainsKey(g.Id)))
+            group.RotationGroup = assignments[group.Id];
 
-        var labels = Enumerable.Range(0, numPartitions)
-            .Select(i => ((char)('A' + (i % 26))).ToString() + (i >= 26 ? (i / 26).ToString() : ""))
-            .ToList();
-
-        foreach (var l in existingLabels.Where(l => !labels.Contains(l)))
-            labels.Add(l);
-
-        var partitionCounts = labels.ToDictionary(l => l, l => groups.Count(g => g.RotationGroup == l));
-        var unassigned      = groups.Where(g => g.RotationGroup is null).ToList();
-
-        foreach (var group in unassigned)
-        {
-            var label = partitionCounts.MinBy(kvp => kvp.Value).Key;
-            group.RotationGroup = label;
-            partitionCounts[label]++;
-        }
-
-        if (unassigned.Count > 0)
+        if (assignments.Count > 0)
             await dbContext.SaveChangesAsync(cancellationToken);
 
-        return Result.Success(unassigned.Count);
+        return Result.Success(assignments.Count);
     }
 }

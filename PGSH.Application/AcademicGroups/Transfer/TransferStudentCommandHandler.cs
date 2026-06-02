@@ -27,7 +27,8 @@ internal sealed class TransferStudentCommandHandler(IApplicationDbContext dbCont
                 "AcademicGroups.NotFound",
                 $"Target group '{request.TargetGroupId}' not found."));
 
-        registration.AcademicGroupId = request.TargetGroupId;
+        // Domain method raises StudentGroupTransferredDomainEvent → handler writes GroupTransfer history
+        registration.TransferToGroup(request.TargetGroupId, request.Reason);
 
         // Transfer active internship assignments to the matching cohort in the target group
         var assignments = await dbContext.InternshipAssignments

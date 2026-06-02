@@ -1,7 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
-using PGSH.Domain.Common.Utils;
 using PGSH.Domain.Stages;
 using PGSH.SharedKernel;
 
@@ -19,17 +18,6 @@ internal sealed class DeleteCohortCommandHandler(IApplicationDbContext dbContext
             return Result.Failure(Error.NotFound(
                 "Cohorts.NotFound",
                 $"The cohort with Id = '{request.CohortId}' was not found."));
-
-        // Block deletion if any assignment is beyond Planned (in-progress or evaluated)
-        bool hasActiveAssignments = await dbContext.InternshipAssignments
-            .AnyAsync(a => a.CurrentCohortId == request.CohortId
-                        && a.Status != InternshipStatus.Planned,
-                      cancellationToken);
-
-        if (hasActiveAssignments)
-            return Result.Failure(Error.Conflict(
-                "Cohorts.HasActiveAssignments",
-                "This cohort has active or completed assignments and cannot be deleted. Remove or transfer students first."));
 
         var assignmentIds = await dbContext.InternshipAssignments
             .Where(a => a.CurrentCohortId == request.CohortId)

@@ -1,0 +1,218 @@
+using Microsoft.EntityFrameworkCore;
+using PGSH.Application.Abstractions.Data;
+using PGSH.Domain.Stages;
+using PGSH.SharedKernel;
+
+namespace PGSH.Application.Stages.Planning;
+
+public sealed record RotationArrangeResult(int Assigned, int SaturatedServices, int TotalStudents, int TotalCapacity);
+
+/// <summary>
+/// Capacity-proportional cyclic rotation of cohorts across services, optionally
+/// scoped to a subset of partitions and/or a window of periods. Scoping is what
+/// expresses the macro split: arranging Partition A into periods 1–2 and B into
+/// 3–4 of the same stage. Removal of prior cells is restricted to the targeted
+/// cohorts × targeted slots, so arranging one partition's window never erases
+/// another's. Shared by the auto-arrange command and the macro-plan orchestrator.
+/// </summary>
+internal sealed class RotationArranger(IApplicationDbContext dbContext)
+{
+    public async Task<Result<RotationArrangeResult>> ArrangeAsync(
+        int stageId,
+        IReadOnlyCollection<string>? partitionLabels,
+        IReadOnlyCollection<int>? periodNumbers,
+        int? partitionCount,
+        CancellationToken cancellationToken)
+    {
+        var stage = await dbContext.Stages
+            .AsNoTracking()
+            .Include(s => s.AllowedServices)
+            .FirstOrDefaultAsync(s => s.Id == stageId, cancellationToken);
+
+        if (stage is null)
+            return Result.Failure<RotationArrangeResult>(StageErrors.NotFound(stageId));
+
+        var services = stage.AllowedServices
+            .OrderBy(s => s.Id)
+            .Select(s => new ServiceInfo(s.Id, s.Capacity))
+            .ToList();
+
+        if (services.Count == 0)
+            return Result.Failure<RotationArrangeResult>(
+                Error.Validation("Schedule.NoAllowedServices",
+                    "No allowed services are configured for this stage."));
+
+        int totalCapacity = services.Sum(s => s.Capacity);
+
+        var slots = await dbContext.StageSlots
+            .AsNoTracking()
+            .Where(s => s.StageId == stageId)
+            .OrderBy(s => s.PeriodNumber)
+            .Select(s => new { s.Id, s.PeriodNumber })
+            .ToListAsync(cancellationToken);
+
+        if (periodNumbers is { Count: > 0 })
+            slots = slots.Where(s => periodNumbers.Contains(s.PeriodNumber)).ToList();
+
+        if (slots.Count == 0)
+            return Result.Failure<RotationArrangeResult>(
+                Error.Validation("Schedule.NoSlots",
+                    "No time slots are defined for this stage in the selected window."));
+
+        var slotIds = slots.Select(s => s.Id).ToList();
+
+        var cohorts = await dbContext.Cohorts
+            .AsNoTracking()
+            .Where(c => c.StageId == stageId
+                     && !c.Assignments.Any(a => a.ServicePeriods.Any(p => p.CohortSlotAssignmentId != null)))
+            .OrderBy(c => c.AcademicGroup.GroupNumber)
+            .Select(c => new CohortInfo(
+                c.Id,
+                c.AcademicGroupId,
+                c.AcademicGroup.GroupNumber,
+                c.AcademicGroup.RotationGroup,
+                c.Assignments.Count))
+            .ToListAsync(cancellationToken);
+
+        if (cohorts.Count == 0)
+            return Result.Success(new RotationArrangeResult(0, 0, 0, totalCapacity));
+
+        // Ensure every group involved carries a partition label (persist new ones),
+        // so partition filtering is meaningful even on a stage arranged for the first time.
+        var newlyAssigned = PartitionAllocator.AssignUnlabelled(
+            cohorts.Select(c => (c.AcademicGroupId, c.RotationGroup)).ToList(),
+            partitionCount ?? services.Count);
+
+        if (newlyAssigned.Count > 0)
+        {
+            var groupsToUpdate = await dbContext.AcademicGroups
+                .Where(g => newlyAssigned.Keys.Contains(g.Id))
+                .ToListAsync(cancellationToken);
+
+            foreach (var group in groupsToUpdate)
+                group.RotationGroup = newlyAssigned[group.Id];
+        }
+
+        string LabelOf(CohortInfo c) => c.RotationGroup ?? newlyAssigned.GetValueOrDefault(c.AcademicGroupId)!;
+
+        var targetCohorts = cohorts;
+        if (partitionLabels is { Count: > 0 })
+        {
+            var wanted = partitionLabels.ToHashSet();
+            targetCohorts = cohorts.Where(c => wanted.Contains(LabelOf(c))).ToList();
+        }
+
+        if (targetCohorts.Count == 0)
+            return Result.Success(new RotationArrangeResult(0, 0, cohorts.Sum(c => c.StudentCount), totalCapacity));
+
+        // Partition order first (A→B→C…), then group number — keeps each partition's
+        // cohorts contiguous so the cyclic shift moves whole partition blocks together.
+        var ordered = targetCohorts
+            .OrderBy(LabelOf)
+            .ThenBy(c => c.GroupNumber)
+            .ToList();
+
+        var targetCohortIds = ordered.Select(c => c.Id).ToList();
+
+        // Scoped removal: only the targeted cohorts within the targeted slots.
+        var stale = await dbContext.CohortSlotAssignments
+            .Where(a => targetCohortIds.Contains(a.CohortId) && slotIds.Contains(a.StageSlotId))
+            .ToListAsync(cancellationToken);
+        dbContext.CohortSlotAssignments.RemoveRange(stale);
+
+        int n = ordered.Count;
+        var serviceQueue = BuildServiceQueue(services, ordered, n);
+
+        int shiftPerSlot = slots.Count > 1 ? n / slots.Count : 0;
+
+        var newAssignments = new List<CohortSlotAssignment>(n * slots.Count);
+        foreach (var (slot, slotIdx) in slots.Select((s, i) => (s, i)))
+        {
+            int offset = slotIdx * shiftPerSlot;
+            for (int ci = 0; ci < n; ci++)
+            {
+                newAssignments.Add(new CohortSlotAssignment
+                {
+                    CohortId    = targetCohortIds[ci],
+                    StageSlotId = slot.Id,
+                    ServiceId   = serviceQueue[(ci + offset) % serviceQueue.Count],
+                });
+            }
+        }
+
+        await dbContext.CohortSlotAssignments.AddRangeAsync(newAssignments, cancellationToken);
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        int saturatedServices = CountSaturatedServices(newAssignments, ordered, services);
+
+        return Result.Success(new RotationArrangeResult(
+            newAssignments.Count,
+            saturatedServices,
+            ordered.Sum(c => c.StudentCount),
+            totalCapacity));
+    }
+
+    private static List<int> BuildServiceQueue(List<ServiceInfo> services, List<CohortInfo> cohorts, int n)
+    {
+        int totalStudents = cohorts.Sum(c => c.StudentCount);
+        double avgStudents = totalStudents > 0 ? (double)totalStudents / n : 0;
+
+        List<double> portions;
+        if (avgStudents > 0)
+        {
+            var weights = services
+                .Select(s => (double)Math.Max(1, (int)(s.Capacity / avgStudents)))
+                .ToList();
+            double totalWeight = weights.Sum();
+            portions = weights.Select(w => w / totalWeight * n).ToList();
+        }
+        else
+        {
+            double totalCap = services.Sum(s => (double)s.Capacity);
+            portions = services.Select(s => s.Capacity / totalCap * n).ToList();
+        }
+
+        var allocated = portions.Select(p => (int)p).ToList();
+        int leftover  = n - allocated.Sum();
+
+        services
+            .Select((_, i) => (i, frac: portions[i] - allocated[i]))
+            .OrderByDescending(x => x.frac)
+            .Take(leftover)
+            .ToList()
+            .ForEach(x => allocated[x.i]++);
+
+        var queue = services
+            .SelectMany((s, i) => Enumerable.Repeat(s.Id, Math.Max(0, allocated[i])))
+            .ToList();
+
+        while (queue.Count < n) queue.Add(services.MaxBy(s => s.Capacity)!.Id);
+        if (queue.Count > n)    queue = queue.Take(n).ToList();
+
+        return queue;
+    }
+
+    /// <summary>
+    /// Counts the distinct services whose actual planned student load exceeds
+    /// capacity in any slot — computed from the real placement, not an average.
+    /// </summary>
+    private static int CountSaturatedServices(
+        List<CohortSlotAssignment> assignments, List<CohortInfo> cohorts, List<ServiceInfo> services)
+    {
+        var studentsByCohort = cohorts.ToDictionary(c => c.Id, c => c.StudentCount);
+        var capacityByService = services.ToDictionary(s => s.Id, s => s.Capacity);
+
+        var loadBySlotService = assignments
+            .GroupBy(a => (a.StageSlotId, a.ServiceId))
+            .ToDictionary(g => g.Key, g => g.Sum(a => studentsByCohort.GetValueOrDefault(a.CohortId)));
+
+        return loadBySlotService
+            .Where(kvp => kvp.Value > capacityByService.GetValueOrDefault(kvp.Key.ServiceId))
+            .Select(kvp => kvp.Key.ServiceId)
+            .Distinct()
+            .Count();
+    }
+
+    private sealed record ServiceInfo(int Id, int Capacity);
+    private sealed record CohortInfo(int Id, int AcademicGroupId, int GroupNumber, string? RotationGroup, int StudentCount);
+}

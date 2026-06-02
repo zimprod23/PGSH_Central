@@ -1,5 +1,6 @@
 ﻿using PGSH.Application.Abstractions.Behaviors;
 using PGSH.Application.Behaviors;
+using PGSH.Application.Stages.Planning;
 using FluentValidation;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -19,6 +20,11 @@ public static class DependencyInjection
         });
 
         services.AddValidatorsFromAssembly(typeof(DependencyInjection).Assembly, includeInternalTypes: true);
+
+        services.AddScoped<RotationArranger>();
+        services.AddScoped<StudentAffectationService>();
+        services.AddScoped<SchedulePublisher>();
+        services.AddScoped<CohortProvisioner>();
 
         return services;
     }

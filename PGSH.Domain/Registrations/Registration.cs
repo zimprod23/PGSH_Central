@@ -20,4 +20,11 @@ public sealed class Registration : Entity
     public FailureReasons? failureReasons { get; set; }
     public DateTime? RegistrationDate { get; set; }
     public ICollection<InternshipAssignment> InternshipAssignments { get; set; } = new List<InternshipAssignment>();
+
+    public void TransferToGroup(int newGroupId, string? reason)
+    {
+        int? previousGroupId = AcademicGroupId;
+        AcademicGroupId = newGroupId;
+        Raise(new StudentGroupTransferredDomainEvent(Id, StudentId, previousGroupId, newGroupId, reason));
+    }
 }
