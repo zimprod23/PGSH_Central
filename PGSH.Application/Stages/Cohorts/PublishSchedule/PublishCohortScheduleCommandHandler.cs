@@ -8,5 +8,5 @@ internal sealed class PublishCohortScheduleCommandHandler(SchedulePublisher publ
     : ICommandHandler<PublishCohortScheduleCommand>
 {
     public Task<Result> Handle(PublishCohortScheduleCommand request, CancellationToken cancellationToken)
-        => publisher.PublishCohortAsync(request.CohortId, cancellationToken);
+        => publisher.PublishCohortAsync(request.CohortId, request.AllowOverCapacity, cancellationToken);
 }

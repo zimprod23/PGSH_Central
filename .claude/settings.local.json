@@ -39,7 +39,22 @@
       "Bash(findstr /r /s /i \"CohortSlotAssignment\" \"C:\\\\Users\\\\LEGION\\\\source\\\\repos\\\\PGSH\\\\PGSH.Domain\")",
       "Bash(Select-Object -ExpandProperty Name)",
       "Bash(npx tsc *)",
-      "Bash(xargs grep -l \"AcademicGroup\")"
+      "Bash(xargs grep -l \"AcademicGroup\")",
+      "PowerShell(npx tsc --noEmit -p PGSH.Frontend/tsconfig.app.json 2>&1 | Select-String -Pattern \"StageListPage|ScheduleGridModal|adminApi|error TS\"; \"EXIT=$LASTEXITCODE\")",
+      "PowerShell(npx tsc --noEmit -p PGSH.Frontend/tsconfig.app.json 2>&1 | Select-Object -First 30; \"EXIT=$LASTEXITCODE\")",
+      "PowerShell(& \"PGSH.Frontend\\\\node_modules\\\\.bin\\\\tsc.cmd\" --noEmit -p PGSH.Frontend/tsconfig.app.json 2>&1 | Select-Object -First 40; \"EXIT=$LASTEXITCODE\")",
+      "PowerShell(& \"PGSH.Frontend\\\\node_modules\\\\.bin\\\\tsc.cmd\" --noEmit -p PGSH.Frontend/tsconfig.app.json 2>&1 | Select-Object -First 30; \"TS_EXIT=$LASTEXITCODE\")",
+      "PowerShell(& \"PGSH.Frontend\\\\node_modules\\\\.bin\\\\eslint.cmd\" \"src/features/student/pages/stages/StageListPage.tsx\" \"src/features/admin/components/ScheduleGridModal.tsx\" \"src/features/admin/api/adminApi.ts\" 2>&1; \"LINT_EXIT=$LASTEXITCODE\")",
+      "PowerShell(Push-Location PGSH.Frontend; & \"node_modules\\\\.bin\\\\eslint.cmd\" \"src/features/student/pages/stages/StageListPage.tsx\" \"src/features/admin/components/ScheduleGridModal.tsx\" \"src/features/admin/api/adminApi.ts\" 2>&1; \"LINT_EXIT=$LASTEXITCODE\"; Pop-Location)",
+      "Bash(npm install *)",
+      "PowerShell(Push-Location PGSH.Frontend; & \"node_modules\\\\.bin\\\\tsc.cmd\" --noEmit -p tsconfig.app.json 2>&1 | Select-Object -First 30; \"TS_EXIT=$LASTEXITCODE\"; Pop-Location)",
+      "PowerShell(& \"node_modules\\\\.bin\\\\tsc.cmd\" --noEmit -p tsconfig.app.json 2>&1 | Select-Object -First 30; \"TS_EXIT=$LASTEXITCODE\")",
+      "PowerShell(& \"node_modules\\\\.bin\\\\eslint.cmd\" \"src/features/admin/components/ScheduleGridModal.tsx\" \"src/main.tsx\" 2>&1; \"LINT_EXIT=$LASTEXITCODE\")",
+      "PowerShell(cd 'C:\\\\Users\\\\LEGION\\\\source\\\\repos\\\\PGSH\\\\PGSH.Frontend'; & \"node_modules\\\\.bin\\\\tsc.cmd\" --noEmit -p tsconfig.app.json 2>&1 | Select-Object -First 40; \"TS_EXIT=$LASTEXITCODE\")",
+      "PowerShell(& \"node_modules\\\\.bin\\\\eslint.cmd\" \"src/features/admin/pages/StageTimelinePage.tsx\" \"src/features/admin/api/adminApi.ts\" \"src/features/admin/types/admin.types.ts\" \"src/routes/index.tsx\" \"src/routes/paths.ts\" \"src/layouts/AdminLayout.tsx\" 2>&1; \"LINT_EXIT=$LASTEXITCODE\")",
+      "PowerShell(npm run *)",
+      "PowerShell(cd 'C:\\\\Users\\\\LEGION\\\\source\\\\repos\\\\PGSH\\\\PGSH.Frontend'; & \"node_modules\\\\.bin\\\\tsc.cmd\" --noEmit -p tsconfig.app.json 2>&1 | Select-Object -First 30; \"TS=$LASTEXITCODE\")",
+      "PowerShell(& \"node_modules\\\\.bin\\\\eslint.cmd\" \"src/features/admin/components/ScheduleGridModal.tsx\" \"src/features/admin/api/adminApi.ts\" \"src/features/admin/types/admin.types.ts\" \"src/common/components/ConfirmModal.tsx\" 2>&1; \"LINT=$LASTEXITCODE\")"
     ]
   }
 }

@@ -16,9 +16,9 @@ public sealed record PublishResult(int PublishedCohorts, int PeriodsCreated, int
 /// already-published or unconfigured cohorts, optionally scoped to a partition
 /// and/or a window of periods.
 /// </summary>
-internal sealed class SchedulePublisher(IApplicationDbContext dbContext)
+internal sealed class SchedulePublisher(IApplicationDbContext dbContext, ServiceOccupancyCalculator occupancyCalculator)
 {
-    public async Task<Result> PublishCohortAsync(int cohortId, CancellationToken ct)
+    public async Task<Result> PublishCohortAsync(int cohortId, bool allowOverCapacity, CancellationToken ct)
     {
         bool cohortExists = await dbContext.Cohorts.AnyAsync(c => c.Id == cohortId, ct);
         if (!cohortExists)
@@ -39,6 +39,13 @@ internal sealed class SchedulePublisher(IApplicationDbContext dbContext)
         if (assignmentIds.Count == 0)
             return Result.Failure(StageErrors.NoPlannedAssignments);
 
+        if (!allowOverCapacity)
+        {
+            var capacity = await EnsureCapacityAsync(slotAssignments, ct);
+            if (capacity.IsFailure)
+                return capacity;
+        }
+
         var periods = BuildPeriods(slotAssignments, assignmentIds);
         await dbContext.ServicePeriods.AddRangeAsync(periods, ct);
         await dbContext.SaveChangesAsync(ct);
@@ -49,6 +56,7 @@ internal sealed class SchedulePublisher(IApplicationDbContext dbContext)
         int stageId,
         IReadOnlyCollection<string>? partitionLabels,
         IReadOnlyCollection<int>? periodNumbers,
+        bool allowOverCapacity,
         CancellationToken ct)
     {
         var cohortQuery = dbContext.Cohorts.AsNoTracking().Where(c => c.StageId == stageId);
@@ -81,6 +89,7 @@ internal sealed class SchedulePublisher(IApplicationDbContext dbContext)
             .ToDictionary(g => g.Key, g => g.ToList());
 
         var newPeriods = new List<ServicePeriod>();
+        var publishableSlots = new List<SlotAssignmentInfo>();
         int published = 0, skipped = 0;
 
         foreach (var cohortId in cohortIds)
@@ -93,8 +102,16 @@ internal sealed class SchedulePublisher(IApplicationDbContext dbContext)
                 continue;
             }
 
+            publishableSlots.AddRange(slots);
             newPeriods.AddRange(BuildPeriods(slots, assignmentIds));
             published++;
+        }
+
+        if (!allowOverCapacity)
+        {
+            var capacity = await EnsureCapacityAsync(publishableSlots, ct);
+            if (capacity.IsFailure)
+                return Result.Failure<PublishResult>(capacity.Error);
         }
 
         if (newPeriods.Count > 0)
@@ -123,8 +140,37 @@ internal sealed class SchedulePublisher(IApplicationDbContext dbContext)
 
         return await query
             .Select(a => new SlotAssignmentInfo(
-                a.Id, a.CohortId, a.ServiceId, a.StageSlot.StartDate, a.StageSlot.EndDate))
+                a.Id, a.CohortId, a.ServiceId, a.StageSlot.StartDate, a.StageSlot.EndDate,
+                a.StageSlot.PeriodNumber, a.Service.Name, a.Service.Capacity))
             .ToListAsync(ct);
+    }
+
+    /// <summary>
+    /// Refuses to publish if any service would hold more students than its capacity over an
+    /// overlapping window — counted globally across every stage, so a service shared by two
+    /// partitions running different stages on overlapping dates cannot be silently over-booked.
+    /// The cohort being published is already part of the planned occupancy the lookup measures.
+    /// </summary>
+    private async Task<Result> EnsureCapacityAsync(
+        IReadOnlyCollection<SlotAssignmentInfo> slotAssignments, CancellationToken ct)
+    {
+        if (slotAssignments.Count == 0)
+            return Result.Success();
+
+        var serviceIds = slotAssignments.Select(s => s.ServiceId).Distinct().ToList();
+        var occupancy = await occupancyCalculator.BuildAsync(serviceIds, ct);
+
+        foreach (var sa in slotAssignments
+                     .GroupBy(s => new { s.ServiceId, s.StartDate, s.EndDate })
+                     .Select(g => g.First()))
+        {
+            int load = occupancy.LoadOn(sa.ServiceId, sa.StartDate, sa.EndDate);
+            if (load > sa.ServiceCapacity)
+                return Result.Failure(StageErrors.CapacityExceeded(
+                    sa.PeriodNumber, sa.ServiceName, sa.StartDate, sa.EndDate, load, sa.ServiceCapacity));
+        }
+
+        return Result.Success();
     }
 
     private static List<ServicePeriod> BuildPeriods(
@@ -145,5 +191,7 @@ internal sealed class SchedulePublisher(IApplicationDbContext dbContext)
         return periods;
     }
 
-    private sealed record SlotAssignmentInfo(int Id, int CohortId, int ServiceId, DateOnly StartDate, DateOnly EndDate);
+    private sealed record SlotAssignmentInfo(
+        int Id, int CohortId, int ServiceId, DateOnly StartDate, DateOnly EndDate,
+        int PeriodNumber, string ServiceName, int ServiceCapacity);
 }

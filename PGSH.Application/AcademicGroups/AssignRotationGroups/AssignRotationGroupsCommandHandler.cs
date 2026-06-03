@@ -14,8 +14,17 @@ internal sealed class AssignRotationGroupsCommandHandler(IApplicationDbContext d
         if (request.PartitionCount < 1)
             return Result.Failure<int>(Error.Validation("Partitions.InvalidCount", "Partition count must be at least 1."));
 
-        var groups = await dbContext.AcademicGroups
-            .Where(g => g.AcademicYearId == request.AcademicYearId)
+        // Partitions are scoped per (year, level): different levels can have different
+        // partition counts. A group belongs to a level by its LevelId, or — for legacy/
+        // auto-arranged groups without one — by having a registration at that level.
+        var query = dbContext.AcademicGroups
+            .Where(g => g.AcademicYearId == request.AcademicYearId);
+
+        if (request.LevelId.HasValue)
+            query = query.Where(g => g.LevelId == request.LevelId
+                                  || g.Registrations.Any(r => r.LevelId == request.LevelId));
+
+        var groups = await query
             .OrderBy(g => g.GroupNumber)
             .ToListAsync(cancellationToken);
 

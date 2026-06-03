@@ -6,4 +6,5 @@ namespace PGSH.Application.Stages.Cohorts.PublishSchedule;
 public sealed record PublishStageScheduleCommand(
     int StageId,
     IReadOnlyList<string>? PartitionLabels = null,
-    IReadOnlyList<int>? PeriodNumbers = null) : ICommand<PublishResult>;
+    IReadOnlyList<int>? PeriodNumbers = null,
+    bool AllowOverCapacity = false) : ICommand<PublishResult>;

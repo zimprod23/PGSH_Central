@@ -67,6 +67,15 @@ internal sealed class DeleteStageSlotCommandHandler(IApplicationDbContext dbCont
         if (slot is null)
             return Result.Failure(StageErrors.SlotNotFound(request.SlotId));
 
+        bool hasPublishedCells = await dbContext.CohortSlotAssignments
+            .Where(a => a.StageSlotId == request.SlotId)
+            .AnyAsync(a => dbContext.InternshipAssignments
+                .Where(ia => ia.CurrentCohortId == a.CohortId)
+                .Any(ia => ia.ServicePeriods.Any(p => p.CohortSlotAssignmentId == a.Id)), cancellationToken);
+
+        if (hasPublishedCells)
+            return Result.Failure(StageErrors.SlotPublished);
+
         dbContext.StageSlots.Remove(slot);
         await dbContext.SaveChangesAsync(cancellationToken);
         return Result.Success();
@@ -163,13 +172,16 @@ internal sealed class ClearCohortSlotAssignmentCommandHandler(IApplicationDbCont
 }
 
 internal sealed class ClearSlotAssignmentsCommandHandler(IApplicationDbContext dbContext)
-    : ICommandHandler<ClearSlotAssignmentsCommand, int>
+    : ICommandHandler<ClearSlotAssignmentsCommand, ClearSlotResult>
 {
-    public async Task<Result<int>> Handle(ClearSlotAssignmentsCommand request, CancellationToken cancellationToken)
+    public async Task<Result<ClearSlotResult>> Handle(ClearSlotAssignmentsCommand request, CancellationToken cancellationToken)
     {
         bool slotExists = await dbContext.StageSlots.AnyAsync(s => s.Id == request.StageSlotId, cancellationToken);
         if (!slotExists)
-            return Result.Failure<int>(StageErrors.SlotNotFound(request.StageSlotId));
+            return Result.Failure<ClearSlotResult>(StageErrors.SlotNotFound(request.StageSlotId));
+
+        int total = await dbContext.CohortSlotAssignments
+            .CountAsync(a => a.StageSlotId == request.StageSlotId, cancellationToken);
 
         var unpublishedAssignments = await dbContext.CohortSlotAssignments
             .Where(a => a.StageSlotId == request.StageSlotId
@@ -180,7 +192,9 @@ internal sealed class ClearSlotAssignmentsCommandHandler(IApplicationDbContext d
 
         dbContext.CohortSlotAssignments.RemoveRange(unpublishedAssignments);
         await dbContext.SaveChangesAsync(cancellationToken);
-        return unpublishedAssignments.Count;
+
+        int cleared = unpublishedAssignments.Count;
+        return new ClearSlotResult(cleared, total - cleared);
     }
 }
 

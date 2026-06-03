@@ -21,6 +21,7 @@ public static class DependencyInjection
 
         services.AddValidatorsFromAssembly(typeof(DependencyInjection).Assembly, includeInternalTypes: true);
 
+        services.AddScoped<ServiceOccupancyCalculator>();
         services.AddScoped<RotationArranger>();
         services.AddScoped<StudentAffectationService>();
         services.AddScoped<SchedulePublisher>();

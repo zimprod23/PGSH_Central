@@ -8,5 +8,5 @@ internal sealed class PublishStageScheduleCommandHandler(SchedulePublisher publi
     : ICommandHandler<PublishStageScheduleCommand, PublishResult>
 {
     public Task<Result<PublishResult>> Handle(PublishStageScheduleCommand request, CancellationToken cancellationToken)
-        => publisher.PublishStageAsync(request.StageId, request.PartitionLabels, request.PeriodNumbers, cancellationToken);
+        => publisher.PublishStageAsync(request.StageId, request.PartitionLabels, request.PeriodNumbers, request.AllowOverCapacity, cancellationToken);
 }

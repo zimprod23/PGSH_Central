@@ -126,6 +126,10 @@ public static class StageErrors
         "Schedule.NotPublished",
         "This cohort's schedule has not been published yet. Nothing to unpublish.");
 
+    public static readonly Error SlotPublished = Error.Conflict(
+        "Schedule.SlotPublished",
+        "This period cannot be deleted because one or more of its cohorts have already been published. Unpublish them first.");
+
     public static readonly Error NoPlannedAssignments = Error.Validation(
         "Schedule.NoPlannedAssignments",
         "No assignments in 'Planned' status were found for this cohort.");

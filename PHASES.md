@@ -181,6 +181,92 @@ Entities: `InternshipAssignment`, `CohortMembership`, `ServicePeriod`, `ServiceE
 
 ---
 
+## ✅ Phase 7.1 — Partition Macro Planning & Flexible Scheduling
+
+**Status: Complete**
+
+Made planning and affectation work for *all groups or a single partition / window*, with a one-click macro orchestrator. Mirrors the faculty rotation sheets (`example_stage_assignement/`).
+
+- **Shared planning services** (`Application/Stages/Planning/`, DI-registered): `PartitionAllocator`, `RotationArranger`, `StudentAffectationService`, `SchedulePublisher`, `CohortProvisioner`. Command handlers and the orchestrator share one source of truth (no nested MediatR).
+- **Partition + window scoping**: `AutoArrangeStageScheduleCommand` and `AssignAllStudentsByStageCommand` take optional `PartitionLabels` + `PeriodNumbers`. New `PublishStageScheduleCommand` (stage+partition+window). Removal in auto-arrange is scoped to `targetCohorts ∩ targetSlots`, so arranging one partition's window never wipes another's.
+- **`GenerateMacroPlanCommand`** (`POST /stages/macro-plan`): fans out per `(RotationGroup, StageId, PeriodNumbers)` → create cohorts → affect → arrange → optionally publish. Lenient when a stage's window has no slots yet.
+- **Partitions scoped per (year, level)**: `AssignRotationGroupsCommand.LevelId`; `CohortProvisioner` matches groups to each stage's level (a label reused across levels never creates cross-level cohorts).
+- **Capacity-aware allocation**: `RotationArranger` weight = `floor(capacity / avgStudents)` (whole groups a service can hold); services smaller than one group are excluded instead of force-overflowed. Saturation counted from actual per-cell load. No artificial saturation when per-period capacity ≥ demand.
+- **Frontend**: `ScheduleGridModal` per-partition/window auto-arrange + scoped publish, stacking-guard alert, saturation banner listing real offending cells + full-report Drawer. `GroupsPage` Macro Plan tab: per-level partition setup, partition×stage matrix with per-cell period windows, one-click "Générer le plan" with step toggles. Per-row "Vider le groupe" + "Vider toutes" (`EmptyAllYearGroupsCommand`, `DELETE /groups/all/students`). Debounce added to the two remaining un-debounced searches (service combobox, group student search).
+
+---
+
+## 🔲 Phase 7.5 — Planning UX & Capacity Correctness
+
+**Status: Planned** — upgrades surfaced while building the macro planner.
+
+### Correctness (priority)
+
+- **Global service capacity across stages/time** *(DONE 2026-06-03)*: occupancy was computed **per stage**, grouped by `(StageSlotId, ServiceId)`, so the same physical service used by partition A in stage X and partition B in stage Y over overlapping dates was counted separately → silent over-booking. Fixed with `ServiceOccupancyCalculator` (`Application/Stages/Planning/`): load = students on a service over any **overlapping** slot window, across all stages. Wired into the grid display (`GetStageScheduleQueryHandler`), auto-arrange saturation (`RotationArranger`), and a new **pre-publish guard** (`SchedulePublisher.EnsureCapacityAsync` → `StageErrors.CapacityExceeded`, which was previously defined-but-unused — there was no capacity check at publish at all). See NOTES.md "Capacity is measured GLOBALLY across stages".
+  - **Opt-in override** *(DONE 2026-06-04)*: an `AllowOverCapacity` flag on the publish commands/endpoints (and `GenerateMacroPlanCommand`) skips the guard when explicitly enabled. Surfaced as an "Autoriser le dépassement de capacité" checkbox in the publish confirm dialogs. Default off (guard enforced).
+
+### Published-data integrity (fixed 2026-06-03)
+
+The "published is locked" rule was enforced inconsistently across the planning grid:
+
+- **`DeleteStageSlot` had no published guard** — deleting a period column cascaded to delete its `CohortSlotAssignment`s and `SetNull`-orphaned the already-published `ServicePeriod`s (turning them into ad-hoc periods detached from their planning origin → silent integrity drift, risk of duplicate re-publish). Fixed: the handler now blocks with `StageErrors.SlotPublished` when any cell on the slot is published; the admin must unpublish first.
+- **Bulk `ClearSlotAssignments` silently skipped published cells** and returned `{ cleared }` with HTTP 200, so the UI showed success while nothing changed (the single-cell clear already failed loudly). Fixed: the handler now returns `{ cleared, skipped }` so the UI reports "X vidés, Y ignorés (publiés)" instead of false success.
+
+### Robustness
+
+- **Long-running operations run to completion in the background**: mutations (e.g. "démarrer", publish, macro plan) are not aborted by navigation or by other requests, and there is no client timeout. For large cohorts, move heavy operations to a background job (or chunk + progress) and make handlers idempotent so an accidental re-trigger is safe. Consider an `AbortSignal`/timeout on `fetchBaseQuery` for read queries.
+
+### UX
+
+- **Per-stage capacity fit gauge**: before arranging, show "demande par période X / capacité par période Y" so admins size services up front instead of discovering saturation after.
+- **One-click "ajuster les capacités"**: from the saturation drawer, bump each saturated service to its "Requis" value in one action.
+- **Window picker chips** in the macro matrix (click P1/P2…) instead of typing `"1,2"`; auto-suggest the free window per partition to avoid stacking.
+- **Validate referenced periods exist** per stage in the macro tab (today, periods with no matching slot are silently skipped) — flag stages whose slots aren't defined yet.
+- **Student stage status — "Non planifié" vs "Planifié"** *(fixed 2026-06-03)*: `StageListPage.tsx` bucketed a stage with **no** `InternshipAssignment` into the same "Planifié" group as a genuinely `Planned` assignment. Now a stage without an assignment shows a distinct **"À venir / Non planifié"** state, separate from "Planifié" (assignment exists, status `Planned`).
+- **Save a macro plan as a reusable template** across years (the A→Méd[1,2]/Chir[3,4] pattern repeats yearly).
+- **Partial-group placement** *(model change)*: allow splitting a group across services (as the faculty sheet does — 9–11 + 12) to eliminate wasted seats from atomic whole-group placement. Largest impact, largest effort.
+
+---
+
+## 🔣 Phase 7.6 — Stage Timeline / Calendar Visualization
+
+**Status: Phase A complete (2026-06-04) · Phase B (drag-to-edit) planned** — a Gantt/Teams-style
+calendar to *see* the plan over time, drilling Year → Level → Stage → Partition.
+Detailed UI breakdown lives in `PGSH.Frontend/PHASES.md`.
+
+### Data model note (important)
+A `Stage` has **no explicit dates** — only `DurationInDays`. Every date on the timeline is
+**derived from `StageSlot.StartDate/EndDate`**:
+- A **stage's** span (for a level/year) = `min(slot.StartDate)` … `max(slot.EndDate)` over its slots.
+- A **partition's** span within a stage = min/max slot dates over the slots its cohorts occupy
+  (`CohortSlotAssignment` → `StageSlot`), i.e. the period window that partition runs (A→P1–2, B→P3–4).
+- No schema change needed for the read-only viewer.
+
+### Phase A — read-only viewer (backend + frontend) — ✅ DONE 2026-06-04
+- **Endpoint** `GET /academic-years/{id}/timeline?levelId=` (`GetYearTimelineQuery` in
+  `Application/Stages/Timeline/`) returns the nested tree: `Level → Stage (derived start/end, slot
+  count, cohort/partition count, hasSaturation) → Partition (label, derived window, cohort+student
+  count, saturated)`. Built from existing `StageSlot` + `CohortSlotAssignment` +
+  `AcademicGroup.RotationGroup` (year reached via `AcademicGroup.AcademicYearId`); reuses
+  `ServiceOccupancyCalculator` for the saturation flag. **No schema change.**
+- **Frontend** `StageTimelinePage` (route `/admin/timeline`, nav "Calendrier"): custom CSS Gantt
+  (date→% offset, no heavy dep), Year picker, sticky month axis, collapsible Level rows, Stage bars
+  → click opens a partition-window Drawer; saturation flagged; horizontal scroll on small screens.
+- Deeper drill (partition → micro rotation per service) still reuses the existing schedule grid.
+
+### Phase B — editable (drag to reschedule) — later
+- Drag/resize a stage or partition bar → writes back to `StageSlot.StartDate/EndDate`.
+- Must re-run the cross-stage capacity check (`ServiceOccupancyCalculator`) on the new dates and
+  block/warn on overlap-induced over-booking; confirm before persisting; ideally undo.
+
+### Interactive range date picker (from → to) — ✅ DONE 2026-06-04
+- Added `@mantine/dates` (+ `dayjs`), CSS imported in `main.tsx`, app wrapped in `DatesProvider`
+  (`locale="fr"`, Monday first). The `StageSlot` start/end inputs in `ScheduleGridModal` are now a
+  single **`DatePickerInput type="range"`** (two-month popover, returns `"YYYY-MM-DD"` strings — no
+  conversion needed for the `DateOnly` backend). Macro-window range selection can adopt the same control.
+
+---
+
 ## 🔲 Phase 8 — Permission System
 
 **Status: Stub exists — not implemented**

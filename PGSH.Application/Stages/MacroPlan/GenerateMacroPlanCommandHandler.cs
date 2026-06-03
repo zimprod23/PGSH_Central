@@ -38,8 +38,15 @@ internal sealed class GenerateMacroPlanCommandHandler(
             {
                 var arranged = await arranger.ArrangeAsync(
                     plan.StageId, partition, plan.PeriodNumbers, null, cancellationToken);
+
+                // A stage whose period slots aren't defined yet is a setup-order issue,
+                // not a hard error: keep the cohorts/affectation already done and let the
+                // admin define slots then re-run. Other failures still surface.
                 if (arranged.IsFailure)
+                {
+                    if (arranged.Error.Code == "Schedule.NoSlots") continue;
                     return Result.Failure<MacroPlanResult>(arranged.Error);
+                }
 
                 cellsArranged += arranged.Value.Assigned;
                 saturated     += arranged.Value.SaturatedServices;
@@ -51,7 +58,7 @@ internal sealed class GenerateMacroPlanCommandHandler(
             foreach (var plan in request.Plans)
             {
                 var published = await publisher.PublishStageAsync(
-                    plan.StageId, [plan.RotationGroup], plan.PeriodNumbers, cancellationToken);
+                    plan.StageId, [plan.RotationGroup], plan.PeriodNumbers, request.AllowOverCapacity, cancellationToken);
                 if (published.IsFailure)
                     return Result.Failure<MacroPlanResult>(published.Error);
 

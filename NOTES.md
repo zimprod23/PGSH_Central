@@ -161,28 +161,54 @@ These are not partial-text filters — they use `==` equality. The `SearchTerm` 
 ### The `int? AcademicProgram` bug in GetLevelsQuery is now fixed
 Previously the query accepted `int?` and the handler cast it: `(int)l.AcademicProgram == request.AcademicProgram`. This was type-unsafe and broke JSON deserialization from string enums. Now correctly typed as `AcademicProgram?`.
 
-### Auto-arrange algorithm (capacity-proportional cyclic rotation + RotationGroup partitions)
-`AutoArrangeStageScheduleCommandHandler` uses the same pattern visible in the faculty rotation documents (`example_stage_assignement/`):
+### Planning services (shared, partition + window scoped)
+The complex planning operations were extracted into DI-registered services under
+`Application/Stages/Planning/` so command handlers and the macro orchestrator share one source of truth:
+- `PartitionAllocator` (static) — the A/B/C labelling rule. Used by `AssignRotationGroupsCommandHandler` and `RotationArranger`.
+- `RotationArranger` — the cyclic rotation below, **scoped to optional partition labels + period numbers**. Removal of prior cells is restricted to `targetCohortIds ∩ targetSlotIds`, so arranging one partition's window never wipes another's. Backs `AutoArrangeStageScheduleCommand`.
+- `StudentAffectationService` — affectation per-cohort or per-stage (optionally partition-filtered). Backs `AssignStudentsToCohort` + `AssignAllStudentsByStage`. `BulkResponse.TotalProcessed` now reports eligible registrations considered (not just newly created).
+- `SchedulePublisher` — `ServicePeriod` generation per-cohort (strict) or per-stage+partition+window (lenient/idempotent). Backs `PublishCohortScheduleCommand` + new `PublishStageScheduleCommand`.
+- `CohortProvisioner` — idempotent cohort creation per (partition, stage). Backs `BulkCreateCohortsFromPartitions` + macro plan.
+- `ServiceOccupancyCalculator` — global cross-stage service load (`LoadOn(serviceId, start, end)` = students on a service over any overlapping window, all stages). Used by `GetStageScheduleQueryHandler`, `RotationArranger`, and `SchedulePublisher` (see cross-stage capacity note below).
 
-**How it works:**
-1. **Proportional allocation** (largest-remainder method): each service is allocated `floor(capacity / totalCapacity × N)` cohort slots. Leftover slots go to services with the largest fractional remainders. Result: `allocated[i]` cohorts per service per period, summing to exactly N.
+### Stage timeline / calendar (read-only Gantt)
+`GetYearTimelineQuery` (`Application/Stages/Timeline/`, endpoint `GET /academic-years/{id}/timeline?levelId=`) returns a `Level → Stage → Partition` tree for the calendar view. **A `Stage` has no dates** — every span is *derived* from `StageSlot.StartDate/EndDate`: a stage spans the union of its slots; a partition spans the slots its cohorts occupy. The year is reached via `AcademicGroup.AcademicYearId` (slots/cohorts are not year-stamped). Reuses `ServiceOccupancyCalculator` for the per-partition saturation flag. Frontend: `StageTimelinePage` (`/admin/timeline`, nav "Calendrier") — a **custom CSS Gantt** (date→% offset via dayjs, no Gantt library); year picker, month axis, collapsible level rows, stage bars → partition-window Drawer. Cache tag `Stage/TIMELINE` + `refetchOnMountOrArgChange` (fine-grained invalidation from the ~15 plan-mutations is not wired yet — Phase 7.6 Phase B / robustness).
+
+### Date pickers (`@mantine/dates`)
+`@mantine/dates` + `dayjs` are installed; `@mantine/dates/styles.css` is imported in `main.tsx` and the app is wrapped in `<DatesProvider settings={{ locale: 'fr', firstDayOfWeek: 1 }}>`. Mantine 8 date components use **string `"YYYY-MM-DD"` values** (no `Date` conversion), which matches the backend `DateOnly`. `StageSlot` start/end in `ScheduleGridModal` uses `DatePickerInput type="range"`.
+
+`GenerateMacroPlanCommand` (`Application/Stages/MacroPlan/`, endpoint `POST stages/macro-plan`) fans out per `(RotationGroup, StageId, PeriodNumbers)` entry to those services — one call creates cohorts → affects → arranges → optionally publishes. This is what realises the macro split (e.g. Med3: A→Médecine[1,2]+Chirurgie[3,4], B mirrored). The frontend Macro Plan tab (`GroupsPage`) drives it via a partition×stage matrix with a per-cell period window.
+
+### Auto-arrange algorithm (capacity-proportional cyclic rotation + RotationGroup partitions)
+`RotationArranger.ArrangeAsync` (invoked by `AutoArrangeStageScheduleCommand`) uses the same pattern visible in the faculty rotation documents (`example_stage_assignement/`):
+
+**How it works** (over the scoped cohort/slot subset — by default all cohorts/slots of the stage):
+1. **Capacity-aware proportional allocation** (largest-remainder method): the weight of a service is `floor(capacity / avgStudents)` = the number of whole average cohorts it can hold. **A service smaller than one cohort gets weight 0 and is excluded** (forcing an atomic group into it would always overflow). N cohort-slots are distributed proportionally to weight, leftover by largest fractional remainder → `allocated[i]` cohorts per service per period, summing to N. When total cohort-capacity ≥ N this never over-fills a service; only a genuine per-period shortfall saturates. (Planning preview, before students are assigned, falls back to raw-capacity proportions.)
 2. **Service queue**: build an ordered list `[S1 × allocated[0], S2 × allocated[1], ...]` of length N.
 3. **Cyclic shift per period**: period P reads the queue at offset `P × (N / numSlots)`. Every cohort visits a different service block each period.
 
 **Why this matches the faculty documents:**
 - Service "Méd A" takes 2 groups per period: P1=groups 1-2, P2=21-22, P3=41-42, P4=61-62. The offset is 80/4=20. This exact pattern falls out of the cyclic rotation naturally.
-- No service is ever over-capacity as long as total allowed-service capacity ≥ total cohort count (the real-world invariant; admin is responsible for configuring this correctly).
+- **Capacity is a per-(service × period) constraint, not a global one.** Total allowed-service capacity ≥ total students does NOT guarantee no saturation: groups are placed as atomic ~20-student units, so any allowed service smaller than a group always saturates, and a single period can stack two partitions onto the same service if both are arranged into it (the reason to use period windows — see saturation diagnosis below). `RotationArranger` counts saturated services from the **actual** per-cell load, not the global average.
 
 **RotationGroup / Partition system:**
-- `AcademicGroup.RotationGroup` is a persistent nullable string label (A, B, C…). It is shared across all stages of the academic year and is set once (auto-arrange assigns it on the first run, subsequent runs only label groups that don't already have one).
+- `AcademicGroup.RotationGroup` is a persistent nullable string label (A, B, C…). **Partitions are scoped per (AcademicYear, Level)** — different levels can have different partition counts (e.g. 2 in 1Med, 4 in 2Med). `AssignRotationGroupsCommand` takes an optional `LevelId`; a group belongs to a level by `AcademicGroup.LevelId`, or (legacy groups without one) by having a registration at that level. `CohortProvisioner` matches groups to each stage's level so a label reused across levels never produces cross-level cohorts. The label is set once and reused across all stages **of that level**.
 - `numPartitions` = `existingLabels.Count` if any groups already carry a label; otherwise = `request.PartitionCount ?? services.Count`. This respects the structure set up on a previous stage's auto-arrange.
 - Unassigned groups are distributed round-robin into the smallest partition (by current count) in `GroupNumber` order.
 - Cohorts are sorted by `(RotationGroup, GroupNumber)` before building the queue. All cohorts in partition A occupy a contiguous block → the cyclic shift moves the entire A-block to a different service section each period, consistent across stages.
-- **Frontend**: `ScheduleGridModal` shows a violet dot badge per cohort row and filter chips above the grid when `rotationGroup` is populated. A `partitionCount` number input next to the "Répartition auto." button passes the override value as a query param. `GroupsPage` table shows `RotationGroup` badge; `EditGroupModal` has a text input to set/override the label manually.
+- **Frontend**: `ScheduleGridModal` shows a violet dot badge per cohort row and partition filter chips above the grid. The "Répartition auto." dialog targets the active partition chip + a period-window multi-select (sent as `partitionLabels` + `periodNumbers` in the POST body), and shows an orange Alert when the chosen window already holds another partition's cells (stacking guard). The saturation banner lists the real offending cells (`{service} · P{n} : {occupied}/{capacity}`) using the backend's per-cell `occupiedSeats`, not a misleading global total. `GroupsPage` table shows `RotationGroup` badge; `EditGroupModal` has a text input to set/override the label manually.
 
 **Why the greedy approach (previous version) was wrong:**
 - The greedy treated each period as an independent assignment race — large cohorts competed for capacity every period, consistently over-filling high-capacity services and under-filling others.
 - The `visited` tracking plus capacity competition caused cascading saturation in later periods.
+
+**Capacity is measured GLOBALLY across stages (fixed 2026-06-03, was Phase 7.5 #1):** occupancy is no longer grouped by `(StageSlotId, ServiceId)` within one stage. `ServiceOccupancyCalculator` (`Application/Stages/Planning/`) loads every planned `CohortSlotAssignment` targeting a service and exposes `ServiceOccupancyLookup.LoadOn(serviceId, start, end)` = total students on that service whose slot window **overlaps** `[start,end]` (overlap = `a.Start <= end && start <= a.End`), across **all** stages. This is the single source for the three places load matters:
+- `GetStageScheduleQueryHandler` — each cell's `occupiedSeats` shows the real cross-stage load (the macro case: a service shared by partition A in stage X and partition B in stage Y over overlapping dates shows the combined load, not a per-stage half).
+- `RotationArranger` — saturation is counted after the save against the global load per `(slot window, service)`.
+- `SchedulePublisher.EnsureCapacityAsync` — **pre-publish guard** (previously absent): both `PublishCohortAsync` and `PublishStageAsync` refuse with `StageErrors.CapacityExceeded` if any service would exceed capacity over an overlapping window — **unless `allowOverCapacity` is set**, an explicit opt-in override threaded from the publish commands/endpoints (`PublishCohortScheduleCommand.AllowOverCapacity`, `PublishStageScheduleCommand.AllowOverCapacity`, `GenerateMacroPlanCommand.AllowOverCapacity`). When the override is on, the guard is skipped and over-booking is permitted intentionally. The frontend exposes it as an "Autoriser le dépassement de capacité" checkbox in the publish confirm dialogs (per-cohort and "Publier tout"). Distinct cohorts across stages are different physical students, and a group's cohort-in-X vs cohort-in-Y run in non-overlapping windows, so summing overlapping windows does not double-count. Counting `CohortSlotAssignment`s covers both planned and published load (publish keeps the cells); purely ad-hoc `ServicePeriod`s (null `CohortSlotAssignmentId`) are not yet included.
+
+### Long-running requests are not aborted by navigation or other requests
+RTK Query mutations ("démarrer", publish, macro plan) each get their own `AbortController` and are independent of queries (student search etc.), so one never cancels another. SPA navigation does not reload, so an in-flight mutation runs to completion server-side (RTK auto-aborts only *queries* when their last subscriber leaves, never mutations). There is no client request timeout. Implication: a slow mutation finishes invisibly in the background — keep handlers idempotent so an accidental re-trigger is safe (Phase 7.5 robustness item).
 
 ### Endpoint binding pattern (POST / PUT / GET)
 

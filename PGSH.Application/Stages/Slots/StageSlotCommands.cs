@@ -27,4 +27,6 @@ public sealed record ClearCohortSlotAssignmentCommand(
     int CohortId,
     int StageSlotId) : ICommand;
 
-public sealed record ClearSlotAssignmentsCommand(int StageSlotId) : ICommand<int>;
+public sealed record ClearSlotAssignmentsCommand(int StageSlotId) : ICommand<ClearSlotResult>;
+
+public sealed record ClearSlotResult(int Cleared, int Skipped);

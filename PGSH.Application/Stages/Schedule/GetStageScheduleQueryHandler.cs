@@ -1,11 +1,14 @@
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
+using PGSH.Application.Stages.Planning;
 using PGSH.SharedKernel;
 
 namespace PGSH.Application.Stages.Schedule;
 
-internal sealed class GetStageScheduleQueryHandler(IApplicationDbContext dbContext)
+internal sealed class GetStageScheduleQueryHandler(
+    IApplicationDbContext dbContext,
+    ServiceOccupancyCalculator occupancyCalculator)
     : IQueryHandler<GetStageScheduleQuery, StageScheduleResponse>
 {
     public async Task<Result<StageScheduleResponse>> Handle(
@@ -43,15 +46,16 @@ internal sealed class GetStageScheduleQueryHandler(IApplicationDbContext dbConte
             })
             .ToListAsync(cancellationToken);
 
-        // Sum planned student counts per (slot, service) across all cohorts — published or not
-        var slotServiceOccupancy = cohorts
-            .SelectMany(c => c.SlotAssignments.Select(a => new { a.StageSlotId, a.ServiceId, c.StudentCount }))
-            .GroupBy(a => new { a.StageSlotId, a.ServiceId })
-            .ToDictionary(
-                g => g.Key,
-                g => g.Sum(x => x.StudentCount));
+        // Occupancy is measured globally: a service's load in a slot is every student
+        // (any stage/partition) whose own slot window overlaps this one. This surfaces the
+        // cross-stage case — the same physical service shared by two partitions running
+        // different stages over overlapping dates shows its combined load, not a per-stage half.
+        var serviceIds = cohorts
+            .SelectMany(c => c.SlotAssignments.Select(a => a.ServiceId))
+            .Distinct()
+            .ToList();
 
-        var slotIds = slots.Select(s => s.Id).ToHashSet();
+        var occupancy = await occupancyCalculator.BuildAsync(serviceIds, cancellationToken);
 
         var cohortRows = cohorts.Select(c =>
         {
@@ -62,8 +66,7 @@ internal sealed class GetStageScheduleQueryHandler(IApplicationDbContext dbConte
                 if (!cellsBySlot.TryGetValue(slot.Id, out var a))
                     return (SlotCellResponse?)null;
 
-                var key = new { StageSlotId = slot.Id, a.ServiceId };
-                int occupied = slotServiceOccupancy.GetValueOrDefault(key, 0);
+                int occupied = occupancy.LoadOn(a.ServiceId, slot.StartDate, slot.EndDate);
 
                 return new SlotCellResponse(a.Id, a.StageSlotId, a.ServiceId, a.ServiceName, a.HospitalName, a.ServiceCapacity, occupied);
             }).ToList();

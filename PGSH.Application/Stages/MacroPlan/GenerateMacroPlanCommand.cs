@@ -12,7 +12,8 @@ public sealed record GenerateMacroPlanCommand(
     IReadOnlyList<PartitionStagePlan> Plans,
     bool AssignStudents = true,
     bool AutoArrange = true,
-    bool Publish = false) : ICommand<MacroPlanResult>;
+    bool Publish = false,
+    bool AllowOverCapacity = false) : ICommand<MacroPlanResult>;
 
 public sealed record PartitionStagePlan(
     string RotationGroup,

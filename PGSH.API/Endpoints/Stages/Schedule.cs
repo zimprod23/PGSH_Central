@@ -68,7 +68,7 @@ internal sealed class StageScheduleEndpoints : IEndpoint
             async (int slotId, ISender sender, CancellationToken ct) =>
             {
                 var result = await sender.Send(new ClearSlotAssignmentsCommand(slotId), ct);
-                return result.Match(count => Results.Ok(new { cleared = count }), CustomResults.Problem);
+                return result.Match(r => Results.Ok(new { cleared = r.Cleared, skipped = r.Skipped }), CustomResults.Problem);
             })
             .WithTags("Stages");
 
@@ -91,7 +91,8 @@ internal sealed class StageScheduleEndpoints : IEndpoint
                 var command = new PublishStageScheduleCommand(
                     stageId,
                     request?.PartitionLabels,
-                    request?.PeriodNumbers);
+                    request?.PeriodNumbers,
+                    request?.AllowOverCapacity ?? false);
                 var result = await sender.Send(command, ct);
                 return result.Match(Results.Ok, CustomResults.Problem);
             })
@@ -102,4 +103,4 @@ internal sealed class StageScheduleEndpoints : IEndpoint
 internal sealed record SlotRequest(int PeriodNumber, string? Label, DateOnly StartDate, DateOnly EndDate);
 internal sealed record SetAssignmentRequest(int ServiceId);
 internal sealed record AutoArrangeRequest(int? PartitionCount, IReadOnlyList<string>? PartitionLabels, IReadOnlyList<int>? PeriodNumbers);
-internal sealed record PublishStageRequest(IReadOnlyList<string>? PartitionLabels, IReadOnlyList<int>? PeriodNumbers);
+internal sealed record PublishStageRequest(IReadOnlyList<string>? PartitionLabels, IReadOnlyList<int>? PeriodNumbers, bool AllowOverCapacity = false);

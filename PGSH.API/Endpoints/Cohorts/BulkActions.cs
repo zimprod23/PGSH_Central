@@ -1,4 +1,5 @@
 using MediatR;
+using Microsoft.AspNetCore.Mvc;
 using PGSH.API.Extensions;
 using PGSH.API.Infrastructure;
 using PGSH.Application.Stages.Cohorts.Bulk;
@@ -12,9 +13,9 @@ public sealed class CohortBulkActions : IEndpoint
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
         app.MapPost("cohorts/{id:int}/publish-schedule", async (
-            int id, ISender sender, CancellationToken ct) =>
+            int id, [FromBody] PublishCohortOptions? request, ISender sender, CancellationToken ct) =>
         {
-            var result = await sender.Send(new PublishCohortScheduleCommand(id), ct);
+            var result = await sender.Send(new PublishCohortScheduleCommand(id, request?.AllowOverCapacity ?? false), ct);
             return result.Match(Results.NoContent, CustomResults.Problem);
         })
         .WithTags(Tags.Cohorts)
@@ -57,3 +58,5 @@ public sealed class CohortBulkActions : IEndpoint
         .RequireAuthorization();
     }
 }
+
+public sealed record PublishCohortOptions(bool AllowOverCapacity = false);

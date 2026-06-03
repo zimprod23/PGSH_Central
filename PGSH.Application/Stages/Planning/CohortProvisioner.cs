@@ -22,21 +22,35 @@ internal sealed class CohortProvisioner(IApplicationDbContext dbContext)
         var stageIds      = mappings.Select(m => m.StageId).Distinct().ToList();
         var partitionKeys = mappings.Select(m => m.RotationGroup).Distinct().ToList();
 
-        var foundStageIds = await dbContext.Stages
+        var stages = await dbContext.Stages
             .Where(s => stageIds.Contains(s.Id))
-            .Select(s => s.Id)
+            .Select(s => new { s.Id, s.LevelId })
             .ToListAsync(ct);
 
-        var missingStageId = stageIds.FirstOrDefault(id => !foundStageIds.Contains(id));
+        var missingStageId = stageIds.FirstOrDefault(id => stages.All(s => s.Id != id));
         if (missingStageId != 0)
             return Result.Failure<CohortProvisionResult>(StageErrors.NotFound(missingStageId));
 
+        var stageLevel = stages.ToDictionary(s => s.Id, s => s.LevelId);
+        var levelIds   = stageLevel.Values.Distinct().ToList();
+
+        // A group belongs to a stage's level by LevelId, or (legacy/auto-arranged groups
+        // without one) by having a registration at that level. Scoping here prevents a
+        // partition label that is reused across levels (A in 1Med and A in 2Med) from
+        // creating cross-level cohorts.
         var groups = await dbContext.AcademicGroups
             .AsNoTracking()
             .Where(g => g.AcademicYearId == academicYearId
                      && g.RotationGroup != null
                      && partitionKeys.Contains(g.RotationGroup))
-            .Select(g => new { g.Id, g.Label, g.RotationGroup })
+            .Select(g => new
+            {
+                g.Id,
+                g.Label,
+                g.RotationGroup,
+                g.LevelId,
+                RegLevels = g.Registrations.Where(r => levelIds.Contains(r.LevelId)).Select(r => r.LevelId).Distinct().ToList(),
+            })
             .ToListAsync(ct);
 
         if (groups.Count == 0)
@@ -51,17 +65,18 @@ internal sealed class CohortProvisioner(IApplicationDbContext dbContext)
             .Select(p => (p.AcademicGroupId, p.StageId))
             .ToHashSet();
 
-        var groupsByPartition = groups
-            .GroupBy(g => g.RotationGroup!)
-            .ToDictionary(grp => grp.Key, grp => grp.ToList());
+        bool GroupInLevel(int? groupLevel, IReadOnlyList<int> regLevels, int level) =>
+            groupLevel == level || regLevels.Contains(level);
 
         int created = 0, skipped = 0;
         var newCohorts = new List<Cohort>();
 
         foreach (var mapping in mappings)
         {
-            if (!groupsByPartition.TryGetValue(mapping.RotationGroup, out var partitionGroups))
-                continue;
+            int level = stageLevel[mapping.StageId];
+
+            var partitionGroups = groups.Where(g =>
+                g.RotationGroup == mapping.RotationGroup && GroupInLevel(g.LevelId, g.RegLevels, level));
 
             foreach (var group in partitionGroups)
             {

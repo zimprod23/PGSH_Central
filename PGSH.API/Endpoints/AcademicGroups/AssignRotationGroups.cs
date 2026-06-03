@@ -12,9 +12,9 @@ public sealed class AssignRotationGroupsEndpoint : IEndpoint
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
         app.MapPost("groups/assign-partitions",
-            async (int academicYearId, Request request, ISender sender, CancellationToken ct) =>
+            async (int academicYearId, int? levelId, Request request, ISender sender, CancellationToken ct) =>
             {
-                var command = new AssignRotationGroupsCommand(academicYearId, request.PartitionCount);
+                var command = new AssignRotationGroupsCommand(academicYearId, request.PartitionCount, levelId);
                 var result  = await sender.Send(command, ct);
                 return result.Match(count => Results.Ok(new { labeled = count }), CustomResults.Problem);
             })

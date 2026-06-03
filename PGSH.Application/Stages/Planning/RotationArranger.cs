@@ -15,7 +15,7 @@ public sealed record RotationArrangeResult(int Assigned, int SaturatedServices, 
 /// cohorts × targeted slots, so arranging one partition's window never erases
 /// another's. Shared by the auto-arrange command and the macro-plan orchestrator.
 /// </summary>
-internal sealed class RotationArranger(IApplicationDbContext dbContext)
+internal sealed class RotationArranger(IApplicationDbContext dbContext, ServiceOccupancyCalculator occupancyCalculator)
 {
     public async Task<Result<RotationArrangeResult>> ArrangeAsync(
         int stageId,
@@ -48,7 +48,7 @@ internal sealed class RotationArranger(IApplicationDbContext dbContext)
             .AsNoTracking()
             .Where(s => s.StageId == stageId)
             .OrderBy(s => s.PeriodNumber)
-            .Select(s => new { s.Id, s.PeriodNumber })
+            .Select(s => new { s.Id, s.PeriodNumber, s.StartDate, s.EndDate })
             .ToListAsync(cancellationToken);
 
         if (periodNumbers is { Count: > 0 })
@@ -143,7 +143,20 @@ internal sealed class RotationArranger(IApplicationDbContext dbContext)
         await dbContext.CohortSlotAssignments.AddRangeAsync(newAssignments, cancellationToken);
         await dbContext.SaveChangesAsync(cancellationToken);
 
-        int saturatedServices = CountSaturatedServices(newAssignments, ordered, services);
+        // Saturation is measured after the save against the global load on each service —
+        // a service over-filled by another stage/partition over an overlapping window counts here too.
+        var occupancy = await occupancyCalculator.BuildAsync(
+            services.Select(s => s.Id).ToList(), cancellationToken);
+        var capacityByService = services.ToDictionary(s => s.Id, s => s.Capacity);
+
+        int saturatedServices = slots
+            .SelectMany(slot => newAssignments
+                .Where(a => a.StageSlotId == slot.Id)
+                .Select(a => a.ServiceId)
+                .Where(serviceId => occupancy.LoadOn(serviceId, slot.StartDate, slot.EndDate)
+                                    > capacityByService.GetValueOrDefault(serviceId)))
+            .Distinct()
+            .Count();
 
         return Result.Success(new RotationArrangeResult(
             newAssignments.Count,
@@ -160,16 +173,23 @@ internal sealed class RotationArranger(IApplicationDbContext dbContext)
         List<double> portions;
         if (avgStudents > 0)
         {
+            // Weight = how many whole average-sized cohorts a service can actually hold.
+            // A service smaller than one cohort gets weight 0 and is left out of the
+            // rotation — forcing a full group into it would always overflow (groups are
+            // atomic). When total cohort-capacity ≥ N this guarantees no service is
+            // over-filled; only a genuine shortfall (capacity < demand) saturates.
             var weights = services
-                .Select(s => (double)Math.Max(1, (int)(s.Capacity / avgStudents)))
+                .Select(s => (double)(int)(s.Capacity / avgStudents))
                 .ToList();
             double totalWeight = weights.Sum();
-            portions = weights.Select(w => w / totalWeight * n).ToList();
+
+            portions = totalWeight > 0
+                ? weights.Select(w => w / totalWeight * n).ToList()
+                : CapacityProportions(services, n); // every service smaller than a cohort — degenerate
         }
         else
         {
-            double totalCap = services.Sum(s => (double)s.Capacity);
-            portions = services.Select(s => s.Capacity / totalCap * n).ToList();
+            portions = CapacityProportions(services, n);
         }
 
         var allocated = portions.Select(p => (int)p).ToList();
@@ -192,25 +212,14 @@ internal sealed class RotationArranger(IApplicationDbContext dbContext)
         return queue;
     }
 
-    /// <summary>
-    /// Counts the distinct services whose actual planned student load exceeds
-    /// capacity in any slot — computed from the real placement, not an average.
-    /// </summary>
-    private static int CountSaturatedServices(
-        List<CohortSlotAssignment> assignments, List<CohortInfo> cohorts, List<ServiceInfo> services)
+    // Raw-capacity proportions — used for the planning preview (no students yet) and as a
+    // fallback when every allowed service is smaller than a single cohort.
+    private static List<double> CapacityProportions(List<ServiceInfo> services, int n)
     {
-        var studentsByCohort = cohorts.ToDictionary(c => c.Id, c => c.StudentCount);
-        var capacityByService = services.ToDictionary(s => s.Id, s => s.Capacity);
-
-        var loadBySlotService = assignments
-            .GroupBy(a => (a.StageSlotId, a.ServiceId))
-            .ToDictionary(g => g.Key, g => g.Sum(a => studentsByCohort.GetValueOrDefault(a.CohortId)));
-
-        return loadBySlotService
-            .Where(kvp => kvp.Value > capacityByService.GetValueOrDefault(kvp.Key.ServiceId))
-            .Select(kvp => kvp.Key.ServiceId)
-            .Distinct()
-            .Count();
+        double totalCap = services.Sum(s => (double)s.Capacity);
+        return totalCap > 0
+            ? services.Select(s => s.Capacity / totalCap * n).ToList()
+            : services.Select(_ => (double)n / services.Count).ToList();
     }
 
     private sealed record ServiceInfo(int Id, int Capacity);
