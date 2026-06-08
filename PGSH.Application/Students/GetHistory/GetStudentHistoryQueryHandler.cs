@@ -21,6 +21,9 @@ internal sealed class GetStudentHistoryQueryHandler(
         var history = await dbContext.Histories// Accessing the History set
             .AsNoTracking()
             .Where(h => h.StudentId == request.StudentId)
+            // Cohort is an internal planning concept — the student timeline only surfaces the
+            // group change. The cohort move stays auditable via CohortMembership + AuditLog.
+            .Where(h => h.HistoryData != HistoryType.CohortTransfer)
             .OrderByDescending(h => h.CreatedAt)
             .Select(h => new StudentHistoryResponse(
                 h.Id,

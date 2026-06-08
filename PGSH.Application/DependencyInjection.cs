@@ -1,5 +1,6 @@
 ﻿using PGSH.Application.Abstractions.Behaviors;
 using PGSH.Application.Behaviors;
+using PGSH.Application.Employees.MyServices;
 using PGSH.Application.Stages.Planning;
 using FluentValidation;
 using Microsoft.Extensions.DependencyInjection;
@@ -26,6 +27,7 @@ public static class DependencyInjection
         services.AddScoped<StudentAffectationService>();
         services.AddScoped<SchedulePublisher>();
         services.AddScoped<CohortProvisioner>();
+        services.AddScoped<ExecutionAuthorizer>();
 
         return services;
     }

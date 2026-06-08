@@ -18,7 +18,9 @@ internal sealed class GetServiceEvaluationQueryHandler(IApplicationDbContext dbC
             .Select(e => new ServiceEvaluationResponse(
                 e.Id,
                 e.ServicePeriodId,
+                e.Mode,
                 e.TotalScore,
+                e.Outcome,
                 e.SupervisorComment,
                 e.ObjectiveScores
                     .OrderBy(o => o.StageObjective.Weight)
@@ -29,6 +31,7 @@ internal sealed class GetServiceEvaluationQueryHandler(IApplicationDbContext dbC
                         o.StageObjective.Weight,
                         o.StageObjective.IsMandatory,
                         o.Score,
+                        o.Outcome,
                         o.Note))
                     .ToList()))
             .SingleOrDefaultAsync(cancellationToken);

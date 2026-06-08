@@ -1,16 +1,23 @@
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
+using PGSH.Application.Employees.MyServices;
 using PGSH.Domain.Stages;
 using PGSH.SharedKernel;
 
 namespace PGSH.Application.Stages.ServicePeriods.Complete;
 
-internal sealed class CompleteServicePeriodCommandHandler(IApplicationDbContext dbContext)
+internal sealed class CompleteServicePeriodCommandHandler(
+    IApplicationDbContext dbContext,
+    ExecutionAuthorizer authorizer)
     : ICommandHandler<CompleteServicePeriodCommand>
 {
     public async Task<Result> Handle(CompleteServicePeriodCommand request, CancellationToken cancellationToken)
     {
+        var access = await authorizer.EnsureCanActOnPeriodAsync(request.PeriodId, cancellationToken);
+        if (access.IsFailure)
+            return access;
+
         var assignment = await dbContext.InternshipAssignments
             .Include(a => a.ServicePeriods)
             .FirstOrDefaultAsync(

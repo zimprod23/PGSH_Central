@@ -14,15 +14,28 @@ internal sealed class CompletePeriodsCommandHandler(IApplicationDbContext dbCont
     {
         var assignments = await dbContext.InternshipAssignments
             .Include(a => a.ServicePeriods)
+                .ThenInclude(p => p.CohortSlotAssignment)
+                    .ThenInclude(sa => sa!.StageSlot)
             .Where(a => a.CurrentCohortId == request.CohortId
                      && a.Status == InternshipStatus.Ongoing)
             .ToListAsync(cancellationToken);
+
+        var periodNumbers = request.PeriodNumbers is { Count: > 0 }
+            ? request.PeriodNumbers.ToHashSet()
+            : null;
 
         int completed = 0;
         foreach (var a in assignments)
         {
             foreach (var period in a.ServicePeriods.Where(p => !p.IsComplete).ToList())
             {
+                // When scoped to specific periods, only close rotations in those windows.
+                // Ad-hoc periods (no slot) carry no period number → skipped under a scope.
+                if (periodNumbers is not null
+                    && (period.CohortSlotAssignment is null
+                        || !periodNumbers.Contains(period.CohortSlotAssignment.StageSlot.PeriodNumber)))
+                    continue;
+
                 var r = a.CompletePeriod(period.Id);
                 if (r.IsSuccess) completed++;
             }

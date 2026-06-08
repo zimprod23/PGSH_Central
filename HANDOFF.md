@@ -1,7 +1,196 @@
-# HANDOFF.md — Partition Macro Planning Work Stream
+# HANDOFF.md
 
-Living handoff for continuing the rotation-planning work across sessions. Read this
-first, then `PHASES.md` (Phase 7.1 = done, Phase 7.5 = next), `NOTES.md`, and `SCHEMA.md`.
+> **▶ RESUME HERE (next session).** Say **"build the transfer model"** → start the **Temporary/Definitive
+> transfer** work in the "Queued" block below (FIRST answer the open question there: is the transfer unit
+> the GROUP or a specific SERVICE?). Then **"do admin suivi bulk start/end"**.
+> Later triggers: "do revalidation" (#3) · "do delocalization" (#4). (#1 transfer + #2 eval modes shipped.)
+> _Updated 2026-06-06._
+
+## ▶ Current work stream: Student Mobility (design LOCKED)
+
+Full design in agent memory `project_student_mobility.md`. Build order **1 → 2 → 3 → 4**.
+Recently shipped before this (verified): chef-worklist granularity + truncation fix, planning-grid
+click-to-edit perf, optimistic allowed-services, central `pageSize` clamp (≤200), `GET /service-periods`
+admin-only. Stress-test recipes live in `NOTES.md` → "Regression / Stress Checks".
+
+**#1 — Normal transfer: traceability + chef gray/green visibility ✅ DONE (2026-06-05).**
+- **Reason now required**: `TransferStudentCommand.Reason` is non-nullable + validator `NotEmpty`.
+- **Same-group guard**: transferring to the student's current group now returns `Error.Conflict`
+  ("AcademicGroups.SameGroup" → 409). Loop also skips any assignment whose target cohort == current cohort.
+- **`DbUpdateConcurrencyException` on transfer — FIXED.** Diagnostic confirmed `CohortMembership[Modified]`:
+  the *new* membership in `InternshipAssignment.TransferToCohort` was created with a pre-set
+  `Id = Guid.NewGuid()` and added to an already-tracked assignment. Because `CohortMembership.Id` is a
+  store-generated key (`ValueGeneratedOnAdd` by convention), a non-sentinel key on an entity reached via a
+  tracked parent makes EF classify it **Modified** (UPDATE a non-existent row → 0 rows) instead of **Added**.
+  Fix: don't set `Id` in `TransferToCohort` — let EF generate it (→ Added → INSERT). The affectation /
+  schedule paths were unaffected because they `DbSet.Add(rootAssignment)`, cascading children as Added
+  regardless of key. (Diagnostic try/catch was removed after the fix.)
+- **Domain-event publishing under a pooled DbContext — FIXED (systemic).** After the save succeeded, MediatR
+  threw `Cannot resolve INotificationHandler<…> from root provider because it requires scoped
+  IApplicationDbContext`. Cause: Aspire `AddNpgsqlDbContext` **pools** `ApplicationDbContext`, so pooled
+  instances are built from the **root** provider → the injected `IPublisher` was the root mediator →
+  notification handlers (which need the scoped `IApplicationDbContext`) resolved from root and failed. This
+  broke **every** domain event with a scoped-dependency handler (validation, rejection, status change,
+  group/cohort transfer), not just transfer. Fix: `ApplicationDbContext` now injects the pool-safe singleton
+  `IServiceScopeFactory` and `PublishDomainEventsAsync` opens a fresh `CreateAsyncScope()` to resolve a
+  scoped `IPublisher` per save. Handlers run in their own scope/context (correct — events fire post-commit).
+- **Worklist gray/green overlay** in `GetMyServicePeriodsQueryHandler` (`Application/Employees/MyServices/`),
+  surfaced via `ServicePeriodResponse.Transfer` (`TransferMarker{Direction,GroupLabel,ServiceName,Reason,Date}`):
+  - **Outgoing** (gray, strike-through, "→ Groupe m · Service Y") = a real published period whose
+    `CohortSlotAssignment.CohortId != InternshipAssignment.CurrentCohortId` (student left after publish).
+    Destination group/service from the current cohort's slot for the same window; reason/date from the
+    active `CohortMembership`.
+  - **Incoming** (green, "← Groupe n · Service X") = **synthesized** rows (no real `ServicePeriod`, since
+    transfer does NOT re-publish): current cohort's slot lands in a chef service, assignment's active
+    membership has a `TransferReason`, and no matching period exists. Origin group/service from the most
+    recent closed membership.
+  - Transfer rows are **non-actionable** and excluded from the active/à-évaluer/évalué counts + status
+    filter (shown only under "Tous"); separate "entrant/sortant" badges at service + window + group level.
+- **History DTO field fix**: `StudentHistoryResponse.EventType` → `HistoryType` (serializes as `historyType`)
+  to match the frontend contract — the mismatch crashed the student dashboard/history once real history rows
+  existed (they were empty before because domain events couldn't publish — see pooled-context fix above).
+  Frontend `historyConfig` now exposes `getHistoryConfig()` with a fallback so an unknown type never crashes.
+- **Traceability readback** works: `HistoryPage` renders `Metadata` (from/to/reason) generically
+  for `GroupTransfer`/`CohortTransfer`. (Polish opportunity: friendlier metadata key labels — `fromGroup`
+  shows as "Fromgroup".)
+- **Note / known limitation**: transfer never moves or re-publishes `ServicePeriod`s, so the new chef sees
+  the incoming student only as an informational green row — they cannot complete/evaluate until the target
+  cohort's schedule is (re)published. If actionable hand-off is wanted later, that's a separate change.
+- Build: `PGSH.Infrastructure` → 0 errors; frontend `npm run build` passes; no new lint errors (the one
+  EmployeeServicesPage lint error at the eval-modal effect is pre-existing). API DLL-copy lock = API running.
+
+**#2 — Evaluations, 3 modes (all evals): ✅ DONE (2026-06-05).** numeric score · validate-whole-period
+(no score) · validate-each-objective (pass/fail).
+- **Domain**: new `EvaluationMode {Numeric,ValidatePeriod,ValidateObjectives}` + `EvaluationOutcome
+  {Validated,NotValidated}` (`PGSH.Domain/Stages/EvaluationMode.cs`). `ServiceEvaluation` gained `Mode`,
+  nullable `TotalScore`, `Outcome`, and a `Normalize()` that clears fields not used by the mode and
+  **derives** the period `Outcome` for ValidateObjectives (validated iff all *mandatory* objectives pass,
+  or all objectives when none mandatory). `ObjectiveScore.Score` is now `int?`; added `Outcome`.
+  `InternshipAssignment.SubmitEvaluation` calls `Normalize()`; `RecomputeFinalScore` only counts
+  **Numeric** evaluations (validate-only periods leave `FinalScore` null). `EvaluationSubmittedDomainEvent.TotalScore` → `decimal?`.
+- **Application**: Create/Update commands + validators carry `Mode`/`Outcome` and per-objective `Score?`/`Outcome?`;
+  validators are mode-conditional (`When(...)`). `ServiceEvaluationResponse`/`ObjectiveScoreResponse` +
+  GetByPeriod projection expose mode/outcome. Update handler calls `Normalize()` before `RecalculateFinalScore()`.
+- **API**: `service-evaluations/{id}` PUT `Request` carries `Mode`/`Outcome`.
+- **EF + migration**: `Mode`/`Outcome` stored as `text` via `HasConversion<string>()`; `TotalScore`/`Score`
+  made nullable. Migration `20260605205344_EvaluationModes` (Mode `defaultValue:"Numeric"` so legacy rows
+  stay valid). **Not yet applied to the DB** — MigrationService applies on next Aspire start, or run
+  `dotnet ef database update`.
+- **Frontend**: chef `EvaluationModal` (`EmployeeServicesPage`) has a mode `SegmentedControl` (ValidateObjectives
+  disabled when the stage has no objectives) + per-objective/period Validé·Non validé toggles; live derived
+  result preview. Student `EvaluationDetail` (`StageDetailsPage`) shows a Validé/Non validé badge in place of
+  the note when the eval isn't numeric, per-objective too. Types updated in both `employee.types.ts` +
+  `student.types.ts`.
+- Build: `PGSH.Infrastructure` → 0 errors; frontend `npm run build` passes; lint clean except the one
+  pre-existing seeding-effect error in `EmployeeServicesPage`. (API DLLs locked = API running.)
+
+**#2 refinements (2026-06-06):**
+- **Chef "Terminer" removed.** Closing a `ServicePeriod` is an **administrative** act (done when the
+  scheduled window is due), not the chef's. The chef view (`EmployeeServicesPage`) now shows only
+  **Évaluer** (once closed) / **Modifier**; active rows show a dimmed "En attente de clôture" hint, no
+  button. Removed the dead `completeServicePeriod` mutation from `employeeApi.ts` (admin keeps its own in
+  `adminApi.ts`). This also resolved a chef-side 404 (`/service-periods/[object Object]/complete`) — the
+  path is simply gone now.
+- **Score auto-calc (10/0 mapping).** `InternshipAssignment.RecomputeFinalScore` now produces a number for
+  EVERY mode: numeric objectives use their mark; a validate-only objective/period maps to **10 (validated)
+  / 0 (not)**; weighted-average → `FinalScore`. `Result` auto-derives from a **≥10 threshold**
+  (`Validé`/`NonValidé`), and the existing admin `Validate()`/`Reject()` still override it terminally
+  (evals lock after, so recompute can't clobber). `FinalScore`/`Result` already surface in
+  `InternshipAssignmentResponses`. No schema change. (Replaces last turn's "validate-only ⇒ null score".)
+
+**Transfer UI bug fixes (2026-06-06, shipped):** in `GroupDetailPage.tsx` `TransferModal`, a single value
+was used as BOTH the academic-year id (groups query) AND the current-group id (exclude filter) — so the
+target dropdown showed the student's own group and dropped any group whose id == the year id. Now takes
+`academicYearId` + `currentGroupId` separately. Also the reason field was labelled "optionnel" but the
+backend requires it (`NotEmpty`) → now `required` + submit disabled until filled.
+
+**Suivi follow-ups (2026-06-06):**
+- ✅ **No-op guard DONE.** `AssignmentsPage` disables Démarrer/Clôturer (+ "aucune rotation dans la période
+  choisie" hint) when none of the checked cohorts has a rotation in the selected period(s)
+  (`selectionHasTargetPeriod`, from the cohort→periods grid map).
+- ⏳ **Stale "en cours" count (#2).** `GetAssignmentStatusSummaryQueryHandler` groups by ASSIGNMENT `Status`
+  (cumulative) — once a period is started the assignment is Ongoing regardless of which period chip is
+  selected, so the count doesn't track period selection. Fix = period-aware summary (count `ServicePeriod`
+  states — started·not-complete / complete·no-eval / evaluated — within the selected window using the new
+  `IsStarted`), passing `periodNumbers` to the summary query + card. Not built.
+- ⏳ **Planning skips a small allowed service (#3).** By design: `RotationArranger.BuildServiceQueue` weights a
+  service `floor(capacity / avgCohortSize)`; a service smaller than one (atomic) cohort gets weight 0 and is
+  EXCLUDED (a whole ~group would overflow it) — so e.g. Cardiologie@Harrouchi is dropped if its capacity <
+  group size, even when others saturate. Options: raise that service's capacity ≥ group size; OR partial-group
+  placement (Phase 7.5 #4, big); OR soften the weight rule. Needs user decision.
+
+**Queued (agreed, not built):**
+- **Temporary vs Definitive transfer (NEXT).** Default = **temporary, scoped to the current stage**
+  (student returns to original group after; only that stage's chef sees the gray/green markers).
+  **Definitive** = permanent group change. **DECIDED 2026-06-06: temporary transfers AUTO-REVERT at stage
+  end** — return the student to the original group once the current stage's periods complete + write a
+  History entry. Needs a reliable "stage ended" trigger + the original group recorded on the transfer.
+  Plan: (1) `TransferType {Temporary,Definitive}` on `TransferStudentCommand` + `CohortMembership`,
+  store original group for temporary; (2) modal segmented Temporary/Definitive choice; (3) auto-revert
+  event handler on stage completion; (4) scope gray/green to the current stage's chef + show NET group
+  headcounts (old −1, new +1) on the chef side.
+  **OPEN QUESTION TO RESOLVE FIRST (asked user 2026-06-06, awaiting answer):** is the transfer unit the
+  **GROUP** (current model: move to target group's cohort for the stage — green shows for that group's
+  service chef, who is usually a *different* chef) or a specific **SERVICE** for the current period
+  (keep the student's group, move just the rotation — finer-grained, the new service's chef sees + evaluates)?
+  This decides the whole model. The user's reported "I don't see him green in the new group" is because,
+  under the group model, the incoming row appears for group-5's-service chef, not the viewed chef.
+- Dedicated admin "edit final score/result" override endpoint (beyond Validate/Reject) — small follow-up.
+
+**Admin "suivi" period-scoped bulk start/close ✅ DONE (2026-06-06).** Root issue found: the old
+`CompletePeriodsCommand` closed EVERY incomplete period of a cohort — including FUTURE ones. Now
+`StartCohortAssignmentsCommand`/`CompletePeriodsCommand` take an optional `IReadOnlyList<int>? PeriodNumbers`
+(scoped via `ServicePeriod.CohortSlotAssignment.StageSlot.PeriodNumber`); null/empty = all periods (old
+behaviour). Endpoints `cohorts/{id}/start-assignments` + `/complete-periods` accept optional body
+`{ periodNumbers }` (`PeriodScopeOptions`). Frontend `AssignmentsPage` ("Suivi → Affectations"): a
+**period chip row** (P1 · dd/MM→dd/MM …, from `getStageSchedule`) in the bulk bar scopes Démarrer/Clôturer
+to the chosen periods; none selected = all. Cohort selection (all / by partition A/B) already existed.
+adminApi `startCohortAssignments`/`completeCohortPeriods` now take `{ cohortId, periodNumbers? }`
+(also updated the call in `StageDetailPage`).
+**Confirmed model (user 2026-06-06):** year (global navbar context) → stage → its cohorts. **Macro** = select a
+whole partition (sidebar "Par rotation" → "Sél." on A/B/…) and act on all its periods. **Micro** = same
+partition selection + pick period chip(s) to scope the action to one period window. **Cross-stage selection
+is intentionally NOT supported** — stages are handled individually. (Per-period START is still
+whole-assignment in the domain — the window only filters which cohorts start; Clôturer is truly per-period.)
+**Period chips refinement (2026-06-06):** the period bar is now its own always-visible toolbar (not buried in
+the bulk bar), **defaults to ALL periods selected** (empty `selectedPeriods` ⇒ `effectivePeriods` = all), and
+**filters the cohort list**: deselecting a period hides cohorts that don't run in any still-selected period
+(cohort→periods read from the `getStageSchedule` grid `cells`). This matches macro planning where a partition
+only occupies a window of periods (A=P1–2, B=P3–4). All periods selected ⇒ no cohort filter.
+
+**Per-period START — `ServicePeriod.IsStarted` ✅ DONE (2026-06-06).** Root cause of "the chef sees ALL periods
+en cours, even future ones": *started* lived on the assignment (`Status=Ongoing`), not the period — so the chef
+worklist showed every published period once the assignment was Ongoing. Fix: new `ServicePeriod.IsStarted` flag.
+`InternshipAssignment.StartPeriod(periodId)` activates one period (Planned→Ongoing on first); `Start()`
+(single-row admin action) now activates ALL periods. `StartCohortAssignmentsCommandHandler` rewritten to start
+PERIODS scoped by `PeriodNumbers` (unscoped = all). `GetMyServicePeriodsQueryHandler.LoadPublishedPeriodsAsync`
+now filters `p.IsStarted` — future un-started periods stay hidden from the chef. Migration
+`20260606124812_ServicePeriodIsStarted` (default false + backfill `IsStarted=true WHERE IsComplete=true` so
+completed/evaluated history stays visible). No frontend change needed: the period chips already send scoped
+`periodNumbers` to Démarrer, and the chef worklist filters server-side. So: admin starts P1 for partition A →
+only those periods go active → only the P1-service chefs see those students; future periods appear to nobody
+until started. NOTE: two migrations now pending DB apply — `EvaluationModes` + `ServicePeriodIsStarted`.
+
+**#3 — Revalidation:** new `InternshipAssignment` for the failed stage on the **current** registration,
+placed as an **ad-hoc `ServicePeriod`** (`CohortSlotAssignmentId == null`) into an allowed service chosen
+by scolarité — not into a year-1 cohort. Write `History.Revalidation`. Graduation gate: stage satisfied
+if ≥1 assignment `Result = Validé` in any year.
+
+**#4 — Delocalization:** new out-of-region movement type; reuse `Hospital`/`Service` catalog (add the
+external one if missing); on return record the outcome via the #2 validate-only eval + attach the
+**fiche de validation** file. Rare cases.
+
+**Demande = Phase 5 (later):** transfers/delocalizations carry `Reason` + nullable `DemandeId` now;
+wire to the real demande in Phase 5.
+
+> Reminder: Clean Arch + CQRS/Result; routes under `/api`, no leading slash; enums as real types;
+> build backend via `PGSH.Infrastructure.csproj` (API DLL locked while running); commit only when asked.
+
+---
+
+# Previous work stream — Partition Macro Planning (historical)
+
+Living handoff for the rotation-planning work. See `PHASES.md`, `NOTES.md`, `SCHEMA.md`.
 
 _Last updated: 2026-06-03 (published-lock + student-status fixes done; cross-stage capacity done — Phase 7.5 #1)._
 

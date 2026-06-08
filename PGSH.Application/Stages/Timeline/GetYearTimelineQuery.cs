@@ -35,4 +35,11 @@ public sealed record TimelinePartition(
     DateOnly? End,
     int       CohortCount,
     int       StudentCount,
-    bool      Saturated);
+    bool      Saturated,
+    IReadOnlyList<TimelineGroup> Groups);
+
+public sealed record TimelineGroup(
+    int    GroupId,
+    string GroupLabel,
+    int    GroupNumber,
+    int    StudentCount);

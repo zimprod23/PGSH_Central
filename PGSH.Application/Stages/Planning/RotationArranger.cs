@@ -44,15 +44,21 @@ internal sealed class RotationArranger(IApplicationDbContext dbContext, ServiceO
 
         int totalCapacity = services.Sum(s => s.Capacity);
 
-        var slots = await dbContext.StageSlots
+        var allSlots = await dbContext.StageSlots
             .AsNoTracking()
             .Where(s => s.StageId == stageId)
             .OrderBy(s => s.PeriodNumber)
             .Select(s => new { s.Id, s.PeriodNumber, s.StartDate, s.EndDate })
             .ToListAsync(cancellationToken);
 
-        if (periodNumbers is { Count: > 0 })
-            slots = slots.Where(s => periodNumbers.Contains(s.PeriodNumber)).ToList();
+        if (allSlots.Count == 0)
+            return Result.Failure<RotationArrangeResult>(
+                Error.Validation("Schedule.NoSlots",
+                    "No time slots are defined for this stage."));
+
+        var slots = periodNumbers is { Count: > 0 }
+            ? allSlots.Where(s => periodNumbers.Contains(s.PeriodNumber)).ToList()
+            : allSlots;
 
         if (slots.Count == 0)
             return Result.Failure<RotationArrangeResult>(
@@ -61,10 +67,12 @@ internal sealed class RotationArranger(IApplicationDbContext dbContext, ServiceO
 
         var slotIds = slots.Select(s => s.Id).ToList();
 
+        // All cohorts of the stage participate in the queue/rotation so the cycle stays
+        // consistent across runs. Cohorts whose cells in the window are already published
+        // are not dropped here — only their published cells are protected below.
         var cohorts = await dbContext.Cohorts
             .AsNoTracking()
-            .Where(c => c.StageId == stageId
-                     && !c.Assignments.Any(a => a.ServicePeriods.Any(p => p.CohortSlotAssignmentId != null)))
+            .Where(c => c.StageId == stageId)
             .OrderBy(c => c.AcademicGroup.GroupNumber)
             .Select(c => new CohortInfo(
                 c.Id,
@@ -114,23 +122,80 @@ internal sealed class RotationArranger(IApplicationDbContext dbContext, ServiceO
 
         var targetCohortIds = ordered.Select(c => c.Id).ToList();
 
-        // Scoped removal: only the targeted cohorts within the targeted slots.
-        var stale = await dbContext.CohortSlotAssignments
+        // Scoped removal: only the targeted cohorts within the targeted slots — but a cell
+        // that is already published (a ServicePeriod points at it) is a locked execution
+        // record. It is never deleted nor rewritten, so a started stage keeps its history
+        // while its newly-added periods can still be arranged.
+        var existingCells = await dbContext.CohortSlotAssignments
             .Where(a => targetCohortIds.Contains(a.CohortId) && slotIds.Contains(a.StageSlotId))
+            .Select(a => new { a.Id, a.CohortId, a.StageSlotId })
             .ToListAsync(cancellationToken);
-        dbContext.CohortSlotAssignments.RemoveRange(stale);
+
+        var existingCellIds = existingCells.Select(e => e.Id).ToList();
+        var lockedCellIds = existingCellIds.Count == 0
+            ? new List<int>()
+            : await dbContext.ServicePeriods
+                .Where(p => p.CohortSlotAssignmentId != null
+                         && existingCellIds.Contains(p.CohortSlotAssignmentId.Value))
+                .Select(p => p.CohortSlotAssignmentId!.Value)
+                .Distinct()
+                .ToListAsync(cancellationToken);
+
+        var lockedCellIdSet = lockedCellIds.ToHashSet();
+        var lockedCells = existingCells
+            .Where(e => lockedCellIdSet.Contains(e.Id))
+            .Select(e => (e.CohortId, e.StageSlotId))
+            .ToHashSet();
+
+        var staleIds = existingCells
+            .Where(e => !lockedCellIdSet.Contains(e.Id))
+            .Select(e => e.Id)
+            .ToList();
+
+        if (staleIds.Count > 0)
+        {
+            var stale = await dbContext.CohortSlotAssignments
+                .Where(a => staleIds.Contains(a.Id))
+                .ToListAsync(cancellationToken);
+            dbContext.CohortSlotAssignments.RemoveRange(stale);
+        }
 
         int n = ordered.Count;
         var serviceQueue = BuildServiceQueue(services, ordered, n);
 
-        int shiftPerSlot = slots.Count > 1 ? n / slots.Count : 0;
+        // The rotation cycle is anchored to the cohort set's actual participation footprint:
+        // the slots they ALREADY occupy in this stage, plus the slots being arranged now.
+        // Each slot's phase = its position in that ordered footprint, and the step spans the
+        // footprint length. This gives two correct behaviours from one rule:
+        //   • macro matrix (a partition runs a single window, e.g. A→P1-2): footprint = the
+        //     window, so the clean half-cycle swap is preserved — no regression.
+        //   • adding new periods to an already-arranged set: footprint grows to include them,
+        //     so the new periods get fresh phases and CONTINUE the rotation instead of
+        //     repeating the services the cohorts already did.
+        var priorSlotIds = await dbContext.CohortSlotAssignments
+            .Where(a => targetCohortIds.Contains(a.CohortId) && a.Cohort.StageId == stageId)
+            .Select(a => a.StageSlotId)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+
+        var footprintSet = priorSlotIds.Concat(slotIds).ToHashSet();
+        var phaseBySlotId = allSlots
+            .Where(s => footprintSet.Contains(s.Id))
+            .Select((s, i) => (s.Id, Phase: i))
+            .ToDictionary(x => x.Id, x => x.Phase);
+
+        int cycleLength = phaseBySlotId.Count;
+        int shiftPerSlot = cycleLength > 1 ? n / cycleLength : 0;
 
         var newAssignments = new List<CohortSlotAssignment>(n * slots.Count);
-        foreach (var (slot, slotIdx) in slots.Select((s, i) => (s, i)))
+        foreach (var slot in slots)
         {
-            int offset = slotIdx * shiftPerSlot;
+            int offset = phaseBySlotId[slot.Id] * shiftPerSlot;
             for (int ci = 0; ci < n; ci++)
             {
+                if (lockedCells.Contains((targetCohortIds[ci], slot.Id)))
+                    continue;
+
                 newAssignments.Add(new CohortSlotAssignment
                 {
                     CohortId    = targetCohortIds[ci],

@@ -3,5 +3,6 @@
 public interface IUserContext
 {
     Guid UserId { get; }
+    bool IsInRole(string role);
     Task SyncAsync(CancellationToken cancellationToken = default);
 }

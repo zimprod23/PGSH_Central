@@ -24,6 +24,9 @@ internal sealed class GetStudentsQueryHandler(IApplicationDbContext context)
         if (!string.IsNullOrWhiteSpace(request.CIN))
             query = query.Where(s => s.CIN == request.CIN);
 
+        if (request.Program.HasValue)
+            query = query.Where(s => s.AcademicProgram == request.Program.Value);
+
         if (!string.IsNullOrWhiteSpace(request.SearchTerm))
         {
             string term = request.SearchTerm.ToLower();
@@ -40,7 +43,21 @@ internal sealed class GetStudentsQueryHandler(IApplicationDbContext context)
             .OrderBy(s => s.LastName)
             .ToPaginatedResponseAsync(
                 request.PageNumber, request.PageSize,
-                s => new StudentSummaryResponse(s.Id, s.Email, s.FirstName, s.LastName, s.CNE, s.Appogee, s.AcademicProgram.ToString(), s.CIN),
+                s => new StudentSummaryResponse(
+                    s.Id, s.Email, s.FirstName, s.LastName, s.CNE, s.Appogee, s.AcademicProgram.ToString(), s.CIN,
+                    // Current = the most recent registration (latest academic year).
+                    s.registrations
+                        .OrderByDescending(r => r.AcademicYear.StartDate)
+                        .Select(r => r.Level.Label)
+                        .FirstOrDefault(),
+                    s.registrations
+                        .OrderByDescending(r => r.AcademicYear.StartDate)
+                        .Select(r => r.AcademicGroup != null ? r.AcademicGroup.Label : null)
+                        .FirstOrDefault(),
+                    s.registrations
+                        .OrderByDescending(r => r.AcademicYear.StartDate)
+                        .Select(r => r.Status.ToString())
+                        .FirstOrDefault()),
                 ct);
 
         return Result.Success(response);

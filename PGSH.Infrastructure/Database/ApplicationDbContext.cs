@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Domain.Audit;
 using PGSH.Domain.Common.Utils;
@@ -15,10 +16,14 @@ namespace PGSH.Infrastructure.Database;
 
 public sealed class ApplicationDbContext : DbContext, IApplicationDbContext
 {
-    private readonly IPublisher? _publisher;
+    // The context is pooled (Aspire AddNpgsqlDbContext), so pooled instances are constructed from
+    // the root provider — a captured IPublisher would resolve notification handlers from the root
+    // and fail for handlers needing scoped services (e.g. IApplicationDbContext). IServiceScopeFactory
+    // is a pool-safe singleton; we open a fresh scope per publish to resolve the scoped mediator.
+    private readonly IServiceScopeFactory? _scopeFactory;
 
-    public ApplicationDbContext(DbContextOptions<ApplicationDbContext> options, IPublisher? publisher = null)
-        : base(options) => _publisher = publisher;
+    public ApplicationDbContext(DbContextOptions<ApplicationDbContext> options, IServiceScopeFactory? scopeFactory = null)
+        : base(options) => _scopeFactory = scopeFactory;
 
     // ===== Identity / Core =====
     public DbSet<User> Users { get; set; }
@@ -72,7 +77,7 @@ public sealed class ApplicationDbContext : DbContext, IApplicationDbContext
 
     private async Task PublishDomainEventsAsync()
     {
-        if (_publisher is null) return;
+        if (_scopeFactory is null) return;
 
         var domainEvents = ChangeTracker
             .Entries<Entity>()
@@ -85,9 +90,14 @@ public sealed class ApplicationDbContext : DbContext, IApplicationDbContext
             })
             .ToList();
 
+        if (domainEvents.Count == 0) return;
+
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var publisher = scope.ServiceProvider.GetRequiredService<IPublisher>();
+
         foreach (IDomainEvent domainEvent in domainEvents)
         {
-            await _publisher.Publish(domainEvent);
+            await publisher.Publish(domainEvent);
         }
     }
 }

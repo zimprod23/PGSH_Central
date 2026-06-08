@@ -2,6 +2,6 @@
 
 public sealed record StudentHistoryResponse(
     Guid Id,
-    string EventType, // The string name of the Enum
+    string HistoryType, // The string name of the Enum; serializes as "historyType" (frontend contract)
     DateTime CreatedAt,
     object? Metadata);

@@ -1,18 +1,25 @@
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
+using PGSH.Application.Employees.MyServices;
 using PGSH.Domain.Common.Utils;
 using PGSH.Domain.Stages;
 using PGSH.SharedKernel;
 
 namespace PGSH.Application.Stages.Evaluations.Update;
 
-internal sealed class UpdateServiceEvaluationCommandHandler(IApplicationDbContext dbContext)
+internal sealed class UpdateServiceEvaluationCommandHandler(
+    IApplicationDbContext dbContext,
+    ExecutionAuthorizer authorizer)
     : ICommandHandler<UpdateServiceEvaluationCommand>
 {
     public async Task<Result> Handle(
         UpdateServiceEvaluationCommand request, CancellationToken cancellationToken)
     {
+        var access = await authorizer.EnsureCanActOnEvaluationAsync(request.EvaluationId, cancellationToken);
+        if (access.IsFailure)
+            return access;
+
         var evaluation = await dbContext.ServiceEvaluation
             .Include(e => e.ObjectiveScores)
             .FirstOrDefaultAsync(e => e.Id == request.EvaluationId, cancellationToken);
@@ -40,7 +47,9 @@ internal sealed class UpdateServiceEvaluationCommandHandler(IApplicationDbContex
             .Where(o => objectiveIds.Contains(o.Id))
             .ToDictionaryAsync(o => o.Id, cancellationToken);
 
+        evaluation.Mode              = request.Mode;
         evaluation.TotalScore        = request.TotalScore;
+        evaluation.Outcome           = request.Outcome;
         evaluation.SupervisorComment = request.SupervisorComment;
 
         dbContext.ObjectiveScores.RemoveRange(evaluation.ObjectiveScores);
@@ -52,11 +61,13 @@ internal sealed class UpdateServiceEvaluationCommandHandler(IApplicationDbContex
                 ServiceEvaluationId = evaluation.Id,
                 StageObjectiveId    = o.StageObjectiveId,
                 Score               = o.Score,
+                Outcome             = o.Outcome,
                 Note                = o.Note,
                 StageObjective      = stageObjectives.GetValueOrDefault(o.StageObjectiveId)!,
             })
             .ToList();
 
+        evaluation.Normalize();
         assignment.RecalculateFinalScore();
 
         await dbContext.SaveChangesAsync(cancellationToken);

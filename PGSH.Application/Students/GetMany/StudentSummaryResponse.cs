@@ -1,10 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-
-namespace PGSH.Application.Students.GetMany;
+﻿namespace PGSH.Application.Students.GetMany;
 
 public record StudentSummaryResponse(
     Guid Id,
@@ -14,4 +8,7 @@ public record StudentSummaryResponse(
     string CNE,
     string Appogee,
     string AcademicProgram,
-    string? CIN);
+    string? CIN,
+    string? CurrentLevelLabel,
+    string? CurrentGroupLabel,
+    string? CurrentStatus);

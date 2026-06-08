@@ -29,6 +29,23 @@ public sealed class InternshipAssignment : Entity
         if (Status != InternshipStatus.Planned)
             return AppResult.Failure(StageErrors.InvalidStatusTransition("Start", Status));
         Status = InternshipStatus.Ongoing;
+        // Whole-student start: activate every period so the relevant chefs can manage them.
+        foreach (var period in ServicePeriods) period.IsStarted = true;
+        return AppResult.Success();
+    }
+
+    // Activates a single period (period-scoped start). The assignment becomes Ongoing as soon
+    // as any of its periods is started; future periods stay inactive until started in turn.
+    public Result StartPeriod(Guid periodId)
+    {
+        var period = ServicePeriods.FirstOrDefault(p => p.Id == periodId);
+        if (period is null)
+            return AppResult.Failure(StageErrors.PeriodNotFound(periodId));
+        if (period.IsStarted)
+            return AppResult.Failure(StageErrors.PeriodAlreadyStarted(periodId));
+
+        period.IsStarted = true;
+        if (Status == InternshipStatus.Planned) Status = InternshipStatus.Ongoing;
         return AppResult.Success();
     }
 
@@ -59,6 +76,7 @@ public sealed class InternshipAssignment : Entity
         if (period.Evaluation is not null)
             return AppResult.Failure(StageErrors.EvaluationAlreadyExists(periodId));
 
+        evaluation.Normalize();
         period.Evaluation = evaluation;
         RecomputeFinalScore();
         Raise(new EvaluationSubmittedDomainEvent(Id, RegistrationId, periodId, evaluation.TotalScore));
@@ -96,9 +114,11 @@ public sealed class InternshipAssignment : Entity
         var active = MembershipHistory.FirstOrDefault(m => m.EndDate is null);
         if (active is not null) active.EndDate = date;
 
+        // Do NOT pre-set Id: this membership is added to an already-tracked assignment, so a
+        // non-sentinel store-generated key makes EF classify it as Modified (UPDATE a non-existent
+        // row → DbUpdateConcurrencyException) instead of Added. Let EF generate the key.
         MembershipHistory.Add(new CohortMembership
         {
-            Id                     = Guid.NewGuid(),
             InternshipAssignmentId = Id,
             CohortId               = newCohortId,
             StartDate              = date,
@@ -115,6 +135,14 @@ public sealed class InternshipAssignment : Entity
 
     public void RecalculateFinalScore() => RecomputeFinalScore();
 
+    // Pass threshold: a final mark at or above this validates the stage.
+    private const decimal ValidationThreshold = 10m;
+
+    // A validate-only verdict maps onto the numeric scale so a chef who certifies without
+    // grading still contributes a usable mark: validated = 10, not validated = 0.
+    private static decimal OutcomeToScore(EvaluationOutcome? outcome) =>
+        outcome == EvaluationOutcome.Validated ? 10m : 0m;
+
     private void RecomputeFinalScore()
     {
         var evaluations = ServicePeriods
@@ -122,19 +150,62 @@ public sealed class InternshipAssignment : Entity
             .Select(p => p.Evaluation!)
             .ToList();
 
-        if (evaluations.Count == 0) return;
-
-        var allScores = evaluations.SelectMany(e => e.ObjectiveScores).ToList();
-
-        if (allScores.Count == 0)
+        if (evaluations.Count == 0)
         {
-            FinalScore = evaluations.Average(e => e.TotalScore);
+            FinalScore = null;
+            Result = StageAssignmentResult.NonÉvalué;
             return;
         }
 
-        decimal totalWeight = allScores.Sum(o => o.StageObjective?.Weight ?? 1);
-        decimal weightedSum = allScores.Sum(o => o.Score * (o.StageObjective?.Weight ?? 1));
+        decimal weightedSum = 0;
+        decimal totalWeight = 0;
+
+        foreach (var evaluation in evaluations)
+        {
+            switch (evaluation.Mode)
+            {
+                case EvaluationMode.ValidatePeriod:
+                    weightedSum += OutcomeToScore(evaluation.Outcome);
+                    totalWeight += 1;
+                    break;
+
+                case EvaluationMode.ValidateObjectives:
+                    foreach (var o in evaluation.ObjectiveScores)
+                    {
+                        decimal weight = o.StageObjective?.Weight ?? 1;
+                        weightedSum += OutcomeToScore(o.Outcome) * weight;
+                        totalWeight += weight;
+                    }
+                    break;
+
+                default: // Numeric
+                    if (evaluation.ObjectiveScores.Count == 0)
+                    {
+                        if (evaluation.TotalScore.HasValue)
+                        {
+                            weightedSum += evaluation.TotalScore.Value;
+                            totalWeight += 1;
+                        }
+                        break;
+                    }
+                    foreach (var o in evaluation.ObjectiveScores)
+                    {
+                        decimal weight = o.StageObjective?.Weight ?? 1;
+                        weightedSum += (o.Score ?? 0) * weight;
+                        totalWeight += weight;
+                    }
+                    break;
+            }
+        }
+
         FinalScore = totalWeight > 0 ? Math.Round(weightedSum / totalWeight, 2) : null;
+
+        // Auto-derive the pass/fail result from the threshold. An admin can still override
+        // it terminally via Validate()/Reject() (after which evaluations are read-only, so
+        // this never runs again to clobber their decision).
+        Result = FinalScore is null
+            ? StageAssignmentResult.NonÉvalué
+            : FinalScore >= ValidationThreshold ? StageAssignmentResult.Validé : StageAssignmentResult.NonValidé;
     }
 }
 

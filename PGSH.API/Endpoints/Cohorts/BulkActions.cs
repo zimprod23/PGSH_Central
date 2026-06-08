@@ -31,18 +31,18 @@ public sealed class CohortBulkActions : IEndpoint
         .RequireAuthorization();
 
         app.MapPost("cohorts/{id:int}/start-assignments", async (
-            int id, ISender sender, CancellationToken ct) =>
+            int id, [FromBody] PeriodScopeOptions? request, ISender sender, CancellationToken ct) =>
         {
-            var result = await sender.Send(new StartCohortAssignmentsCommand(id), ct);
+            var result = await sender.Send(new StartCohortAssignmentsCommand(id, request?.PeriodNumbers), ct);
             return result.Match(count => Results.Ok(new { started = count }), CustomResults.Problem);
         })
         .WithTags(Tags.Cohorts)
         .RequireAuthorization();
 
         app.MapPost("cohorts/{id:int}/complete-periods", async (
-            int id, ISender sender, CancellationToken ct) =>
+            int id, [FromBody] PeriodScopeOptions? request, ISender sender, CancellationToken ct) =>
         {
-            var result = await sender.Send(new CompletePeriodsCommand(id), ct);
+            var result = await sender.Send(new CompletePeriodsCommand(id, request?.PeriodNumbers), ct);
             return result.Match(count => Results.Ok(new { completed = count }), CustomResults.Problem);
         })
         .WithTags(Tags.Cohorts)
@@ -60,3 +60,4 @@ public sealed class CohortBulkActions : IEndpoint
 }
 
 public sealed record PublishCohortOptions(bool AllowOverCapacity = false);
+public sealed record PeriodScopeOptions(IReadOnlyList<int>? PeriodNumbers = null);

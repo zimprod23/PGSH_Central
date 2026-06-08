@@ -490,7 +490,10 @@ namespace PGSH.Infrastructure.Migrations
                     b.Property<string>("Note")
                         .HasColumnType("text");
 
-                    b.Property<int>("Score")
+                    b.Property<string>("Outcome")
+                        .HasColumnType("text");
+
+                    b.Property<int?>("Score")
                         .HasColumnType("integer");
 
                     b.Property<Guid>("ServiceEvaluationId")
@@ -514,13 +517,20 @@ namespace PGSH.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<string>("Mode")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Outcome")
+                        .HasColumnType("text");
+
                     b.Property<Guid>("ServicePeriodId")
                         .HasColumnType("uuid");
 
                     b.Property<string>("SupervisorComment")
                         .HasColumnType("text");
 
-                    b.Property<decimal>("TotalScore")
+                    b.Property<decimal?>("TotalScore")
                         .HasPrecision(5, 2)
                         .HasColumnType("numeric(5,2)");
 
@@ -548,6 +558,9 @@ namespace PGSH.Infrastructure.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<bool>("IsComplete")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsStarted")
                         .HasColumnType("boolean");
 
                     b.Property<int>("ServiceId")

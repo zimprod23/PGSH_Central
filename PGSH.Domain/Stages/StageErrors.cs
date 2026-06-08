@@ -65,6 +65,14 @@ public static class StageErrors
         "AssignmentPeriods.NotFound",
         $"The assignment period with Id = '{periodId}' was not found.");
 
+    public static readonly Error NotServiceChef = Error.Forbidden(
+        "ServicePeriods.NotServiceChef",
+        "Vous n'êtes pas chef du service de cette période — vous ne pouvez agir que sur vos propres services.");
+
+    public static readonly Error AdministrativeOnly = Error.Forbidden(
+        "ServicePeriods.AdministrativeOnly",
+        "Cette ressource est réservée au personnel administratif. Les chefs de service consultent leurs périodes via « Mes services ».");
+
     public static readonly Error InvalidPeriodRange = Error.Validation(
         "AssignmentPeriods.InvalidPeriodRange",
         "The assignment period end date must be greater than or equal to the start date.");
@@ -147,6 +155,10 @@ public static class StageErrors
     public static Error PeriodAlreadyComplete(Guid periodId) => Error.Conflict(
         "AssignmentPeriods.AlreadyComplete",
         $"Service period '{periodId}' is already marked as complete.");
+
+    public static Error PeriodAlreadyStarted(Guid periodId) => Error.Conflict(
+        "AssignmentPeriods.AlreadyStarted",
+        $"Service period '{periodId}' is already started.");
 
     public static Error PeriodNotComplete(Guid periodId) => Error.Validation(
         "AssignmentPeriods.NotComplete",

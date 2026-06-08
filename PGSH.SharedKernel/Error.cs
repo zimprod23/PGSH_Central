@@ -34,4 +34,7 @@ public record Error
         new(code, description, ErrorType.Conflict);
     public static Error Validation(string code, string description) =>
        new(code, description, ErrorType.Validation);
+
+    public static Error Forbidden(string code, string description) =>
+        new(code, description, ErrorType.Forbidden);
 }

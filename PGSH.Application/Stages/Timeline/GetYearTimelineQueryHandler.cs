@@ -43,6 +43,9 @@ internal sealed class GetYearTimelineQueryHandler(
                 c.Stage.LevelId,
                 LevelLabel = c.Stage.Level.Label,
                 Partition = c.AcademicGroup.RotationGroup,
+                c.AcademicGroupId,
+                GroupLabel = c.AcademicGroup.Label,
+                GroupNumber = c.AcademicGroup.GroupNumber,
                 StudentCount = c.Assignments.Count,
                 Cells = c.SlotAssignments.Select(a => new CellRow(
                     a.ServiceId,
@@ -53,7 +56,7 @@ internal sealed class GetYearTimelineQueryHandler(
             .ToListAsync(ct))
             .Select(c => new CohortRow(
                 c.Id, c.StageId, c.StageName, c.LevelId, c.LevelLabel,
-                c.Partition, c.StudentCount, c.Cells))
+                c.Partition, c.AcademicGroupId, c.GroupLabel, c.GroupNumber, c.StudentCount, c.Cells))
             .ToList();
 
         if (cohorts.Count == 0)
@@ -119,8 +122,15 @@ internal sealed class GetYearTimelineQueryHandler(
                 bool saturated = cells.Any(cell =>
                     occupancy.LoadOn(cell.ServiceId, cell.Start, cell.End) > cell.Capacity);
 
+                var groups = pg
+                    .GroupBy(c => new { c.AcademicGroupId, c.GroupLabel, c.GroupNumber })
+                    .OrderBy(gg => gg.Key.GroupNumber)
+                    .Select(gg => new TimelineGroup(
+                        gg.Key.AcademicGroupId, gg.Key.GroupLabel, gg.Key.GroupNumber, gg.Sum(c => c.StudentCount)))
+                    .ToList();
+
                 return new TimelinePartition(
-                    pg.Key, start, end, pg.Count(), pg.Sum(c => c.StudentCount), saturated);
+                    pg.Key, start, end, pg.Count(), pg.Sum(c => c.StudentCount), saturated, groups);
             })
             .ToList();
 
@@ -151,7 +161,8 @@ internal sealed class GetYearTimelineQueryHandler(
 
     private sealed record CohortRow(
         int CohortId, int StageId, string StageName, int LevelId, string? LevelLabel,
-        string? Partition, int StudentCount, List<CellRow> Cells);
+        string? Partition, int AcademicGroupId, string GroupLabel, int GroupNumber,
+        int StudentCount, List<CellRow> Cells);
 
     private sealed record CellRow(int ServiceId, DateOnly Start, DateOnly End, int Capacity);
 }

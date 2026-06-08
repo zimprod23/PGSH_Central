@@ -28,6 +28,9 @@ internal sealed class UserContext : IUserContext
             .GetUserId() ??
         throw new ApplicationException("User context is unavailable");
 
+    public bool IsInRole(string role) =>
+        _httpContextAccessor.HttpContext?.User.IsInRole(role) ?? false;
+
     public async Task SyncAsync(CancellationToken cancellationToken = default)
     {
         var principal = _httpContextAccessor.HttpContext?.User;

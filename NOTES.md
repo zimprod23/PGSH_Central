@@ -136,6 +136,14 @@ When a user logs in for the first time, `SyncUserMiddleware` calls `UserContext.
 
 This means: **a local `User` record must exist before anyone can log in**. The seeder in `MigrationService` creates initial users. In production this needs an admin flow to create profiles.
 
+### Execution authorization — a chef controls only his own services
+The internship-execution writes are scoped per service chef so "each one controls only what he has":
+- `ExecutionAuthorizer` (`Application/Employees/MyServices/`, DI-scoped) is the single rule: an action on a `ServicePeriod` (or its evaluation) is allowed only for an **administrative role** (`Roles.Administrative` = Scolarite/Secretaire/SuperUser) **or the chef of that period's service** (`Service.ServiceChefId == IUserContext.UserId`). Otherwise `StageErrors.NotServiceChef` (the new `ErrorType.Forbidden` → HTTP 403; added to `Error`, `ErrorType`, and `CustomResults`).
+- Enforced in `CompleteServicePeriodCommandHandler`, `CreateServiceEvaluationCommandHandler`, `UpdateServiceEvaluationCommandHandler`.
+- `IUserContext` gained `bool IsInRole(string)` (impl. delegates to `ClaimsPrincipal.IsInRole`; realm roles arrive as `ClaimTypes.Role` via `KeycloakRoleTransformer`). Role name constants live in `Application/Abstractions/Authentication/Roles.cs` (mirror of the frontend `common/constants/roles.ts`).
+- The chef's worklist read is also scoped: `GetMyServicePeriodsQuery` (`GET /employees/me/service-periods`) derives the chef's services server-side from the identity — a `serviceId` the caller doesn't lead is ignored, so a chef can never read another chef's periods. The generic `GET /service-periods` (admin) and the student-facing `GET /service-periods/{id}/evaluation` (read-only) are unchanged.
+- **Frontend**: `EmployeeServicesPage` calls `/employees/me/service-periods`; active rotations have a **"Terminer"** action (`PUT /service-periods/{id}/complete`, now chef-enforced) so a chef can complete a rotation → then **Évaluer** (submit the note). Secrétaire absences already work through the admin `AttendancePage` (its `AuthGuard` includes `Secretaire`).
+
 ### CohortMembership tracks transfer history, not current cohort
 `InternshipAssignment.CurrentCohortId` is the FK for the *current* cohort. `CohortMembership` is a history table — it records every cohort a student has ever been in, with start/end dates and transfer reason. A null `EndDate` means they're currently in that cohort. This enables tracking cohort transfers mid-rotation.
 
@@ -165,14 +173,14 @@ Previously the query accepted `int?` and the handler cast it: `(int)l.AcademicPr
 The complex planning operations were extracted into DI-registered services under
 `Application/Stages/Planning/` so command handlers and the macro orchestrator share one source of truth:
 - `PartitionAllocator` (static) — the A/B/C labelling rule. Used by `AssignRotationGroupsCommandHandler` and `RotationArranger`.
-- `RotationArranger` — the cyclic rotation below, **scoped to optional partition labels + period numbers**. Removal of prior cells is restricted to `targetCohortIds ∩ targetSlotIds`, so arranging one partition's window never wipes another's. Backs `AutoArrangeStageScheduleCommand`.
+- `RotationArranger` — the cyclic rotation below, **scoped to optional partition labels + period numbers**. Removal of prior cells is restricted to `targetCohortIds ∩ targetSlotIds`, so arranging one partition's window never wipes another's. **The cyclic shift is anchored to the targeted cohort set's *participation footprint* — the slots they already occupy in this stage ∪ the slots being arranged now (`phaseBySlotId`), step = `n / footprintLength`.** This single rule is correct for both planning paths: (a) the **macro matrix** (a partition runs one window, e.g. A→P1-2) keeps footprint = that window → the clean half-cycle swap is preserved (no regression); (b) **adding new periods to an already-arranged set** grows the footprint to include them → the new periods get fresh phases and *continue* the rotation instead of repeating services the cohorts already did. All cohorts of the stage participate in the queue (not just unpublished ones) so the cycle stays consistent; only individual **published cells** (a `ServicePeriod` points at them) are protected — never deleted nor rewritten — letting a started stage keep its history while its new periods are arranged. Backs `AutoArrangeStageScheduleCommand`.
 - `StudentAffectationService` — affectation per-cohort or per-stage (optionally partition-filtered). Backs `AssignStudentsToCohort` + `AssignAllStudentsByStage`. `BulkResponse.TotalProcessed` now reports eligible registrations considered (not just newly created).
 - `SchedulePublisher` — `ServicePeriod` generation per-cohort (strict) or per-stage+partition+window (lenient/idempotent). Backs `PublishCohortScheduleCommand` + new `PublishStageScheduleCommand`.
 - `CohortProvisioner` — idempotent cohort creation per (partition, stage). Backs `BulkCreateCohortsFromPartitions` + macro plan.
 - `ServiceOccupancyCalculator` — global cross-stage service load (`LoadOn(serviceId, start, end)` = students on a service over any overlapping window, all stages). Used by `GetStageScheduleQueryHandler`, `RotationArranger`, and `SchedulePublisher` (see cross-stage capacity note below).
 
 ### Stage timeline / calendar (read-only Gantt)
-`GetYearTimelineQuery` (`Application/Stages/Timeline/`, endpoint `GET /academic-years/{id}/timeline?levelId=`) returns a `Level → Stage → Partition` tree for the calendar view. **A `Stage` has no dates** — every span is *derived* from `StageSlot.StartDate/EndDate`: a stage spans the union of its slots; a partition spans the slots its cohorts occupy. The year is reached via `AcademicGroup.AcademicYearId` (slots/cohorts are not year-stamped). Reuses `ServiceOccupancyCalculator` for the per-partition saturation flag. Frontend: `StageTimelinePage` (`/admin/timeline`, nav "Calendrier") — a **custom CSS Gantt** (date→% offset via dayjs, no Gantt library); year picker, month axis, collapsible level rows, stage bars → partition-window Drawer. Cache tag `Stage/TIMELINE` + `refetchOnMountOrArgChange` (fine-grained invalidation from the ~15 plan-mutations is not wired yet — Phase 7.6 Phase B / robustness).
+`GetYearTimelineQuery` (`Application/Stages/Timeline/`, endpoint `GET /academic-years/{id}/timeline?levelId=`) returns a `Level → Stage → Partition → Group` tree for the calendar view. Each `TimelinePartition` now carries its `Groups` (`TimelineGroup`: id, label, number, student count) — the academic groups whose cohorts make up that partition in the stage. Frontend `PartitionDrawer` renders each partition as a clickable row (`PartitionRow`) that expands to a grid of its group cards. **A `Stage` has no dates** — every span is *derived* from `StageSlot.StartDate/EndDate`: a stage spans the union of its slots; a partition spans the slots its cohorts occupy. The year is reached via `AcademicGroup.AcademicYearId` (slots/cohorts are not year-stamped). Reuses `ServiceOccupancyCalculator` for the per-partition saturation flag. Frontend: `StageTimelinePage` (`/admin/timeline`, nav "Calendrier") — a **custom CSS Gantt** (date→% offset via dayjs, no Gantt library); year picker, month axis, collapsible level rows, stage bars → partition-window Drawer. Cache tag `Stage/TIMELINE` + `refetchOnMountOrArgChange` (fine-grained invalidation from the ~15 plan-mutations is not wired yet — Phase 7.6 Phase B / robustness).
 
 ### Date pickers (`@mantine/dates`)
 `@mantine/dates` + `dayjs` are installed; `@mantine/dates/styles.css` is imported in `main.tsx` and the app is wrapped in `<DatesProvider settings={{ locale: 'fr', firstDayOfWeek: 1 }}>`. Mantine 8 date components use **string `"YYYY-MM-DD"` values** (no `Date` conversion), which matches the backend `DateOnly`. `StageSlot` start/end in `ScheduleGridModal` uses `DatePickerInput type="range"`.
@@ -185,7 +193,7 @@ The complex planning operations were extracted into DI-registered services under
 **How it works** (over the scoped cohort/slot subset — by default all cohorts/slots of the stage):
 1. **Capacity-aware proportional allocation** (largest-remainder method): the weight of a service is `floor(capacity / avgStudents)` = the number of whole average cohorts it can hold. **A service smaller than one cohort gets weight 0 and is excluded** (forcing an atomic group into it would always overflow). N cohort-slots are distributed proportionally to weight, leftover by largest fractional remainder → `allocated[i]` cohorts per service per period, summing to N. When total cohort-capacity ≥ N this never over-fills a service; only a genuine per-period shortfall saturates. (Planning preview, before students are assigned, falls back to raw-capacity proportions.)
 2. **Service queue**: build an ordered list `[S1 × allocated[0], S2 × allocated[1], ...]` of length N.
-3. **Cyclic shift per period**: period P reads the queue at offset `P × (N / numSlots)`. Every cohort visits a different service block each period.
+3. **Cyclic shift per period**: period P reads the queue at offset `phase(P) × (N / cycleLength)`, where **`cycleLength` = the targeted cohorts' participation footprint** (the slots they already occupy in this stage ∪ the slots being arranged now) and `phase(P)` = P's position within that ordered footprint — *not* the filtered-window index (which would restart at offset 0 and repeat services) and *not* the full stage-slot count (which would break the macro matrix's single-window half-cycle swap). With no prior assignments the footprint equals the window, so a first-time full arrange behaves exactly as before. Every cohort visits a different service block each period.
 
 **Why this matches the faculty documents:**
 - Service "Méd A" takes 2 groups per period: P1=groups 1-2, P2=21-22, P3=41-42, P4=61-62. The offset is 80/4=20. This exact pattern falls out of the cyclic rotation naturally.
@@ -283,3 +291,38 @@ return Result.Success();
 - **`Student.Ranking`**: What is this field for? National ranking for program entry? It's nullable and has no business logic around it.
 - **Revalidation cohort assignment**: When a Year 4 student needs to redo a Year 1 Stage, which `AcademicGroup` / `Cohort` do they get assigned to? Are there dedicated revalidation cohorts mixing students from different years and groups, or are they slotted into an existing cohort for that stage? The current `Cohort.AcademicGroupId` FK assumes a cohort is for one specific group. Needs clarification before implementing the revalidation assignment flow.
 - **Graduation gate on revalidation**: Is there a check before a student can graduate (registration `Status → Validated`) that all stages in their program have at least one `InternshipAssignment` with `Result = Validé`? This would be the enforcement point for the revalidation rule. Not yet implemented.
+
+## Regression / Stress Checks (verification recipes)
+
+These are the scenarios used to verify the pagination/auth hardening. Re-run after touching
+pagination, the execution-authorization path, or `SyncUserMiddleware`.
+
+**Environment gotchas (Aspire dev) — learned the hard way:**
+- The API's HTTPS listens on the `launchSettings` `sslPort` (e.g. `https://localhost:7014`); the
+  Aspire-assigned HTTP ports **307-redirect** there, and `curl` can't TLS-handshake the HTTP ports.
+  Hit the HTTPS port directly with `-k`. First authenticated call is slow (~12s EF/JIT cold start).
+- **All endpoints are under the `/api` route group** (`app.MapGroup("api")` in `Program.cs`) — e.g.
+  `GET /api/service-periods`, not `/service-periods`.
+- **Every request needs a local `User`**: `SyncUserMiddleware` returns **403 "Profile Not Found"** if the
+  Keycloak `sub` has no matching `Users` row (by `IdentityProviderId`, then email). For headless tests,
+  temporarily set an existing user's `IdentityProviderId` to the test token's `sub` and restore after.
+- **Minting a test token**: `pgsh-frontend` has `directAccessGrantsEnabled = false`. Create a throwaway
+  public client with direct grants + temp users with realm roles (`Scolarite`/`Secretaire`/`SuperUser` =
+  admin; `Student`/`Professor` = not), password-grant against `localhost:8082`, then delete the artifacts.
+  Tokens must carry `aud=account` (the API's configured audience) and `iss=…/realms/pgsh`.
+
+**Scenarios:**
+1. **`GET /api/service-periods` is administrative-only** — non-admin token → **403 `ServicePeriods.AdministrativeOnly`**; admin token → **200**. (Verified ✅)
+2. **Central `pageSize` clamp** — request `?pageSize=100000` on an endpoint **without** its own validator
+   (`/services`, `/service-periods`, `/employees`, `/hospitals`, `/centers`, `/academic-groups`,
+   `/internship-assignments`, `/academic-years`) → response echoes **`pageSize: 200`**, `totalCount`
+   accurate. Endpoints **with** a validator (`/students`, `/stages`, `/levels`) return **400** instead
+   (their own `InclusiveBetween` rule) — both are safe, just different contracts. (Verified ✅)
+3. **Chef worklist returns all periods (no 100 cap)** — as the chef of a service with **>100** periods,
+   `GET /api/employees/me/service-periods` returns the full set; every academic group shows its true
+   student count (regression guard for the "group of 8 rendered as 2" truncation). *Needs planning data
+   seeded (ServicePeriods > 0) to exercise.*
+4. **Planning grid perf (manual/GUI)** — open/close `ScheduleGridModal` on a stage with many cohorts×slots;
+   should be snappy (only the edited cell mounts the heavy Combobox). Click-to-edit still assigns/clears.
+5. **Optimistic allowed-services (manual/GUI)** — add/remove a service on a stage: chip toggles instantly
+   and persists after reload.

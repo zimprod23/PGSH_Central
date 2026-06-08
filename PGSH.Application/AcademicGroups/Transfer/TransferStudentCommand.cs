@@ -5,7 +5,7 @@ namespace PGSH.Application.AcademicGroups.Transfer;
 public sealed record TransferStudentCommand(
     Guid   RegistrationId,
     int    TargetGroupId,
-    string? Reason)
+    string Reason)
     : ICommand, IAuditableCommand
 {
     public string  AuditAction     => "STUDENT_TRANSFERRED";

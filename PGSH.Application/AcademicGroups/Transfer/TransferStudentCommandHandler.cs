@@ -19,6 +19,11 @@ internal sealed class TransferStudentCommandHandler(IApplicationDbContext dbCont
                 "Registrations.NotFound",
                 $"Registration '{request.RegistrationId}' not found."));
 
+        if (registration.AcademicGroupId == request.TargetGroupId)
+            return Result.Failure(Error.Conflict(
+                "AcademicGroups.SameGroup",
+                "The student is already in this group; nothing to transfer."));
+
         bool targetGroupExists = await dbContext.AcademicGroups
             .AnyAsync(g => g.Id == request.TargetGroupId, cancellationToken);
 
@@ -47,7 +52,7 @@ internal sealed class TransferStudentCommandHandler(IApplicationDbContext dbCont
                          && c.StageId == assignment.Cohort.StageId)
                 .FirstOrDefaultAsync(cancellationToken);
 
-            if (targetCohort is null) continue;
+            if (targetCohort is null || targetCohort.Id == assignment.CurrentCohortId) continue;
 
             assignment.TransferToCohort(
                 targetCohort.Id,

@@ -22,6 +22,7 @@ public static class CustomResults
         {
             ErrorType.NotFound => "https://tools.ietf.org/html/rfc7231#section-6.5.4",
             ErrorType.Conflict => "https://tools.ietf.org/html/rfc7231#section-6.5.8",
+            ErrorType.Forbidden => "https://tools.ietf.org/html/rfc7231#section-6.5.3",
             _ => "https://tools.ietf.org/html/rfc7231#section-6.5.1"
         };
 
@@ -30,6 +31,7 @@ public static class CustomResults
             ErrorType.Validation => StatusCodes.Status400BadRequest,
             ErrorType.NotFound => StatusCodes.Status404NotFound,
             ErrorType.Conflict => StatusCodes.Status409Conflict,
+            ErrorType.Forbidden => StatusCodes.Status403Forbidden,
             _ => StatusCodes.Status500InternalServerError
         };
     }

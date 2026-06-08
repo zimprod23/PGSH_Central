@@ -220,6 +220,13 @@ internal sealed class ServiceEvaluationConfiguration : IEntityTypeConfiguration<
         builder.HasKey(e => e.Id);
         builder.Property(e => e.TotalScore).HasPrecision(5, 2);
 
+        builder.Property(e => e.Mode)
+               .HasConversion<string>()
+               .IsRequired();
+
+        builder.Property(e => e.Outcome)
+               .HasConversion<string>();
+
         builder.HasMany(e => e.ObjectiveScores)
                 .WithOne(o => o.ServiceEvaluation)
                 .HasForeignKey(o => o.ServiceEvaluationId)
@@ -232,6 +239,9 @@ internal sealed class ObjectiveScoreConfiguration : IEntityTypeConfiguration<Obj
     public void Configure(EntityTypeBuilder<ObjectiveScore> builder)
     {
         builder.HasKey(o => o.Id);
+
+        builder.Property(o => o.Outcome)
+               .HasConversion<string>();
 
         builder.HasOne(o => o.StageObjective)
                 .WithMany()
