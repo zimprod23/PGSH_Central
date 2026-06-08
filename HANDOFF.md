@@ -1,9 +1,17 @@
 # HANDOFF.md
 
-> **▶ RESUME HERE (next session).** Say **"build the transfer model"** → start the **Temporary/Definitive
-> transfer** work in the "Queued" block below (FIRST answer the open question there: is the transfer unit
-> the GROUP or a specific SERVICE?). Then **"do admin suivi bulk start/end"**.
-> Later triggers: "do revalidation" (#3) · "do delocalization" (#4). (#1 transfer + #2 eval modes shipped.)
+> **▶ RESUME HERE (next session).** Two queued items, pick either:
+> 1. Say **"do the period-aware count"** → build #2 below (small: make the Suivi status card track the
+>    selected period instead of cumulative assignment status).
+> 2. Say **"build the transfer model"** → Temporary/Definitive transfer (bigger). **FIRST answer the open
+>    question:** is the transfer unit the **GROUP** or a specific **SERVICE**? (auto-revert already decided.)
+> Later: "do revalidation" (#3) · "do delocalization" (#4).
+>
+> **⚠ BEFORE CODING:** (a) the working tree is **uncommitted** in BOTH repos (root + `PGSH.Frontend`) — commit
+> or check first; (b) two migrations are **pending DB apply** — `EvaluationModes` + `ServicePeriodIsStarted` —
+> restart the stack (`dotnet run --project PGSH.AppHost`) or `dotnet ef database update` before testing.
+> Build backend via `PGSH.Infrastructure.csproj` (API DLLs lock while the app runs); add ef migrations with
+> `--startup-project PGSH.Infrastructure` (design-time factory) since the running API blocks the API build.
 > _Updated 2026-06-06._
 
 ## ▶ Current work stream: Student Mobility (design LOCKED)
@@ -113,6 +121,23 @@ backend requires it (`NotEmpty`) → now `required` + submit disabled until fill
   selected, so the count doesn't track period selection. Fix = period-aware summary (count `ServicePeriod`
   states — started·not-complete / complete·no-eval / evaluated — within the selected window using the new
   `IsStarted`), passing `periodNumbers` to the summary query + card. Not built.
+  **Same root cause:** after **Clôturer** in Suivi the admin card still shows "en cours" while the chef side
+  correctly shows the period as à-évaluer — closing ONE period doesn't flip the assignment to `Completed`
+  (domain only does that when ALL periods complete), and the card reads assignment `Status`. The period-aware
+  summary fixes this too (a closed period shows complete/à-évaluer per period, not stuck "en cours").
+- ⏳ **Bulk start/close perf + idempotency (#4).** The frontend `runForSelected` fires the per-cohort mutation
+  **sequentially, one round-trip per selected cohort** (`AssignmentsPage`), so a big partition is slow ("group
+  by group"). Worse, re-running Démarrer on a selection where cohorts are **already started** still does a full
+  DB load + per-period `StartPeriod` (which just fails "already started") for every cohort — wasted work, not a
+  no-op. Fix options: (a) a single **stage-level** scoped command `StartStagePeriodsCommand(stageId,
+  partitionLabels?, periodNumbers?)` (+ Complete equivalent) doing it in ONE round-trip — mirrors the existing
+  `PublishStageScheduleCommand` / macro-plan scoping; and/or (b) client-side skip cohorts whose periods in the
+  window are already started (needs per-period state exposed in the cohort/assignment list). (a) is the real fix.
+- ⏳ **Chef should see the STAGE per service (#5).** On the chef "Mes Services" page (`EmployeeServicesPage`),
+  inside each of his services the chef should see WHICH stage he is evaluating students for (stage name / type,
+  maybe level). Today `MyServicePeriodResponse` carries service/hospital/group but **no stage** — add `StageName`
+  (and stage type/level if useful) in `GetMyServicePeriodsQueryHandler` (period → `InternshipAssignment.Cohort.Stage`)
+  and surface it on the service card / window rows so the chef knows the rotation type he's validating.
 - ⏳ **Planning skips a small allowed service (#3).** By design: `RotationArranger.BuildServiceQueue` weights a
   service `floor(capacity / avgCohortSize)`; a service smaller than one (atomic) cohort gets weight 0 and is
   EXCLUDED (a whole ~group would overflow it) — so e.g. Cardiologie@Harrouchi is dropped if its capacity <
