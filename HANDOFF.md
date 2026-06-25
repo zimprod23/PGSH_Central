@@ -213,6 +213,18 @@ backend requires it (`NotEmpty`) → now `required` + submit disabled until fill
   (`CohortSlotAssignmentId == null`). See `project_student_mobility` + `domain_revalidation` in agent memory.
 - Dedicated admin "edit final score/result" override endpoint (beyond Validate/Reject) — small follow-up.
 
+**Optimization sweep (cross-cutting, agreed 2026-06-25 — ongoing).** Two standing quality rules now
+documented in `PGSH.Frontend/CLAUDE.md` → "Performance & Pre-flight Validation"; apply them whenever touching
+a page, and burn down the known offenders below:
+- **Pre-flight guards** — disable any action the server is guaranteed to reject / that is a no-op, with an
+  inline reason, instead of firing the request and showing an error toast. Known: `ScheduleGridModal`
+  "Répartition automatique" is clickable even when the stage has **no periods/slots** (should be disabled,
+  like the Suivi bar's `selectionHasTargetPeriod` guard). Audit every page's primary mutation for the same.
+- **Debounce search inputs** — every server-querying free-text field must use `useDebouncedValue` (300–350ms)
+  + `skip` until ≥2 chars (pattern in `EmployeesPage`/`GroupsPage`/`InfrastructurePage`). Reported laggy:
+  the **academic-group student search**. Sweep all search/filter inputs for missing debounce; memoize
+  client-side filters of already-loaded lists.
+
 **Admin "suivi" period-scoped bulk start/close ✅ DONE (2026-06-06).** Root issue found: the old
 `CompletePeriodsCommand` closed EVERY incomplete period of a cohort — including FUTURE ones. Now
 `StartCohortAssignmentsCommand`/`CompletePeriodsCommand` take an optional `IReadOnlyList<int>? PeriodNumbers`
