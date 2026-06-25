@@ -142,6 +142,10 @@ public static class StageErrors
         "Schedule.NoPlannedAssignments",
         "No assignments in 'Planned' status were found for this cohort.");
 
+    public static Error TargetScheduleMissingPeriods(int cohortId, IReadOnlyList<int> periodNumbers) => Error.Conflict(
+        "Schedule.TargetScheduleMissingPeriods",
+        $"Le groupe cible (cohorte {cohortId}) n'a pas de répartition planifiée pour la/les période(s) {string.Join(", ", periodNumbers)}. Configurez son planning pour ces périodes avant le transfert en cours de stage.");
+
     // === Allowed services ===
     public static Error ServiceNotAllowed(int serviceId, int stageId) => Error.Conflict(
         "Stages.ServiceNotAllowed",

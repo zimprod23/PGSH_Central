@@ -1,13 +1,16 @@
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
+using PGSH.Application.Stages.Planning;
 using PGSH.Domain.Common.Utils;
 using PGSH.Domain.Registrations;
 using PGSH.SharedKernel;
 
 namespace PGSH.Application.AcademicGroups.Transfer;
 
-internal sealed class TransferStudentCommandHandler(IApplicationDbContext dbContext)
+internal sealed class TransferStudentCommandHandler(
+    IApplicationDbContext dbContext,
+    MidStageTransferRescheduler rescheduler)
     : ICommandHandler<TransferStudentCommand>
 {
     public async Task<Result> Handle(TransferStudentCommand request, CancellationToken cancellationToken)
@@ -45,6 +48,14 @@ internal sealed class TransferStudentCommandHandler(IApplicationDbContext dbCont
                      && a.Status != InternshipStatus.Validated
                      && a.Status != InternshipStatus.Rejected);
 
+        // A mid-stage hand-off re-routes the in-flight rotation, so the periods and the slot they
+        // were generated from must be loaded for the rescheduler to work on.
+        if (request.Reschedule)
+            query = query
+                .Include(a => a.ServicePeriods)
+                    .ThenInclude(p => p.CohortSlotAssignment!)
+                        .ThenInclude(sa => sa.StageSlot);
+
         // Temporary: only the named stage's assignment moves, and the registration's group is
         // left untouched so every other stage still runs with the original group.
         if (request.Type == TransferType.Temporary)
@@ -70,12 +81,19 @@ internal sealed class TransferStudentCommandHandler(IApplicationDbContext dbCont
 
             if (targetCohort is null || targetCohort.Id == assignment.CurrentCohortId) continue;
 
-            assignment.TransferToCohort(
-                targetCohort.Id,
-                request.Reason,
-                DateOnly.FromDateTime(DateTime.UtcNow),
-                request.Type);
+            var transferDate = DateOnly.FromDateTime(DateTime.UtcNow);
+            assignment.TransferToCohort(targetCohort.Id, request.Reason, transferDate, request.Type);
             moved = true;
+
+            // Opt-in forced mid-stage hand-off: re-route the in-flight rotation to the target
+            // group's services so the new chef can supervise/evaluate. No-op for assignments
+            // that aren't actually mid-stage. Fails if the target group lacks the schedule.
+            if (request.Reschedule)
+            {
+                var reroute = await rescheduler.RerouteAsync(assignment, targetCohort.Id, transferDate, cancellationToken);
+                if (reroute.IsFailure)
+                    return reroute;
+            }
         }
 
         if (request.Type == TransferType.Temporary && !moved)

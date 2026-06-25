@@ -567,6 +567,9 @@ namespace PGSH.Infrastructure.Migrations
                     b.Property<bool>("IsComplete")
                         .HasColumnType("boolean");
 
+                    b.Property<bool>("IsInterrupted")
+                        .HasColumnType("boolean");
+
                     b.Property<bool>("IsStarted")
                         .HasColumnType("boolean");
 

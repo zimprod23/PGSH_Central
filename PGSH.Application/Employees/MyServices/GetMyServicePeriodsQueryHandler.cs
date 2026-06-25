@@ -44,8 +44,9 @@ internal sealed class GetMyServicePeriodsQueryHandler(
     {
         var query = dbContext.ServicePeriods
             .AsNoTracking()
-            // Only started periods are the chef's concern; future, not-yet-started rotations stay hidden.
-            .Where(p => chefServiceIds.Contains(p.ServiceId) && p.IsStarted);
+            // Only started periods are the chef's concern; future, not-yet-started rotations stay
+            // hidden, and a period cut short by a mid-stage transfer is terminal history, not work.
+            .Where(p => chefServiceIds.Contains(p.ServiceId) && p.IsStarted && !p.IsInterrupted);
 
         if (isComplete.HasValue)
             query = query.Where(p => p.IsComplete == isComplete.Value);
@@ -140,8 +141,10 @@ internal sealed class GetMyServicePeriodsQueryHandler(
             .Where(sa => chefServiceIds.Contains(sa.ServiceId))
             .SelectMany(sa => sa.Cohort.Assignments, (sa, a) => new { sa, a })
             .Where(x => x.a.MembershipHistory.Any(m => m.EndDate == null && m.TransferReason != null))
-            .Where(x => !x.a.ServicePeriods.Any(p =>
-                p.ServiceId == x.sa.ServiceId && p.StartDate == x.sa.StageSlot.StartDate))
+            // No synthesized "incoming" row once a real period is materialised against this slot
+            // (a forced mid-stage hand-off re-creates the period dated from the transfer day, so
+            // match on the slot cell rather than the start date).
+            .Where(x => !x.a.ServicePeriods.Any(p => p.CohortSlotAssignmentId == x.sa.Id))
             .Select(x => new
             {
                 AssignmentId = x.a.Id,

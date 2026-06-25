@@ -24,7 +24,11 @@ internal sealed class GetAssignmentStatusSummaryQueryHandler(IApplicationDbConte
         // card must show it as à-évaluer/évalué even while the assignment stays Ongoing (the
         // domain only flips to Completed when ALL periods close). Terminal admin verdicts on the
         // assignment (Validated/Rejected) still override the period state.
-        var periods = assignments.SelectMany(a => a.ServicePeriods.Select(p => new
+        var periods = assignments.SelectMany(a => a.ServicePeriods
+            // Periods cut short by a forced mid-stage transfer are terminal history — they must
+            // not appear as stuck "en cours" rotations in the suivi card.
+            .Where(p => !p.IsInterrupted)
+            .Select(p => new
         {
             a.Status,
             p.IsStarted,

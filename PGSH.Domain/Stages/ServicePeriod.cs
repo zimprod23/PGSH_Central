@@ -22,6 +22,11 @@ public sealed class ServicePeriod
     public bool IsStarted { get; set; }
     public bool IsComplete { get; set; }
 
+    // Set when a forced mid-stage transfer cuts this rotation short: the period is kept for
+    // history (with attendance up to the transfer date) but is terminal — excluded from the
+    // chef worklist, the status counts, the score, and the "all periods done" lifecycle checks.
+    public bool IsInterrupted { get; set; }
+
     public ICollection<AttendanceRecord> Attendance { get; set; } = new List<AttendanceRecord>();
     public ServiceEvaluation? Evaluation { get; set; }
 }

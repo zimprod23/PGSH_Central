@@ -60,7 +60,9 @@ public sealed class InternshipAssignment : Entity
         period.IsComplete = true;
         Raise(new ServicePeriodCompletedDomainEvent(Id, periodId));
 
-        if (Status == InternshipStatus.Ongoing && ServicePeriods.All(p => p.IsComplete))
+        // Interrupted periods (cut short by a forced mid-stage transfer) are terminal — they
+        // never complete, so they must not hold the stage open.
+        if (Status == InternshipStatus.Ongoing && ServicePeriods.All(p => p.IsComplete || p.IsInterrupted))
         {
             Status = InternshipStatus.Completed;
             EndTemporaryTransferIfAny(DateOnly.FromDateTime(DateTime.UtcNow));
@@ -100,7 +102,8 @@ public sealed class InternshipAssignment : Entity
         RecomputeFinalScore();
         Raise(new EvaluationSubmittedDomainEvent(Id, RegistrationId, periodId, evaluation.TotalScore));
 
-        if (Status == InternshipStatus.Completed && ServicePeriods.All(p => p.Evaluation is not null))
+        if (Status == InternshipStatus.Completed
+            && ServicePeriods.All(p => p.Evaluation is not null || p.IsInterrupted))
             Status = InternshipStatus.Evaluated;
 
         return AppResult.Success();

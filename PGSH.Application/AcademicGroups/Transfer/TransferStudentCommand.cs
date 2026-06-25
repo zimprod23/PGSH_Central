@@ -7,13 +7,14 @@ public sealed record TransferStudentCommand(
     Guid         RegistrationId,
     int          TargetGroupId,
     string       Reason,
-    TransferType Type   = TransferType.Temporary,
-    int?         StageId = null)
+    TransferType Type       = TransferType.Temporary,
+    int?         StageId    = null,
+    bool         Reschedule = false)
     : ICommand, IAuditableCommand
 {
     public string  AuditAction     => "STUDENT_TRANSFERRED";
     public string  AuditEntityType => "Registration";
     public string? AuditEntityId   => RegistrationId.ToString();
     public string? AuditMetadata   =>
-        $"{{\"targetGroupId\":{TargetGroupId},\"type\":\"{Type}\",\"stageId\":{(StageId?.ToString() ?? "null")},\"reason\":\"{Reason}\"}}";
+        $"{{\"targetGroupId\":{TargetGroupId},\"type\":\"{Type}\",\"stageId\":{(StageId?.ToString() ?? "null")},\"reschedule\":{Reschedule.ToString().ToLowerInvariant()},\"reason\":\"{Reason}\"}}";
 }

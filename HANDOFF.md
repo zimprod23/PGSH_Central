@@ -10,13 +10,47 @@
 >    open: group-all-revalidations vs ad-hoc). Full 4-type model in agent memory `project_student_mobility`.
 > 4. Remaining Suivi item: small-service planning skip (#3, needs your decision — see that section below).
 >
-> **⚠ BEFORE TESTING:** three migrations are **pending DB apply** — `EvaluationModes`,
-> `ServicePeriodIsStarted`, `TransferType_OnCohortMembership` — they auto-apply via `MigrationService` on the
+> **⚠ BEFORE TESTING:** four migrations are **pending DB apply** — `EvaluationModes`,
+> `ServicePeriodIsStarted`, `TransferType_OnCohortMembership`, `ServicePeriodIsInterrupted` — they auto-apply via `MigrationService` on the
 > next `dotnet run --project PGSH.AppHost` (no live DB was reachable this session to apply standalone: a local
 > Postgres answers on :5432 but rejects postgres/postgres; Aspire's container uses a random port+password).
 > Build backend via `PGSH.Infrastructure.csproj` (API DLLs lock while the app runs); add ef migrations with
 > `--startup-project PGSH.Infrastructure` (design-time factory) since the running API blocks the API build.
 > _Updated 2026-06-25._
+
+## ▶ Forced mid-stage transfer (hand-off) ✅ DONE (2026-06-25)
+
+Exceptional escape hatch (e.g. a student must leave her group mid-rotation). **Opt-in** so the normal
+transfer is untouched. Decisions locked with user: old in-progress period **closed early + kept as history,
+NOT re-evaluated** by the old chef; new chef evaluates the remainder **as a full stage**; new window =
+**remaining time only** (transfer date → slot end) + future periods in full.
+
+- **Domain**: new `ServicePeriod.IsInterrupted` — terminal history (kept w/ attendance, excluded from chef
+  worklist, suivi counts, score, and the "all periods done" lifecycle checks: `CompletePeriod`/`SubmitEvaluation`
+  now treat `IsComplete || IsInterrupted` / `Evaluation != null || IsInterrupted` as done).
+- **`MidStageTransferRescheduler`** (`Stages/Planning/`, DI-registered): runs only on an assignment with a
+  started, not-complete period. Completed periods untouched; the in-progress one → `IsInterrupted` + EndDate
+  clamped to the transfer date, and a NEW started period is created against the **target cohort's slot cell**
+  for the remaining window; future periods → old removed, re-created full (inactive). Fails with
+  `StageErrors.TargetScheduleMissingPeriods` if the target group has no slot for a moved period.
+- **Command**: `TransferStudentCommand.Reschedule` (default false). Handler loads ServicePeriods +
+  `CohortSlotAssignment.StageSlot` only when rescheduling, calls the rescheduler after `TransferToCohort`.
+- **Worklist/counts**: `GetMyServicePeriodsQueryHandler` filters `!IsInterrupted` (actionable rows) and the
+  incoming-synth existence check now matches on `CohortSlotAssignmentId == sa.Id` (so a re-materialised period
+  dated from the transfer day suppresses the synthesized green row → the new chef sees a **real, actionable**
+  row instead). `GetAssignmentStatusSummaryQueryHandler` excludes interrupted periods.
+- **EF + migration**: `ServicePeriodIsInterrupted` (bool default false). **Pending DB apply** (see ⚠ — now
+  FOUR migrations pending).
+- **Frontend**: `TransferModal` got a "Transfert en cours de stage" `Switch` (default off) wiring
+  `reschedule`. Build: backend 0 errors; FE `npm run build` + eslint clean.
+- **Capacity** on the target service is **not** hard-blocked for this forced path (admin override by design).
+- **Follow-up (small):** surface `IsInterrupted` as an "interrompu (transfert)" badge in the student/admin
+  period detail views (logic already excludes it everywhere that matters; this is cosmetic).
+- **Test recipe**: start a stage (admin Démarrer P1) so the student has a started period → Transférer →
+  Définitif + target group + reason + **toggle "Transfert en cours de stage"** → the old chef's in-progress
+  row disappears (kept as interrupted history), the **target group's service chef** now sees the student as a
+  real actionable rotation (remaining dates) and can clôturer/évaluer normally; suivi count no longer shows a
+  stuck "en cours".
 
 ## ▶ Transfer types: Temporary vs Definitive ✅ DONE (2026-06-25)
 
