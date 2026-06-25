@@ -10,6 +10,7 @@ public sealed record InternshipAssignmentSummaryResponse(
     int CohortId,
     string CohortLabel,
     int StageId,
+    string StageName,
     InternshipStatus Status,
     decimal? FinalScore,
     StageAssignmentResult? Result);

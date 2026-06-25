@@ -61,9 +61,28 @@ public sealed class InternshipAssignment : Entity
         Raise(new ServicePeriodCompletedDomainEvent(Id, periodId));
 
         if (Status == InternshipStatus.Ongoing && ServicePeriods.All(p => p.IsComplete))
+        {
             Status = InternshipStatus.Completed;
+            EndTemporaryTransferIfAny(DateOnly.FromDateTime(DateTime.UtcNow));
+        }
 
         return AppResult.Success();
+    }
+
+    // When the stage this assignment belongs to finishes, a student who was on a temporary
+    // loan to another group returns home: close the temporary membership and audit the return.
+    // Remaining stages were never moved, so nothing else needs undoing.
+    private void EndTemporaryTransferIfAny(DateOnly date)
+    {
+        var active = MembershipHistory.FirstOrDefault(m => m.EndDate is null);
+        if (active is null
+            || active.TransferType != TransferType.Temporary
+            || active.OriginalCohortId is null)
+            return;
+
+        active.EndDate = date;
+        Raise(new TemporaryTransferEndedDomainEvent(
+            Id, RegistrationId, active.CohortId, active.OriginalCohortId.Value, active.TransferReason));
     }
 
     public Result SubmitEvaluation(Guid periodId, ServiceEvaluation evaluation)
@@ -109,10 +128,13 @@ public sealed class InternshipAssignment : Entity
 
     // ─── Cohort transfer ─────────────────────────────────────────────────────
 
-    public void TransferToCohort(int newCohortId, string? reason, DateOnly date)
+    public void TransferToCohort(int newCohortId, string? reason, DateOnly date,
+        TransferType type = TransferType.Definitive)
     {
         var active = MembershipHistory.FirstOrDefault(m => m.EndDate is null);
         if (active is not null) active.EndDate = date;
+
+        int previousCohortId = CurrentCohortId;
 
         // Do NOT pre-set Id: this membership is added to an already-tracked assignment, so a
         // non-sentinel store-generated key makes EF classify it as Modified (UPDATE a non-existent
@@ -123,9 +145,11 @@ public sealed class InternshipAssignment : Entity
             CohortId               = newCohortId,
             StartDate              = date,
             TransferReason         = reason,
+            TransferType           = type,
+            // A temporary loan remembers where to return; a definitive move does not.
+            OriginalCohortId       = type == TransferType.Temporary ? previousCohortId : null,
         });
 
-        int previousCohortId = CurrentCohortId;
         CurrentCohortId = newCohortId;
 
         Raise(new StudentCohortTransferredDomainEvent(Id, RegistrationId, previousCohortId, newCohortId, reason));

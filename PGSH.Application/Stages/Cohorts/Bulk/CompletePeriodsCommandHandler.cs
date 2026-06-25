@@ -16,6 +16,8 @@ internal sealed class CompletePeriodsCommandHandler(IApplicationDbContext dbCont
             .Include(a => a.ServicePeriods)
                 .ThenInclude(p => p.CohortSlotAssignment)
                     .ThenInclude(sa => sa!.StageSlot)
+            // Loaded so CompletePeriod can auto-revert a temporary transfer at stage end.
+            .Include(a => a.MembershipHistory)
             .Where(a => a.CurrentCohortId == request.CohortId
                      && a.Status == InternshipStatus.Ongoing)
             .ToListAsync(cancellationToken);

@@ -1,17 +1,60 @@
 # HANDOFF.md
 
-> **▶ RESUME HERE (next session).** Period-aware count (#2) and bulk start/close perf (#4) are DONE. Next:
-> 1. Say **"build the transfer model"** → Temporary/Definitive transfer (bigger). **FIRST answer the open
->    question:** is the transfer unit the **GROUP** or a specific **SERVICE**? (auto-revert already decided.)
-> 2. Remaining Suivi items: small-service planning skip (#3, needs your decision — see #3 below).
-> Later: "do revalidation" (#3) · "do delocalization" (#4).
+> **▶ RESUME HERE (next session).** Temporary vs Definitive transfer model is **DONE (2026-06-25)** — see
+> "Transfer types" below. Next, in order:
+> 1. **Verify the transfer model end-to-end** once the stack is running (recipe in that section).
+> 2. Optional refinement: scope the chef gray/green markers to the **current stage's chef** + show **net
+>    group headcounts** (deferred from the transfer build — markers still use the existing group-model logic).
+> 3. Then **"do delocalization"** (out-of-faculty stage, paper validation entered by admin) · **"do
+>    revalidation"** (fail → revalidate in same service unless a transfer/déloc demande; may span years —
+>    open: group-all-revalidations vs ad-hoc). Full 4-type model in agent memory `project_student_mobility`.
+> 4. Remaining Suivi item: small-service planning skip (#3, needs your decision — see that section below).
 >
-> **⚠ BEFORE CODING:** (a) the working tree is **uncommitted** in BOTH repos (root + `PGSH.Frontend`) — commit
-> or check first; (b) two migrations are **pending DB apply** — `EvaluationModes` + `ServicePeriodIsStarted` —
-> restart the stack (`dotnet run --project PGSH.AppHost`) or `dotnet ef database update` before testing.
+> **⚠ BEFORE TESTING:** three migrations are **pending DB apply** — `EvaluationModes`,
+> `ServicePeriodIsStarted`, `TransferType_OnCohortMembership` — they auto-apply via `MigrationService` on the
+> next `dotnet run --project PGSH.AppHost` (no live DB was reachable this session to apply standalone: a local
+> Postgres answers on :5432 but rejects postgres/postgres; Aspire's container uses a random port+password).
 > Build backend via `PGSH.Infrastructure.csproj` (API DLLs lock while the app runs); add ef migrations with
 > `--startup-project PGSH.Infrastructure` (design-time factory) since the running API blocks the API build.
-> _Updated 2026-06-09._
+> _Updated 2026-06-25._
+
+## ▶ Transfer types: Temporary vs Definitive ✅ DONE (2026-06-25)
+
+**Open question RESOLVED — transfer unit = GROUP (not service), for both types.** Full 4-type mobility model
+captured in agent memory `project_student_mobility`. This session implemented types 1+2 (transfer); déloc (3)
+and revalidation (4) are still queued.
+
+- **Domain**: new `enum TransferType {Temporary,Definitive}` (`Domain/Registrations/TransferType.cs`).
+  `CohortMembership` gained `TransferType` (text via `HasConversion`, **default `Definitive`** so the initial
+  membership + legacy rows never look like a loan) + nullable `OriginalCohortId` (where a temporary loan
+  returns). `InternshipAssignment.TransferToCohort(...)` takes a `TransferType` and records type +
+  `OriginalCohortId` (= previous cohort, only for Temporary). New `CompletePeriod` path: when the stage
+  finishes (all periods complete → `Completed`), `EndTemporaryTransferIfAny` closes the active temporary
+  membership (sets `EndDate`) and raises `TemporaryTransferEndedDomainEvent` — remaining stages were never
+  moved so nothing else is undone.
+- **Application**: `TransferStudentCommand` gained `Type` (default **Temporary**) + nullable `StageId`.
+  Handler branches: **Definitive** = existing behaviour (registration group changes + ALL active assignments
+  cascade, same-group guard applies); **Temporary** = registration group **untouched**, only the named
+  stage's active assignment(s) move (validator requires `StageId` when Temporary; returns
+  `Transfers.NoActiveAssignment` 409 if none). New `TemporaryTransferEndedEventHandler` writes a
+  `History.GroupTransfer` row (`temporaryReturn:true`) for the return. Added `StageName` to
+  `InternshipAssignmentSummaryResponse` (used by the transfer modal's stage picker).
+- **Auto-revert correctness**: the revert reads `MembershipHistory`, so **all three** CompletePeriod callers
+  now `.Include(a => a.MembershipHistory)` (`StagePeriodRunner`, `CompletePeriodsCommandHandler`,
+  `CompleteServicePeriodCommandHandler`) — otherwise it silently no-ops.
+- **EF + migration**: `20260625091416_TransferType_OnCohortMembership` (TransferType text **defaultValue
+  "Definitive"** hand-set; `OriginalCohortId` int null). **Pending DB apply** (see ⚠ above).
+- **Frontend**: `GroupDetailPage` `TransferModal` got a `SegmentedControl` Temporaire (1 stage) / Définitif
+  (année) + a stage `Select` (this student's Planned/Ongoing assignments via
+  `useGetInternshipAssignmentsQuery`, `skipToken` when no student) shown only for Temporary, with helper
+  text. `TransferStudentRequest` gained `type`+`stageId`; `transferStudent` now also invalidates
+  `Assignment/LIST`. Build: backend `PGSH.Infrastructure` 0 errors; frontend `npm run build` + eslint clean
+  on changed files.
+- **Test recipe (after stack restart)**: pick a student doing a stage → Transférer → **Temporaire**, choose
+  that stage + a target group + reason → confirm the chosen stage's assignment now sits in the target group's
+  cohort while OTHER stages stay put and `Registration.AcademicGroupId` is unchanged; close that stage's
+  periods (Suivi → Clôturer) → a `GroupTransfer` "retour" history row appears + the temporary membership has
+  an `EndDate`. Repeat with **Définitif** → registration group changes + all active assignments cascade.
 
 ## ▶ Current work stream: Student Mobility (design LOCKED)
 
@@ -156,21 +199,18 @@ backend requires it (`NotEmpty`) → now `required` + submit disabled until fill
   placement (Phase 7.5 #4, big); OR soften the weight rule. Needs user decision.
 
 **Queued (agreed, not built):**
-- **Temporary vs Definitive transfer (NEXT).** Default = **temporary, scoped to the current stage**
-  (student returns to original group after; only that stage's chef sees the gray/green markers).
-  **Definitive** = permanent group change. **DECIDED 2026-06-06: temporary transfers AUTO-REVERT at stage
-  end** — return the student to the original group once the current stage's periods complete + write a
-  History entry. Needs a reliable "stage ended" trigger + the original group recorded on the transfer.
-  Plan: (1) `TransferType {Temporary,Definitive}` on `TransferStudentCommand` + `CohortMembership`,
-  store original group for temporary; (2) modal segmented Temporary/Definitive choice; (3) auto-revert
-  event handler on stage completion; (4) scope gray/green to the current stage's chef + show NET group
-  headcounts (old −1, new +1) on the chef side.
-  **OPEN QUESTION TO RESOLVE FIRST (asked user 2026-06-06, awaiting answer):** is the transfer unit the
-  **GROUP** (current model: move to target group's cohort for the stage — green shows for that group's
-  service chef, who is usually a *different* chef) or a specific **SERVICE** for the current period
-  (keep the student's group, move just the rotation — finer-grained, the new service's chef sees + evaluates)?
-  This decides the whole model. The user's reported "I don't see him green in the new group" is because,
-  under the group model, the incoming row appears for group-5's-service chef, not the viewed chef.
+- ✅ **Temporary vs Definitive transfer DONE 2026-06-25** — see "Transfer types" section at the top.
+  Auto-revert at stage end implemented; transfer unit resolved to GROUP.
+- **Gray/green marker refinement (deferred from the transfer build):** scope the chef incoming/outgoing
+  markers to the **current stage's chef** + show NET group headcounts (old −1, new +1). Markers still use the
+  existing group-model logic in `GetMyServicePeriodsQueryHandler`, so a temporary loan's green row shows for
+  the target group's service chef (expected under the group model).
+- **Delocalization (#3 in the mobility model):** out-of-faculty stage; no eval control; student returns with
+  a paper validation entered by admin/scolarité via the #2 validate-only eval + fiche attachment.
+- **Revalidation (#4):** fail → revalidate in the **same service** failed, unless a transfer/déloc demande is
+  attached (then another group's service). May span academic years. **Open design choice:** keep all
+  revalidations of one stage together in a group vs ad-hoc per-student `ServicePeriod`
+  (`CohortSlotAssignmentId == null`). See `project_student_mobility` + `domain_revalidation` in agent memory.
 - Dedicated admin "edit final score/result" override endpoint (beyond Validate/Reject) — small follow-up.
 
 **Admin "suivi" period-scoped bulk start/close ✅ DONE (2026-06-06).** Root issue found: the old

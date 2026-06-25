@@ -167,6 +167,10 @@ internal sealed class CohortMembershipConfiguration : IEntityTypeConfiguration<C
         builder.HasKey(m => m.Id);
         builder.Property(m => m.TransferReason).HasMaxLength(500);
 
+        builder.Property(m => m.TransferType)
+               .HasConversion<string>()
+               .IsRequired();
+
         builder.HasOne(m => m.Cohort)
                 .WithMany()
                 .HasForeignKey(m => m.CohortId)

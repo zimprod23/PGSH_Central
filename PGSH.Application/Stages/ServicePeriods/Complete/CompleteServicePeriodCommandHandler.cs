@@ -20,6 +20,8 @@ internal sealed class CompleteServicePeriodCommandHandler(
 
         var assignment = await dbContext.InternshipAssignments
             .Include(a => a.ServicePeriods)
+            // Loaded so CompletePeriod can auto-revert a temporary transfer at stage end.
+            .Include(a => a.MembershipHistory)
             .FirstOrDefaultAsync(
                 a => a.ServicePeriods.Any(p => p.Id == request.PeriodId),
                 cancellationToken);

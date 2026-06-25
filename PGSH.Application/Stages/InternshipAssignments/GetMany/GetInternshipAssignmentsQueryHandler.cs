@@ -38,6 +38,7 @@ internal sealed class GetInternshipAssignmentsQueryHandler(IApplicationDbContext
                     a.CurrentCohortId,
                     a.Cohort.Label,
                     a.Cohort.StageId,
+                    a.Cohort.Stage.Name,
                     a.Status,
                     a.FinalScore,
                     a.Result),

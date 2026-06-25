@@ -23,4 +23,12 @@ public sealed class CohortMembership
     public DateOnly StartDate { get; set; }
     public DateOnly? EndDate { get; set; }
     public string? TransferReason { get; set; }
+
+    // Definitive by default so the initial membership and permanent moves need no extra wiring;
+    // only a temporary transfer flips this and records OriginalCohortId for the auto-revert.
+    public TransferType TransferType { get; set; } = TransferType.Definitive;
+
+    // Where a temporary transfer returns the student. Null for the initial membership and
+    // definitive moves.
+    public int? OriginalCohortId { get; set; }
 }

@@ -400,12 +400,19 @@ namespace PGSH.Infrastructure.Migrations
                     b.Property<Guid>("InternshipAssignmentId")
                         .HasColumnType("uuid");
 
+                    b.Property<int?>("OriginalCohortId")
+                        .HasColumnType("integer");
+
                     b.Property<DateOnly>("StartDate")
                         .HasColumnType("date");
 
                     b.Property<string>("TransferReason")
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
+
+                    b.Property<string>("TransferType")
+                        .IsRequired()
+                        .HasColumnType("text");
 
                     b.HasKey("Id");
 
