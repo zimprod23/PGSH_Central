@@ -2,6 +2,7 @@ using MediatR;
 using Microsoft.AspNetCore.Mvc;
 using PGSH.API.Extensions;
 using PGSH.API.Infrastructure;
+using PGSH.Application.Stages.Cohorts.Bulk;
 using PGSH.Application.Stages.Cohorts.PublishSchedule;
 using PGSH.Application.Stages.Schedule;
 using PGSH.Application.Stages.Schedule.AutoArrange;
@@ -97,6 +98,26 @@ internal sealed class StageScheduleEndpoints : IEndpoint
                 return result.Match(Results.Ok, CustomResults.Problem);
             })
             .WithTags("Stages");
+
+        app.MapPost("stages/{stageId:int}/schedule/start",
+            async (int stageId, [FromBody] StageLifecycleRequest? request, ISender sender, CancellationToken ct) =>
+            {
+                var command = new StartStagePeriodsCommand(
+                    stageId, request?.CohortIds, request?.PartitionLabels, request?.PeriodNumbers);
+                var result = await sender.Send(command, ct);
+                return result.Match(count => Results.Ok(new { started = count }), CustomResults.Problem);
+            })
+            .WithTags("Stages");
+
+        app.MapPost("stages/{stageId:int}/schedule/complete",
+            async (int stageId, [FromBody] StageLifecycleRequest? request, ISender sender, CancellationToken ct) =>
+            {
+                var command = new CompleteStagePeriodsCommand(
+                    stageId, request?.CohortIds, request?.PartitionLabels, request?.PeriodNumbers);
+                var result = await sender.Send(command, ct);
+                return result.Match(count => Results.Ok(new { completed = count }), CustomResults.Problem);
+            })
+            .WithTags("Stages");
     }
 }
 
@@ -104,3 +125,4 @@ internal sealed record SlotRequest(int PeriodNumber, string? Label, DateOnly Sta
 internal sealed record SetAssignmentRequest(int ServiceId);
 internal sealed record AutoArrangeRequest(int? PartitionCount, IReadOnlyList<string>? PartitionLabels, IReadOnlyList<int>? PeriodNumbers);
 internal sealed record PublishStageRequest(IReadOnlyList<string>? PartitionLabels, IReadOnlyList<int>? PeriodNumbers, bool AllowOverCapacity = false);
+internal sealed record StageLifecycleRequest(IReadOnlyList<int>? CohortIds, IReadOnlyList<string>? PartitionLabels, IReadOnlyList<int>? PeriodNumbers);

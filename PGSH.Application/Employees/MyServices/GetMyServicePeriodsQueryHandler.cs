@@ -69,6 +69,8 @@ internal sealed class GetMyServicePeriodsQueryHandler(
                 RosterGroupLabel = p.CohortSlotAssignment != null
                     ? p.CohortSlotAssignment.Cohort.AcademicGroup.Label
                     : p.InternshipAssignment.Cohort.AcademicGroup.Label,
+                StageName = p.InternshipAssignment.Cohort.Stage.Name,
+                LevelLabel = p.InternshipAssignment.Cohort.Stage.Level.Label,
                 PeriodCohortId = p.CohortSlotAssignment != null ? (int?)p.CohortSlotAssignment.CohortId : null,
                 CurrentCohortId = p.InternshipAssignment.CurrentCohortId,
                 CurrentGroupLabel = p.InternshipAssignment.Cohort.AcademicGroup.Label,
@@ -113,6 +115,8 @@ internal sealed class GetMyServicePeriodsQueryHandler(
                 r.IsComplete,
                 r.HasEvaluation,
                 r.RosterGroupLabel,
+                r.StageName,
+                r.LevelLabel,
                 marker);
         }).ToList();
     }
@@ -151,6 +155,8 @@ internal sealed class GetMyServicePeriodsQueryHandler(
                 StartDate = x.sa.StageSlot.StartDate,
                 EndDate = x.sa.StageSlot.EndDate,
                 CurrentGroupLabel = x.sa.Cohort.AcademicGroup.Label,
+                StageName = x.sa.Cohort.Stage.Name,
+                LevelLabel = x.sa.Cohort.Stage.Level.Label,
                 TransferReason = x.a.MembershipHistory
                     .Where(m => m.EndDate == null)
                     .Select(m => m.TransferReason)
@@ -189,6 +195,8 @@ internal sealed class GetMyServicePeriodsQueryHandler(
             IsComplete: false,
             HasEvaluation: false,
             r.CurrentGroupLabel,
+            r.StageName,
+            r.LevelLabel,
             new TransferMarker(
                 TransferDirection.Incoming,
                 r.OriginGroupLabel ?? "—",

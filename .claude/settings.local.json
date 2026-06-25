@@ -82,7 +82,8 @@
       "Bash(docker exec *)",
       "Bash(python -c \"import sys,json;d=json.load\\(sys.stdin\\);print\\('  echoed pageSize=',d.get\\('pageSize'\\),'items=',len\\(d['items']\\),'totalCount=',d.get\\('totalCount'\\)\\)\")",
       "Bash(grep -nE \"^#{1,3} \" NOTES.md)",
-      "Bash(npx eslint *)"
+      "Bash(npx eslint *)",
+      "PowerShell(npx eslint src/features/admin/pages/AssignmentsPage.tsx src/features/admin/api/adminApi.ts 2>&1 | Select-Object -Last 20)"
     ]
   }
 }

@@ -26,6 +26,7 @@ public static class DependencyInjection
         services.AddScoped<RotationArranger>();
         services.AddScoped<StudentAffectationService>();
         services.AddScoped<SchedulePublisher>();
+        services.AddScoped<StagePeriodRunner>();
         services.AddScoped<CohortProvisioner>();
         services.AddScoped<ExecutionAuthorizer>();
 

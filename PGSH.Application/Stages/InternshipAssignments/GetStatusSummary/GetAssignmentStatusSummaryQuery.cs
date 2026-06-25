@@ -5,6 +5,7 @@ namespace PGSH.Application.Stages.InternshipAssignments.GetStatusSummary;
 
 public sealed record GetAssignmentStatusSummaryQuery(
     List<int>? CohortIds,
-    int?       StageId) : IQuery<List<AssignmentStatusCount>>;
+    int?       StageId,
+    List<int>? PeriodNumbers = null) : IQuery<List<AssignmentStatusCount>>;
 
 public sealed record AssignmentStatusCount(InternshipStatus Status, int Count);

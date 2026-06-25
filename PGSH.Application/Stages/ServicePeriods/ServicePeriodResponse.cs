@@ -14,6 +14,8 @@ public sealed record ServicePeriodResponse(
     bool IsComplete,
     bool HasEvaluation,
     string AcademicGroupLabel,
+    string StageName,
+    string? LevelLabel,
     TransferMarker? Transfer = null);
 
 /// <summary>

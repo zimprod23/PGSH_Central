@@ -55,6 +55,8 @@ internal sealed class GetServicePeriodsQueryHandler(
                     p.IsComplete,
                     p.Evaluation != null,
                     p.InternshipAssignment.Cohort.AcademicGroup.Label,
+                    p.InternshipAssignment.Cohort.Stage.Name,
+                    p.InternshipAssignment.Cohort.Stage.Level.Label,
                     null),
                 cancellationToken);
 
