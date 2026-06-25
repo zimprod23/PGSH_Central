@@ -12,7 +12,8 @@ public sealed record GroupDetailResponse(
     string? RotationGroup,
     int    AcademicYearId,
     string AcademicYearLabel,
-    IReadOnlyList<GroupStudentResponse> Students);
+    IReadOnlyList<GroupStudentResponse> Students,
+    IReadOnlyList<IncomingLoanResponse> IncomingLoans);
 
 public sealed record GroupStudentResponse(
     Guid   RegistrationId,
@@ -20,4 +21,15 @@ public sealed record GroupStudentResponse(
     string FullName,
     string Cne,
     string Email,
-    string RegistrationStatus);
+    string RegistrationStatus,
+    // Set when the student is on a temporary loan to another group for one stage; they stay
+    // registered here and auto-revert at that stage's end.
+    string? LoanedToGroup,
+    string? LoanedStage);
+
+public sealed record IncomingLoanResponse(
+    Guid   StudentId,
+    string FullName,
+    string Cne,
+    string FromGroup,
+    string Stage);

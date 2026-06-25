@@ -62,6 +62,27 @@ internal sealed class GetYearTimelineQueryHandler(
         if (cohorts.Count == 0)
             return new YearTimelineResponse(year.Id, year.Label, null, null, []);
 
+        // Actual (possibly pause-shifted) period windows + their pause bands, keyed by the cohort
+        // the student currently sits in. A paused rotation extends past its planned slot window, so
+        // the calendar reflects the real end and draws the suspension as a band.
+        var cohortIds = cohorts.Select(c => c.CohortId).ToList();
+        var periodsByCohort = (await dbContext.ServicePeriods
+            .AsNoTracking()
+            .Where(p => cohortIds.Contains(p.InternshipAssignment.CurrentCohortId) && !p.IsInterrupted)
+            .Select(p => new
+            {
+                CohortId = p.InternshipAssignment.CurrentCohortId,
+                p.EndDate,
+                Pauses = p.Pauses.Select(x => new PauseRow(x.StartDate, x.ResumeDate, x.Kind.ToString())).ToList(),
+            })
+            .ToListAsync(ct))
+            .GroupBy(x => x.CohortId)
+            .ToDictionary(
+                g => g.Key,
+                g => new CohortPeriods(
+                    g.Max(x => (DateOnly?)x.EndDate),
+                    g.SelectMany(x => x.Pauses).ToList()));
+
         var stageIds = cohorts.Select(c => c.StageId).Distinct().ToList();
 
         var stageSpans = (await dbContext.StageSlots
@@ -92,7 +113,7 @@ internal sealed class GetYearTimelineQueryHandler(
                 var stages = lg
                     .GroupBy(c => new { c.StageId, c.StageName })
                     .OrderBy(sg => sg.Key.StageName)
-                    .Select(sg => BuildStage(sg.Key.StageId, sg.Key.StageName, sg.ToList(), stageSpans, slotCountByStage, occupancy))
+                    .Select(sg => BuildStage(sg.Key.StageId, sg.Key.StageName, sg.ToList(), stageSpans, slotCountByStage, occupancy, periodsByCohort))
                     .ToList();
 
                 var (start, end) = SpanOf(stages.Select(s => (s.Start, s.End)));
@@ -108,7 +129,8 @@ internal sealed class GetYearTimelineQueryHandler(
         int stageId, string stageName, List<CohortRow> stageCohorts,
         IReadOnlyDictionary<int, (DateOnly Start, DateOnly End)> stageSpans,
         IReadOnlyDictionary<int, int> slotCountByStage,
-        ServiceOccupancyLookup occupancy)
+        ServiceOccupancyLookup occupancy,
+        IReadOnlyDictionary<int, CohortPeriods> periodsByCohort)
     {
         var partitions = stageCohorts
             .GroupBy(c => c.Partition)
@@ -118,6 +140,28 @@ internal sealed class GetYearTimelineQueryHandler(
                 var cells = pg.SelectMany(c => c.Cells).ToList();
                 DateOnly? start = cells.Count > 0 ? cells.Min(x => x.Start) : null;
                 DateOnly? end   = cells.Count > 0 ? cells.Max(x => x.End)   : null;
+
+                var partitionPeriods = pg
+                    .Select(c => periodsByCohort.GetValueOrDefault(c.CohortId))
+                    .Where(x => x is not null)
+                    .Select(x => x!)
+                    .ToList();
+
+                // A paused rotation runs past its planned slot window — extend the bar to the real end.
+                var periodEnds = partitionPeriods.Where(x => x.MaxEnd.HasValue).Select(x => x.MaxEnd!.Value).ToList();
+                if (periodEnds.Count > 0)
+                {
+                    var maxPeriodEnd = periodEnds.Max();
+                    end = end is null || maxPeriodEnd > end ? maxPeriodEnd : end;
+                }
+
+                var pauses = partitionPeriods
+                    .SelectMany(x => x.Pauses)
+                    .Select(p => new TimelinePauseBand(p.Start, p.Resume, p.Kind))
+                    .GroupBy(b => new { b.Start, b.End, b.Kind })
+                    .Select(g => g.First())
+                    .OrderBy(b => b.Start)
+                    .ToList();
 
                 bool saturated = cells.Any(cell =>
                     occupancy.LoadOn(cell.ServiceId, cell.Start, cell.End) > cell.Capacity);
@@ -130,7 +174,7 @@ internal sealed class GetYearTimelineQueryHandler(
                     .ToList();
 
                 return new TimelinePartition(
-                    pg.Key, start, end, pg.Count(), pg.Sum(c => c.StudentCount), saturated, groups);
+                    pg.Key, start, end, pg.Count(), pg.Sum(c => c.StudentCount), saturated, groups, pauses);
             })
             .ToList();
 
@@ -165,4 +209,8 @@ internal sealed class GetYearTimelineQueryHandler(
         int StudentCount, List<CellRow> Cells);
 
     private sealed record CellRow(int ServiceId, DateOnly Start, DateOnly End, int Capacity);
+
+    private sealed record CohortPeriods(DateOnly? MaxEnd, List<PauseRow> Pauses);
+
+    private sealed record PauseRow(DateOnly Start, DateOnly? Resume, string Kind);
 }

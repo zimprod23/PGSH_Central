@@ -36,7 +36,15 @@ public sealed record TimelinePartition(
     int       CohortCount,
     int       StudentCount,
     bool      Saturated,
-    IReadOnlyList<TimelineGroup> Groups);
+    IReadOnlyList<TimelineGroup> Groups,
+    IReadOnlyList<TimelinePauseBand> Pauses);
+
+// A suspension window over a partition's rotation (e.g. an exam week), drawn as a hatched band on
+// the calendar. End is null while still paused (open-ended). Kind is the pause reason category.
+public sealed record TimelinePauseBand(
+    DateOnly  Start,
+    DateOnly? End,
+    string    Kind);
 
 public sealed record TimelineGroup(
     int    GroupId,

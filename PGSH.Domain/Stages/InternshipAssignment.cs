@@ -49,6 +49,62 @@ public sealed class InternshipAssignment : Entity
         return AppResult.Success();
     }
 
+    // Suspends an in-flight period (e.g. an exam week). Only a started, not-yet-complete period
+    // can be paused; the chef sees it frozen until an admin resumes it.
+    public Result PausePeriod(Guid periodId, DateOnly date, PauseKind kind, string? reason)
+    {
+        var period = ServicePeriods.FirstOrDefault(p => p.Id == periodId);
+        if (period is null)
+            return AppResult.Failure(StageErrors.PeriodNotFound(periodId));
+        if (!period.IsStarted)
+            return AppResult.Failure(StageErrors.PeriodNotStarted(periodId));
+        if (period.IsComplete)
+            return AppResult.Failure(StageErrors.PeriodAlreadyComplete(periodId));
+        if (period.IsPaused)
+            return AppResult.Failure(StageErrors.PeriodAlreadyPaused(periodId));
+
+        period.IsPaused = true;
+        period.Pauses.Add(new PeriodPause
+        {
+            ServicePeriodId = period.Id,
+            StartDate       = date,
+            Kind            = kind,
+            Reason          = reason,
+        });
+        return AppResult.Success();
+    }
+
+    // Resumes a paused period: the days lost while paused extend this period's end, then every
+    // later period of this assignment is pushed forward by the same amount so the rotation stays
+    // contiguous and the student still serves each stage in full.
+    public Result ResumePeriod(Guid periodId, DateOnly date)
+    {
+        var period = ServicePeriods.FirstOrDefault(p => p.Id == periodId);
+        if (period is null)
+            return AppResult.Failure(StageErrors.PeriodNotFound(periodId));
+        if (!period.IsPaused)
+            return AppResult.Failure(StageErrors.PeriodNotPaused(periodId));
+
+        var openPause = period.Pauses.FirstOrDefault(p => p.ResumeDate is null);
+        period.IsPaused = false;
+        if (openPause is null)
+            return AppResult.Success();
+
+        openPause.ResumeDate = date;
+        int days = date.DayNumber - openPause.StartDate.DayNumber;
+        if (days <= 0)
+            return AppResult.Success();
+
+        period.EndDate = period.EndDate.AddDays(days);
+        foreach (var later in ServicePeriods.Where(p => p.Id != period.Id && p.StartDate > period.StartDate))
+        {
+            later.StartDate = later.StartDate.AddDays(days);
+            later.EndDate   = later.EndDate.AddDays(days);
+        }
+
+        return AppResult.Success();
+    }
+
     public Result CompletePeriod(Guid periodId)
     {
         var period = ServicePeriods.FirstOrDefault(p => p.Id == periodId);
@@ -56,6 +112,8 @@ public sealed class InternshipAssignment : Entity
             return AppResult.Failure(StageErrors.PeriodNotFound(periodId));
         if (period.IsComplete)
             return AppResult.Failure(StageErrors.PeriodAlreadyComplete(periodId));
+        if (period.IsPaused)
+            return AppResult.Failure(StageErrors.PeriodPaused(periodId));
 
         period.IsComplete = true;
         Raise(new ServicePeriodCompletedDomainEvent(Id, periodId));
@@ -155,7 +213,7 @@ public sealed class InternshipAssignment : Entity
 
         CurrentCohortId = newCohortId;
 
-        Raise(new StudentCohortTransferredDomainEvent(Id, RegistrationId, previousCohortId, newCohortId, reason));
+        Raise(new StudentCohortTransferredDomainEvent(Id, RegistrationId, previousCohortId, newCohortId, reason, type));
     }
 
     // ─── Score computation ────────────────────────────────────────────────────

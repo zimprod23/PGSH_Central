@@ -57,7 +57,9 @@ internal sealed class GetServicePeriodsQueryHandler(
                     p.InternshipAssignment.Cohort.AcademicGroup.Label,
                     p.InternshipAssignment.Cohort.Stage.Name,
                     p.InternshipAssignment.Cohort.Stage.Level.Label,
-                    null),
+                    null,
+                    p.IsPaused,
+                    p.Pauses.Where(x => x.ResumeDate == null).Select(x => x.Reason).FirstOrDefault()),
                 cancellationToken);
 
         return Result.Success(response);

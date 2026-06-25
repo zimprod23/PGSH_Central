@@ -7,6 +7,7 @@ using PGSH.Application.Stages.Cohorts.PublishSchedule;
 using PGSH.Application.Stages.Schedule;
 using PGSH.Application.Stages.Schedule.AutoArrange;
 using PGSH.Application.Stages.Slots;
+using PGSH.Domain.Stages;
 
 namespace PGSH.API.Endpoints.Stages;
 
@@ -118,6 +119,27 @@ internal sealed class StageScheduleEndpoints : IEndpoint
                 return result.Match(count => Results.Ok(new { completed = count }), CustomResults.Problem);
             })
             .WithTags("Stages");
+
+        app.MapPost("stages/{stageId:int}/schedule/pause",
+            async (int stageId, [FromBody] StagePauseRequest? request, ISender sender, CancellationToken ct) =>
+            {
+                var command = new PauseStagePeriodsCommand(
+                    stageId, request?.Kind ?? PauseKind.Exam, request?.Reason,
+                    request?.CohortIds, request?.PartitionLabels, request?.PeriodNumbers);
+                var result = await sender.Send(command, ct);
+                return result.Match(count => Results.Ok(new { paused = count }), CustomResults.Problem);
+            })
+            .WithTags("Stages");
+
+        app.MapPost("stages/{stageId:int}/schedule/resume",
+            async (int stageId, [FromBody] StageLifecycleRequest? request, ISender sender, CancellationToken ct) =>
+            {
+                var command = new ResumeStagePeriodsCommand(
+                    stageId, request?.CohortIds, request?.PartitionLabels, request?.PeriodNumbers);
+                var result = await sender.Send(command, ct);
+                return result.Match(count => Results.Ok(new { resumed = count }), CustomResults.Problem);
+            })
+            .WithTags("Stages");
     }
 }
 
@@ -126,3 +148,4 @@ internal sealed record SetAssignmentRequest(int ServiceId);
 internal sealed record AutoArrangeRequest(int? PartitionCount, IReadOnlyList<string>? PartitionLabels, IReadOnlyList<int>? PeriodNumbers);
 internal sealed record PublishStageRequest(IReadOnlyList<string>? PartitionLabels, IReadOnlyList<int>? PeriodNumbers, bool AllowOverCapacity = false);
 internal sealed record StageLifecycleRequest(IReadOnlyList<int>? CohortIds, IReadOnlyList<string>? PartitionLabels, IReadOnlyList<int>? PeriodNumbers);
+internal sealed record StagePauseRequest(PauseKind? Kind, string? Reason, IReadOnlyList<int>? CohortIds, IReadOnlyList<string>? PartitionLabels, IReadOnlyList<int>? PeriodNumbers);

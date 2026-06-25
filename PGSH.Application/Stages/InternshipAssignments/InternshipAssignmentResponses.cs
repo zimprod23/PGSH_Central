@@ -13,7 +13,10 @@ public sealed record InternshipAssignmentSummaryResponse(
     string StageName,
     InternshipStatus Status,
     decimal? FinalScore,
-    StageAssignmentResult? Result);
+    StageAssignmentResult? Result,
+    // True while any of the assignment's active periods is suspended (e.g. an exam week). The
+    // assignment Status itself stays Ongoing — this surfaces the per-period pause on the row.
+    bool IsPaused = false);
 
 public sealed record InternshipAssignmentResponse(
     Guid Id,
@@ -34,4 +37,7 @@ public sealed record ServicePeriodSummary(
     DateOnly StartDate,
     DateOnly EndDate,
     bool IsComplete,
-    bool HasEvaluation);
+    bool HasEvaluation,
+    bool IsStarted = false,
+    bool IsPaused = false,
+    string? PauseReason = null);

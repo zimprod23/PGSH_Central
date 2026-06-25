@@ -27,8 +27,39 @@ public sealed class ServicePeriod
     // chef worklist, the status counts, the score, and the "all periods done" lifecycle checks.
     public bool IsInterrupted { get; set; }
 
+    // Temporarily suspended (e.g. an exam week mid-rotation). Non-terminal: the rotation resumes,
+    // and on resume the lost days extend this period's end and push every later period forward.
+    // While paused the period is shown as such to the chef but is not actionable.
+    public bool IsPaused { get; set; }
+
+    public ICollection<PeriodPause> Pauses { get; set; } = new List<PeriodPause>();
+
     public ICollection<AttendanceRecord> Attendance { get; set; } = new List<AttendanceRecord>();
     public ServiceEvaluation? Evaluation { get; set; }
+}
+
+/// <summary>
+/// A suspension of a <see cref="ServicePeriod"/> — e.g. an exam break mid-rotation. The period is
+/// frozen on <see cref="StartDate"/> and runs again on <see cref="ResumeDate"/>; the elapsed days
+/// are added back to the rotation so the student still serves the full stage.
+/// </summary>
+public sealed class PeriodPause
+{
+    public Guid Id { get; set; }
+    public Guid ServicePeriodId { get; set; }
+    public ServicePeriod ServicePeriod { get; set; } = default!;
+
+    public DateOnly StartDate { get; set; }
+    public DateOnly? ResumeDate { get; set; }
+    public PauseKind Kind { get; set; } = PauseKind.Exam;
+    public string? Reason { get; set; }
+}
+
+public enum PauseKind
+{
+    Exam,
+    Holiday,
+    Other,
 }
 
 public sealed class ServiceEvaluation

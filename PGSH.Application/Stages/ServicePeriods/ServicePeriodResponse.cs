@@ -16,7 +16,9 @@ public sealed record ServicePeriodResponse(
     string AcademicGroupLabel,
     string StageName,
     string? LevelLabel,
-    TransferMarker? Transfer = null);
+    TransferMarker? Transfer = null,
+    bool IsPaused = false,
+    string? PauseReason = null);
 
 /// <summary>
 /// Overlay marking a worklist row that no longer matches the chef's live roster because

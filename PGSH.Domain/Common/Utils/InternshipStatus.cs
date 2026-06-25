@@ -13,6 +13,9 @@ public enum InternshipStatus
     Completed,
     Evaluated,
     Validated,
-    Rejected
+    Rejected,
+    // Not a persisted assignment status: used only as a per-period suivi count bucket for a
+    // rotation suspended mid-stage (e.g. an exam week). The assignment itself stays Ongoing.
+    Paused
 }
 

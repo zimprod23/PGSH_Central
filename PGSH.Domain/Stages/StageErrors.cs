@@ -167,4 +167,20 @@ public static class StageErrors
     public static Error PeriodNotComplete(Guid periodId) => Error.Validation(
         "AssignmentPeriods.NotComplete",
         $"Service period '{periodId}' must be completed before submitting an evaluation.");
+
+    public static Error PeriodNotStarted(Guid periodId) => Error.Conflict(
+        "AssignmentPeriods.NotStarted",
+        $"Service period '{periodId}' must be started before it can be paused.");
+
+    public static Error PeriodAlreadyPaused(Guid periodId) => Error.Conflict(
+        "AssignmentPeriods.AlreadyPaused",
+        $"Service period '{periodId}' is already paused.");
+
+    public static Error PeriodNotPaused(Guid periodId) => Error.Conflict(
+        "AssignmentPeriods.NotPaused",
+        $"Service period '{periodId}' is not paused.");
+
+    public static Error PeriodPaused(Guid periodId) => Error.Conflict(
+        "AssignmentPeriods.Paused",
+        $"Service period '{periodId}' is paused; resume it before closing.");
 }

@@ -66,6 +66,11 @@ internal sealed class GetMyServicePeriodsQueryHandler(
                 p.StartDate,
                 p.EndDate,
                 p.IsComplete,
+                p.IsPaused,
+                PauseReason = p.Pauses
+                    .Where(x => x.ResumeDate == null)
+                    .Select(x => x.Reason)
+                    .FirstOrDefault(),
                 HasEvaluation = p.Evaluation != null,
                 RosterGroupLabel = p.CohortSlotAssignment != null
                     ? p.CohortSlotAssignment.Cohort.AcademicGroup.Label
@@ -118,7 +123,9 @@ internal sealed class GetMyServicePeriodsQueryHandler(
                 r.RosterGroupLabel,
                 r.StageName,
                 r.LevelLabel,
-                marker);
+                marker,
+                r.IsPaused,
+                r.PauseReason);
         }).ToList();
     }
 

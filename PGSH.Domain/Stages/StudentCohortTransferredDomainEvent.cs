@@ -1,3 +1,4 @@
+using PGSH.Domain.Registrations;
 using PGSH.SharedKernel;
 
 namespace PGSH.Domain.Stages;
@@ -7,4 +8,5 @@ public sealed record StudentCohortTransferredDomainEvent(
     Guid RegistrationId,
     int  PreviousCohortId,
     int  NewCohortId,
-    string? Reason) : IDomainEvent;
+    string? Reason,
+    TransferType Type) : IDomainEvent;

@@ -34,7 +34,10 @@ internal sealed class GetInternshipAssignmentByIdQueryHandler(IApplicationDbCont
                         p.StartDate,
                         p.EndDate,
                         p.IsComplete,
-                        p.Evaluation != null))
+                        p.Evaluation != null,
+                        p.IsStarted,
+                        p.IsPaused,
+                        p.Pauses.Where(x => x.ResumeDate == null).Select(x => x.Reason).FirstOrDefault()))
                     .ToList()))
             .SingleOrDefaultAsync(cancellationToken);
 

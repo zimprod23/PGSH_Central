@@ -518,6 +518,36 @@ namespace PGSH.Infrastructure.Migrations
                     b.ToTable("ObjectiveScores", "public");
                 });
 
+            modelBuilder.Entity("PGSH.Domain.Stages.PeriodPause", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Reason")
+                        .HasColumnType("text");
+
+                    b.Property<DateOnly?>("ResumeDate")
+                        .HasColumnType("date");
+
+                    b.Property<Guid>("ServicePeriodId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateOnly>("StartDate")
+                        .HasColumnType("date");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ServicePeriodId")
+                        .HasDatabaseName("IX_PeriodPause_ServicePeriodId");
+
+                    b.ToTable("PeriodPause", "public");
+                });
+
             modelBuilder.Entity("PGSH.Domain.Stages.ServiceEvaluation", b =>
                 {
                     b.Property<Guid>("Id")
@@ -568,6 +598,9 @@ namespace PGSH.Infrastructure.Migrations
                         .HasColumnType("boolean");
 
                     b.Property<bool>("IsInterrupted")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsPaused")
                         .HasColumnType("boolean");
 
                     b.Property<bool>("IsStarted")
@@ -1183,6 +1216,17 @@ namespace PGSH.Infrastructure.Migrations
                     b.Navigation("StageObjective");
                 });
 
+            modelBuilder.Entity("PGSH.Domain.Stages.PeriodPause", b =>
+                {
+                    b.HasOne("PGSH.Domain.Stages.ServicePeriod", "ServicePeriod")
+                        .WithMany("Pauses")
+                        .HasForeignKey("ServicePeriodId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("ServicePeriod");
+                });
+
             modelBuilder.Entity("PGSH.Domain.Stages.ServiceEvaluation", b =>
                 {
                     b.HasOne("PGSH.Domain.Stages.ServicePeriod", "ServicePeriod")
@@ -1399,6 +1443,8 @@ namespace PGSH.Infrastructure.Migrations
                     b.Navigation("Attendance");
 
                     b.Navigation("Evaluation");
+
+                    b.Navigation("Pauses");
                 });
 
             modelBuilder.Entity("PGSH.Domain.Stages.Stage", b =>

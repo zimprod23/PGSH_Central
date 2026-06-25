@@ -21,7 +21,7 @@ internal sealed class TemporaryTransferEndedEventHandler(IApplicationDbContext d
 
         var fromGroup = await db.Cohorts.AsNoTracking()
             .Where(c => c.Id == notification.TransferCohortId)
-            .Select(c => c.AcademicGroup.Label)
+            .Select(c => new { c.AcademicGroup.Label, Stage = c.Stage.Name })
             .FirstOrDefaultAsync(ct);
 
         var toGroup = await db.Cohorts.AsNoTracking()
@@ -37,8 +37,9 @@ internal sealed class TemporaryTransferEndedEventHandler(IApplicationDbContext d
             CreatedAt   = DateTime.UtcNow,
             Metadata    = new
             {
-                fromGroup = fromGroup ?? $"Cohorte {notification.TransferCohortId}",
-                toGroup   = toGroup   ?? $"Cohorte {notification.OriginalCohortId}",
+                fromGroup = fromGroup?.Label ?? $"Cohorte {notification.TransferCohortId}",
+                toGroup   = toGroup          ?? $"Cohorte {notification.OriginalCohortId}",
+                stage     = fromGroup?.Stage,
                 reason    = notification.Reason,
                 temporaryReturn = true,
             },

@@ -33,6 +33,7 @@ internal sealed class GetAssignmentStatusSummaryQueryHandler(IApplicationDbConte
             a.Status,
             p.IsStarted,
             p.IsComplete,
+            p.IsPaused,
             HasEvaluation = p.Evaluation != null,
             PeriodNumber  = p.CohortSlotAssignment != null
                 ? (int?)p.CohortSlotAssignment.StageSlot.PeriodNumber
@@ -50,6 +51,7 @@ internal sealed class GetAssignmentStatusSummaryQueryHandler(IApplicationDbConte
                 r.Status == InternshipStatus.Validated ? InternshipStatus.Validated :
                 r.IsComplete && r.HasEvaluation        ? InternshipStatus.Evaluated  :
                 r.IsComplete                           ? InternshipStatus.Completed  :
+                r.IsPaused                             ? InternshipStatus.Paused     :
                 r.IsStarted                            ? InternshipStatus.Ongoing    :
                                                          InternshipStatus.Planned)
             .Select(g => new AssignmentStatusCount(g.Key, g.Count()))

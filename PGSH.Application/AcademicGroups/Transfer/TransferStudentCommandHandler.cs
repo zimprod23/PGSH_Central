@@ -40,21 +40,19 @@ internal sealed class TransferStudentCommandHandler(
                 "AcademicGroups.SameGroup",
                 "The student is already in this group; nothing to transfer."));
 
+        // Periods (and the slot cells they were generated from) are loaded for both transfer paths:
+        // a mid-stage hand-off re-routes the in-flight rotation, and a plain transfer rehomes the
+        // future rotation onto the target group's slots so the new chef gets real, evaluable periods.
         var query = dbContext.InternshipAssignments
             .Include(a => a.MembershipHistory)
             .Include(a => a.Cohort)
+            .Include(a => a.ServicePeriods)
+                .ThenInclude(p => p.CohortSlotAssignment!)
+                    .ThenInclude(sa => sa.StageSlot)
             .Where(a => a.RegistrationId == request.RegistrationId
                      && a.Status != InternshipStatus.Completed
                      && a.Status != InternshipStatus.Validated
                      && a.Status != InternshipStatus.Rejected);
-
-        // A mid-stage hand-off re-routes the in-flight rotation, so the periods and the slot they
-        // were generated from must be loaded for the rescheduler to work on.
-        if (request.Reschedule)
-            query = query
-                .Include(a => a.ServicePeriods)
-                    .ThenInclude(p => p.CohortSlotAssignment!)
-                        .ThenInclude(sa => sa.StageSlot);
 
         // Temporary: only the named stage's assignment moves, and the registration's group is
         // left untouched so every other stage still runs with the original group.
@@ -93,6 +91,14 @@ internal sealed class TransferStudentCommandHandler(
                 var reroute = await rescheduler.RerouteAsync(assignment, targetCohort.Id, transferDate, cancellationToken);
                 if (reroute.IsFailure)
                     return reroute;
+            }
+            else
+            {
+                // Normal transfer: rehome the future rotation onto the target group's slots so the
+                // new chef gets actionable, evaluable periods instead of an informational green row.
+                var materialize = await rescheduler.MaterializeAtTargetAsync(assignment, targetCohort.Id, cancellationToken);
+                if (materialize.IsFailure)
+                    return materialize;
             }
         }
 

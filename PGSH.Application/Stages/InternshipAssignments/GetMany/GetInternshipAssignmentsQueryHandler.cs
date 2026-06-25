@@ -41,7 +41,8 @@ internal sealed class GetInternshipAssignmentsQueryHandler(IApplicationDbContext
                     a.Cohort.Stage.Name,
                     a.Status,
                     a.FinalScore,
-                    a.Result),
+                    a.Result,
+                    a.ServicePeriods.Any(p => p.IsPaused)),
                 cancellationToken);
 
         return Result.Success(response);

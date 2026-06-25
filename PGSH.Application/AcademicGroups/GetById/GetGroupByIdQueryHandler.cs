@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
+using PGSH.Domain.Registrations;
 using PGSH.SharedKernel;
 
 namespace PGSH.Application.AcademicGroups.GetById;
@@ -30,7 +31,32 @@ internal sealed class GetGroupByIdQueryHandler(IApplicationDbContext dbContext)
                         (r.Student.FirstName ?? "") + " " + (r.Student.LastName ?? ""),
                         r.Student.CNE ?? "",
                         r.Student.Email ?? "",
-                        r.Status.ToString()))
+                        r.Status.ToString(),
+                        // An active temporary loan moved this stage's assignment to another group;
+                        // the current cohort therefore sits in the destination group.
+                        r.InternshipAssignments
+                            .Where(a => a.MembershipHistory.Any(m =>
+                                m.EndDate == null && m.TransferType == TransferType.Temporary))
+                            .Select(a => a.Cohort.AcademicGroup.Label)
+                            .FirstOrDefault(),
+                        r.InternshipAssignments
+                            .Where(a => a.MembershipHistory.Any(m =>
+                                m.EndDate == null && m.TransferType == TransferType.Temporary))
+                            .Select(a => a.Cohort.Stage.Name)
+                            .FirstOrDefault()))
+                    .ToList(),
+                // Students from other groups currently loaned INTO this group for one stage.
+                dbContext.InternshipAssignments
+                    .Where(a => a.Cohort.AcademicGroupId == g.Id
+                             && a.Registration.AcademicGroupId != g.Id
+                             && a.MembershipHistory.Any(m =>
+                                 m.EndDate == null && m.TransferType == TransferType.Temporary))
+                    .Select(a => new IncomingLoanResponse(
+                        a.Registration.StudentId,
+                        (a.Registration.Student.FirstName ?? "") + " " + (a.Registration.Student.LastName ?? ""),
+                        a.Registration.Student.CNE ?? "",
+                        a.Registration.AcademicGroup!.Label,
+                        a.Cohort.Stage.Name))
                     .ToList()))
             .SingleOrDefaultAsync(cancellationToken);
 

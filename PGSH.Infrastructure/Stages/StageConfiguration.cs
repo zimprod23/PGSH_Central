@@ -214,6 +214,26 @@ internal sealed class ServicePeriodConfiguration : IEntityTypeConfiguration<Serv
                 .WithOne(e => e.ServicePeriod)
                 .HasForeignKey<ServiceEvaluation>(e => e.ServicePeriodId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+        builder.HasMany(p => p.Pauses)
+                .WithOne(pp => pp.ServicePeriod)
+                .HasForeignKey(pp => pp.ServicePeriodId)
+                .OnDelete(DeleteBehavior.Cascade);
+    }
+}
+
+internal sealed class PeriodPauseConfiguration : IEntityTypeConfiguration<PeriodPause>
+{
+    public void Configure(EntityTypeBuilder<PeriodPause> builder)
+    {
+        builder.HasKey(p => p.Id);
+
+        builder.Property(p => p.Kind)
+               .HasConversion<string>()
+               .IsRequired();
+
+        builder.HasIndex(p => p.ServicePeriodId)
+               .HasDatabaseName("IX_PeriodPause_ServicePeriodId");
     }
 }
 

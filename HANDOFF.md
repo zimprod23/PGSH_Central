@@ -10,13 +10,72 @@
 >    open: group-all-revalidations vs ad-hoc). Full 4-type model in agent memory `project_student_mobility`.
 > 4. Remaining Suivi item: small-service planning skip (#3, needs your decision — see that section below).
 >
-> **⚠ BEFORE TESTING:** four migrations are **pending DB apply** — `EvaluationModes`,
-> `ServicePeriodIsStarted`, `TransferType_OnCohortMembership`, `ServicePeriodIsInterrupted` — they auto-apply via `MigrationService` on the
-> next `dotnet run --project PGSH.AppHost` (no live DB was reachable this session to apply standalone: a local
-> Postgres answers on :5432 but rejects postgres/postgres; Aspire's container uses a random port+password).
+> **✅ MIGRATIONS APPLIED + VERIFIED (2026-06-25, session 6).** All five migrations — `EvaluationModes`,
+> `ServicePeriodIsStarted`, `TransferType_OnCohortMembership`, `ServicePeriodIsInterrupted`,
+> `ServicePeriodPause` — are now in `TodoDatabase` (confirmed against the running Aspire Postgres). Schema
+> checked: `ServicePeriods.{IsStarted,IsInterrupted,IsPaused}`, `CohortMembership.{TransferType,OriginalCohortId}`,
+> the `PeriodPause` table, and `ServiceEvaluation.{Mode,Outcome,TotalScore}` all present. The running API
+> already serves the session-5 routes (`schedule/pause` + `/resume`).
 > Build backend via `PGSH.Infrastructure.csproj` (API DLLs lock while the app runs); add ef migrations with
 > `--startup-project PGSH.Infrastructure` (design-time factory) since the running API blocks the API build.
 > _Updated 2026-06-25._
+
+## ▶ Verification + stale-status refetch fix ✅ DONE (2026-06-25, session 6)
+
+- **Verified the transfer + pause stack against the live DB** (stack was already running): 5 migrations applied,
+  schema columns/tables present, session-5 API routes live. Transferred-student data is correct — the one
+  Temporary loan's 2 periods are both `IsStarted=true, IsPaused=false` (no corruption).
+- **Bug fixed — student/chef saw stale period status ("Planifié" after Reprendre).** Root cause was NOT the
+  domain (`ResumePeriod` correctly keeps `IsStarted=true`, only flips `IsPaused→false`) but **cross-API-slice
+  cache staleness**: `pauseStagePeriods`/`resumeStagePeriods` live in the **admin** RTK Query slice and
+  invalidate `Assignment/LIST`, but the student detail reads `getAssignmentById` (**student** slice, tag
+  `Registration/assignment-{id}`) and the chef reads `getServicePeriodsByService` (**employee** slice) — a
+  mutation in one slice can't invalidate a query in another. Fix: `refetchOnMountOrArgChange: true` on the
+  student stage-detail (`getAssignmentById`), student stage-list (`getMyAssignments`), and chef worklist
+  (`getServicePeriodsByService`) call sites, so revisiting a page always shows live status. FE build + lint
+  clean (only the pre-existing `EmployeeServicesPage.tsx:109` eval-effect error remains). _Frontend repo commit._
+- **⚠ Backlog (security): schedule endpoints are unauthenticated.** `stages/{id}/schedule/{auto-arrange,
+  publish,start,complete,pause,resume}` have **no `.RequireAuthorization()`** — an unauthenticated POST mutates
+  data (a probe paused 604 periods). Pre-existing project-wide posture (auth/CORS lockdown = Phase 12), but a
+  mutating endpoint with no guard is worth fixing ahead of the rest. `GET /service-periods` 401s (it has a
+  guard); the schedule group never did.
+
+## ▶ Transfer bug-fixes + Stage Pause/Resume ✅ DONE (2026-06-25, session 5)
+
+Batch from user testing the transfer model. Build: backend `PGSH.Infrastructure` + `PGSH.API`
+(temp-output to dodge the running-API DLL lock) 0 errors; frontend `npm run build` + eslint clean on
+changed files (the one pre-existing `EmployeeServicesPage.tsx:109` eval-effect lint error is untouched).
+
+1. **History UX (direction + motif).** A temporary loan was only a `CohortTransfer`, which
+   `GetStudentHistoryQueryHandler` filters out → the outgoing loan + motif were invisible and only the
+   *return* row showed (reading loaned→home, hence "reversed"). Fix: `StudentCohortTransferredDomainEvent`
+   now carries `TransferType`; for a **Temporary** move `StudentCohortTransferredEventHandler` writes a
+   **visible** `GroupTransfer` history with GROUP labels + `stage` + `reason` + `temporary:true`
+   (definitive still writes the hidden `CohortTransfer`). `HistoryPage.tsx` got a transfer-aware renderer:
+   `Groupe X → Groupe Y` arrow (correct order) + "Motif :" + stage chip; `temporary`→"Prêt temporaire",
+   `temporaryReturn`→"Retour de prêt"; French key labels replace the raw capitalized dump.
+2. **"Loaned out" badge.** `GetGroupByIdQuery` roster rows now carry `LoanedToGroup`/`LoanedStage`
+   (active Temporary `CohortMembership`) + an `IncomingLoans` list. `GroupDetailPage` shows a grape
+   "Prêt → Groupe X · stage" badge on loaned-out students and an "N prêt(s) entrant(s)" table.
+3. **Incoming loan now evaluable.** New `MidStageTransferRescheduler.MaterializeAtTargetAsync`: on a
+   normal (non-reschedule) transfer it rehomes the future, not-started rotation onto the **target
+   cohort's slot cells** → real, actionable `ServicePeriod`s (joins the target group's progress via
+   `IsStarted`), so the synth green row is suppressed and the new chef can clôturer/évaluer. No-op when
+   the target group has no schedule for the stage (informational row stays as fallback). Wired in
+   `TransferStudentCommandHandler` (the assignment query now always `.Include(ServicePeriods…StageSlot)`).
+4. **Stage Pause/Resume (new).** `ServicePeriod.IsPaused` + child `PeriodPause{StartDate,ResumeDate?,Kind,Reason}`.
+   `InternshipAssignment.PausePeriod`/`ResumePeriod` — resume closes the open pause, adds the lost days to
+   that period's end and **cascade-shifts every later period** of the assignment. `CompletePeriod` now
+   refuses a paused period. New `StagePauseRunner` (mirrors `StagePeriodRunner`) + `PauseStagePeriodsCommand`/
+   `ResumeStagePeriodsCommand` (scope: cohorts/partition/periods), endpoints `POST stages/{id}/schedule/pause`
+   + `/resume`. Suivi count bucket `InternshipStatus.Paused` (display-only, never persisted on assignments).
+   Migration `ServicePeriodPause`. **FE:** Suivi bar Pause (modal: kind Examens/Vacances/Autre + reason) /
+   Reprendre buttons (pre-flight guarded by `selectionHasTargetPeriod`); chef worklist "En pause" badge;
+   admin/chef period responses carry `IsPaused`/`PauseReason`; calendar (`StageTimelinePage` +
+   `GetYearTimelineQuery`) draws hatched orange pause bands per partition and extends the partition bar to
+   the shifted `ServicePeriod` end (dates shift on ServicePeriod, NOT StageSlot — slots are shared across
+   partitions). **Deferred:** capacity re-check on resume (shifted windows can overflow a service — currently
+   no guard; matches the forced-override stance, flag if a warning is wanted).
 
 ## ▶ Forced mid-stage transfer (hand-off) ✅ DONE (2026-06-25)
 
