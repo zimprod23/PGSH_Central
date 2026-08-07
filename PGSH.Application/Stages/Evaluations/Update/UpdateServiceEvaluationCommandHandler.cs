@@ -51,6 +51,9 @@ internal sealed class UpdateServiceEvaluationCommandHandler(
         evaluation.TotalScore        = request.TotalScore;
         evaluation.Outcome           = request.Outcome;
         evaluation.SupervisorComment = request.SupervisorComment;
+        evaluation.FicheReference    = request.FicheReference;
+        evaluation.EvaluatedByUserId = await authorizer.CurrentUserIdAsync(cancellationToken);
+        evaluation.EvaluatedAt       = DateTime.UtcNow;
 
         dbContext.ObjectiveScores.RemoveRange(evaluation.ObjectiveScores);
 

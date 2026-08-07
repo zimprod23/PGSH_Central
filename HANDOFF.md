@@ -1,14 +1,161 @@
 # HANDOFF.md
 
-> **▶ RESUME HERE (next session).** Temporary vs Definitive transfer model is **DONE (2026-06-25)** — see
-> "Transfer types" below. Next, in order:
-> 1. **Verify the transfer model end-to-end** once the stack is running (recipe in that section).
-> 2. Optional refinement: scope the chef gray/green markers to the **current stage's chef** + show **net
+> **▶ RESUME HERE (next session) — admin evaluation entry + Excel import.** Agreed order:
+> 1. **Admin one-by-one evaluation UI** (small, FE-only). The backend ALREADY allows it —
+>    `ExecutionAuthorizer` bypasses chef-scoping for `Roles.Administrative`, and
+>    `CreateServiceEvaluationCommandHandler` / `UpdateServiceEvaluationCommandHandler` honour it (covered by
+>    `EvaluationHandlerTests.An_administrative_user_may_evaluate_any_service`). The gap is purely frontend:
+>    `features/admin/api/adminApi.ts` exposes **no** evaluation endpoints. Reuse the chef's `EvaluationModal`
+>    from `features/employee/pages/EmployeeServicesPage.tsx`.
+> 2. **Excel/CSV bulk evaluation import** — agreed design (see "Evaluation import" section below): explicit
+>    mode (whole-stage vs per-period), mandatory **preview/dry-run** before apply, all-or-nothing transaction,
+>    every row routed through `assignment.SubmitEvaluation` (no bulk shortcut writes), `IEvaluationSheetParser`
+>    port in Application + ClosedXML adapter in Infrastructure, downloadable pre-filled template.
+> 3. **Fiche gate** — `GetFicheDeValidationQueryHandler` gates only on `Result == Validé`, so a student can
+>    print the fiche BEFORE the administration ratifies. Suggest also requiring `Status == Validated`. One line,
+>    needs your yes.
+> 4. Still open from the audit: **délocalisation authorization hole** and the **IDOR on record/fiche** (below),
+>    plus the **pause-scope** decision (level-wide vs per-cohort — my recommendation is level-wide).
+>
+> **▶ NEW (2026-08-07) — "Valider" re-defined as RATIFICATION, not academic override.** ⚠ Semantics change.
+> Admin *Valider* (Suivi des affectations) means **officialise the professor's evaluation whatever it says** —
+> it does NOT mean "the student passed". `InternshipAssignment.Validate()` previously set
+> `Result = StageAssignmentResult.Validé` **unconditionally**, so ratifying a chef's 6/20 flipped the student to
+> *passed* while `FinalScore` still read 6. `Reject()` was the mirror image. Both now move **`Status` only**:
+> * **`Status`** = workflow — who has signed off (`… → Evaluated → Validated/Rejected`);
+> * **`Result`** = academic outcome, written **solely** by `RecomputeFinalScore` from the marks.
+> Bulk *Valider* was already correct in one respect: `ValidateCohortAssignmentsCommandHandler` only touches
+> assignments at `Status == Evaluated`, so it can never validate a student the chef has not evaluated — but the
+> skip is **silent** (20 students / 3 evaluated → toast says "3 validés", nothing says the other 17 are
+> ineligible). Two existing tests had encoded the OLD meaning and were rewritten, not patched. No migration.
+>
+> **▶ NEW (2026-08-07) — student portal 403 on Stages fixed.** Opening a stage rendered `AttendanceSummary`,
+> which called `GET /service-periods/{id}/attendance`; that handler used `EnsureCanRecordAttendanceAsync` — the
+> **write** scope (admin, or chef/staff of the service) — so a student got `AttendanceNotAllowed` (403).
+> `errorMiddleware.ts` toasts every 403 while the other queries succeed → "error, but the page works fine".
+> New `ExecutionAuthorizer.EnsureCanReadAttendanceAsync` = everyone who may record it **plus the student who
+> owns the period**. Write scope untouched (a student still cannot record presence, nor read a classmate's).
+> An unknown period still returns **NotFound**, not Forbidden, so the widened check can't leak row existence.
+>
+> **▶ NEW (2026-08-06) — chef worklist year-scoping REMOVED (two live incidents).** The chef saw his services
+> but **no groups**, twice. Root cause both times: the worklist was implicitly scoped to the current academic
+> year — first by `Registration.AcademicYearId`, then (my first fix) by the year's calendar span. Both couple
+> live work to bookkeeping that drifts out of step with the dates rotations actually run on; when it drifts the
+> chef silently sees **nothing**. Incident 2 data: year flagged current = 2024-2025, rotations ran Jun–Sep 2026
+> → all 263 started periods filtered out. **Year scoping is now opt-in**: no `AcademicYearId` ⇒ no year filter
+> at all (the chef UI has no year selector). An unknown year id leaves the list unscoped rather than empty.
+> `ChefWorklistYearScopeTests` was rewritten (the old 4 asserted the implicit default). **Lesson: never gate a
+> worklist on a bookkeeping record that can disagree with the data.**
+>
+> **▶ NEW (2026-08-06) — stage-period OVERLAP validation (new business rule).** Creating a period never checked
+> dates (only duplicate `PeriodNumber`), and updating one checked **nothing**. New `SlotOverlapGuard`
+> (`Application/Stages/Slots/`) enforces: **no two periods of the same academic LEVEL may run at the same time**
+> — inside one stage or across two. A level's students follow every one of its stages, so an overlap would put a
+> group in two services on the same day. Different levels may share dates. Windows are **inclusive of both ends**
+> → a period ending 31/03 and the next starting 31/03 now COLLIDE (next must start 01/04). New error
+> `StageErrors.SlotOverlap`. Wired into both create + update; DI in `Application/DependencyInjection.cs`.
+>
+> **▶ NEW (2026-08-06) — Postgres now PERSISTS + search fixes.** `PGSH.AppHost/Program.cs`: Postgres had no
+> volume (Keycloak did — that's why only its data survived). Added `.WithDataVolume("pgsh-postgres-data")` +
+> `ContainerLifetime.Persistent`. Seeder verified idempotent (every block guarded by `AnyAsync`). ⚠ A named
+> volume starts EMPTY — a pre-switch backup is at `pgsh-backup-20260806.dump` (repo root, `*.dump` gitignored);
+> restore with `pg_restore -U postgres -d TodoDatabase --clean --if-exists`. **Seeder academic years were
+> hardcoded** (fixed 2022-2025, 2024-2025 flagged current) while the rest of the seed lays rotations out around
+> *today* → the "current year" was two years stale. Now derived from the current date (year runs 1 Sept → 31 Aug).
+> **Search:** `GroupsPage.tsx` fetched matches then silently kept `items[0]` — "Alaoui" with two Alaouis showed
+> an arbitrary student's group, and the query destructured only `data` (no `isFetching`) so nothing rendered
+> while loading. Now lists every match as pickable chips + spinner + skeletons. Backend: `Appogee` was matched
+> **case-sensitively** while every other field was lowered (`"ap2200a"` never found `AP2200A`); fixed, and
+> `.Trim()` added to all 7 search handlers. Other pages already had debounce + `isFetching` + `setPage(1)`.
+>
+> **▶ NEW (2026-08-06) — test suite 36 → 260.** `PGSH.Tests` now covers the assignment state machine, all three
+> evaluation modes + chef scoping, chef worklist scoping, pause/resume, student record + fiche, délocalisation
+> (domain + handler), cohort transfers, bulk cohort ops, schedule publishing incl. cross-stage capacity, the
+> mid-stage reroute, slot overlap, student search, attendance read/write scope, and 22 command-validator tests.
+> Shared seeding lives in `PGSH.Tests/TestHarness.cs`. ⚠ **Still 100% unit-level** — `UseInMemoryDatabase`
+> ignores FK constraints, unique indexes, `OnDelete` and SQL translatability, so constraint/translation defects
+> are invisible. **Agreed next step: Testcontainers-over-real-Postgres integration tests + `WebApplicationFactory`
+> functional tests** (the only way to cover the authorization gaps below). Neither is built yet.
+>
+> **▶ NEW (2026-08-06) — code audit: CONFIRMED defects, none fixed yet.** Reproduced with runnable probes:
+> 1. 🔴 **`stages/delocalize` has NO authorization at any layer** — endpoint is bare `.RequireAuthorization()`
+>    and `DelocalizeStudentCommandHandler` has no `ExecutionAuthorizer` check. A **student** can POST their own
+>    `registrationId` with `outcome: Validated`, which runs `Delocalize()` → `SubmitEvaluation()` → `Result =
+>    Validé` → the fiche gate then passes. Self-service stage validation. Needs your policy call (Scolarité +
+>    SuperUser only?).
+> 2. 🔴 **Editing an evaluation with objectives throws `DbUpdateConcurrencyException`.**
+>    `UpdateServiceEvaluationCommandHandler.cs:63` pre-sets `Id = Guid.NewGuid()` on `ObjectiveScore` children
+>    of an **already-tracked** evaluation → EF classifies them `Modified`, not `Added` (proven via
+>    `ChangeTracker.DetectChanges`) → `UPDATE … WHERE Id = <new guid>` → 0 rows. Only fires when
+>    `ObjectiveScores` is non-empty, so "Valider le stage" mode works and the other two break. Fix: drop the
+>    pre-set `Id`, mutate the collection in place. Same gotcha the domain warns about at
+>    `InternshipAssignment.cs:246` and `:277`.
+> 3. 🔴 **`MidStageTransferRescheduler.RerouteAsync` NREs on a slot-less period.** The "missing slots" guard
+>    (`:51-62`) admits `CohortSlotAssignmentId == null`, then null-propagation drops it from `missing`, so the
+>    guard passes and `:66` dereferences `CohortSlotAssignment!`. Any ad-hoc period hits this — including the
+>    one `Delocalize()` creates. Confirmed `NullReferenceException`.
+> 4. 🟠 **`RerouteAsync:79` start-date is not clamped** — `date < target.EndDate ? date : target.StartDate`
+>    produced a period starting 2025-12-20 for a slot opening 2026-01-01. Should be
+>    `date > target.StartDate ? date : target.StartDate`. Also `:72` / `MaterializeAtTargetAsync:168` set
+>    `EndDate` with no floor at `StartDate` → a backdated transfer yields `EndDate < StartDate`.
+> 5. 🟠 **IDOR on `GET internship-assignments/{id}/record` and `/fiche`** — neither handler checks ownership or
+>    role, and `GET internship-assignments` is unscoped, so a student can enumerate ids and read every
+>    classmate's marks, comments and attendance.
+> 6. 🟡 `UpdateServiceEvaluationCommandHandler` bypasses the aggregate (mutates fields inline, calls
+>    `RecalculateFinalScore`) → **no domain event**, so a mark change leaves no audit trail.
+> 7. 🟡 `EvaluationSubmittedDomainEvent` publishes `evaluation.TotalScore`, which `Normalize()` has just set to
+>    `null` for both validate-only modes. Should publish `StageScoring.PeriodMark(evaluation)`. Latent (no
+>    subscriber yet).
+> 8. 🟡 Objective ids are never validated against the period's stage — `GetValueOrDefault(...)!` in both
+>    evaluation handlers; a foreign id is silently weighted 1, a nonexistent one dies on the FK as a 500.
+> 9. 🟡 `ResumePeriod` (`InternshipAssignment.cs:137`) shifts every later period with no filter on
+>    `IsComplete` / `IsInterrupted` → resuming back-dates closed rotations and terminal history rows.
+> 10. 🟡 **`CompletePeriod` has no `IsStarted` guard** (unlike `PausePeriod`), so a rotation that never ran can
+>     be closed and then evaluated. Deliberately left **uncovered by tests** — a test either way would cement
+>     an asymmetry that has not been ruled on. Your call.
+>
+> **▶ NEW (2026-07-02b) — Stage validation roll-up (all-periods-must-pass) + student notes record + fiche de validation.**
+> Validation rule CHANGED (`InternshipAssignment.RecomputeFinalScore` + new `Domain/Stages/StageScoring.cs`):
+> a stage is `Validé` only when EVERY (non-interrupted) period is individually validated — one failed period
+> => `NonValidé`; the final note is the **mean of the periods' marks** (validate-only period = 10/0); the
+> verdict is withheld (`NonÉvalué`) until all periods are evaluated. Replaces the old "mean ≥ 10" rule.
+> `StageScoring.PeriodMark/IsPeriodValidated` is the shared source of truth (domain + read handlers).
+> New reads: **`GET internship-assignments/{id}/record`** (`GetStudentStageRecordQuery`) = full per-period
+> detail (mark, verdict, full evaluation, attendance counts) for the click-through detail view;
+> **`GET internship-assignments/{id}/fiche`** (`GetFicheDeValidationQuery`) = print-ready fiche payload,
+> gated on `Result == Validé` (`StageErrors.FicheNotAvailable`), objective table with marks (validate-only
+> => 10), empty header/footer left for the FE attestation template. Notes list (`GET internship-assignments`)
+> gained `partitionLabels` + `periodNumber` + `search` (name/appogée/CNE) filters and an `AllPeriodsEvaluated`
+> flag on the summary. No migration. Tests green (19 total): `StageValidationScoringTests`,
+> `StageScoringTests`, `FicheDeValidationHandlerTests` (+ the mid-stage set below).
+>
+> **▶ NEW (2026-07-02) — Mid-stage transfer now auto-hands-off + xUnit test project added.**
+> Bug fixed: a Temporary transfer done while the stage is *en cours* with the "Transfert en cours de stage"
+> toggle OFF left the in-flight `ServicePeriod` pinned to the ORIGIN service, so the NEW chef got
+> `NotServiceChef` and couldn't evaluate after clôture. `MidStageTransferRescheduler.MaterializeAtTargetAsync`
+> now (a) cuts the origin in-flight period to `IsInterrupted` and (b) lands the student on the target group's
+> running period as started — **only when the target group is already running that period** (else keeps the
+> origin period, no void). `CompletePeriod`/`PausePeriod` reject interrupted periods
+> (`StageErrors.PeriodInterrupted`) so a bulk close can't revive them; the old chef's worklist now shows
+> interrupted periods as grayed "parti vers…" rows (`ServicePeriodResponse.IsInterrupted` added). **No new
+> migration** (`IsInterrupted` column already exists). New **`PGSH.Tests`** xUnit project (7 tests green):
+> `MidStageTransferReschedulerTests`, `InterruptedPeriodTests`, `InternshipAssignmentLifecycleTests`. Caveat:
+> students transferred BEFORE this fix are not auto-repaired — re-do the transfer.
+>
+> **▶ RESUME HERE (next session).** Délocalisation (#3) is **DONE (2026-06-25, session 7)** — see
+> "Délocalisation" below. ⚠ **One migration pending DB apply: `20260625194358_Delocalization`** (the running
+> API holds the old schema → the délocalisation endpoint 500s until applied; restart the Aspire stack so
+> MigrationService runs it, or `dotnet ef database update`). Next, in order:
+> 1. **Apply the migration + verify délocalisation end-to-end** (recipe in that section).
+> 2. **Revalidation (#4)** — fail → revalidate in same service unless a transfer/déloc demande; may span
+>    years. **Open: group-all-revalidations vs ad-hoc per-student.** Full 4-type model in agent memory
+>    `project_student_mobility`.
+> 3. Optional refinement: scope the chef gray/green markers to the **current stage's chef** + show **net
 >    group headcounts** (deferred from the transfer build — markers still use the existing group-model logic).
-> 3. Then **"do delocalization"** (out-of-faculty stage, paper validation entered by admin) · **"do
->    revalidation"** (fail → revalidate in same service unless a transfer/déloc demande; may span years —
->    open: group-all-revalidations vs ad-hoc). Full 4-type model in agent memory `project_student_mobility`.
 > 4. Remaining Suivi item: small-service planning skip (#3, needs your decision — see that section below).
+> 5. **Follow-up (admin eval UI):** there is still NO standalone admin screen to enter/edit a ServiceEvaluation;
+>    délocalisation captures the validate-only verdict + fiche inline at recording time. If a délocalisation's
+>    verdict must be entered LATER (the two-phase "student returns" flow), build an admin period-eval entry.
 >
 > **✅ MIGRATIONS APPLIED + VERIFIED (2026-06-25, session 6).** All five migrations — `EvaluationModes`,
 > `ServicePeriodIsStarted`, `TransferType_OnCohortMembership`, `ServicePeriodIsInterrupted`,
@@ -19,6 +166,43 @@
 > Build backend via `PGSH.Infrastructure.csproj` (API DLLs lock while the app runs); add ef migrations with
 > `--startup-project PGSH.Infrastructure` (design-time factory) since the running API blocks the API build.
 > _Updated 2026-06-25._
+
+## ▶ Evaluation import (Excel/CSV) — DESIGN AGREED, NOT BUILT (2026-08-07)
+
+Bulk entry of evaluations from a sheet keyed on **CNE / Apogée**, carrying `valid | unvalid | note`, either
+**per period** or **for the whole stage** (applied across all its periods).
+
+**Non-negotiables (agreed):**
+- **Mandatory preview / dry-run.** Parse → validate every row → show a report → user confirms → apply.
+  Grades are the highest-consequence data in the system; an import that silently applies 200 rows where 8 were
+  mis-keyed is worse than no import. Matches the pre-flight-guard rule already in force.
+- **All-or-nothing** per import, one transaction. Partial grade imports are unreconcilable.
+- **Every row goes through `assignment.SubmitEvaluation`** — the same aggregate path as a chef's single
+  evaluation, so scoring, roll-up and domain events stay identical. No bulk shortcut writes.
+- **Mode is chosen explicitly at upload**, never inferred from which columns are present (inference is where
+  import tools become unpredictable).
+
+**Sheet shape** — `CNE | Apogée | Période | Résultat | Note | Remarque`. `Période` blank/absent in
+whole-stage mode. `Résultat` ∈ {Validé, Non validé} **or** `Note` ∈ 0–20, matching the three existing
+`EvaluationMode`s.
+
+**Per-row preview outcomes:** unknown student · student not in this stage · period not yet closed ·
+already evaluated (⇒ *will overwrite*, not an error — amending is a requirement) · assignment already ratified
+(⇒ refused, consistent with `StageErrors.EvaluationReadOnly`).
+
+**Layout (clean-architecture split — Application never learns what .xlsx is):**
+```
+Application/Stages/Evaluations/Import/
+  ImportEvaluationsCommand.cs      // stageId, mode, rows — ALREADY parsed
+  PreviewEvaluationImportQuery.cs
+  EvaluationImportRow.cs
+  EvaluationImportReport.cs
+  IEvaluationSheetParser.cs        // port
+Infrastructure/Evaluations/ClosedXmlEvaluationSheetParser.cs   // adapter (ClosedXML, MIT)
+API/Endpoints/Evaluations/ImportEvaluations.cs                 // IFormFile boundary
+```
+Plus a **downloadable template** generated from the stage's real periods, pre-filled with its students'
+CNE/Apogée, so nobody hand-builds columns or mistypes an identifier.
 
 ## ▶ Verification + stale-status refetch fix ✅ DONE (2026-06-25, session 6)
 
@@ -39,6 +223,46 @@
   data (a probe paused 604 periods). Pre-existing project-wide posture (auth/CORS lockdown = Phase 12), but a
   mutating endpoint with no guard is worth fixing ahead of the rest. `GET /service-periods` 401s (it has a
   guard); the schedule group never did.
+
+## ▶ Délocalisation (mobility #3) ✅ DONE (2026-06-25, session 7)
+
+Student does the **whole stage outside the faculty** (hometown / abroad); the app has no control over the
+rotation. Recorded as a single **ad-hoc, pre-completed** `ServicePeriod` at an external service; the
+paper-validation verdict + fiche reference are captured in the same admin action (délocalisation is logged
+after the student returns). Build: Application → 0 errors; API reached copy-step with 0 CS errors (DLL lock
+only = API running); migration scaffolded; frontend `npm run build` + eslint clean on changed files.
+
+- **Domain**: `ServicePeriod.{IsDelocalized (bool), Delocalization?}`; new child entity `Delocalization
+  {Reason, DemandeId?}` (1:1, mirrors `PeriodPause`). `ServiceEvaluation.FicheReference (string?)` — paper-proof
+  ref, URL/text for now (real upload = Phase 5 with Demande). `HistoryType.Delocalization`. New
+  `StudentDelocalizedDomainEvent`. `InternshipAssignment.Delocalize(stageId, serviceId, start, end, reason,
+  demandeId?)`: refuses if any period is started/complete/interrupted (`StageErrors.StageAlreadyUnderway`),
+  drops planned periods, adds ONE ad-hoc period `IsStarted=IsComplete=IsDelocalized=true`, Status→Completed,
+  raises the event. **Tracked-child key gotcha respected** — period/Delocalization/eval Ids never pre-set.
+- **Application**: `DelocalizeStudentCommand` (+validator, IAuditableCommand `STUDENT_DELOCALIZED`). Handler
+  finds the student's `(group, stage)` cohort (errors: `NoGroupForDelocalization`, `CohortMissingForStage`,
+  `Services.NotFound`), reuses an existing not-yet-started assignment or creates one, calls `Delocalize`, and
+  — when `Outcome` is supplied — records a **validate-only** `ServiceEvaluation` (`Mode=ValidatePeriod` +
+  `FicheReference`) via `SubmitEvaluation` (→ Status Evaluated, score auto-maps 10/0). `StudentDelocalizedEventHandler`
+  writes `History.Delocalization {stage, service, reason}`. `FicheReference` also threaded through the generic
+  Create/Update eval commands + `ServiceEvaluationResponse` + GetByPeriod projection; `ServicePeriodSummary`
+  (admin GetById) now carries `IsDelocalized`/`DelocalizationReason`.
+- **Infra**: `DelocalizationConfiguration` (unique FK on ServicePeriodId, cascade) + `FicheReference` maxlen
+  1000. Migration `20260625194358_Delocalization` (IsDelocalized bool default false, FicheReference nullable,
+  Delocalization table). **⚠ pending DB apply.**
+- **API**: `POST stages/delocalize` (binds command directly, `.RequireAuthorization()`). Eval Update Request
+  gained `FicheReference`.
+- **Frontend**: `GroupDetailPage` roster gets a teal plane action → `DelocalizeModal` (stage Select = Planned
+  assignments; searchable/debounced external-service Select via `getServices`; date-range; required motif;
+  optional verdict SegmentedControl `Validation plus tard / Validé / Non validé` → required fiche-reference
+  TextInput when a verdict is chosen, pre-flight guarded). `delocalizeStudent` mutation + `DelocalizeStudentRequest`
+  type. Admin still has no standalone period-eval screen (see RESUME #5).
+- **Test recipe (after migration applied)**: ensure the stage has cohorts for the student's group (run
+  affectation/macro-plan first), and that the external hospital/service exists in *Infrastructures* (add it if
+  not). Group detail → student row → ✈ **Délocaliser** → pick the Planned stage + external service + date range +
+  motif → optionally **Validé** + fiche ref → Enregistrer. Verify: the stage's assignment shows **Terminé/Évalué**
+  with the validate-only result; the student **History** shows a *Délocalisation* row (stage · service · motif);
+  the in-faculty chef worklist never shows the student (external service has no chef).
 
 ## ▶ Transfer bug-fixes + Stage Pause/Resume ✅ DONE (2026-06-25, session 5)
 

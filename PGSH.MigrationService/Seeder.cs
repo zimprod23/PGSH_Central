@@ -108,12 +108,27 @@ internal static class Seeder
     {
         if (await context.AcademicYears.AnyAsync(ct)) return;
 
-        var years = new[]
-        {
-            new AcademicYear { Label = "2022-2023", StartDate = new DateOnly(2022, 9, 1), EndDate = new DateOnly(2023, 8, 31), IsCurrent = false },
-            new AcademicYear { Label = "2023-2024", StartDate = new DateOnly(2023, 9, 1), EndDate = new DateOnly(2024, 8, 31), IsCurrent = false },
-            new AcademicYear { Label = "2024-2025", StartDate = new DateOnly(2024, 9, 1), EndDate = new DateOnly(2025, 8, 31), IsCurrent = true  },
-        };
+        // Built relative to today, never hardcoded: the rest of the seed (stage slots, rotations) is
+        // laid out around the current date, so a fixed year list silently drifts out of step with it
+        // and every year-scoped feature then filters against a year that matches no real rotation.
+        // An academic year runs 1 Sept → 31 Aug, so before September we are still in the year that
+        // started the previous calendar year.
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        int currentStartYear = today.Month >= 9 ? today.Year : today.Year - 1;
+
+        var years = Enumerable.Range(0, 3)
+            .Select(offset =>
+            {
+                int startYear = currentStartYear - (2 - offset);
+                return new AcademicYear
+                {
+                    Label     = $"{startYear}-{startYear + 1}",
+                    StartDate = new DateOnly(startYear, 9, 1),
+                    EndDate   = new DateOnly(startYear + 1, 8, 31),
+                    IsCurrent = startYear == currentStartYear,
+                };
+            })
+            .ToArray();
 
         await context.AcademicYears.AddRangeAsync(years, ct);
         await context.SaveChangesAsync(ct);

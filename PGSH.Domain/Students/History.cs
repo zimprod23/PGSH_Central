@@ -21,5 +21,6 @@ public enum HistoryType
     Revalidation,
     GroupTransfer,
     CohortTransfer,
+    Delocalization,
     StatusChange,
 }

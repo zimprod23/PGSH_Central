@@ -20,7 +20,7 @@ internal sealed class GetManyHospitalsQueryHandler(IApplicationDbContext dbConte
 
         if (!string.IsNullOrWhiteSpace(request.SearchTerm))
         {
-            string term = request.SearchTerm.ToLower();
+            string term = request.SearchTerm.Trim().ToLower();
             query = query.Where(h => h.Name.ToLower().Contains(term) || h.City.ToLower().Contains(term));
         }
 

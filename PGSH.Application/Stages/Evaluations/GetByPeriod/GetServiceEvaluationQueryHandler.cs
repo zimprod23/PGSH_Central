@@ -33,7 +33,13 @@ internal sealed class GetServiceEvaluationQueryHandler(IApplicationDbContext dbC
                         o.Score,
                         o.Outcome,
                         o.Note))
-                    .ToList()))
+                    .ToList(),
+                e.FicheReference,
+                dbContext.Users
+                    .Where(u => u.Id == e.EvaluatedByUserId)
+                    .Select(u => (u.FirstName ?? "") + " " + (u.LastName ?? ""))
+                    .FirstOrDefault(),
+                e.EvaluatedAt))
             .SingleOrDefaultAsync(cancellationToken);
 
         return evaluation is null

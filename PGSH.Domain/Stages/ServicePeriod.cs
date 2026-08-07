@@ -32,6 +32,13 @@ public sealed class ServicePeriod
     // While paused the period is shown as such to the chef but is not actionable.
     public bool IsPaused { get; set; }
 
+    // Set when the stage is served entirely outside the faculty (the student's hometown or abroad).
+    // The faculty has no control over the rotation, so this is an ad-hoc period (no slot cell, no
+    // in-app chef): created already started + complete, evaluated later from the paper "fiche de
+    // validation" the student brings back. The movement details live in <see cref="Delocalization"/>.
+    public bool IsDelocalized { get; set; }
+    public Delocalization? Delocalization { get; set; }
+
     public ICollection<PeriodPause> Pauses { get; set; } = new List<PeriodPause>();
 
     public ICollection<AttendanceRecord> Attendance { get; set; } = new List<AttendanceRecord>();
@@ -62,6 +69,24 @@ public enum PauseKind
     Other,
 }
 
+/// <summary>
+/// Records that a <see cref="ServicePeriod"/> was served outside the faculty (délocalisation):
+/// the whole stage is done at an external service the app does not supervise. Carries the motif and
+/// a placeholder link to the future Demande (Phase 5). The validation verdict + the paper-proof
+/// reference are recorded later on the period's <see cref="ServiceEvaluation"/>.
+/// </summary>
+public sealed class Delocalization
+{
+    public Guid Id { get; set; }
+    public Guid ServicePeriodId { get; set; }
+    public ServicePeriod ServicePeriod { get; set; } = default!;
+
+    public string Reason { get; set; } = string.Empty;
+
+    // Nullable placeholder until the Demande microservice exists (Phase 5).
+    public Guid? DemandeId { get; set; }
+}
+
 public sealed class ServiceEvaluation
 {
     public Guid Id { get; set; }
@@ -77,6 +102,19 @@ public sealed class ServiceEvaluation
     public EvaluationOutcome? Outcome { get; set; }
 
     public string? SupervisorComment { get; set; }
+
+    /// <summary>The user (chef or administrator) who last recorded this evaluation, and when — audit trail.</summary>
+    public Guid? EvaluatedByUserId { get; set; }
+    public DateTime? EvaluatedAt { get; set; }
+
+    /// <summary>
+    /// Reference to the paper "fiche de validation" backing an evaluation recorded for a stage the
+    /// app did not supervise — chiefly a délocalisation, where the external service certifies on
+    /// paper and an administrator enters the verdict. A URL/external reference for now; real file
+    /// upload is deferred to Phase 5 with the Demande microservice.
+    /// </summary>
+    public string? FicheReference { get; set; }
+
     public ICollection<ObjectiveScore> ObjectiveScores { get; set; } = new List<ObjectiveScore>();
 
     /// <summary>

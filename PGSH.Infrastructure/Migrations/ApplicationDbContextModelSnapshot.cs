@@ -220,6 +220,35 @@ namespace PGSH.Infrastructure.Migrations
                     b.ToTable("Services", "public");
                 });
 
+            modelBuilder.Entity("PGSH.Domain.Hospitals.ServiceChefAssignment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("EmployeeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateOnly?>("EndDate")
+                        .HasColumnType("date");
+
+                    b.Property<int>("ServiceId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateOnly>("StartDate")
+                        .HasColumnType("date");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EmployeeId");
+
+                    b.HasIndex("ServiceId")
+                        .IsUnique()
+                        .HasFilter("\"EndDate\" IS NULL");
+
+                    b.ToTable("ServiceChefAssignment", "public");
+                });
+
             modelBuilder.Entity("PGSH.Domain.Registrations.AcademicGroup", b =>
                 {
                     b.Property<int>("Id")
@@ -327,6 +356,7 @@ namespace PGSH.Infrastructure.Migrations
                     b.HasIndex("LevelId");
 
                     b.HasIndex("StudentId", "AcademicYearId")
+                        .IsUnique()
                         .HasDatabaseName("IX_Registration_Student_Year");
 
                     b.ToTable("Registrations", "public");
@@ -454,6 +484,32 @@ namespace PGSH.Infrastructure.Migrations
                     b.ToTable("CohortSlotAssignments", "public");
                 });
 
+            modelBuilder.Entity("PGSH.Domain.Stages.Delocalization", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("DemandeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<Guid>("ServicePeriodId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ServicePeriodId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_Delocalization_ServicePeriodId");
+
+                    b.ToTable("Delocalization", "public");
+                });
+
             modelBuilder.Entity("PGSH.Domain.Stages.InternshipAssignment", b =>
                 {
                     b.Property<Guid>("Id")
@@ -554,6 +610,16 @@ namespace PGSH.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<DateTime?>("EvaluatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("EvaluatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("FicheReference")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
                     b.Property<string>("Mode")
                         .IsRequired()
                         .HasColumnType("text");
@@ -595,6 +661,9 @@ namespace PGSH.Infrastructure.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<bool>("IsComplete")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsDelocalized")
                         .HasColumnType("boolean");
 
                     b.Property<bool>("IsInterrupted")
@@ -1025,6 +1094,25 @@ namespace PGSH.Infrastructure.Migrations
                     b.Navigation("ServiceChef");
                 });
 
+            modelBuilder.Entity("PGSH.Domain.Hospitals.ServiceChefAssignment", b =>
+                {
+                    b.HasOne("PGSH.Domain.Employees.Employee", "Employee")
+                        .WithMany()
+                        .HasForeignKey("EmployeeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("PGSH.Domain.Hospitals.Service", "Service")
+                        .WithMany("ChefHistory")
+                        .HasForeignKey("ServiceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Employee");
+
+                    b.Navigation("Service");
+                });
+
             modelBuilder.Entity("PGSH.Domain.Registrations.AcademicGroup", b =>
                 {
                     b.HasOne("PGSH.Domain.Registrations.AcademicYear", "AcademicYear")
@@ -1176,6 +1264,17 @@ namespace PGSH.Infrastructure.Migrations
                     b.Navigation("Service");
 
                     b.Navigation("StageSlot");
+                });
+
+            modelBuilder.Entity("PGSH.Domain.Stages.Delocalization", b =>
+                {
+                    b.HasOne("PGSH.Domain.Stages.ServicePeriod", "ServicePeriod")
+                        .WithOne("Delocalization")
+                        .HasForeignKey("PGSH.Domain.Stages.Delocalization", "ServicePeriodId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("ServicePeriod");
                 });
 
             modelBuilder.Entity("PGSH.Domain.Stages.InternshipAssignment", b =>
@@ -1402,6 +1501,11 @@ namespace PGSH.Infrastructure.Migrations
                     b.Navigation("services");
                 });
 
+            modelBuilder.Entity("PGSH.Domain.Hospitals.Service", b =>
+                {
+                    b.Navigation("ChefHistory");
+                });
+
             modelBuilder.Entity("PGSH.Domain.Registrations.AcademicGroup", b =>
                 {
                     b.Navigation("Cohorts");
@@ -1441,6 +1545,8 @@ namespace PGSH.Infrastructure.Migrations
             modelBuilder.Entity("PGSH.Domain.Stages.ServicePeriod", b =>
                 {
                     b.Navigation("Attendance");
+
+                    b.Navigation("Delocalization");
 
                     b.Navigation("Evaluation");
 

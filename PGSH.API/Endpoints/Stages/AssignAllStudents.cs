@@ -16,7 +16,8 @@ public sealed class AssignAllStudentsByStage : IEndpoint
             ISender sender,
             CancellationToken ct) =>
         {
-            var result = await sender.Send(new AssignAllStudentsByStageCommand(id, request?.PartitionLabels), ct);
+            var result = await sender.Send(
+                new AssignAllStudentsByStageCommand(id, request?.PartitionLabels, request?.AcademicYearId), ct);
             return result.Match(Results.Ok, CustomResults.Problem);
         })
         .WithTags(Tags.Stages)
@@ -24,4 +25,4 @@ public sealed class AssignAllStudentsByStage : IEndpoint
     }
 }
 
-internal sealed record AssignAllStudentsRequest(IReadOnlyList<string>? PartitionLabels);
+internal sealed record AssignAllStudentsRequest(IReadOnlyList<string>? PartitionLabels, int? AcademicYearId);

@@ -23,7 +23,8 @@ internal sealed class GetStageScheduleQueryHandler(
 
         var cohorts = await dbContext.Cohorts
             .AsNoTracking()
-            .Where(c => c.StageId == request.StageId)
+            .Where(c => c.StageId == request.StageId
+                     && (request.AcademicYearId == null || c.AcademicGroup.AcademicYearId == request.AcademicYearId))
             .OrderBy(c => c.Id)
             .Select(c => new
             {

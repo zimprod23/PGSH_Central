@@ -80,11 +80,45 @@ Entities inheriting `Entity` raise events via `entity.Raise(new SomeEvent(...))`
 ### API Documentation
 Scalar UI at `/scalar/v1`, Swagger UI at `/swagger`. Both are configured with Keycloak OAuth2 PKCE for authenticated requests in development.
 
+## Testing — mandatory, not optional
+
+`PGSH.Tests` (xUnit + FluentAssertions + NSubstitute + EF InMemory) is part of the definition of done.
+
+- **Every new feature and every bug fix ships with tests, in the same change.** Treat "implement X" as
+  implicitly including "and cover it". Run them green before handing back.
+- Cover the happy path **plus each guard**: every `Result.Failure` a handler can return is a test case.
+- Shared seeding lives in `PGSH.Tests/TestHarness.cs` (`SeedCatalog`, `SeedService`, `SeedChef`, `SeedCohort`,
+  `SeedRegistration`, `SeedAssignment`, `SeedPeriod`, `SeedSlot`, `SeedSlotAssignment`, `SeedObjective`) —
+  extend it rather than re-rolling in-memory boilerplate per file.
+- **Drive the real lifecycle in setup.** Seeding a period as pre-closed leaves the assignment `Planned`, so it
+  never reaches `Evaluated`; go through `Start()` → `CompletePeriod()` → `SubmitEvaluation()`.
+- **Never encode a known bug as expected behaviour.** If a test would cement an unresolved asymmetry, leave the
+  case uncovered with a comment saying why, and raise it.
+- ⚠ **Known blind spot:** `UseInMemoryDatabase` ignores FK constraints, unique indexes, `OnDelete` behaviour and
+  SQL translatability — constraint and query-translation defects are invisible to this suite, and authorization
+  cannot be tested at all without the HTTP pipeline. Testcontainers + `WebApplicationFactory` are the agreed
+  next step and are **not yet built**.
+
 ## Application Layer Conventions
 
 ### Shared helpers — always use these, never inline
 - **Pagination** — `QueryableExtensions.ToPaginatedResponseAsync(pageNumber, pageSize, selector, ct)` in `Application/Extensions/`. Apply after filtering and `OrderBy`. Never manually write `CountAsync + Skip + Take + ToListAsync + new PaginatedResponse`.
 - **Localization mapping** — `LocalizationMapper.FromCoordinates(x, y, z)` in `Application/Hospitals/`. Use for any Center, Hospital, or Service handler that maps GPS coordinates.
+- **Per-period mark / verdict** — `StageScoring.PeriodMark` / `IsPeriodValidated` in `Domain/Stages/`. The single source of truth shared by the domain roll-up and every read handler (student record, fiche). Never recompute a mark inline.
+- **Execution scoping** — `ExecutionAuthorizer` in `Application/Employees/MyServices/`. Every handler acting on a period/evaluation/attendance goes through it: `EnsureCanActOnPeriodAsync`, `EnsureCanActOnEvaluationAsync`, `EnsureCanRecordAttendanceAsync` (write), `EnsureCanReadAttendanceAsync` (read — wider, includes the owning student).
+- **Period overlap** — `SlotOverlapGuard` in `Application/Stages/Slots/`. Any handler creating or moving a `StageSlot` must call it; the rule is level-wide, not per-stage.
+
+### Search handlers — one shape
+Always `request.SearchTerm.Trim().ToLower()` and compare against `Field.ToLower().Contains(term)` for **every**
+field in the predicate. A single field left un-lowered is a silent bug (`Appogee` was case-sensitive for months,
+so `"ap2200a"` never found `AP2200A`). On the frontend, pair every server-querying search with
+`useDebouncedValue(…, 350)`, an `isFetching` indicator, and `skip` below 2 characters.
+
+### Store-generated keys — never pre-set them on children of a tracked parent
+Assigning `Id = Guid.NewGuid()` to an entity added to an **already-tracked** aggregate makes EF classify it
+`Modified` instead of `Added` → `UPDATE … WHERE Id = <new guid>` → 0 rows → `DbUpdateConcurrencyException`.
+Let the store generate the key (see the comments at `InternshipAssignment.cs` `Delocalize` / `TransferToCohort`).
+`dbContext.Add(root)` on a brand-new graph is safe — `Add` marks the whole graph `Added` regardless of key values.
 
 ### Shared response types — use these, never duplicate
 - `UserResponse` → `Application/Users/UserResponse.cs`

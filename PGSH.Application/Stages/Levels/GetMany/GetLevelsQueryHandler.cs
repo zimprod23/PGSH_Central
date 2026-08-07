@@ -20,7 +20,7 @@ internal sealed class GetLevelsQueryHandler(IApplicationDbContext dbContext)
 
         if (!string.IsNullOrWhiteSpace(request.SearchTerm))
         {
-            string term = request.SearchTerm.ToLower();
+            string term = request.SearchTerm.Trim().ToLower();
             query = query.Where(l => l.Label.ToLower().Contains(term));
         }
 

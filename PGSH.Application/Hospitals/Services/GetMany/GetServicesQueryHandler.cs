@@ -24,7 +24,7 @@ internal class GetServicesQueryHandler(IApplicationDbContext dbContext) : IQuery
 
         if (!string.IsNullOrWhiteSpace(request.SearchTerm))
         {
-            string term = request.SearchTerm.ToLower();
+            string term = request.SearchTerm.Trim().ToLower();
             query = query.Where(s => s.Name.ToLower().Contains(term));
         }
 

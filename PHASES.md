@@ -271,6 +271,19 @@ A `Stage` has **no explicit dates** — only `DurationInDays`. Every date on the
 
 **Status: Stub exists — not implemented**
 
+> ⚠ **Blocking security items found in the 2026-08-06 audit — fix these before or with Phase 8.**
+> Authorization in this codebase is enforced in the **Application layer** via `ExecutionAuthorizer`, not at the
+> endpoint (every route in Stages / InternshipAssignments / ServiceEvaluations is a bare `.RequireAuthorization()`).
+> That is a legitimate choice, but several handlers were never wired to it:
+> - 🔴 **`DelocalizeStudentCommandHandler` has no authorization at all.** A student can POST their own
+>   `registrationId` with `outcome: Validated` and self-validate a stage end-to-end. Needs a policy decision
+>   (Scolarité + SuperUser only?) then an `ExecutionAuthorizer` check.
+> - 🔴 **IDOR on `GET internship-assignments/{id}/record` and `/fiche`** — no ownership or role check, and
+>   `GET internship-assignments` is unscoped, so a student can enumerate ids and read classmates' marks,
+>   supervisor comments and attendance.
+> - 🟠 Assignment `Start`/`Validate`/`Reject` and the whole schedule/planning surface are likewise unchecked.
+> **None of this is testable at unit level** — it needs the `WebApplicationFactory` functional suite below.
+
 Current state: `PermissionAuthorizationHandler` checks Keycloak roles only. `PermissionProvider.GetForUserIdAsync` returns an empty set.
 
 - Design a `Permissions` table (or derive from roles) backing `PermissionProvider`
@@ -332,6 +345,23 @@ Employee shell + routing exists. `EmployeeDashboardPage`, `EmployeeProfilePage`,
 
 ---
 
+## 🔲 Phase 11.4 — Test infrastructure (integration + functional)
+
+**Status: unit suite done (260 tests, `PGSH.Tests`); integration + functional NOT started**
+
+The current suite is 100% unit-level over `UseInMemoryDatabase`, which ignores FK constraints, unique indexes,
+`OnDelete` behaviour and SQL translatability — so a whole class of defect is invisible, and authorization cannot
+be covered at all. Two additions, in order:
+
+1. **Integration — Testcontainers over real Postgres.** Spin up `postgres:17.2`, run the real migrations, move
+   the handler tests off InMemory. Catches FK/constraint/translation defects. Would have caught the chef
+   worklist year-filter directly (that bug was found by querying the live DB by hand, not by a test).
+2. **Functional — `WebApplicationFactory` + stubbed `IUserContext` per role.** The only way to assert
+   "a student gets 403 from `stages/delocalize`" and to stop the Phase 8 authorization gaps from regressing.
+   Requires referencing `PGSH.API` from the test project (it currently references only Domain/Application/Infrastructure).
+
+---
+
 ## 🔲 Phase 11.5 — Performance Audit
 
 **Status: Not started — to be run before Phase 12**
@@ -374,6 +404,28 @@ A mandatory optimization pass before production deployment.
 **Status: Not started — run after Phase 12, before first large cohort**
 
 Known issues identified during design review. All are low-risk at current scale (~360 students) but must be resolved before scaling.
+
+### Confirmed defects from the 2026-08-06 audit (reproduced with probes, not yet fixed)
+
+- **Editing an evaluation with objectives throws `DbUpdateConcurrencyException`** —
+  `UpdateServiceEvaluationCommandHandler.cs:63` pre-sets `Id` on `ObjectiveScore` children of a tracked
+  evaluation → EF marks them `Modified`, not `Added`. Only fires when `ObjectiveScores` is non-empty, so
+  "Valider le stage" works while the other two modes break. Fix: drop the pre-set `Id`, mutate in place.
+- **`MidStageTransferRescheduler.RerouteAsync` NREs on a slot-less period** — the missing-slots guard drops
+  nulls, so a period with `CohortSlotAssignmentId == null` (any ad-hoc/délocalisé rotation) passes the guard and
+  crashes at `:66`.
+- **`RerouteAsync:79` start date is not clamped** — should be `date > target.StartDate ? date : target.StartDate`;
+  currently produces periods starting before their own slot opens. `:72` and `MaterializeAtTargetAsync:168` also
+  set `EndDate` with no floor at `StartDate`.
+- **`ResumePeriod` shifts completed and interrupted periods** (`InternshipAssignment.cs:137` has no filter),
+  back-dating closed rotations and terminal history rows.
+- **Evaluation updates bypass the aggregate** — no domain event, so a mark change leaves no audit trail.
+- **`EvaluationSubmittedDomainEvent` carries `null`** for validate-only modes; should publish
+  `StageScoring.PeriodMark(evaluation)`.
+- **Objective ids are never validated against the period's stage** — a foreign id is silently weighted 1, a
+  nonexistent one dies on the FK as a 500.
+- **`CompletePeriod` has no `IsStarted` guard** (unlike `PausePeriod`) — a rotation that never ran can be closed
+  and then evaluated. Left deliberately uncovered by tests pending a ruling.
 
 ### Critical (data correctness)
 

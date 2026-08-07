@@ -103,35 +103,71 @@ internal sealed class MidStageTransferRescheduler(IApplicationDbContext dbContex
     }
 
     /// <summary>
-    /// Non-mid-stage transfer (no started rotation to cut). A plain transfer only moves the cohort
-    /// pointer, so the loaned student's future rotation still points at the origin group's slots and
-    /// the destination chef sees only a synthesized, non-actionable "incoming" row. This rehomes the
-    /// future rotation onto the <b>target</b> group's slot cells, turning it into real periods the new
-    /// chef can start, close and evaluate. Started/complete/interrupted periods are left untouched
-    /// (history / explicitly handled by <see cref="RerouteAsync"/>). No-op — the informational
-    /// incoming row stays as the fallback — when the target group has no schedule for the stage yet.
+    /// Plain transfer (no forced remaining-window hand-off). Moves the loaned student's rotation onto
+    /// the <b>target</b> group's slot cells so he joins his new colleagues at the same status and the
+    /// destination chef gets real, actionable periods instead of a synthesized "incoming" row:
+    ///   • the future, not-started rotation is rehomed onto the target group's slots;
+    ///   • the rotation <b>currently in progress</b>, if the target group is already running that same
+    ///     period, is cut at the transfer date and kept as <see cref="ServicePeriod.IsInterrupted"/>
+    ///     history — the origin chef sees "parti vers …" but can no longer evaluate it, and the student
+    ///     lands on the target group's started period so the <b>new</b> chef supervises + evaluates.
+    /// Completed periods are left untouched (history). No-op — the informational incoming row stays as
+    /// the fallback — when the target group has no schedule for the stage yet.
     /// </summary>
     public async Task<Result> MaterializeAtTargetAsync(
-        InternshipAssignment assignment, int targetCohortId, CancellationToken ct)
+        InternshipAssignment assignment, int targetCohortId, DateOnly transferDate, CancellationToken ct)
     {
         var targetSlots = await dbContext.CohortSlotAssignments
             .AsNoTracking()
             .Where(sa => sa.CohortId == targetCohortId)
-            .Select(sa => new { sa.Id, sa.ServiceId, sa.StageSlot.StartDate, sa.StageSlot.EndDate })
+            .Select(sa => new { sa.Id, sa.StageSlotId, sa.ServiceId, sa.StageSlot.StartDate, sa.StageSlot.EndDate })
             .ToListAsync(ct);
 
         if (targetSlots.Count == 0)
             return Result.Success();
 
-        // The loaned student joins the target group at its current progress: a target slot whose
-        // rotation has already started gets a started period so the new chef sees it immediately.
+        // The loaned student joins the target group EXACTLY where his new colleagues are for each slot:
+        // a slot the group has started gets a started period (visible to the new chef); a slot the group
+        // has already CLOSED gets a closed period too, so the student is immediately evaluable alongside
+        // them instead of being stranded "en cours" after the administration has clôturé the stage.
         var startedSlotIds = (await dbContext.ServicePeriods
             .AsNoTracking()
-            .Where(p => p.CohortSlotAssignment!.CohortId == targetCohortId && p.IsStarted)
+            .Where(p => p.CohortSlotAssignment!.CohortId == targetCohortId && p.IsStarted && !p.IsInterrupted)
             .Select(p => p.CohortSlotAssignmentId!.Value)
             .Distinct()
             .ToListAsync(ct))
             .ToHashSet();
+
+        var openSlotIds = (await dbContext.ServicePeriods
+            .AsNoTracking()
+            .Where(p => p.CohortSlotAssignment!.CohortId == targetCohortId
+                     && p.IsStarted && !p.IsComplete && !p.IsInterrupted)
+            .Select(p => p.CohortSlotAssignmentId!.Value)
+            .Distinct()
+            .ToListAsync(ct))
+            .ToHashSet();
+
+        // A slot the target group has started but where no rotation is still open counts as closed.
+        var completeSlotIds = startedSlotIds.Where(id => !openSlotIds.Contains(id)).ToHashSet();
+
+        var targetByStageSlotId = targetSlots.ToDictionary(s => s.StageSlotId);
+
+        // Hand off the in-flight rotation: cut it at the transfer date as terminal history so the old
+        // chef can no longer evaluate it, but only when the target group is already running the same
+        // period — otherwise the student would land in a not-yet-started void; keep the old period
+        // running in that case (the future materialisation below still rehomes everything else).
+        foreach (var running in assignment.ServicePeriods
+                     .Where(p => p.IsStarted && !p.IsComplete && !p.IsInterrupted
+                              && p.CohortSlotAssignment != null)
+                     .ToList())
+        {
+            if (targetByStageSlotId.TryGetValue(running.CohortSlotAssignment!.StageSlotId, out var landing)
+                && startedSlotIds.Contains(landing.Id))
+            {
+                running.IsInterrupted = true;
+                running.EndDate = transferDate < running.EndDate ? transferDate : running.EndDate;
+            }
+        }
 
         foreach (var stale in assignment.ServicePeriods
                      .Where(p => !p.IsStarted && !p.IsComplete && !p.IsInterrupted)
@@ -155,6 +191,7 @@ internal sealed class MidStageTransferRescheduler(IApplicationDbContext dbContex
                 StartDate              = slot.StartDate,
                 EndDate                = slot.EndDate,
                 IsStarted              = startedSlotIds.Contains(slot.Id),
+                IsComplete             = completeSlotIds.Contains(slot.Id),
             });
         }
 

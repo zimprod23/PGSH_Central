@@ -9,6 +9,7 @@ public sealed record UpdateServiceEvaluationCommand(
     decimal? TotalScore,
     EvaluationOutcome? Outcome,
     string? SupervisorComment,
-    List<UpdateObjectiveScoreDto> ObjectiveScores) : ICommand;
+    List<UpdateObjectiveScoreDto> ObjectiveScores,
+    string? FicheReference = null) : ICommand;
 
 public sealed record UpdateObjectiveScoreDto(int StageObjectiveId, int? Score, EvaluationOutcome? Outcome, string? Note);

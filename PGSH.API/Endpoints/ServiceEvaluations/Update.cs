@@ -13,7 +13,8 @@ public sealed class UpdateServiceEvaluation : IEndpoint
         decimal? TotalScore,
         EvaluationOutcome? Outcome,
         string? SupervisorComment,
-        List<UpdateObjectiveScoreDto> ObjectiveScores);
+        List<UpdateObjectiveScoreDto> ObjectiveScores,
+        string? FicheReference = null);
 
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
@@ -26,7 +27,8 @@ public sealed class UpdateServiceEvaluation : IEndpoint
                 request.TotalScore,
                 request.Outcome,
                 request.SupervisorComment,
-                request.ObjectiveScores);
+                request.ObjectiveScores,
+                request.FicheReference);
 
             var result = await sender.Send(command, ct);
             return result.Match(Results.NoContent, CustomResults.Problem);

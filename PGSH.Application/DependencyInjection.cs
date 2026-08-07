@@ -2,6 +2,7 @@
 using PGSH.Application.Behaviors;
 using PGSH.Application.Employees.MyServices;
 using PGSH.Application.Stages.Planning;
+using PGSH.Application.Stages.Slots;
 using FluentValidation;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -31,6 +32,7 @@ public static class DependencyInjection
         services.AddScoped<MidStageTransferRescheduler>();
         services.AddScoped<CohortProvisioner>();
         services.AddScoped<ExecutionAuthorizer>();
+        services.AddScoped<SlotOverlapGuard>();
 
         return services;
     }

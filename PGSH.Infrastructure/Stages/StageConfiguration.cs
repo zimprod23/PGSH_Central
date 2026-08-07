@@ -219,6 +219,24 @@ internal sealed class ServicePeriodConfiguration : IEntityTypeConfiguration<Serv
                 .WithOne(pp => pp.ServicePeriod)
                 .HasForeignKey(pp => pp.ServicePeriodId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+        builder.HasOne(p => p.Delocalization)
+                .WithOne(d => d.ServicePeriod)
+                .HasForeignKey<Delocalization>(d => d.ServicePeriodId)
+                .OnDelete(DeleteBehavior.Cascade);
+    }
+}
+
+internal sealed class DelocalizationConfiguration : IEntityTypeConfiguration<Delocalization>
+{
+    public void Configure(EntityTypeBuilder<Delocalization> builder)
+    {
+        builder.HasKey(d => d.Id);
+        builder.Property(d => d.Reason).IsRequired().HasMaxLength(500);
+
+        builder.HasIndex(d => d.ServicePeriodId)
+               .IsUnique()
+               .HasDatabaseName("IX_Delocalization_ServicePeriodId");
     }
 }
 
@@ -250,6 +268,8 @@ internal sealed class ServiceEvaluationConfiguration : IEntityTypeConfiguration<
 
         builder.Property(e => e.Outcome)
                .HasConversion<string>();
+
+        builder.Property(e => e.FicheReference).HasMaxLength(1000);
 
         builder.HasMany(e => e.ObjectiveScores)
                 .WithOne(o => o.ServiceEvaluation)

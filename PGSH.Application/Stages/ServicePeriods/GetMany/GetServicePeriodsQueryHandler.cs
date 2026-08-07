@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Authentication;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
+using PGSH.Application.Employees.MyServices;
 using PGSH.Application.Extensions;
 using PGSH.Domain.Stages;
 using PGSH.SharedKernel;
@@ -10,18 +11,26 @@ namespace PGSH.Application.Stages.ServicePeriods.GetMany;
 
 internal sealed class GetServicePeriodsQueryHandler(
     IApplicationDbContext dbContext,
-    IUserContext userContext)
+    IUserContext userContext,
+    ExecutionAuthorizer authorizer)
     : IQueryHandler<GetServicePeriodsQuery, PaginatedResponse<ServicePeriodResponse>>
 {
     public async Task<Result<PaginatedResponse<ServicePeriodResponse>>> Handle(
         GetServicePeriodsQuery request, CancellationToken cancellationToken)
     {
-        // Cross-service read for administrative staff. A service chef must use
-        // GET /employees/me/service-periods, which scopes results to his own services.
-        if (!Roles.Administrative.Any(userContext.IsInRole))
-            return Result.Failure<PaginatedResponse<ServicePeriodResponse>>(StageErrors.AdministrativeOnly);
-
         var query = dbContext.ServicePeriods.AsNoTracking().AsQueryable();
+
+        // Global administrative staff read across every service. A service-scoped user
+        // (chef or secretary staffing a service) reads only his own services' periods —
+        // this is the shared read behind the presence grid. Anyone else is refused.
+        if (!Roles.Administrative.Any(userContext.IsInRole))
+        {
+            var myServices = await authorizer.MyServiceIdsAsync(cancellationToken);
+            if (myServices.Count == 0)
+                return Result.Failure<PaginatedResponse<ServicePeriodResponse>>(StageErrors.AdministrativeOnly);
+
+            query = query.Where(p => myServices.Contains(p.ServiceId));
+        }
 
         if (request.AssignmentId.HasValue)
             query = query.Where(p => p.InternshipAssignmentId == request.AssignmentId.Value);
@@ -34,6 +43,9 @@ internal sealed class GetServicePeriodsQueryHandler(
 
         if (request.IsComplete.HasValue)
             query = query.Where(p => p.IsComplete == request.IsComplete.Value);
+
+        if (request.AcademicYearId.HasValue)
+            query = query.Where(p => p.InternshipAssignment.Registration.AcademicYearId == request.AcademicYearId.Value);
 
         var response = await query
             .OrderBy(p => p.StartDate)
@@ -59,7 +71,8 @@ internal sealed class GetServicePeriodsQueryHandler(
                     p.InternshipAssignment.Cohort.Stage.Level.Label,
                     null,
                     p.IsPaused,
-                    p.Pauses.Where(x => x.ResumeDate == null).Select(x => x.Reason).FirstOrDefault()),
+                    p.Pauses.Where(x => x.ResumeDate == null).Select(x => x.Reason).FirstOrDefault(),
+                    p.IsInterrupted),
                 cancellationToken);
 
         return Result.Success(response);

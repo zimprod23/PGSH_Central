@@ -17,7 +17,7 @@ internal sealed class GetCentersQueryHandler(IApplicationDbContext dbContext)
 
         if (!string.IsNullOrWhiteSpace(request.SearchTerm))
         {
-            string term = request.SearchTerm.ToLower();
+            string term = request.SearchTerm.Trim().ToLower();
             query = query.Where(c => c.Name.ToLower().Contains(term) ||
                                      (c.City != null && c.City.ToLower().Contains(term)));
         }

@@ -2,7 +2,12 @@ using PGSH.AppHost;
 
 var builder = DistributedApplication.CreateBuilder(args);
 
+// The data volume survives container restarts; without it every `dotnet run` starts from an empty
+// database and the seeder re-creates everything, losing whatever was entered by hand. The named
+// volume keeps the same storage across runs — delete it explicitly to start clean.
 var postgres = builder.AddPostgres("postgres")
+    .WithDataVolume("pgsh-postgres-data")
+    .WithLifetime(ContainerLifetime.Persistent)
     .WithPgAdmin(pgadm => pgadm.WithHostPort(5050))
     .AddDatabase("TodoDatabase");
 

@@ -7,7 +7,9 @@ using PGSH.SharedKernel;
 
 namespace PGSH.Application.Stages.Slots;
 
-internal sealed class CreateStageSlotCommandHandler(IApplicationDbContext dbContext)
+internal sealed class CreateStageSlotCommandHandler(
+    IApplicationDbContext dbContext,
+    SlotOverlapGuard overlapGuard)
     : ICommandHandler<CreateStageSlotCommand, int>
 {
     public async Task<Result<int>> Handle(CreateStageSlotCommand request, CancellationToken cancellationToken)
@@ -20,6 +22,12 @@ internal sealed class CreateStageSlotCommandHandler(IApplicationDbContext dbCont
             .AnyAsync(s => s.StageId == request.StageId && s.PeriodNumber == request.PeriodNumber, cancellationToken);
         if (duplicate)
             return Result.Failure<int>(StageErrors.DuplicatePeriodNumber(request.PeriodNumber));
+
+        var overlap = await overlapGuard.EnsureNoOverlapAsync(
+            request.StageId, request.PeriodNumber, request.StartDate, request.EndDate,
+            excludedSlotId: null, cancellationToken);
+        if (overlap.IsFailure)
+            return Result.Failure<int>(overlap.Error);
 
         var slot = new StageSlot
         {
@@ -36,7 +44,9 @@ internal sealed class CreateStageSlotCommandHandler(IApplicationDbContext dbCont
     }
 }
 
-internal sealed class UpdateStageSlotCommandHandler(IApplicationDbContext dbContext)
+internal sealed class UpdateStageSlotCommandHandler(
+    IApplicationDbContext dbContext,
+    SlotOverlapGuard overlapGuard)
     : ICommandHandler<UpdateStageSlotCommand>
 {
     public async Task<Result> Handle(UpdateStageSlotCommand request, CancellationToken cancellationToken)
@@ -46,6 +56,14 @@ internal sealed class UpdateStageSlotCommandHandler(IApplicationDbContext dbCont
 
         if (slot is null)
             return Result.Failure(StageErrors.SlotNotFound(request.SlotId));
+
+        // Moving a period must respect the same rule as creating one — it is the same collision,
+        // just reached by editing dates instead of adding a row.
+        var overlap = await overlapGuard.EnsureNoOverlapAsync(
+            request.StageId, slot.PeriodNumber, request.StartDate, request.EndDate,
+            excludedSlotId: slot.Id, cancellationToken);
+        if (overlap.IsFailure)
+            return overlap;
 
         slot.Label     = request.Label;
         slot.StartDate = request.StartDate;

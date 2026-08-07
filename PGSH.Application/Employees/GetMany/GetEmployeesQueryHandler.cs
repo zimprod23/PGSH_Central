@@ -17,7 +17,7 @@ internal sealed class GetEmployeesQueryHandler(IApplicationDbContext dbContext)
 
         if (!string.IsNullOrWhiteSpace(request.SearchTerm))
         {
-            string term = request.SearchTerm.ToLower();
+            string term = request.SearchTerm.Trim().ToLower();
             query = query.Where(e =>
                 (e.FirstName != null && e.FirstName.ToLower().Contains(term)) ||
                 (e.LastName  != null && e.LastName.ToLower().Contains(term))  ||

@@ -20,6 +20,9 @@ public sealed class Service
     public Guid? ServiceChefId { get; private set; }
     public Employee? ServiceChef { get; private set; }
 
+    // Append-only trail of past and present chef tenures — see ServiceChefAssignment.
+    public ICollection<ServiceChefAssignment> ChefHistory { get; set; } = new List<ServiceChefAssignment>();
+
     public void AddStaff(Employee employee)
     {
         if (!Staff.Any(e => e.Id == employee.Id))
@@ -32,10 +35,7 @@ public sealed class Service
         if (member is null) return;
         Staff.Remove(member);
         if (ServiceChefId == employee.Id)
-        {
-            ServiceChef = null;
-            ServiceChefId = null;
-        }
+            RemoveChef();
     }
 
     public Result AssignChef(Employee employee)
@@ -44,6 +44,18 @@ public sealed class Service
             return Result.Failure(EmployeeErrors.NotInStaff);
         if (employee.Position != Position.ServiceChef)
             return Result.Failure(EmployeeErrors.WrongPosition);
+        if (ServiceChefId == employee.Id)
+            return Result.Success();
+
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        CloseOpenChefTenure(today);
+        ChefHistory.Add(new ServiceChefAssignment
+        {
+            ServiceId  = Id,
+            EmployeeId = employee.Id,
+            StartDate  = today,
+        });
+
         ServiceChef = employee;
         ServiceChefId = employee.Id;
         return Result.Success();
@@ -51,8 +63,15 @@ public sealed class Service
 
     public void RemoveChef()
     {
+        CloseOpenChefTenure(DateOnly.FromDateTime(DateTime.UtcNow));
         ServiceChef = null;
         ServiceChefId = null;
+    }
+
+    private void CloseOpenChefTenure(DateOnly date)
+    {
+        var open = ChefHistory.FirstOrDefault(h => h.EndDate is null);
+        if (open is not null) open.EndDate = date;
     }
 }
 

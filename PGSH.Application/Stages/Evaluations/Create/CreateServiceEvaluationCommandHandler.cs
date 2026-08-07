@@ -46,6 +46,9 @@ internal sealed class CreateServiceEvaluationCommandHandler(
             TotalScore        = request.TotalScore,
             Outcome           = request.Outcome,
             SupervisorComment = request.SupervisorComment,
+            FicheReference    = request.FicheReference,
+            EvaluatedByUserId = await authorizer.CurrentUserIdAsync(cancellationToken),
+            EvaluatedAt       = DateTime.UtcNow,
             ObjectiveScores   = request.ObjectiveScores
                 .Select(o => new ObjectiveScore
                 {

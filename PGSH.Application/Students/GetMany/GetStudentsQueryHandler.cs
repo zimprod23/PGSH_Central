@@ -29,13 +29,15 @@ internal sealed class GetStudentsQueryHandler(IApplicationDbContext context)
 
         if (!string.IsNullOrWhiteSpace(request.SearchTerm))
         {
-            string term = request.SearchTerm.ToLower();
+            // Trimmed and lowered on both sides: a pasted CNE carries stray spaces, and Appogee was
+            // previously matched case-sensitively so "ap12" never found "AP12".
+            string term = request.SearchTerm.Trim().ToLower();
             query = query.Where(s =>
                 s.FirstName.ToLower().Contains(term) ||
-                s.LastName.ToLower().Contains(term) ||
+                s.LastName.ToLower().Contains(term)  ||
                 s.Email.ToLower().Contains(term)     ||
                 s.CNE.ToLower().Contains(term)       ||
-                s.Appogee.Contains(term)             ||
+                s.Appogee.ToLower().Contains(term)   ||
                 (s.CIN != null && s.CIN.ToLower().Contains(term)));
         }
 
@@ -45,16 +47,20 @@ internal sealed class GetStudentsQueryHandler(IApplicationDbContext context)
                 request.PageNumber, request.PageSize,
                 s => new StudentSummaryResponse(
                     s.Id, s.Email, s.FirstName, s.LastName, s.CNE, s.Appogee, s.AcademicProgram.ToString(), s.CIN,
-                    // Current = the most recent registration (latest academic year).
+                    // The selected academic year's registration when a year is given (at most one),
+                    // otherwise the most recent registration.
                     s.registrations
+                        .Where(r => request.AcademicYearId == null || r.AcademicYearId == request.AcademicYearId)
                         .OrderByDescending(r => r.AcademicYear.StartDate)
                         .Select(r => r.Level.Label)
                         .FirstOrDefault(),
                     s.registrations
+                        .Where(r => request.AcademicYearId == null || r.AcademicYearId == request.AcademicYearId)
                         .OrderByDescending(r => r.AcademicYear.StartDate)
                         .Select(r => r.AcademicGroup != null ? r.AcademicGroup.Label : null)
                         .FirstOrDefault(),
                     s.registrations
+                        .Where(r => request.AcademicYearId == null || r.AcademicYearId == request.AcademicYearId)
                         .OrderByDescending(r => r.AcademicYear.StartDate)
                         .Select(r => r.Status.ToString())
                         .FirstOrDefault()),

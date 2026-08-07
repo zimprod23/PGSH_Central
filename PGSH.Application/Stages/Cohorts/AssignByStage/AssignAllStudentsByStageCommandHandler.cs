@@ -10,7 +10,8 @@ internal sealed class AssignAllStudentsByStageCommandHandler(StudentAffectationS
     public async Task<Result<BulkResponse<Guid, Guid>>> Handle(
         AssignAllStudentsByStageCommand request, CancellationToken cancellationToken)
     {
-        var response = await affectation.AssignByStageAsync(request.StageId, request.PartitionLabels, cancellationToken);
+        var response = await affectation.AssignByStageAsync(
+            request.StageId, request.PartitionLabels, cancellationToken, request.AcademicYearId);
         return Result.Success(response);
     }
 }

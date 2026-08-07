@@ -2,7 +2,7 @@ using PGSH.Application.Abstractions.Messaging;
 
 namespace PGSH.Application.Stages.Schedule;
 
-public sealed record GetStageScheduleQuery(int StageId) : IQuery<StageScheduleResponse>;
+public sealed record GetStageScheduleQuery(int StageId, int? AcademicYearId = null) : IQuery<StageScheduleResponse>;
 
 public sealed record StageScheduleResponse(
     int StageId,

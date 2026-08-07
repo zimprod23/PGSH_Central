@@ -22,9 +22,18 @@ internal sealed class GetMyServicePeriodsQueryHandler(
         if (chefServiceIds.Count == 0)
             return new PaginatedResponse<ServicePeriodResponse>([], 1, 1, 0);
 
+        // Deliberately NOT year-scoped by default. A chef's worklist is "what is live in my services",
+        // which IsStarted already expresses. Defaulting to the current academic year couples the
+        // worklist to a bookkeeping record that drifts out of step with the actual rotation dates —
+        // when it does, the chef silently sees nothing at all, which is far worse than showing an
+        // extra past window. Year scoping stays available, but only when the caller asks for it.
+        var window = request.AcademicYearId.HasValue
+            ? await ResolveYearWindowAsync(request.AcademicYearId.Value, cancellationToken)
+            : null;
+
         var items = new List<ServicePeriodResponse>();
-        items.AddRange(await LoadPublishedPeriodsAsync(chefServiceIds, request.IsComplete, cancellationToken));
-        items.AddRange(await LoadIncomingTransfersAsync(chefServiceIds, request.IsComplete, cancellationToken));
+        items.AddRange(await LoadPublishedPeriodsAsync(chefServiceIds, request.IsComplete, window, cancellationToken));
+        items.AddRange(await LoadIncomingTransfersAsync(chefServiceIds, request.IsComplete, window, cancellationToken));
 
         // The chef worklist is grouped client-side (period → group → students), so it must
         // return every matching row. Paginating here would silently drop students from
@@ -33,6 +42,20 @@ internal sealed class GetMyServicePeriodsQueryHandler(
         return new PaginatedResponse<ServicePeriodResponse>(ordered, 1, Math.Max(ordered.Count, 1), ordered.Count);
     }
 
+    /// <summary>The calendar span of an academic year — what a rotation is scoped against.</summary>
+    private sealed record YearWindow(DateOnly StartDate, DateOnly EndDate);
+
+    /// <summary>
+    /// The date span of the requested year. Null when no such year exists, in which case the
+    /// worklist is not year-scoped rather than empty.
+    /// </summary>
+    private Task<YearWindow?> ResolveYearWindowAsync(int academicYearId, CancellationToken ct) =>
+        dbContext.AcademicYears
+            .AsNoTracking()
+            .Where(y => y.Id == academicYearId)
+            .Select(y => new YearWindow(y.StartDate, y.EndDate))
+            .FirstOrDefaultAsync(ct);
+
     /// <summary>
     /// Real, published periods in the chef's services. A period whose generating cohort no
     /// longer matches the assignment's current cohort belongs to a student who transferred
@@ -40,16 +63,27 @@ internal sealed class GetMyServicePeriodsQueryHandler(
     /// destination (current) group and the service the student now sits in for that window.
     /// </summary>
     private async Task<List<ServicePeriodResponse>> LoadPublishedPeriodsAsync(
-        List<int> chefServiceIds, bool? isComplete, CancellationToken ct)
+        List<int> chefServiceIds, bool? isComplete, YearWindow? window, CancellationToken ct)
     {
         var query = dbContext.ServicePeriods
             .AsNoTracking()
             // Only started periods are the chef's concern; future, not-yet-started rotations stay
-            // hidden, and a period cut short by a mid-stage transfer is terminal history, not work.
-            .Where(p => chefServiceIds.Contains(p.ServiceId) && p.IsStarted && !p.IsInterrupted);
+            // hidden. A period cut short by a mid-stage transfer is kept as a read-only "parti vers …"
+            // history row (flagged IsInterrupted) so the origin chef sees where the student went but
+            // cannot act on it — it is terminal, never counted as work nor evaluable.
+            .Where(p => chefServiceIds.Contains(p.ServiceId) && p.IsStarted);
 
         if (isComplete.HasValue)
             query = query.Where(p => p.IsComplete == isComplete.Value);
+
+        // Scope on when the rotation actually runs, not on the academic year its registration
+        // carries: a stage planned across the year boundary (or a student registered in an earlier
+        // year serving a retake now) is still current work for the chef standing in the service.
+        if (window is not null)
+        {
+            var (yearStart, yearEnd) = window;
+            query = query.Where(p => p.StartDate <= yearEnd && p.EndDate >= yearStart);
+        }
 
         var rows = await query
             .Select(p => new
@@ -66,6 +100,7 @@ internal sealed class GetMyServicePeriodsQueryHandler(
                 p.StartDate,
                 p.EndDate,
                 p.IsComplete,
+                p.IsInterrupted,
                 p.IsPaused,
                 PauseReason = p.Pauses
                     .Where(x => x.ResumeDate == null)
@@ -125,7 +160,8 @@ internal sealed class GetMyServicePeriodsQueryHandler(
                 r.LevelLabel,
                 marker,
                 r.IsPaused,
-                r.PauseReason);
+                r.PauseReason,
+                r.IsInterrupted);
         }).ToList();
     }
 
@@ -137,15 +173,23 @@ internal sealed class GetMyServicePeriodsQueryHandler(
     /// Flagged <see cref="TransferDirection.Incoming"/> with the origin group/service.
     /// </summary>
     private async Task<List<ServicePeriodResponse>> LoadIncomingTransfersAsync(
-        List<int> chefServiceIds, bool? isComplete, CancellationToken ct)
+        List<int> chefServiceIds, bool? isComplete, YearWindow? window, CancellationToken ct)
     {
         // Incoming rows are never "complete" — exclude them when the caller filters to completed periods.
         if (isComplete == true)
             return [];
 
-        var rows = await dbContext.CohortSlotAssignments
+        var slots = dbContext.CohortSlotAssignments
             .AsNoTracking()
-            .Where(sa => chefServiceIds.Contains(sa.ServiceId))
+            .Where(sa => chefServiceIds.Contains(sa.ServiceId));
+
+        if (window is not null)
+        {
+            var (yearStart, yearEnd) = window;
+            slots = slots.Where(sa => sa.StageSlot.StartDate <= yearEnd && sa.StageSlot.EndDate >= yearStart);
+        }
+
+        var rows = await slots
             .SelectMany(sa => sa.Cohort.Assignments, (sa, a) => new { sa, a })
             .Where(x => x.a.MembershipHistory.Any(m => m.EndDate == null && m.TransferReason != null))
             // No synthesized "incoming" row once a real period is materialised against this slot

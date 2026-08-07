@@ -60,8 +60,11 @@ internal sealed class RegistrationConfiguration : IEntityTypeConfiguration<Regis
                .HasForeignKey(r => r.StudentId)
                .OnDelete(DeleteBehavior.Cascade);
 
+        // A student may hold at most one registration per academic year. The command handlers
+        // already guard this (DuplicateRegistration); the unique index is the DB-level safety net.
         builder.HasIndex(r => new { r.StudentId, r.AcademicYearId })
-               .HasDatabaseName("IX_Registration_Student_Year");
+               .HasDatabaseName("IX_Registration_Student_Year")
+               .IsUnique();
     }
 }
 

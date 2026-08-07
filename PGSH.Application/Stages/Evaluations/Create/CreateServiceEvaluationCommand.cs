@@ -9,6 +9,7 @@ public sealed record CreateServiceEvaluationCommand(
     decimal? TotalScore,
     EvaluationOutcome? Outcome,
     string? SupervisorComment,
-    List<ObjectiveScoreRequest> ObjectiveScores) : ICommand<Guid>;
+    List<ObjectiveScoreRequest> ObjectiveScores,
+    string? FicheReference = null) : ICommand<Guid>;
 
 public sealed record ObjectiveScoreRequest(int StageObjectiveId, int? Score, EvaluationOutcome? Outcome, string? Note);

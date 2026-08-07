@@ -49,6 +49,42 @@ public sealed class InternshipAssignment : Entity
         return AppResult.Success();
     }
 
+    // A transfer re-materialises periods against the target group's schedule and hands the student the
+    // group's CURRENT lifecycle state per slot (the rescheduler sets IsStarted/IsComplete directly). Bring
+    // the assignment's own status back in line with its periods afterwards — otherwise it stays "Planned"
+    // while actually underway (hidden from the chef worklist, skipped by the bulk clôture that only closes
+    // Ongoing assignments) or "Ongoing" after joining a group whose stage is already closed (never reaching
+    // Completed, so its evaluations can never roll up to Evaluated). Terminal admin verdicts are left alone.
+    public void SyncStatusAfterReschedule(DateOnly date)
+    {
+        if (Status is InternshipStatus.Evaluated
+                   or InternshipStatus.Validated
+                   or InternshipStatus.Rejected)
+            return;
+
+        var graded = ServicePeriods.Where(p => !p.IsInterrupted).ToList();
+        if (graded.Count == 0)
+            return;
+
+        if (graded.All(p => p.IsComplete))
+        {
+            if (Status != InternshipStatus.Completed)
+            {
+                Status = InternshipStatus.Completed;
+                // Joining a group whose stage is already finished ends the loan just like a natural close.
+                EndTemporaryTransferIfAny(date);
+            }
+        }
+        else if (graded.Any(p => p.IsStarted))
+        {
+            Status = InternshipStatus.Ongoing;
+        }
+        else
+        {
+            Status = InternshipStatus.Planned;
+        }
+    }
+
     // Suspends an in-flight period (e.g. an exam week). Only a started, not-yet-complete period
     // can be paused; the chef sees it frozen until an admin resumes it.
     public Result PausePeriod(Guid periodId, DateOnly date, PauseKind kind, string? reason)
@@ -56,6 +92,8 @@ public sealed class InternshipAssignment : Entity
         var period = ServicePeriods.FirstOrDefault(p => p.Id == periodId);
         if (period is null)
             return AppResult.Failure(StageErrors.PeriodNotFound(periodId));
+        if (period.IsInterrupted)
+            return AppResult.Failure(StageErrors.PeriodInterrupted(periodId));
         if (!period.IsStarted)
             return AppResult.Failure(StageErrors.PeriodNotStarted(periodId));
         if (period.IsComplete)
@@ -110,6 +148,8 @@ public sealed class InternshipAssignment : Entity
         var period = ServicePeriods.FirstOrDefault(p => p.Id == periodId);
         if (period is null)
             return AppResult.Failure(StageErrors.PeriodNotFound(periodId));
+        if (period.IsInterrupted)
+            return AppResult.Failure(StageErrors.PeriodInterrupted(periodId));
         if (period.IsComplete)
             return AppResult.Failure(StageErrors.PeriodAlreadyComplete(periodId));
         if (period.IsPaused)
@@ -167,23 +207,70 @@ public sealed class InternshipAssignment : Entity
         return AppResult.Success();
     }
 
+    /// <summary>
+    /// Ratifies the chef's evaluation: the marks become official. This is a workflow act, not an
+    /// academic one — <see cref="Result"/> stays whatever the marks produced, so ratifying a failed
+    /// stage records an official failure rather than converting it into a pass.
+    /// </summary>
     public Result Validate()
     {
         if (Status != InternshipStatus.Evaluated)
             return AppResult.Failure(StageErrors.InvalidStatusTransition("Validate", Status));
+
         Status = InternshipStatus.Validated;
-        Result = StageAssignmentResult.Validé;
         Raise(new AssignmentValidatedDomainEvent(Id, RegistrationId, FinalScore));
         return AppResult.Success();
     }
 
+    /// <summary>
+    /// Refuses to ratify: the chef's evaluation is not accepted as official (contested, incomplete,
+    /// entered against the wrong student…). Like <see cref="Validate"/> this moves the workflow only
+    /// — the marks on record keep producing <see cref="Result"/> until they are actually amended.
+    /// </summary>
     public Result Reject()
     {
         if (Status != InternshipStatus.Evaluated)
             return AppResult.Failure(StageErrors.InvalidStatusTransition("Reject", Status));
+
         Status = InternshipStatus.Rejected;
-        Result = StageAssignmentResult.NonValidé;
         Raise(new AssignmentRejectedDomainEvent(Id, RegistrationId));
+        return AppResult.Success();
+    }
+
+    // ─── Délocalisation ──────────────────────────────────────────────────────
+
+    // The whole stage is served outside the faculty. The in-faculty rotation never happens, so any
+    // planned (not-yet-started) periods are dropped and replaced by a single ad-hoc period at the
+    // external service — created already started + complete since the stage is done by the time it
+    // is recorded; an administrator enters the validate-only verdict + fiche afterwards. Refuses to
+    // run once any in-faculty period has begun (délocalisation is whole-stage, not partial).
+    public Result Delocalize(int stageId, int serviceId, DateOnly startDate, DateOnly endDate,
+        string reason, Guid? demandeId)
+    {
+        if (ServicePeriods.Any(p => p.IsStarted || p.IsComplete || p.IsInterrupted))
+            return AppResult.Failure(StageErrors.StageAlreadyUnderway);
+
+        foreach (var planned in ServicePeriods.ToList())
+            ServicePeriods.Remove(planned);
+
+        // Do NOT pre-set the Id of the period or its Delocalization child: when this assignment is
+        // already tracked, a non-sentinel store-generated key makes EF classify the child as
+        // Modified (UPDATE a non-existent row) instead of Added. Let EF generate the keys.
+        ServicePeriods.Add(new ServicePeriod
+        {
+            InternshipAssignmentId = Id,
+            ServiceId              = serviceId,
+            CohortSlotAssignmentId = null,
+            StartDate              = startDate,
+            EndDate                = endDate,
+            IsStarted              = true,
+            IsComplete             = true,
+            IsDelocalized          = true,
+            Delocalization         = new Delocalization { Reason = reason, DemandeId = demandeId },
+        });
+
+        Status = InternshipStatus.Completed;
+        Raise(new StudentDelocalizedDomainEvent(Id, RegistrationId, stageId, serviceId, reason));
         return AppResult.Success();
     }
 
@@ -220,17 +307,14 @@ public sealed class InternshipAssignment : Entity
 
     public void RecalculateFinalScore() => RecomputeFinalScore();
 
-    // Pass threshold: a final mark at or above this validates the stage.
-    private const decimal ValidationThreshold = 10m;
-
-    // A validate-only verdict maps onto the numeric scale so a chef who certifies without
-    // grading still contributes a usable mark: validated = 10, not validated = 0.
-    private static decimal OutcomeToScore(EvaluationOutcome? outcome) =>
-        outcome == EvaluationOutcome.Validated ? 10m : 0m;
-
+    // The stage note is the mean of the periods' marks; the stage passes only when EVERY period
+    // passes individually — a single failed period fails the whole stage — and only once every
+    // (non-interrupted) period has been evaluated. Per-period mark/verdict rules live in StageScoring
+    // so the read handlers (student record + fiche de validation) compute the same numbers.
     private void RecomputeFinalScore()
     {
-        var evaluations = ServicePeriods
+        var gradedPeriods = ServicePeriods.Where(p => !p.IsInterrupted).ToList();
+        var evaluations = gradedPeriods
             .Where(p => p.Evaluation is not null)
             .Select(p => p.Evaluation!)
             .ToList();
@@ -242,55 +326,18 @@ public sealed class InternshipAssignment : Entity
             return;
         }
 
-        decimal weightedSum = 0;
-        decimal totalWeight = 0;
+        FinalScore = Math.Round(evaluations.Average(StageScoring.PeriodMark), 2);
 
-        foreach (var evaluation in evaluations)
-        {
-            switch (evaluation.Mode)
-            {
-                case EvaluationMode.ValidatePeriod:
-                    weightedSum += OutcomeToScore(evaluation.Outcome);
-                    totalWeight += 1;
-                    break;
-
-                case EvaluationMode.ValidateObjectives:
-                    foreach (var o in evaluation.ObjectiveScores)
-                    {
-                        decimal weight = o.StageObjective?.Weight ?? 1;
-                        weightedSum += OutcomeToScore(o.Outcome) * weight;
-                        totalWeight += weight;
-                    }
-                    break;
-
-                default: // Numeric
-                    if (evaluation.ObjectiveScores.Count == 0)
-                    {
-                        if (evaluation.TotalScore.HasValue)
-                        {
-                            weightedSum += evaluation.TotalScore.Value;
-                            totalWeight += 1;
-                        }
-                        break;
-                    }
-                    foreach (var o in evaluation.ObjectiveScores)
-                    {
-                        decimal weight = o.StageObjective?.Weight ?? 1;
-                        weightedSum += (o.Score ?? 0) * weight;
-                        totalWeight += weight;
-                    }
-                    break;
-            }
-        }
-
-        FinalScore = totalWeight > 0 ? Math.Round(weightedSum / totalWeight, 2) : null;
-
-        // Auto-derive the pass/fail result from the threshold. An admin can still override
-        // it terminally via Validate()/Reject() (after which evaluations are read-only, so
-        // this never runs again to clobber their decision).
-        Result = FinalScore is null
+        // The verdict is meaningful only when the whole stage is graded; until then it stays
+        // "not evaluated" even though a partial mean is already shown. Nothing else ever writes it:
+        // ratifying or refusing an evaluation moves Status only, so the academic outcome always
+        // traces back to the marks the chef actually gave.
+        bool allEvaluated = gradedPeriods.All(p => p.Evaluation is not null);
+        Result = !allEvaluated
             ? StageAssignmentResult.NonÉvalué
-            : FinalScore >= ValidationThreshold ? StageAssignmentResult.Validé : StageAssignmentResult.NonValidé;
+            : evaluations.All(StageScoring.IsPeriodValidated)
+                ? StageAssignmentResult.Validé
+                : StageAssignmentResult.NonValidé;
     }
 }
 

@@ -90,6 +90,10 @@ public static class StageErrors
         "AttendanceRecords.AlreadyGenerated",
         "Attendance records have already been generated for this service period.");
 
+    public static readonly Error AttendanceNotAllowed = Error.Forbidden(
+        "AttendanceRecords.NotAllowed",
+        "Vous ne pouvez enregistrer ou consulter les présences que pour les périodes de vos propres services.");
+
     // === ServiceEvaluation ===
     public static Error EvaluationReadOnly(InternshipStatus status) => Error.Conflict(
         "ServiceEvaluations.ReadOnly",
@@ -102,6 +106,10 @@ public static class StageErrors
     public static Error EvaluationAlreadyExists(Guid periodId) => Error.Conflict(
         "ServiceEvaluations.AlreadyExists",
         $"An evaluation already exists for service period '{periodId}'.");
+
+    public static readonly Error FicheNotAvailable = Error.Conflict(
+        "ServiceEvaluations.FicheNotAvailable",
+        "La fiche de validation n'est disponible que lorsque toutes les périodes sont évaluées et le stage validé.");
 
     // === Cohort ===
     public static Error CohortNotFound(int cohortId) => Error.NotFound(
@@ -116,6 +124,25 @@ public static class StageErrors
     public static Error DuplicatePeriodNumber(int periodNumber) => Error.Conflict(
         "Schedule.DuplicatePeriodNumber",
         $"A slot with period number {periodNumber} already exists for this stage.");
+
+    /// <summary>
+    /// Two periods of the same academic level would run at the same time. A level's students follow
+    /// every one of its stages, so overlapping windows — whether inside one stage or across two —
+    /// would place the same group in two services at once.
+    /// </summary>
+    public static Error SlotOverlap(
+        int periodNumber, DateOnly start, DateOnly end,
+        string conflictingStageName, int conflictingPeriodNumber, DateOnly conflictStart, DateOnly conflictEnd,
+        bool sameStage) => Error.Conflict(
+        "Schedule.SlotOverlap",
+        sameStage
+            ? $"La période {periodNumber} ({start:dd/MM/yyyy} – {end:dd/MM/yyyy}) chevauche la période "
+              + $"{conflictingPeriodNumber} ({conflictStart:dd/MM/yyyy} – {conflictEnd:dd/MM/yyyy}) du même stage. "
+              + "Les périodes d'un stage doivent se suivre sans se chevaucher."
+            : $"La période {periodNumber} ({start:dd/MM/yyyy} – {end:dd/MM/yyyy}) chevauche la période "
+              + $"{conflictingPeriodNumber} du stage « {conflictingStageName} » "
+              + $"({conflictStart:dd/MM/yyyy} – {conflictEnd:dd/MM/yyyy}), qui concerne le même niveau. "
+              + "Un groupe ne peut pas être affecté à deux stages en même temps.");
 
     public static Error CapacityExceeded(
         int periodNumber, string serviceName, DateOnly start, DateOnly end, int occupancy, int capacity) => Error.Conflict(
@@ -183,4 +210,21 @@ public static class StageErrors
     public static Error PeriodPaused(Guid periodId) => Error.Conflict(
         "AssignmentPeriods.Paused",
         $"Service period '{periodId}' is paused; resume it before closing.");
+
+    public static Error PeriodInterrupted(Guid periodId) => Error.Conflict(
+        "AssignmentPeriods.Interrupted",
+        $"Service period '{periodId}' was interrupted by a mid-stage transfer; it is terminal history and cannot be started, closed or evaluated.");
+
+    // === Delocalization ===
+    public static readonly Error StageAlreadyUnderway = Error.Conflict(
+        "Delocalizations.StageAlreadyUnderway",
+        "Ce stage est déjà commencé ou clôturé en interne ; la délocalisation concerne un stage effectué entièrement hors faculté.");
+
+    public static readonly Error NoGroupForDelocalization = Error.Conflict(
+        "Delocalizations.NoGroup",
+        "L'étudiant n'est rattaché à aucun groupe pour cette année ; affectez-le à un groupe avant de délocaliser le stage.");
+
+    public static Error CohortMissingForStage(int stageId) => Error.Conflict(
+        "Delocalizations.CohortMissing",
+        $"Aucune cohorte n'existe pour le groupe de l'étudiant sur le stage {stageId} ; configurez les cohortes du stage avant de délocaliser.");
 }

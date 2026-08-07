@@ -15,6 +15,9 @@ public sealed class GetManyInternshipAssignments : IEndpoint
             int? stageId,
             Guid? registrationId,
             InternshipStatus? status,
+            string[]? partitionLabels,
+            int? periodNumber,
+            string? search,
             int? pageNumber,
             int? pageSize,
             ISender sender,
@@ -25,6 +28,9 @@ public sealed class GetManyInternshipAssignments : IEndpoint
                 stageId,
                 registrationId,
                 status,
+                partitionLabels?.Length > 0 ? partitionLabels.ToList() : null,
+                periodNumber,
+                search,
                 pageNumber ?? 1,
                 pageSize ?? 20);
 

@@ -8,5 +8,7 @@ public sealed record GetServicePeriodsQuery(
     int? ServiceId = null,
     int? CohortId = null,
     bool? IsComplete = null,
+    // When set, restricts to periods whose assignment's registration is in this academic year.
+    int? AcademicYearId = null,
     int PageNumber = 1,
     int PageSize = 100) : IQuery<PaginatedResponse<ServicePeriodResponse>>;

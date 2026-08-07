@@ -16,9 +16,9 @@ internal sealed class StageScheduleEndpoints : IEndpoint
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
         app.MapGet("stages/{stageId:int}/schedule",
-            async (int stageId, ISender sender, CancellationToken ct) =>
+            async (int stageId, int? academicYearId, ISender sender, CancellationToken ct) =>
             {
-                var result = await sender.Send(new GetStageScheduleQuery(stageId), ct);
+                var result = await sender.Send(new GetStageScheduleQuery(stageId, academicYearId), ct);
                 return result.Match(Results.Ok, CustomResults.Problem);
             })
             .WithTags("Stages");

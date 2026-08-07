@@ -18,7 +18,8 @@ public sealed record ServicePeriodResponse(
     string? LevelLabel,
     TransferMarker? Transfer = null,
     bool IsPaused = false,
-    string? PauseReason = null);
+    string? PauseReason = null,
+    bool IsInterrupted = false);
 
 /// <summary>
 /// Overlay marking a worklist row that no longer matches the chef's live roster because

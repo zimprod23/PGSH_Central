@@ -13,6 +13,11 @@ public static class Roles
     public const string Employee = "Employee";
     public const string SuperUser = "SuperUser";
 
-    /// <summary>Roles allowed to act on any service's periods/evaluations, bypassing chef scoping.</summary>
-    public static readonly string[] Administrative = [Scolarite, Secretaire, SuperUser];
+    /// <summary>
+    /// Roles allowed to act on <em>any</em> service's periods/evaluations/attendance, bypassing the
+    /// per-service scoping. <see cref="Secretaire"/> is intentionally excluded: a secretary is a
+    /// service-scoped operational role (presence only, and only for services she is staff of),
+    /// resolved through <c>ExecutionAuthorizer.MyServiceIdsAsync</c> — not a global override.
+    /// </summary>
+    public static readonly string[] Administrative = [Scolarite, SuperUser];
 }

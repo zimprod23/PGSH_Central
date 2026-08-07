@@ -1,21 +1,22 @@
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
+using PGSH.Application.Employees.MyServices;
 using PGSH.Domain.Stages;
 using PGSH.SharedKernel;
 
 namespace PGSH.Application.Stages.Attendance.Record;
 
-internal sealed class RecordAttendanceCommandHandler(IApplicationDbContext dbContext)
+internal sealed class RecordAttendanceCommandHandler(
+    IApplicationDbContext dbContext,
+    ExecutionAuthorizer authorizer)
     : ICommandHandler<RecordAttendanceCommand, Guid>
 {
     public async Task<Result<Guid>> Handle(RecordAttendanceCommand request, CancellationToken cancellationToken)
     {
-        bool periodExists = await dbContext.ServicePeriods
-            .AnyAsync(p => p.Id == request.ServicePeriodId, cancellationToken);
-
-        if (!periodExists)
-            return Result.Failure<Guid>(StageErrors.PeriodNotFound(request.ServicePeriodId));
+        var access = await authorizer.EnsureCanRecordAttendanceAsync(request.ServicePeriodId, cancellationToken);
+        if (access.IsFailure)
+            return Result.Failure<Guid>(access.Error);
 
         var existing = await dbContext.AttendanceRecords
             .FirstOrDefaultAsync(

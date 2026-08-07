@@ -34,9 +34,13 @@ internal sealed class StudentAffectationService(IApplicationDbContext dbContext)
     }
 
     public async Task<BulkResponse<Guid, Guid>> AssignByStageAsync(
-        int stageId, IReadOnlyCollection<string>? partitionLabels, CancellationToken ct)
+        int stageId, IReadOnlyCollection<string>? partitionLabels, CancellationToken ct,
+        int? academicYearId = null)
     {
         var query = dbContext.Cohorts.AsNoTracking().Where(c => c.StageId == stageId);
+
+        if (academicYearId is not null)
+            query = query.Where(c => c.AcademicGroup.AcademicYearId == academicYearId);
 
         if (partitionLabels is { Count: > 0 })
             query = query.Where(c => c.AcademicGroup.RotationGroup != null

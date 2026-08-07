@@ -12,7 +12,8 @@ internal sealed class DeleteAllCohortsCommandHandler(IApplicationDbContext dbCon
     public async Task<Result<int>> Handle(DeleteAllCohortsCommand request, CancellationToken cancellationToken)
     {
         var cohortIds = await dbContext.Cohorts
-            .Where(c => c.StageId == request.StageId)
+            .Where(c => c.StageId == request.StageId
+                     && (request.AcademicYearId == null || c.AcademicGroup.AcademicYearId == request.AcademicYearId))
             .Select(c => c.Id)
             .ToListAsync(cancellationToken);
 
@@ -57,7 +58,7 @@ internal sealed class DeleteAllCohortsCommandHandler(IApplicationDbContext dbCon
             .ExecuteDeleteAsync(cancellationToken);
 
         int deleted = await dbContext.Cohorts
-            .Where(c => c.StageId == request.StageId)
+            .Where(c => cohortIds.Contains(c.Id))
             .ExecuteDeleteAsync(cancellationToken);
 
         return Result.Success(deleted);

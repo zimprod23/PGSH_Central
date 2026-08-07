@@ -96,10 +96,15 @@ internal sealed class TransferStudentCommandHandler(
             {
                 // Normal transfer: rehome the future rotation onto the target group's slots so the
                 // new chef gets actionable, evaluable periods instead of an informational green row.
-                var materialize = await rescheduler.MaterializeAtTargetAsync(assignment, targetCohort.Id, cancellationToken);
+                var materialize = await rescheduler.MaterializeAtTargetAsync(assignment, targetCohort.Id, transferDate, cancellationToken);
                 if (materialize.IsFailure)
                     return materialize;
             }
+
+            // The rescheduler hands the student the target group's current lifecycle state per period;
+            // reflect that on the assignment so it isn't left showing "Planifié" (or stuck "Ongoing"
+            // after joining a group whose stage is already closed).
+            assignment.SyncStatusAfterReschedule(transferDate);
         }
 
         if (request.Type == TransferType.Temporary && !moved)

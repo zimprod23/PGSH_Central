@@ -7,6 +7,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="PGSH.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="FluentEmail.Smtp" />
     <PackageReference Include="FluentValidation.DependencyInjectionExtensions" />
     <PackageReference Include="MediatR" />

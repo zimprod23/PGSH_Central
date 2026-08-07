@@ -9,5 +9,10 @@ public sealed record GetInternshipAssignmentsQuery(
     int? StageId,
     Guid? RegistrationId,
     InternshipStatus? Status,
+    // Notes-list scoping: partition (AcademicGroup.RotationGroup) + a single period (StageSlot period
+    // number) the students must serve, plus a free-text match on name / appogée / CNE.
+    List<string>? PartitionLabels = null,
+    int? PeriodNumber = null,
+    string? Search = null,
     int PageNumber = 1,
     int PageSize = 20) : IQuery<PaginatedResponse<InternshipAssignmentSummaryResponse>>;

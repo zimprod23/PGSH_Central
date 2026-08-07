@@ -10,9 +10,9 @@ public sealed class DeleteAllCohortsEndpoint : IEndpoint
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
         app.MapDelete("stages/{stageId:int}/cohorts/all",
-            async (int stageId, ISender sender, CancellationToken ct) =>
+            async (int stageId, int? academicYearId, ISender sender, CancellationToken ct) =>
             {
-                var result = await sender.Send(new DeleteAllCohortsCommand(stageId), ct);
+                var result = await sender.Send(new DeleteAllCohortsCommand(stageId, academicYearId), ct);
                 return result.Match(count => Results.Ok(new { deleted = count }), CustomResults.Problem);
             })
             .WithTags(Tags.Stages)

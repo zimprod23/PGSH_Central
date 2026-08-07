@@ -75,6 +75,37 @@ These are rules enforced in domain or application code — not always obvious fr
 - **FinalScore is a cache**: `InternshipAssignment.FinalScore` is described as "stored, not authoritative" — it must be recomputed from `ObjectiveScore.Score × StageObjective.Weight`. Currently never written. (Phase 7 item.)
 - **Ad-hoc vs. planned periods**: `ServicePeriod.CohortSlotAssignmentId` is NULL for ad-hoc rotations (created outside the published schedule), non-null for schedule-driven ones (created by publish-schedule).
 
+- **"Valider" means RATIFY, not pass** *(clarified by the user 2026-08-07 — this is the single most
+  misreadable term in the domain)*: admin *Valider* on Suivi des affectations **officialises the professor's
+  evaluation whatever verdict it carries**. It does not decide that the student passed. Two concepts must stay
+  separate on `InternshipAssignment`:
+  - **`Status`** = workflow state — who has signed off (`Planned → Ongoing → Completed → Evaluated →
+    Validated/Rejected`). Moved by `Validate()` / `Reject()`.
+  - **`Result`** (`StageAssignmentResult`) = academic outcome — written **only** by `RecomputeFinalScore` from
+    the marks, never by an administrative action.
+  Ratifying a stage the chef failed records an *official failure*. `Reject()` symmetrically means "I refuse to
+  officialise this evaluation" (contested, wrong student, incomplete) — it does not retroactively fail anyone;
+  the marks are corrected by amending the evaluation. Anything gating on "the student passed" checks `Result`;
+  anything gating on "it is official" checks `Status`. (Before 2026-08-07 `Validate()` set `Result = Validé`
+  unconditionally, so ratifying a 6/20 flipped the student to passed while `FinalScore` still read 6.)
+- **Bulk ratification only touches fully evaluated assignments**: `ValidateCohortAssignmentsCommandHandler`
+  filters `Status == Evaluated`, which is reached only when every non-interrupted period has an evaluation — so
+  it can never validate a student the chef has not evaluated. The skip is **silent**, though: 20 students with 3
+  evaluated reports "3 validés" and says nothing about the other 17.
+- **No two periods of the same academic LEVEL may overlap** *(added 2026-08-06, `SlotOverlapGuard`)*: a level's
+  students follow every one of its stages, so overlapping windows — whether inside one stage or across two of
+  the same level — would put a group in two services on the same day. Different levels may share dates freely.
+  Windows are **inclusive of both ends**, so a period ending 31/03 and one starting 31/03 collide; the next must
+  start 01/04. Enforced on both create and update of a `StageSlot`. Error: `StageErrors.SlotOverlap`.
+- **The chef worklist is never year-scoped by default** *(learned the hard way — two live incidents)*: a chef's
+  list is "what is live in my services", expressed by `IsStarted`. Any implicit scoping to the current academic
+  year couples live work to a bookkeeping record that drifts out of step with the dates rotations actually run
+  on — and when it drifts, the chef silently sees nothing at all. `GetMyServicePeriodsQuery.AcademicYearId` is
+  **opt-in**; an unknown year id leaves the list unscoped rather than empty.
+- **Reading presence is wider than recording it**: attendance may be **recorded** by an administrative user or
+  the chef/staff of the period's service; it may be **read** by all of those *plus the student whose own
+  rotation it is* (`ExecutionAuthorizer.EnsureCanReadAttendanceAsync`). Consulting your own attendance is not a
+  privileged act — gating the read behind the write scope made the student portal 403 on every stage it showed.
 - **Non-validated stages stay with the student (revalidation)**: A student who receives `Result = NonValidé` on a stage does **not** stop progressing. They continue through subsequent academic years normally. The failed stage "sticks" with them — the original `InternshipAssignment` with `Result = NonValidé` remains in the system as a permanent record. At some later year (could be final year), the student is assigned to a cohort doing that same stage again and receives a new `InternshipAssignment` for that attempt. If they pass, that new assignment gets `Result = Validé`. The old failed assignment is never deleted or modified — it is the audit trail. A `History` record of type `Revalidation` marks when this process begins. **Implication:** a student can have multiple `InternshipAssignment` records for the same `Stage` across different academic years. Queries that check "has the student passed Stage X" must look for any `InternshipAssignment` where the `Cohort.StageId == X` and `Result == Validé`, not just the most recent one.
 
 ---

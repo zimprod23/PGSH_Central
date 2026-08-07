@@ -26,6 +26,25 @@ internal sealed class GetInternshipAssignmentsQueryHandler(IApplicationDbContext
         if (request.StageId.HasValue)
             query = query.Where(a => a.Cohort.StageId == request.StageId.Value);
 
+        if (request.PartitionLabels is { Count: > 0 })
+            query = query.Where(a => a.Cohort.AcademicGroup.RotationGroup != null
+                                  && request.PartitionLabels.Contains(a.Cohort.AcademicGroup.RotationGroup));
+
+        if (request.PeriodNumber.HasValue)
+            query = query.Where(a => a.ServicePeriods.Any(p =>
+                p.CohortSlotAssignment != null
+                && p.CohortSlotAssignment.StageSlot.PeriodNumber == request.PeriodNumber.Value));
+
+        if (!string.IsNullOrWhiteSpace(request.Search))
+        {
+            string term = request.Search.Trim().ToLower();
+            query = query.Where(a =>
+                (a.Registration.Student.FirstName != null && a.Registration.Student.FirstName.ToLower().Contains(term)) ||
+                (a.Registration.Student.LastName  != null && a.Registration.Student.LastName.ToLower().Contains(term))  ||
+                a.Registration.Student.Appogee.ToLower().Contains(term) ||
+                a.Registration.Student.CNE.ToLower().Contains(term));
+        }
+
         var response = await query
             .OrderBy(a => a.Registration.Student.LastName)
             .ToPaginatedResponseAsync(
@@ -42,7 +61,9 @@ internal sealed class GetInternshipAssignmentsQueryHandler(IApplicationDbContext
                     a.Status,
                     a.FinalScore,
                     a.Result,
-                    a.ServicePeriods.Any(p => p.IsPaused)),
+                    a.ServicePeriods.Any(p => p.IsPaused),
+                    a.ServicePeriods.Any(p => !p.IsInterrupted)
+                        && a.ServicePeriods.All(p => p.IsInterrupted || p.Evaluation != null)),
                 cancellationToken);
 
         return Result.Success(response);

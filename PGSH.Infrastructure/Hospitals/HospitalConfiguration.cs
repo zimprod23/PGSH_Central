@@ -130,5 +130,28 @@ internal sealed class ServiceConfiguration : IEntityTypeConfiguration<Service>
                    .HasForeignKey(s => s.ServiceChefId)
                    .IsRequired(false)
                    .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasMany(s => s.ChefHistory)
+               .WithOne(h => h.Service)
+               .HasForeignKey(h => h.ServiceId)
+               .OnDelete(DeleteBehavior.Cascade);
+    }
+}
+
+internal sealed class ServiceChefAssignmentConfiguration : IEntityTypeConfiguration<ServiceChefAssignment>
+{
+    public void Configure(EntityTypeBuilder<ServiceChefAssignment> builder)
+    {
+        builder.HasKey(h => h.Id);
+
+        builder.HasOne(h => h.Employee)
+               .WithMany()
+               .HasForeignKey(h => h.EmployeeId)
+               .OnDelete(DeleteBehavior.Restrict);
+
+        // At most one open tenure (EndDate IS NULL) per service.
+        builder.HasIndex(h => h.ServiceId)
+               .HasFilter("\"EndDate\" IS NULL")
+               .IsUnique();
     }
 }

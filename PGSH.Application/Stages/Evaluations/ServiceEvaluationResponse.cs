@@ -9,7 +9,10 @@ public sealed record ServiceEvaluationResponse(
     decimal? TotalScore,
     EvaluationOutcome? Outcome,
     string? SupervisorComment,
-    IReadOnlyList<ObjectiveScoreResponse> ObjectiveScores);
+    IReadOnlyList<ObjectiveScoreResponse> ObjectiveScores,
+    string? FicheReference = null,
+    string? EvaluatedByName = null,
+    DateTime? EvaluatedAt = null);
 
 public sealed record ObjectiveScoreResponse(
     Guid Id,
