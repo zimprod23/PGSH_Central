@@ -1,18 +1,26 @@
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
+using PGSH.Application.Employees.MyServices;
 using PGSH.Domain.Common.Utils;
 using PGSH.Domain.Stages;
 using PGSH.SharedKernel;
 
 namespace PGSH.Application.Stages.InternshipAssignments.Fiche;
 
-internal sealed class GetFicheDeValidationQueryHandler(IApplicationDbContext dbContext)
+internal sealed class GetFicheDeValidationQueryHandler(
+    IApplicationDbContext dbContext,
+    ExecutionAuthorizer authorizer)
     : IQueryHandler<GetFicheDeValidationQuery, FicheDeValidationResponse>
 {
     public async Task<Result<FicheDeValidationResponse>> Handle(
         GetFicheDeValidationQuery request, CancellationToken cancellationToken)
     {
+        // The fiche is an attestation in someone's name — same read scope as the record it prints.
+        var access = await authorizer.EnsureCanReadAssignmentAsync(request.AssignmentId, cancellationToken);
+        if (access.IsFailure)
+            return Result.Failure<FicheDeValidationResponse>(access.Error);
+
         // Gate on a cheap projection first — no point loading the whole record + evaluation graph
         // only to reject a stage that isn't validated yet.
         var head = await dbContext.InternshipAssignments

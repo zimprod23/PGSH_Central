@@ -1,8 +1,9 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Stages.Delocalization;
 using PGSH.Domain.Common.Utils;
 using PGSH.Domain.Registrations;
+using PGSH.Application.Employees.MyServices;
 using PGSH.Domain.Stages;
 using PGSH.Infrastructure.Database;
 using Xunit;
@@ -56,7 +57,7 @@ public class DelocalizeStudentHandlerTests
         await using var db = TestHarness.NewContext("deloc-replace");
         var s = await SeedAsync(db);
 
-        var result = await new DelocalizeStudentCommandHandler(db).Handle(Command(s.Registration.Id), default);
+        var result = await new DelocalizeStudentCommandHandler(db, db.AdminAuthorizer()).Handle(Command(s.Registration.Id), default);
 
         result.IsSuccess.Should().BeTrue();
         var assignment = await LoadAssignmentAsync(db, s.Registration.Id);
@@ -73,7 +74,7 @@ public class DelocalizeStudentHandlerTests
         await using var db = TestHarness.NewContext("deloc-new");
         var s = await SeedAsync(db, withAssignment: false);
 
-        var result = await new DelocalizeStudentCommandHandler(db).Handle(Command(s.Registration.Id), default);
+        var result = await new DelocalizeStudentCommandHandler(db, db.AdminAuthorizer()).Handle(Command(s.Registration.Id), default);
 
         result.IsSuccess.Should().BeTrue();
         var assignment = await LoadAssignmentAsync(db, s.Registration.Id);
@@ -87,7 +88,7 @@ public class DelocalizeStudentHandlerTests
         await using var db = TestHarness.NewContext("deloc-verdict");
         var s = await SeedAsync(db);
 
-        var result = await new DelocalizeStudentCommandHandler(db)
+        var result = await new DelocalizeStudentCommandHandler(db, db.AdminAuthorizer())
             .Handle(Command(s.Registration.Id, EvaluationOutcome.Validated), default);
 
         result.IsSuccess.Should().BeTrue();
@@ -106,7 +107,7 @@ public class DelocalizeStudentHandlerTests
         await using var db = TestHarness.NewContext("deloc-pending");
         var s = await SeedAsync(db);
 
-        await new DelocalizeStudentCommandHandler(db).Handle(Command(s.Registration.Id), default);
+        await new DelocalizeStudentCommandHandler(db, db.AdminAuthorizer()).Handle(Command(s.Registration.Id), default);
 
         var assignment = await LoadAssignmentAsync(db, s.Registration.Id);
         assignment.ServicePeriods.Single().Evaluation.Should().BeNull();
@@ -119,7 +120,7 @@ public class DelocalizeStudentHandlerTests
         await using var db = TestHarness.NewContext("deloc-missing-reg");
         await SeedAsync(db);
 
-        var result = await new DelocalizeStudentCommandHandler(db).Handle(Command(Guid.NewGuid()), default);
+        var result = await new DelocalizeStudentCommandHandler(db, db.AdminAuthorizer()).Handle(Command(Guid.NewGuid()), default);
 
         result.IsFailure.Should().BeTrue();
         result.Error.Code.Should().Be("Registrations.NotFound");
@@ -135,7 +136,7 @@ public class DelocalizeStudentHandlerTests
         var registration = db.SeedRegistration("Nadia", "Fassi", group: null);
         await db.SaveChangesAsync();
 
-        var result = await new DelocalizeStudentCommandHandler(db).Handle(Command(registration.Id), default);
+        var result = await new DelocalizeStudentCommandHandler(db, db.AdminAuthorizer()).Handle(Command(registration.Id), default);
 
         result.IsFailure.Should().BeTrue();
         result.Error.Should().Be(StageErrors.NoGroupForDelocalization);
@@ -147,7 +148,7 @@ public class DelocalizeStudentHandlerTests
         await using var db = TestHarness.NewContext("deloc-missing-stage");
         var s = await SeedAsync(db);
 
-        var result = await new DelocalizeStudentCommandHandler(db).Handle(
+        var result = await new DelocalizeStudentCommandHandler(db, db.AdminAuthorizer()).Handle(
             new DelocalizeStudentCommand(s.Registration.Id, StageId: 999, ExternalServiceId, Start, End, "Motif"),
             default);
 
@@ -161,7 +162,7 @@ public class DelocalizeStudentHandlerTests
         await using var db = TestHarness.NewContext("deloc-missing-service");
         var s = await SeedAsync(db);
 
-        var result = await new DelocalizeStudentCommandHandler(db).Handle(
+        var result = await new DelocalizeStudentCommandHandler(db, db.AdminAuthorizer()).Handle(
             new DelocalizeStudentCommand(s.Registration.Id, TestHarness.StageId, ServiceId: 999, Start, End, "Motif"),
             default);
 
@@ -183,7 +184,7 @@ public class DelocalizeStudentHandlerTests
         var registration = db.SeedRegistration("Hamza", "Berrada", orphanGroup);
         await db.SaveChangesAsync();
 
-        var result = await new DelocalizeStudentCommandHandler(db).Handle(Command(registration.Id), default);
+        var result = await new DelocalizeStudentCommandHandler(db, db.AdminAuthorizer()).Handle(Command(registration.Id), default);
 
         result.IsFailure.Should().BeTrue();
         result.Error.Should().Be(StageErrors.CohortMissingForStage(TestHarness.StageId));
@@ -202,7 +203,7 @@ public class DelocalizeStudentHandlerTests
         db.SeedPeriod(assignment, homeService, Start, End, started: true);   // already under way
         await db.SaveChangesAsync();
 
-        var result = await new DelocalizeStudentCommandHandler(db).Handle(Command(registration.Id), default);
+        var result = await new DelocalizeStudentCommandHandler(db, db.AdminAuthorizer()).Handle(Command(registration.Id), default);
 
         result.IsFailure.Should().BeTrue();
         result.Error.Should().Be(StageErrors.StageAlreadyUnderway);

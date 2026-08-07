@@ -1,17 +1,29 @@
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
+using PGSH.Application.Employees.MyServices;
 using PGSH.Domain.Registrations;
 using PGSH.Domain.Stages;
 using PGSH.SharedKernel;
 
 namespace PGSH.Application.Stages.Delocalization;
 
-internal sealed class DelocalizeStudentCommandHandler(IApplicationDbContext dbContext)
+internal sealed class DelocalizeStudentCommandHandler(
+    IApplicationDbContext dbContext,
+    ExecutionAuthorizer authorizer)
     : ICommandHandler<DelocalizeStudentCommand>
 {
     public async Task<Result> Handle(DelocalizeStudentCommand request, CancellationToken cancellationToken)
     {
+        // Scolarité only. A délocalisation drops the planned rotation, closes the stage and — when a
+        // verdict is supplied — records the mark, all in one call. Left open to any authenticated
+        // user, a student could post their own registrationId with outcome Validated and pass their
+        // own stage. There is no in-app chef for an external service to scope this to, so the check
+        // is on who you are.
+        var access = authorizer.EnsureIsAdministrative(StageErrors.DelocalizationNotAllowed);
+        if (access.IsFailure)
+            return access;
+
         var registration = await dbContext.Registrations
             .AsNoTracking()
             .Where(r => r.Id == request.RegistrationId)

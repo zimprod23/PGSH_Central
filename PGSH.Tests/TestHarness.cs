@@ -1,6 +1,7 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using NSubstitute;
 using PGSH.Application.Abstractions.Authentication;
+using PGSH.Application.Employees.MyServices;
 using PGSH.Domain.Employees;
 using PGSH.Domain.Hospitals;
 using PGSH.Domain.Registrations;
@@ -41,6 +42,18 @@ public static class TestHarness
         ctx.IsInRole(Arg.Any<string>()).Returns(ci => roles.Contains((string)ci[0]));
         return ctx;
     }
+
+    /// <summary>
+    /// An authorizer for a Scolarité caller — the scope most handlers are exercised under, since an
+    /// administrative user bypasses the per-service scoping. Tests that care about the scoping itself
+    /// build their own with <see cref="UserContext"/>.
+    /// </summary>
+    internal static ExecutionAuthorizer AdminAuthorizer(this ApplicationDbContext db) =>
+        new(db, UserContext(Guid.NewGuid(), Roles.Scolarite));
+
+    /// <summary>An authorizer for a caller holding no role at all — neither admin, chef nor student.</summary>
+    internal static ExecutionAuthorizer StrangerAuthorizer(this ApplicationDbContext db) =>
+        new(db, UserContext(Guid.NewGuid()));
 
     /// <summary>The current academic year plus the level and stage every cohort hangs off.</summary>
     public static Stage SeedCatalog(this ApplicationDbContext db, DateOnly? yearStart = null, DateOnly? yearEnd = null)

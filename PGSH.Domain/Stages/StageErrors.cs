@@ -94,7 +94,20 @@ public static class StageErrors
         "AttendanceRecords.NotAllowed",
         "Vous ne pouvez enregistrer ou consulter les présences que pour les périodes de vos propres services.");
 
+    public static readonly Error DelocalizationNotAllowed = Error.Forbidden(
+        "Stages.DelocalizationNotAllowed",
+        "Seule la scolarité peut enregistrer une délocalisation.");
+
+    public static readonly Error AssignmentReadNotAllowed = Error.Forbidden(
+        "InternshipAssignments.ReadNotAllowed",
+        "Vous ne pouvez consulter que votre propre dossier de stage, ou celui des étudiants passant "
+        + "dans vos services.");
+
     // === ServiceEvaluation ===
+    public static readonly Error EvaluationReadNotAllowed = Error.Forbidden(
+        "ServiceEvaluations.ReadNotAllowed",
+        "Vous ne pouvez consulter que vos propres notes, ou celles des périodes de vos services.");
+
     public static Error EvaluationReadOnly(InternshipStatus status) => Error.Conflict(
         "ServiceEvaluations.ReadOnly",
         $"Evaluation cannot be modified because the assignment is already '{status}'.");

@@ -1,8 +1,9 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using PGSH.Application.Stages.InternshipAssignments.Fiche;
 using PGSH.Application.Stages.InternshipAssignments.GetRecord;
 using PGSH.Domain.Common.Utils;
 using PGSH.Domain.Hospitals;
+using PGSH.Application.Employees.MyServices;
 using PGSH.Domain.Stages;
 using PGSH.Infrastructure.Database;
 using Xunit;
@@ -57,7 +58,7 @@ public class StudentStageRecordTests
         await using var db = TestHarness.NewContext("record-order");
         var s = await SeedAsync(db);
 
-        var result = await new GetStudentStageRecordQueryHandler(db)
+        var result = await new GetStudentStageRecordQueryHandler(db, db.AdminAuthorizer())
             .Handle(new GetStudentStageRecordQuery(s.Assignment.Id), default);
 
         result.IsSuccess.Should().BeTrue();
@@ -75,7 +76,7 @@ public class StudentStageRecordTests
         Evaluate(s.Assignment, s.Second, 8m);
         await db.SaveChangesAsync();
 
-        var result = await new GetStudentStageRecordQueryHandler(db)
+        var result = await new GetStudentStageRecordQueryHandler(db, db.AdminAuthorizer())
             .Handle(new GetStudentStageRecordQuery(s.Assignment.Id), default);
 
         var periods = result.Value.Periods;
@@ -94,7 +95,7 @@ public class StudentStageRecordTests
         Evaluate(s.Assignment, s.Second, 8m);
         await db.SaveChangesAsync();
 
-        var result = await new GetStudentStageRecordQueryHandler(db)
+        var result = await new GetStudentStageRecordQueryHandler(db, db.AdminAuthorizer())
             .Handle(new GetStudentStageRecordQuery(s.Assignment.Id), default);
 
         result.Value.FinalScore.Should().Be(11m);
@@ -110,7 +111,7 @@ public class StudentStageRecordTests
         Evaluate(s.Assignment, s.First, 15m);
         await db.SaveChangesAsync();
 
-        var result = await new GetStudentStageRecordQueryHandler(db)
+        var result = await new GetStudentStageRecordQueryHandler(db, db.AdminAuthorizer())
             .Handle(new GetStudentStageRecordQuery(s.Assignment.Id), default);
 
         result.Value.AllPeriodsEvaluated.Should().BeFalse();
@@ -131,7 +132,7 @@ public class StudentStageRecordTests
             new AttendanceRecord { Id = Guid.NewGuid(), ServicePeriodId = s.First.Id, Date = FirstStart.AddDays(4),  Status = AttendanceStatus.Late });
         await db.SaveChangesAsync();
 
-        var result = await new GetStudentStageRecordQueryHandler(db)
+        var result = await new GetStudentStageRecordQueryHandler(db, db.AdminAuthorizer())
             .Handle(new GetStudentStageRecordQuery(s.Assignment.Id), default);
 
         var period = result.Value.Periods.First(p => p.ServiceName == "Cardiologie");
@@ -149,7 +150,7 @@ public class StudentStageRecordTests
         await SeedAsync(db);
         var missing = Guid.NewGuid();
 
-        var result = await new GetStudentStageRecordQueryHandler(db)
+        var result = await new GetStudentStageRecordQueryHandler(db, db.AdminAuthorizer())
             .Handle(new GetStudentStageRecordQuery(missing), default);
 
         result.IsFailure.Should().BeTrue();
@@ -166,7 +167,7 @@ public class StudentStageRecordTests
         Ratify(s.Assignment);
         await db.SaveChangesAsync();
 
-        var result = await new GetFicheDeValidationQueryHandler(db)
+        var result = await new GetFicheDeValidationQueryHandler(db, db.AdminAuthorizer())
             .Handle(new GetFicheDeValidationQuery(s.Assignment.Id), default);
 
         result.IsSuccess.Should().BeTrue();
@@ -192,7 +193,7 @@ public class StudentStageRecordTests
         s.Assignment.Result.Should().Be(StageAssignmentResult.Validé, "the marks say the stage passed");
         s.Assignment.Status.Should().Be(InternshipStatus.Evaluated, "but nobody has ratified them");
 
-        var result = await new GetFicheDeValidationQueryHandler(db)
+        var result = await new GetFicheDeValidationQueryHandler(db, db.AdminAuthorizer())
             .Handle(new GetFicheDeValidationQuery(s.Assignment.Id), default);
 
         result.IsFailure.Should().BeTrue();
@@ -210,7 +211,7 @@ public class StudentStageRecordTests
         s.Assignment.Reject().IsSuccess.Should().BeTrue();
         await db.SaveChangesAsync();
 
-        var result = await new GetFicheDeValidationQueryHandler(db)
+        var result = await new GetFicheDeValidationQueryHandler(db, db.AdminAuthorizer())
             .Handle(new GetFicheDeValidationQuery(s.Assignment.Id), default);
 
         result.IsFailure.Should().BeTrue();
@@ -226,7 +227,7 @@ public class StudentStageRecordTests
         Evaluate(s.Assignment, s.Second, 6m);
         await db.SaveChangesAsync();
 
-        var result = await new GetFicheDeValidationQueryHandler(db)
+        var result = await new GetFicheDeValidationQueryHandler(db, db.AdminAuthorizer())
             .Handle(new GetFicheDeValidationQuery(s.Assignment.Id), default);
 
         result.IsFailure.Should().BeTrue();
@@ -243,7 +244,7 @@ public class StudentStageRecordTests
         Ratify(s.Assignment);
         await db.SaveChangesAsync();
 
-        var result = await new GetFicheDeValidationQueryHandler(db)
+        var result = await new GetFicheDeValidationQueryHandler(db, db.AdminAuthorizer())
             .Handle(new GetFicheDeValidationQuery(s.Assignment.Id), default);
 
         result.IsSuccess.Should().BeTrue();
@@ -262,7 +263,7 @@ public class StudentStageRecordTests
         Ratify(s.Assignment);
         await db.SaveChangesAsync();
 
-        var result = await new GetFicheDeValidationQueryHandler(db)
+        var result = await new GetFicheDeValidationQueryHandler(db, db.AdminAuthorizer())
             .Handle(new GetFicheDeValidationQuery(s.Assignment.Id), default);
 
         result.IsSuccess.Should().BeTrue("the remaining rotation passed, so the stage is validated");

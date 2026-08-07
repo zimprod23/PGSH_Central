@@ -1,17 +1,24 @@
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
+using PGSH.Application.Employees.MyServices;
 using PGSH.Domain.Stages;
 using PGSH.SharedKernel;
 
 namespace PGSH.Application.Stages.Evaluations.GetByPeriod;
 
-internal sealed class GetServiceEvaluationQueryHandler(IApplicationDbContext dbContext)
+internal sealed class GetServiceEvaluationQueryHandler(
+    IApplicationDbContext dbContext,
+    ExecutionAuthorizer authorizer)
     : IQueryHandler<GetServiceEvaluationQuery, ServiceEvaluationResponse>
 {
     public async Task<Result<ServiceEvaluationResponse>> Handle(
         GetServiceEvaluationQuery request, CancellationToken cancellationToken)
     {
+        var access = await authorizer.EnsureCanReadEvaluationAsync(request.ServicePeriodId, cancellationToken);
+        if (access.IsFailure)
+            return Result.Failure<ServiceEvaluationResponse>(access.Error);
+
         var evaluation = await dbContext.ServiceEvaluation
             .AsNoTracking()
             .Where(e => e.ServicePeriodId == request.ServicePeriodId)

@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
+using PGSH.Application.Employees.MyServices;
 using PGSH.Application.Stages.Attendance;
 using PGSH.Application.Stages.Evaluations;
 using PGSH.Domain.Stages;
@@ -8,12 +9,20 @@ using PGSH.SharedKernel;
 
 namespace PGSH.Application.Stages.InternshipAssignments.GetRecord;
 
-internal sealed class GetStudentStageRecordQueryHandler(IApplicationDbContext dbContext)
+internal sealed class GetStudentStageRecordQueryHandler(
+    IApplicationDbContext dbContext,
+    ExecutionAuthorizer authorizer)
     : IQueryHandler<GetStudentStageRecordQuery, StudentStageRecordResponse>
 {
     public async Task<Result<StudentStageRecordResponse>> Handle(
         GetStudentStageRecordQuery request, CancellationToken cancellationToken)
     {
+        // The record carries marks, supervisor comments and attendance. Assignment ids are guessable,
+        // so without this every classmate's file is one request away.
+        var access = await authorizer.EnsureCanReadAssignmentAsync(request.AssignmentId, cancellationToken);
+        if (access.IsFailure)
+            return Result.Failure<StudentStageRecordResponse>(access.Error);
+
         // Marks/verdicts are computed in memory via StageScoring (the same helper the domain uses), so
         // the graph is loaded rather than projected in SQL.
         var assignment = await dbContext.InternshipAssignments

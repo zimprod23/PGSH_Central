@@ -62,12 +62,31 @@ internal sealed class ExecutionAuthorizer(IApplicationDbContext dbContext, IUser
     }
 
     /// <summary>
+    /// Restricts an act to the administration (Scolarité / SuperUser). For operations that are neither
+    /// scoped to a service nor owned by a student — recording a délocalisation, say, where there is no
+    /// in-app chef to answer for the rotation and the only check left is who you are.
+    /// </summary>
+    public Result EnsureIsAdministrative(Error denied) =>
+        IsAdministrative ? Result.Success() : Result.Failure(denied);
+
+    /// <summary>
     /// Read scoping for presence, which is deliberately wider than the write scope: everyone who may
     /// record it, plus the student whose own rotation it is. Consulting your own attendance is not a
     /// privileged act — gating it behind the recording scope made the student portal fire a 403 on
     /// every stage it displayed.
     /// </summary>
-    public async Task<Result> EnsureCanReadAttendanceAsync(Guid periodId, CancellationToken ct)
+    public Task<Result> EnsureCanReadAttendanceAsync(Guid periodId, CancellationToken ct) =>
+        EnsureCanReadPeriodAsync(periodId, StageErrors.AttendanceNotAllowed, ct);
+
+    /// <summary>
+    /// Read scoping for a period's evaluation: the same people who may read its attendance. Reading
+    /// your own mark is not privileged; reading a classmate's is.
+    /// </summary>
+    public Task<Result> EnsureCanReadEvaluationAsync(Guid periodId, CancellationToken ct) =>
+        EnsureCanReadPeriodAsync(periodId, StageErrors.EvaluationReadNotAllowed, ct);
+
+    // Everyone who may act on the period, plus the student it belongs to.
+    private async Task<Result> EnsureCanReadPeriodAsync(Guid periodId, Error denied, CancellationToken ct)
     {
         var canRecord = await EnsureCanRecordAttendanceAsync(periodId, ct);
         if (canRecord.IsSuccess)
@@ -79,14 +98,56 @@ internal sealed class ExecutionAuthorizer(IApplicationDbContext dbContext, IUser
 
         var currentUserId = await CurrentEmployeeIdAsync(ct);
         if (currentUserId is null)
-            return canRecord;
+            return Result.Failure(denied);
 
         bool ownsPeriod = await dbContext.ServicePeriods
             .AsNoTracking()
             .AnyAsync(p => p.Id == periodId
                         && p.InternshipAssignment.Registration.StudentId == currentUserId.Value, ct);
 
-        return ownsPeriod ? Result.Success() : canRecord;
+        return ownsPeriod ? Result.Success() : Result.Failure(denied);
+    }
+
+    /// <summary>
+    /// Read scoping for a whole stage record — the marks, comments and attendance of one student's
+    /// stage. Readable by the administration, by a chef or staff member of a service the student
+    /// actually rotates through, and by the student themselves. Without this the ids are guessable
+    /// and every classmate's file is readable.
+    /// </summary>
+    public async Task<Result> EnsureCanReadAssignmentAsync(Guid assignmentId, CancellationToken ct)
+    {
+        // Existence and ownership are separate questions: an assignment whose owner cannot be resolved
+        // still exists, and answering "not found" for it would hide a real row behind a lie.
+        var head = await dbContext.InternshipAssignments
+            .AsNoTracking()
+            .Where(a => a.Id == assignmentId)
+            .Select(a => new { OwnerId = (Guid?)a.Registration.StudentId })
+            .FirstOrDefaultAsync(ct);
+
+        if (head is null)
+            return Result.Failure(StageErrors.AssignmentNotFound(assignmentId));
+
+        if (IsAdministrative)
+            return Result.Success();
+
+        var currentUserId = await CurrentEmployeeIdAsync(ct);
+        if (currentUserId is null)
+            return Result.Failure(StageErrors.AssignmentReadNotAllowed);
+
+        if (head.OwnerId == currentUserId)
+            return Result.Success();
+
+        var myServices = await MyServiceIdsAsync(ct);
+        if (myServices.Count == 0)
+            return Result.Failure(StageErrors.AssignmentReadNotAllowed);
+
+        bool rotatesThroughMyService = await dbContext.ServicePeriods
+            .AsNoTracking()
+            .AnyAsync(p => p.InternshipAssignmentId == assignmentId && myServices.Contains(p.ServiceId), ct);
+
+        return rotatesThroughMyService
+            ? Result.Success()
+            : Result.Failure(StageErrors.AssignmentReadNotAllowed);
     }
 
     /// <summary>
