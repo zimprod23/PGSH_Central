@@ -118,6 +118,8 @@ public class EvaluationImportTests
         report.Value.ErrorCount.Should().Be(1);
         var bad = report.Value.Rows.Single(r => r.SheetRow == 3);
         bad.Status.Should().Be(EvaluationImportRowStatus.UnknownStudent);
+        bad.Cne.Should().Be("CNE-INEXISTANT",
+            "the report echoes the identifier as typed, not the normalized lookup key");
         report.Value.Rows.Single(r => r.SheetRow == 2).Status
             .Should().Be(EvaluationImportRowStatus.WillCreate, "the other rows are still reported normally");
     }

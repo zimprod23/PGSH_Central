@@ -166,7 +166,8 @@ internal sealed class EvaluationImportPlanner(
             : $"Nouvelle note ({periods.Count} rotation(s)).";
 
         return new Resolution(
-            new EvaluationImportRowReport(row.SheetRow, cne, appogee, name, status, message, periods.Count),
+            new EvaluationImportRowReport(
+                row.SheetRow, Trim(row.Cne), Trim(row.Appogee), name, status, message, periods.Count),
             work,
             assignment.Id);
     }
@@ -235,11 +236,13 @@ internal sealed class EvaluationImportPlanner(
             rows);
     }
 
+    // The report echoes the identifiers as the user typed them. Showing the normalized form instead
+    // (lower-cased, unaccented) reads like the import mangled the file.
     private static Resolution Fail(
         EvaluationImportRow row, string? name, EvaluationImportRowStatus status, string message,
         Guid? assignmentId = null) =>
         new(new EvaluationImportRowReport(
-                row.SheetRow, Normalize(row.Cne), Normalize(row.Appogee), name, status, message, 0),
+                row.SheetRow, Trim(row.Cne), Trim(row.Appogee), name, status, message, 0),
             [], assignmentId);
 
     private static Dictionary<string, List<InternshipAssignment>> Index(
