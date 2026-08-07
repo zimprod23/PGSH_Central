@@ -198,11 +198,56 @@ public sealed class InternshipAssignment : Entity
         evaluation.Normalize();
         period.Evaluation = evaluation;
         RecomputeFinalScore();
-        Raise(new EvaluationSubmittedDomainEvent(Id, RegistrationId, periodId, evaluation.TotalScore));
+        Raise(new EvaluationSubmittedDomainEvent(
+            Id, RegistrationId, periodId, StageScoring.PeriodMark(evaluation)));
 
         if (Status == InternshipStatus.Completed
             && ServicePeriods.All(p => p.Evaluation is not null || p.IsInterrupted))
             Status = InternshipStatus.Evaluated;
+
+        return AppResult.Success();
+    }
+
+    /// <summary>
+    /// Corrects a mark already on record. Goes through the aggregate for the same reason a first
+    /// submission does: the stage note has to be recomputed from the amended marks, and a grade change
+    /// must leave an audit trail. Refused once the administration has ratified or refused the stage.
+    /// </summary>
+    public Result AmendEvaluation(Guid periodId, EvaluationAmendment amendment)
+    {
+        var period = ServicePeriods.FirstOrDefault(p => p.Id == periodId);
+        if (period is null)
+            return AppResult.Failure(StageErrors.PeriodNotFound(periodId));
+        if (period.Evaluation is null)
+            return AppResult.Failure(StageErrors.EvaluationNotFound(periodId));
+        if (Status is InternshipStatus.Validated or InternshipStatus.Rejected)
+            return AppResult.Failure(StageErrors.EvaluationReadOnly(Status));
+
+        var evaluation = period.Evaluation;
+        decimal previousMark = StageScoring.PeriodMark(evaluation);
+
+        evaluation.Mode              = amendment.Mode;
+        evaluation.TotalScore        = amendment.TotalScore;
+        evaluation.Outcome           = amendment.Outcome;
+        evaluation.SupervisorComment = amendment.SupervisorComment;
+        evaluation.FicheReference    = amendment.FicheReference;
+        evaluation.EvaluatedByUserId = amendment.EvaluatedByUserId;
+        evaluation.EvaluatedAt       = amendment.EvaluatedAt;
+
+        // Replace the per-objective marks in place. Clearing the tracked collection deletes the old
+        // rows (required FK + cascade), and the replacements must NOT carry a pre-set Id — on an
+        // already-tracked evaluation a non-sentinel store-generated key makes EF classify them
+        // Modified instead of Added (UPDATE a non-existent row → DbUpdateConcurrencyException).
+        // Same gotcha as Delocalize and TransferToCohort below.
+        evaluation.ObjectiveScores.Clear();
+        foreach (var score in amendment.ObjectiveScores)
+            evaluation.ObjectiveScores.Add(score);
+
+        evaluation.Normalize();
+        RecomputeFinalScore();
+        Raise(new EvaluationAmendedDomainEvent(
+            Id, RegistrationId, periodId, evaluation.Id,
+            previousMark, StageScoring.PeriodMark(evaluation)));
 
         return AppResult.Success();
     }

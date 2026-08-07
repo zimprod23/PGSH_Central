@@ -9,6 +9,7 @@ namespace PGSH.Application.Stages.Evaluations.Create;
 
 internal sealed class CreateServiceEvaluationCommandHandler(
     IApplicationDbContext dbContext,
+    EvaluationObjectiveResolver objectiveResolver,
     ExecutionAuthorizer authorizer)
     : ICommandHandler<CreateServiceEvaluationCommand, Guid>
 {
@@ -20,6 +21,7 @@ internal sealed class CreateServiceEvaluationCommandHandler(
             return Result.Failure<Guid>(access.Error);
 
         var assignment = await dbContext.InternshipAssignments
+            .Include(a => a.Cohort)
             .Include(a => a.ServicePeriods)
                 .ThenInclude(p => p.Evaluation)
                     .ThenInclude(e => e!.ObjectiveScores)
@@ -31,12 +33,13 @@ internal sealed class CreateServiceEvaluationCommandHandler(
         if (assignment is null)
             return Result.Failure<Guid>(StageErrors.PeriodNotFound(request.ServicePeriodId));
 
-        // Attach the StageObjective navigation so the weighted FinalScore is computed
-        // correctly inside SubmitEvaluation (without it, every objective weighs 1).
-        var objectiveIds = request.ObjectiveScores.Select(o => o.StageObjectiveId).Distinct().ToList();
-        var stageObjectives = await dbContext.StageObjectives
-            .Where(o => objectiveIds.Contains(o.Id))
-            .ToDictionaryAsync(o => o.Id, cancellationToken);
+        var objectives = await objectiveResolver.ResolveAsync(
+            assignment.Cohort.StageId,
+            request.ObjectiveScores.Select(o => o.StageObjectiveId),
+            cancellationToken);
+
+        if (objectives.IsFailure)
+            return Result.Failure<Guid>(objectives.Error);
 
         var evaluation = new ServiceEvaluation
         {
@@ -52,12 +55,11 @@ internal sealed class CreateServiceEvaluationCommandHandler(
             ObjectiveScores   = request.ObjectiveScores
                 .Select(o => new ObjectiveScore
                 {
-                    Id               = Guid.NewGuid(),
                     StageObjectiveId = o.StageObjectiveId,
                     Score            = o.Score,
                     Outcome          = o.Outcome,
                     Note             = o.Note,
-                    StageObjective   = stageObjectives.GetValueOrDefault(o.StageObjectiveId)!,
+                    StageObjective   = objectives.Value[o.StageObjectiveId],
                 })
                 .ToList(),
         };

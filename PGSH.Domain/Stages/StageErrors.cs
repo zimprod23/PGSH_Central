@@ -107,6 +107,10 @@ public static class StageErrors
         "ServiceEvaluations.AlreadyExists",
         $"An evaluation already exists for service period '{periodId}'.");
 
+    public static Error ObjectiveNotInStage(int objectiveId) => Error.Problem(
+        "ServiceEvaluations.ObjectiveNotInStage",
+        $"L'objectif '{objectiveId}' n'appartient pas au stage de cette période.");
+
     public static readonly Error FicheNotAvailable = Error.Conflict(
         "ServiceEvaluations.FicheNotAvailable",
         "La fiche de validation n'est disponible que lorsque toutes les périodes sont évaluées et le stage validé.");

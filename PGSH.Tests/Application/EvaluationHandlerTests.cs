@@ -2,6 +2,7 @@ using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Authentication;
 using PGSH.Application.Employees.MyServices;
+using PGSH.Application.Stages.Evaluations;
 using PGSH.Application.Stages.Evaluations.Create;
 using PGSH.Application.Stages.Evaluations.Update;
 using PGSH.Domain.Common.Utils;
@@ -54,10 +55,12 @@ public class EvaluationHandlerTests
     }
 
     private static CreateServiceEvaluationCommandHandler CreateHandler(ApplicationDbContext db, params string[] roles) =>
-        new(db, new ExecutionAuthorizer(db, TestHarness.UserContext(ChefIdentity, roles)));
+        new(db, new EvaluationObjectiveResolver(db),
+            new ExecutionAuthorizer(db, TestHarness.UserContext(ChefIdentity, roles)));
 
     private static UpdateServiceEvaluationCommandHandler UpdateHandler(ApplicationDbContext db, params string[] roles) =>
-        new(db, new ExecutionAuthorizer(db, TestHarness.UserContext(ChefIdentity, roles)));
+        new(db, new EvaluationObjectiveResolver(db),
+            new ExecutionAuthorizer(db, TestHarness.UserContext(ChefIdentity, roles)));
 
     private static CreateServiceEvaluationCommand Numeric(Guid periodId, params (int Id, int Score)[] scores) =>
         new(periodId, EvaluationMode.Numeric, TotalScore: null, Outcome: null, SupervisorComment: "Bon stage",
@@ -272,6 +275,65 @@ public class EvaluationHandlerTests
 
         result.IsFailure.Should().BeTrue();
         result.Error.Should().Be(StageErrors.EvaluationReadOnly(InternshipStatus.Validated));
+    }
+
+    // Regression: the amend path used to pre-set Id on the replacement ObjectiveScores. On an
+    // already-tracked evaluation that makes EF classify them Modified instead of Added, so the save
+    // UPDATEd rows that do not exist and threw DbUpdateConcurrencyException. Only ever fired with a
+    // non-empty objective list, which is why the mode-less amend test above never caught it.
+    [Fact]
+    public async Task Amending_an_evaluation_that_grades_objectives_replaces_its_marks()
+    {
+        await using var db = TestHarness.NewContext("eval-update-objectives");
+        var s = await SeedAsync(db);
+        var created = await CreateHandler(db).Handle(Numeric(s.ChefPeriod.Id, (1, 16), (2, 12)), default);
+        created.IsSuccess.Should().BeTrue();
+
+        var result = await UpdateHandler(db).Handle(new UpdateServiceEvaluationCommand(
+            created.Value, EvaluationMode.Numeric, TotalScore: null, Outcome: null,
+            SupervisorComment: "Corrigé",
+            [
+                new UpdateObjectiveScoreDto(1, 8, null, null),
+                new UpdateObjectiveScoreDto(2, 8, null, null),
+            ]), default);
+
+        result.IsSuccess.Should().BeTrue();
+        var saved = await db.ServiceEvaluation
+            .Include(e => e.ObjectiveScores)
+            .FirstAsync(e => e.Id == created.Value);
+        saved.ObjectiveScores.Should().HaveCount(2, "the old marks are replaced, not appended to");
+        saved.ObjectiveScores.Select(o => o.Score).Should().AllBeEquivalentTo(8);
+        (await db.InternshipAssignments.FirstAsync(a => a.Id == s.Assignment.Id))
+            .FinalScore.Should().Be(8m, "the stage note follows the amended marks");
+    }
+
+    [Fact]
+    public async Task An_objective_belonging_to_another_stage_is_refused()
+    {
+        await using var db = TestHarness.NewContext("eval-foreign-objective");
+        var s = await SeedAsync(db);
+        var otherStage = new Stage { Id = 99, Name = "Pédiatrie", LevelId = 1, Coefficient = 1 };
+        db.Stages.Add(otherStage);
+        db.SeedObjective(otherStage, 42, "Objectif d'un autre stage", weight: 1);
+        await db.SaveChangesAsync();
+
+        var result = await CreateHandler(db).Handle(Numeric(s.ChefPeriod.Id, (1, 16), (42, 20)), default);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Be(StageErrors.ObjectiveNotInStage(42));
+        (await db.ServiceEvaluation.CountAsync()).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task An_objective_that_does_not_exist_is_refused_rather_than_dying_on_the_foreign_key()
+    {
+        await using var db = TestHarness.NewContext("eval-unknown-objective");
+        var s = await SeedAsync(db);
+
+        var result = await CreateHandler(db).Handle(Numeric(s.ChefPeriod.Id, (1, 16), (777, 14)), default);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Be(StageErrors.ObjectiveNotInStage(777));
     }
 
     [Fact]
