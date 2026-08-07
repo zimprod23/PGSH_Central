@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Domain.Stages;
 using PGSH.SharedKernel;
@@ -46,14 +46,18 @@ internal sealed class MidStageTransferRescheduler(IApplicationDbContext dbContex
 
         var slotByStageSlotId = targetSlots.ToDictionary(s => s.StageSlotId);
 
+        // An ad-hoc rotation carries no schedule cell (a délocalisation, or a revalidation placed by
+        // hand), so there is nothing to map onto the target group's grid. Refuse rather than
+        // dereference a slot that is not there — the old guard let these through, because a null cell
+        // has no period number to report, and the loop below then dereferenced it and threw.
+        if (movable.Any(p => p.CohortSlotAssignmentId is null))
+            return Result.Failure(StageErrors.CannotRerouteAdHocPeriod);
+
         // Every period being moved must have a matching cell in the target group's schedule —
         // otherwise the student would land in a void. Fail clearly instead of leaving a gap.
         var missing = movable
-            .Where(p => p.CohortSlotAssignmentId is null
-                     || !slotByStageSlotId.ContainsKey(p.CohortSlotAssignment!.StageSlotId))
-            .Select(p => p.CohortSlotAssignment?.StageSlot.PeriodNumber)
-            .Where(n => n is not null)
-            .Select(n => n!.Value)
+            .Where(p => !slotByStageSlotId.ContainsKey(p.CohortSlotAssignment!.StageSlotId))
+            .Select(p => p.CohortSlotAssignment!.StageSlot.PeriodNumber)
             .Distinct()
             .OrderBy(n => n)
             .ToList();
@@ -69,14 +73,14 @@ internal sealed class MidStageTransferRescheduler(IApplicationDbContext dbContex
             {
                 // Cut the running rotation at the transfer date; keep it for history.
                 period.IsInterrupted = true;
-                period.EndDate = date < period.EndDate ? date : period.EndDate;
+                CutShortAt(period, date);
 
                 assignment.ServicePeriods.Add(new ServicePeriod
                 {
                     InternshipAssignmentId = assignment.Id,
                     ServiceId              = target.ServiceId,
                     CohortSlotAssignmentId = target.Id,
-                    StartDate              = date < target.EndDate ? date : target.StartDate,
+                    StartDate              = RemainingWindowStart(date, target.StartDate, target.EndDate),
                     EndDate                = target.EndDate,
                     IsStarted              = true,
                 });
@@ -100,6 +104,28 @@ internal sealed class MidStageTransferRescheduler(IApplicationDbContext dbContex
         }
 
         return Result.Success();
+    }
+
+    /// <summary>
+    /// Ends a rotation on the transfer date, never before it began. A transfer backdated past the
+    /// rotation's own start would otherwise leave <c>EndDate &lt; StartDate</c> — a negative window
+    /// that every date calculation downstream reads as nonsense.
+    /// </summary>
+    private static void CutShortAt(ServicePeriod period, DateOnly date)
+    {
+        var cut = date < period.EndDate ? date : period.EndDate;
+        period.EndDate = cut > period.StartDate ? cut : period.StartDate;
+    }
+
+    /// <summary>
+    /// Where the student picks the target slot up: on the transfer date, but never before the slot
+    /// opens and never past its close. Transferring in December onto a slot that opens in January
+    /// used to produce a period starting in December.
+    /// </summary>
+    private static DateOnly RemainingWindowStart(DateOnly date, DateOnly slotStart, DateOnly slotEnd)
+    {
+        var start = date > slotStart ? date : slotStart;
+        return start < slotEnd ? start : slotEnd;
     }
 
     /// <summary>
@@ -165,7 +191,7 @@ internal sealed class MidStageTransferRescheduler(IApplicationDbContext dbContex
                 && startedSlotIds.Contains(landing.Id))
             {
                 running.IsInterrupted = true;
-                running.EndDate = transferDate < running.EndDate ? transferDate : running.EndDate;
+                CutShortAt(running, transferDate);
             }
         }
 

@@ -94,6 +94,11 @@ public static class StageErrors
         "AttendanceRecords.NotAllowed",
         "Vous ne pouvez enregistrer ou consulter les présences que pour les périodes de vos propres services.");
 
+    public static readonly Error CannotRerouteAdHocPeriod = Error.Conflict(
+        "ServicePeriods.CannotRerouteAdHoc",
+        "Cet étudiant a une rotation hors planning (délocalisation ou rattrapage) : elle ne peut pas "
+        + "être réaffectée automatiquement au planning du groupe d'accueil.");
+
     public static readonly Error DelocalizationNotAllowed = Error.Forbidden(
         "Stages.DelocalizationNotAllowed",
         "Seule la scolarité peut enregistrer une délocalisation.");

@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using PGSH.Application.Stages.Planning;
 using PGSH.Domain.Stages;
 using PGSH.Infrastructure.Database;
@@ -191,5 +191,62 @@ public class MidStageRerouteTests
             .Where(p => p.ServiceId == TargetServiceId)
             .Should().OnlyContain(p => p.Id == Guid.Empty,
                 "a pre-set store-generated key makes EF UPDATE a row that does not exist");
+    }
+
+    // ─── Regressions: dates and ad-hoc rotations ──────────────────────────────
+
+    // The "missing slots" guard admitted a slot-less period (a null cell has no period number to
+    // report, so it fell out of the list), and the loop then dereferenced that cell and threw.
+    [Fact]
+    public async Task An_ad_hoc_rotation_is_refused_instead_of_throwing()
+    {
+        await using var db = TestHarness.NewContext("reroute-adhoc");
+        await SeedGridAsync(db);
+        var assignment = new InternshipAssignment { Id = Guid.NewGuid(), CurrentCohortId = TargetCohortId };
+        assignment.ServicePeriods.Add(new ServicePeriod
+        {
+            Id = Guid.NewGuid(), InternshipAssignmentId = assignment.Id,
+            ServiceId = OriginServiceId, CohortSlotAssignmentId = null,   // délocalisation / rattrapage
+            StartDate = P1Start, EndDate = P1End, IsStarted = true,
+        });
+
+        var result = await new MidStageTransferRescheduler(db)
+            .RerouteAsync(assignment, TargetCohortId, Moved, default);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Be(StageErrors.CannotRerouteAdHocPeriod);
+    }
+
+    // A transfer dated before the target slot opens used to start the new rotation on the transfer
+    // date — i.e. before the window it belongs to existed.
+    [Fact]
+    public async Task A_transfer_before_the_target_slot_opens_starts_the_rotation_when_the_slot_does()
+    {
+        await using var db = TestHarness.NewContext("reroute-early");
+        await SeedGridAsync(db);
+        var assignment = InFlight(db);
+        var early = P1Start.AddDays(-20);
+
+        await new MidStageTransferRescheduler(db).RerouteAsync(assignment, TargetCohortId, early, default);
+
+        var landed = assignment.ServicePeriods
+            .Single(p => p.ServiceId == TargetServiceId && p.IsStarted && !p.IsInterrupted);
+        landed.StartDate.Should().Be(P1Start, "a rotation cannot begin before its slot opens");
+        landed.StartDate.Should().BeOnOrBefore(landed.EndDate);
+    }
+
+    [Fact]
+    public async Task A_backdated_transfer_never_ends_a_rotation_before_it_began()
+    {
+        await using var db = TestHarness.NewContext("reroute-backdated");
+        await SeedGridAsync(db);
+        var assignment = InFlight(db);
+        var early = P1Start.AddDays(-20);
+
+        await new MidStageTransferRescheduler(db).RerouteAsync(assignment, TargetCohortId, early, default);
+
+        var cut = assignment.ServicePeriods.Single(p => p.IsInterrupted);
+        cut.EndDate.Should().Be(P1Start, "the cut is clamped to the day the rotation started");
+        cut.EndDate.Should().BeOnOrAfter(cut.StartDate);
     }
 }

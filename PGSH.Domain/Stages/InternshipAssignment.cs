@@ -134,7 +134,14 @@ public sealed class InternshipAssignment : Entity
             return AppResult.Success();
 
         period.EndDate = period.EndDate.AddDays(days);
-        foreach (var later in ServicePeriods.Where(p => p.Id != period.Id && p.StartDate > period.StartDate))
+
+        // Only rotations still ahead of the student move. A closed rotation is history — its dates are
+        // what actually happened — and an interrupted one is terminal, so pushing either forward would
+        // rewrite the past to make room for time lost in the present.
+        foreach (var later in ServicePeriods.Where(p => p.Id != period.Id
+                                                     && p.StartDate > period.StartDate
+                                                     && !p.IsComplete
+                                                     && !p.IsInterrupted))
         {
             later.StartDate = later.StartDate.AddDays(days);
             later.EndDate   = later.EndDate.AddDays(days);
@@ -154,6 +161,10 @@ public sealed class InternshipAssignment : Entity
             return AppResult.Failure(StageErrors.PeriodAlreadyComplete(periodId));
         if (period.IsPaused)
             return AppResult.Failure(StageErrors.PeriodPaused(periodId));
+        // Symmetric with PausePeriod: a rotation nobody ever began cannot be closed, and closing one
+        // is what makes it evaluable — without this a stage that never ran could still be graded.
+        if (!period.IsStarted)
+            return AppResult.Failure(StageErrors.PeriodNotStarted(periodId));
 
         period.IsComplete = true;
         Raise(new ServicePeriodCompletedDomainEvent(Id, periodId));

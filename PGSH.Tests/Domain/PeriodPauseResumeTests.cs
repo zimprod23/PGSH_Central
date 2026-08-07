@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using PGSH.Domain.Stages;
 using Xunit;
 
@@ -155,5 +155,54 @@ public class PeriodPauseResumeTests
 
         result.IsFailure.Should().BeTrue();
         result.Error.Should().Be(StageErrors.PeriodNotPaused(p.Id));
+    }
+
+    // A resume used to push EVERY later period forward, closed and interrupted ones included, so
+    // resuming back-dated the rotations the student had already finished.
+    [Fact]
+    public void Resuming_never_moves_a_rotation_that_is_already_over()
+    {
+        var assignment = new InternshipAssignment { Id = Guid.NewGuid(), CurrentCohortId = 1 };
+        var running = NewPeriod(assignment.Id, Start, End);
+        var closed  = NewPeriod(assignment.Id, new DateOnly(2026, 2, 1), new DateOnly(2026, 2, 28));
+        var cutShort = NewPeriod(assignment.Id, new DateOnly(2026, 3, 1), new DateOnly(2026, 3, 31));
+        var upcoming = NewPeriod(assignment.Id, new DateOnly(2026, 4, 1), new DateOnly(2026, 4, 30));
+        assignment.ServicePeriods.Add(running);
+        assignment.ServicePeriods.Add(closed);
+        assignment.ServicePeriods.Add(cutShort);
+        assignment.ServicePeriods.Add(upcoming);
+        assignment.Start().IsSuccess.Should().BeTrue();
+
+        closed.IsComplete = true;          // history: these dates are what actually happened
+        cutShort.IsInterrupted = true;     // terminal: cut by a mid-stage transfer
+
+        assignment.PausePeriod(running.Id, new DateOnly(2026, 1, 10), PauseKind.Exam, null)
+            .IsSuccess.Should().BeTrue();
+        assignment.ResumePeriod(running.Id, new DateOnly(2026, 1, 15)).IsSuccess.Should().BeTrue();
+
+        closed.StartDate.Should().Be(new DateOnly(2026, 2, 1), "a closed rotation is history");
+        closed.EndDate.Should().Be(new DateOnly(2026, 2, 28));
+        cutShort.StartDate.Should().Be(new DateOnly(2026, 3, 1), "an interrupted rotation is terminal");
+        upcoming.StartDate.Should().Be(new DateOnly(2026, 4, 6), "only what is still ahead moves");
+        upcoming.EndDate.Should().Be(new DateOnly(2026, 5, 5));
+    }
+
+    // PausePeriod refused a rotation that never began; CompletePeriod did not, so a stage nobody ran
+    // could be closed and then graded.
+    [Fact]
+    public void A_rotation_that_never_started_cannot_be_closed()
+    {
+        var assignment = new InternshipAssignment { Id = Guid.NewGuid(), CurrentCohortId = 1 };
+        var running = NewPeriod(assignment.Id, Start, End);
+        var future  = NewPeriod(assignment.Id, new DateOnly(2026, 2, 1), new DateOnly(2026, 2, 28));
+        assignment.ServicePeriods.Add(running);
+        assignment.ServicePeriods.Add(future);
+        assignment.StartPeriod(running.Id).IsSuccess.Should().BeTrue();
+
+        var result = assignment.CompletePeriod(future.Id);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Be(StageErrors.PeriodNotStarted(future.Id));
+        future.IsComplete.Should().BeFalse();
     }
 }
