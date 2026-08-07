@@ -17,6 +17,7 @@ public sealed class GetById : IEndpoint
 
             return result.Match(Results.Ok, CustomResults.Problem);
         })
-        .WithTags(Tags.Hospital);
+        .WithTags(Tags.Hospital)
+        .RequireAuthorization();
     }
 }

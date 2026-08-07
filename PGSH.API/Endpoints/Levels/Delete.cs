@@ -1,4 +1,4 @@
-using MediatR;
+﻿using MediatR;
 using PGSH.API.Extensions;
 using PGSH.API.Infrastructure;
 using PGSH.Application.Stages.Levels.Delete;
@@ -15,6 +15,7 @@ public sealed class DeleteLevel : IEndpoint
             var result = await sender.Send(new DeleteLevelCommand(id), ct);
             return result.Match(Results.NoContent, CustomResults.Problem);
         })
-        .WithTags(Tags.Levels);
+        .WithTags(Tags.Levels)
+        .RequireAuthorization();
     }
 }

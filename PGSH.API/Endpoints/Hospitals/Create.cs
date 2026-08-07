@@ -1,4 +1,4 @@
-using MediatR;
+﻿using MediatR;
 using PGSH.API.Extensions;
 using PGSH.API.Infrastructure;
 using PGSH.Application.Hospitals.Create;
@@ -14,6 +14,7 @@ public sealed class Create : IEndpoint
             var result = await sender.Send(command, ct);
             return result.Match(id => Results.Created($"/hospitals/{id}", id), CustomResults.Problem);
         })
-        .WithTags(Tags.Hospital);
+        .WithTags(Tags.Hospital)
+        .RequireAuthorization();
     }
 }

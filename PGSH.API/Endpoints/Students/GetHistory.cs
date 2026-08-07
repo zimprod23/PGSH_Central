@@ -21,6 +21,7 @@ public sealed class GetHistory : IEndpoint
             return result.Match(Results.Ok, CustomResults.Problem);
         })
         .WithName("GetStudentHistory")
-        .WithTags(Tags.Students);
+        .WithTags(Tags.Students)
+        .RequireAuthorization();
     }
 }

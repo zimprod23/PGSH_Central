@@ -35,6 +35,7 @@ public sealed class ManageGroups : IEndpoint
                 CustomResults.Problem);
         })
         .WithName("AutoArrangeGroups")
-        .WithTags(Tags.Groups);
+        .WithTags(Tags.Groups)
+        .RequireAuthorization();
     }
 }

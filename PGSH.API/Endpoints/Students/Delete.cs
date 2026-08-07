@@ -16,7 +16,8 @@ namespace PGSH.API.Endpoints.Students
                 var result = await sender.Send(command, ct);
                 return result.Match(Results.NoContent, CustomResults.Problem);
             })
-            .WithTags(Tags.Students);
+            .WithTags(Tags.Students)
+            .RequireAuthorization();
         }
     }
 }

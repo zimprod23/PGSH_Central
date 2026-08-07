@@ -1,4 +1,4 @@
-using PGSH.Application.Students.GetMany;
+﻿using PGSH.Application.Students.GetMany;
 using MediatR;
 using PGSH.API.Extensions;
 using PGSH.API.Infrastructure;
@@ -14,6 +14,7 @@ public sealed class GetMany : IEndpoint
             var result = await sender.Send(query, ct);
             return result.Match(Results.Ok, CustomResults.Problem);
         })
-        .WithTags(Tags.Students);
+        .WithTags(Tags.Students)
+        .RequireAuthorization();
     }
 }

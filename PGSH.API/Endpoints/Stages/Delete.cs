@@ -1,4 +1,4 @@
-using MediatR;
+﻿using MediatR;
 using PGSH.API.Extensions;
 using PGSH.API.Infrastructure;
 using PGSH.Application.Stages.Delete;
@@ -14,6 +14,7 @@ public sealed class Delete : IEndpoint
             var result = await sender.Send(new DeleteStageCommand(id), ct);
             return result.Match(Results.NoContent, CustomResults.Problem);
         })
-        .WithTags(Tags.Stages);
+        .WithTags(Tags.Stages)
+        .RequireAuthorization();
     }
 }

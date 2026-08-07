@@ -21,6 +21,7 @@ public sealed class GetById : IEndpoint
             return result.Match(Results.Ok, CustomResults.Problem);
         })
         .WithName("GetRegistrationById")
-        .WithTags(Tags.Registrations);
+        .WithTags(Tags.Registrations)
+        .RequireAuthorization();
     }
 }

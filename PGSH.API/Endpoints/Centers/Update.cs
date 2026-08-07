@@ -1,4 +1,4 @@
-using MediatR;
+﻿using MediatR;
 using PGSH.API.Extensions;
 using PGSH.API.Infrastructure;
 using PGSH.Application.Hospitals.Centers.Update;
@@ -27,6 +27,7 @@ public sealed class Update : IEndpoint
             var result = await sender.Send(command, ct);
             return result.Match(Results.NoContent, CustomResults.Problem);
         })
-        .WithTags(Tags.Centers);
+        .WithTags(Tags.Centers)
+        .RequireAuthorization();
     }
 }

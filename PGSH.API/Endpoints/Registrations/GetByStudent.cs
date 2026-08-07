@@ -22,6 +22,7 @@ public sealed class GetByStudent : IEndpoint
             return result.Match(Results.Ok, CustomResults.Problem);
         })
         .WithName("GetStudentRegistrations")
-        .WithTags(Tags.Registrations); // Keep grouped under Registrations in Swagger
+        .WithTags(Tags.Registrations) // Keep grouped under Registrations in Swagger
+        .RequireAuthorization();
     }
 }

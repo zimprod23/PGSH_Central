@@ -1,4 +1,4 @@
-using MediatR;
+﻿using MediatR;
 using PGSH.API.Extensions;
 using PGSH.API.Infrastructure;
 using PGSH.Application.Stages.GetById;
@@ -14,6 +14,7 @@ public sealed class GetById : IEndpoint
             var result = await sender.Send(new GetStageByIdQuery(id), ct);
             return result.Match(Results.Ok, CustomResults.Problem);
         })
-        .WithTags(Tags.Stages);
+        .WithTags(Tags.Stages)
+        .RequireAuthorization();
     }
 }

@@ -17,6 +17,7 @@ public sealed class Create : IEndpoint
                 id => Results.Created($"/cohorts/{id}", id),
                 CustomResults.Problem);
         })
-        .WithTags(Tags.Cohorts);
+        .WithTags(Tags.Cohorts)
+        .RequireAuthorization();
     }
 }

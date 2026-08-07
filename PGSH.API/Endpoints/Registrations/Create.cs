@@ -33,6 +33,7 @@ public sealed class Create: IEndpoint
             //return Results.Created($"/registrations/{registrationId}", registrationId);
         })
        .WithName("CreateRegistration")
-       .WithTags(Tags.Registrations);
+       .WithTags(Tags.Registrations)
+       .RequireAuthorization();
     }
 }

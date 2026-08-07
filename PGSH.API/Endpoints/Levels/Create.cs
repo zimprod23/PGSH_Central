@@ -14,6 +14,7 @@ public sealed class Create : IEndpoint
             var result = await sender.Send(command, cancellationToken);
             return result.Match(id => Results.Created($"/levels/{id}", id), CustomResults.Problem);
         })
-        .WithTags(Tags.Levels);
+        .WithTags(Tags.Levels)
+        .RequireAuthorization();
     }
 }

@@ -39,6 +39,7 @@ public sealed class CreateMany : IEndpoint
                 CustomResults.Problem);
         })
         .WithName("CreateManyRegistrations")
-        .WithTags(Tags.Registrations);
+        .WithTags(Tags.Registrations)
+        .RequireAuthorization();
     }
 }

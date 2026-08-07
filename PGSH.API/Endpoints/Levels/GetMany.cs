@@ -16,6 +16,7 @@ public sealed class GetMany : IEndpoint
             return result.Match(Results.Ok, CustomResults.Problem);
         })
         .WithTags("Levels")
-        .WithName("GetLevels");
+        .WithName("GetLevels")
+        .RequireAuthorization();
     }
 }

@@ -1,4 +1,4 @@
-using MediatR;
+﻿using MediatR;
 using PGSH.API.Extensions;
 using PGSH.API.Infrastructure;
 using PGSH.Application.AcademicYears.GetMany;
@@ -15,6 +15,7 @@ public sealed class GetMany : IEndpoint
             return result.Match(Results.Ok, CustomResults.Problem);
         })
         .WithTags("AcademicYears")
-        .WithName("GetAcademicYears");
+        .WithName("GetAcademicYears")
+        .RequireAuthorization();
     }
 }

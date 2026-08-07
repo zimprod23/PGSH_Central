@@ -18,6 +18,7 @@ public sealed class Create : IEndpoint
                 id => Results.Created($"/stages/{id}", id),
                 CustomResults.Problem);
         })
-    .WithTags(Tags.Stages);
+    .WithTags(Tags.Stages)
+    .RequireAuthorization();
     }
 }

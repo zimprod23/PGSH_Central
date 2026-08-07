@@ -1,4 +1,4 @@
-using MediatR;
+﻿using MediatR;
 using PGSH.API.Extensions;
 using PGSH.API.Infrastructure;
 using PGSH.Application.Stages.Cohorts.GetByStage;
@@ -14,6 +14,7 @@ public sealed class GetByStageId : IEndpoint
             var result = await sender.Send(new GetCohortsByStageQuery(stageId), ct);
             return result.Match(Results.Ok, CustomResults.Problem);
         })
-        .WithTags(Tags.Cohorts);
+        .WithTags(Tags.Cohorts)
+        .RequireAuthorization();
     }
 }

@@ -18,6 +18,7 @@ public sealed class Update : IEndpoint
             var result = await sender.Send(command, ct);
             return result.Match(Results.NoContent, CustomResults.Problem);
         })
-        .WithTags(Tags.Levels);
+        .WithTags(Tags.Levels)
+        .RequireAuthorization();
     }
 }

@@ -14,6 +14,7 @@ public sealed class GetMany : IEndpoint
             var result = await sender.Send(query, ct);
             return result.Match(Results.Ok, CustomResults.Problem);
         })
-        .WithTags(Tags.Services);
+        .WithTags(Tags.Services)
+        .RequireAuthorization();
     }
 }

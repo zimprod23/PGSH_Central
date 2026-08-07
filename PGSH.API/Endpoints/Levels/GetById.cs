@@ -1,4 +1,4 @@
-using MediatR;
+﻿using MediatR;
 using PGSH.API.Extensions;
 using PGSH.API.Infrastructure;
 using PGSH.Application.Stages.Levels.GetById;
@@ -15,6 +15,7 @@ public sealed class GetLevelById : IEndpoint
             var result = await sender.Send(new GetLevelByIdQuery(id), ct);
             return result.Match(Results.Ok, CustomResults.Problem);
         })
-        .WithTags(Tags.Levels);
+        .WithTags(Tags.Levels)
+        .RequireAuthorization();
     }
 }

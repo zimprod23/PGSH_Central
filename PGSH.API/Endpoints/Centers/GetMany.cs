@@ -15,6 +15,7 @@ public sealed class GetMany : IEndpoint
 
             return result.Match(Results.Ok, CustomResults.Problem);
         })
-        .WithTags("Centers");
+        .WithTags("Centers")
+        .RequireAuthorization();
     }
 }

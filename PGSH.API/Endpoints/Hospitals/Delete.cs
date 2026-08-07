@@ -18,6 +18,7 @@ public sealed class Delete : IEndpoint
             // Returns 204 No Content on success
             return result.Match(Results.NoContent, CustomResults.Problem);
         })
-        .WithTags(Tags.Hospital);
+        .WithTags(Tags.Hospital)
+        .RequireAuthorization();
     }
 }

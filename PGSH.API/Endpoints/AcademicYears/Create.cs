@@ -1,4 +1,4 @@
-using MediatR;
+﻿using MediatR;
 using PGSH.API.Extensions;
 using PGSH.API.Infrastructure;
 using PGSH.Application.AcademicYears.Create;
@@ -15,6 +15,7 @@ public sealed class Create : IEndpoint
             return result.Match(id => Results.Created($"/academic-years/{id}", id), CustomResults.Problem);
         })
         .WithTags("AcademicYears")
-        .WithName("CreateAcademicYear");
+        .WithName("CreateAcademicYear")
+        .RequireAuthorization();
     }
 }

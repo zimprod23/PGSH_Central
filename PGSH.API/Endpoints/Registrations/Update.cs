@@ -39,6 +39,7 @@ public sealed class Update : IEndpoint
             return result.Match(Results.NoContent, CustomResults.Problem);
         })
         .WithName("UpdateRegistration")
-        .WithTags(Tags.Registrations);
+        .WithTags(Tags.Registrations)
+        .RequireAuthorization();
     }
 }

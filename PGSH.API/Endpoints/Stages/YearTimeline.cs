@@ -1,4 +1,4 @@
-using MediatR;
+﻿using MediatR;
 using PGSH.API.Extensions;
 using PGSH.API.Infrastructure;
 using PGSH.Application.Stages.Timeline;
@@ -15,6 +15,7 @@ internal sealed class YearTimelineEndpoint : IEndpoint
                 var result = await sender.Send(new GetYearTimelineQuery(academicYearId, levelId), ct);
                 return result.Match(Results.Ok, CustomResults.Problem);
             })
-            .WithTags("Stages");
+            .WithTags("Stages")
+            .RequireAuthorization();
     }
 }

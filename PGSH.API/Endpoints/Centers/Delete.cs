@@ -18,6 +18,7 @@ public sealed class Delete : IEndpoint
             // Returns 204 No Content on success (Standard for Delete)
             return result.Match(Results.NoContent, CustomResults.Problem);
         })
-        .WithTags(Tags.Centers);
+        .WithTags(Tags.Centers)
+        .RequireAuthorization();
     }
 }

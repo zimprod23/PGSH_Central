@@ -23,6 +23,7 @@ public sealed class Delete : IEndpoint
             return result.Match(Results.NoContent, CustomResults.Problem);
         })
         .WithName("DeleteRegistration")
-        .WithTags(Tags.Registrations);
+        .WithTags(Tags.Registrations)
+        .RequireAuthorization();
     }
 }
