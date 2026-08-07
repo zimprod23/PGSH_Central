@@ -1,6 +1,49 @@
 # HANDOFF.md
 
-> **▶ RESUME HERE (next session) — admin evaluation entry + Excel import.** Agreed order:
+> **▶ RESUME HERE (2026-08-07, session 9). The three agreed tasks are DONE — what is left is
+> verification and the open security calls.**
+>
+> 1. **⚠ Smoke-test the import end-to-end.** The whole pipeline is unit-covered (298 tests green) but
+>    the **HTTP multipart path has never run**: the Aspire stack was down this session, and
+>    `POST stages/{id}/evaluations/import` is the project's **first** `IFormFile` endpoint. Binding
+>    `IFormFile` alongside `[AsParameters] ImportOptions` (+ `.DisableAntiforgery()`) is exactly the
+>    kind of thing that compiles and then 415s. Recipe below.
+> 2. **Two open policy calls, still unfixed** (both 🔴, from the 2026-08-06 audit):
+>    * `stages/delocalize` is a bare `.RequireAuthorization()` — **any authenticated user, including a
+>      student**, can POST their own registrationId with `outcome: Validated` and self-validate a
+>      stage. Needs your call: Scolarité + SuperUser only?
+>    * the **7 schedule endpoints** (`stages/{id}/schedule/{auto-arrange,publish,start,complete,pause,
+>      resume}`) have **no `.RequireAuthorization()` at all** — unauthenticated POSTs mutate data.
+>      That one needs no decision, just doing.
+> 3. Also still open from that audit: `MidStageTransferRescheduler` NRE on a slot-less period (#3) and
+>    the unclamped start date (#4); the **IDOR on `/record` and `/fiche`** (#5); `ResumePeriod`
+>    shifting closed periods (#9); `CompletePeriod` missing its `IsStarted` guard (#10, your call).
+> 4. **New, found this session:** `GetServiceEvaluationQueryHandler` (`GET service-periods/{id}/evaluation`)
+>    has **no authorization at all** — same IDOR family as #5. Left alone because the read scope for
+>    evaluations is a policy call you have not made.
+>
+> **✅ DONE this session (2026-08-07, session 9).**
+> * **Committed the 78-file backlog** (`efcc581`) — the whole 07/08 work stream, incl. `PGSH.Tests`,
+>   was uncommitted. The frontend repo had no checkpoint since June either (`62c0930`).
+> * **Audit defect #2 fixed** (`9a8d896`): editing an evaluation with objectives threw
+>   `DbUpdateConcurrencyException`. New `InternshipAssignment.AmendEvaluation` routes the amend through
+>   the aggregate, so it also fixes #6 (a mark change left **no** audit trail) via a new
+>   `EvaluationAmendedDomainEvent`, and #7 (`EvaluationSubmittedDomainEvent` published the `TotalScore`
+>   that `Normalize()` had just nulled — now `StageScoring.PeriodMark`, field renamed `Mark`). #8 fixed
+>   too: new `EvaluationObjectiveResolver` checks objective ids against the period's own stage.
+>   ⚠ The regression test was **verified to fail against the old behaviour** before being kept.
+> * **Admin one-by-one evaluation** (`6f219ea` + FE `62c0930`): the chef's modal is now shared
+>   (`features/evaluations/`), reached from `StudentRecordModal` with an Évaluer/Modifier button per
+>   rotation. Backend change was one route: `employees/me/service-periods/{id}/objectives` →
+>   `service-periods/{id}/objectives` (the query never was chef-only). Also killed the long-standing
+>   `set-state-in-effect` lint error by remounting the form by key instead of mirroring server data.
+> * **Fiche gate** (`40fb21d`): now needs `Result == Validé` **and** `Status == Validated`. Three
+>   existing tests had never ratified, so they only drove the lifecycle to `Evaluated`; rewritten.
+> * **Excel import** (`efb9582` + FE `d1dcb90`) — see the section below, now built.
+>
+> ---
+>
+> **▶ Superseded plan (kept for context) — admin evaluation entry + Excel import.** Agreed order:
 > 1. **Admin one-by-one evaluation UI** (small, FE-only). The backend ALREADY allows it —
 >    `ExecutionAuthorizer` bypasses chef-scoping for `Roles.Administrative`, and
 >    `CreateServiceEvaluationCommandHandler` / `UpdateServiceEvaluationCommandHandler` honour it (covered by
@@ -167,7 +210,53 @@
 > `--startup-project PGSH.Infrastructure` (design-time factory) since the running API blocks the API build.
 > _Updated 2026-06-25._
 
-## ▶ Evaluation import (Excel/CSV) — DESIGN AGREED, NOT BUILT (2026-08-07)
+## ▶ Evaluation import (Excel) ✅ BUILT (2026-08-07, session 9)
+
+Everything in the agreed design below is implemented, with two deliberate narrowings — both flagged
+rather than silently dropped:
+- **.xlsx only, no CSV.** ClosedXML does not read CSV, and a hand-rolled one would mangle the quoted
+  commas that the *Remarque* column is full of. Say the word and it's a small adapter branch.
+- **`ValidateObjectives` is refused** (`StageErrors.ImportModeNotSupported`): a sheet carries one
+  verdict per student, and per-objective marks do not fit on a line.
+- **The scope AND the mark type are both chosen at upload.** The agreed sheet has a `Résultat` *and* a
+  `Note` column, which would mean inferring the mode from whichever is filled — and "never inferred"
+  was the non-negotiable. So the mode is explicit and the *other* column being filled is reported as
+  `MissingValue` on that row.
+
+**Layout as built:**
+```
+Application/Stages/Evaluations/Import/
+  EvaluationImportContracts.cs     // scope, row, report, template, IEvaluationSheetParser port
+  EvaluationImportPlanner.cs       // THE engine — preview and apply both run this and nothing else
+  PreviewEvaluationImportQuery.cs  // dry run (+ handler)
+  ImportEvaluationsCommand.cs      // apply (+ validator + handler)
+  GetEvaluationImportTemplateQuery.cs
+Infrastructure/Evaluations/ClosedXmlEvaluationSheetParser.cs   // ClosedXML 0.105.1, MIT
+API/Endpoints/ServiceEvaluations/ImportEvaluations.cs          // the only layer that sees IFormFile
+Frontend: features/evaluations/{types/import.types.ts, components/EvaluationImportModal.tsx}
+          reached from AssignmentsPage → "Importer les notes"
+```
+Routes: `GET|POST stages/{stageId}/evaluations/import/template|preview` and
+`POST stages/{stageId}/evaluations/import`, all taking `?scope=&mode=&periodNumber=`.
+
+**Why the planner is one class:** preview and apply calling *the same* code is what makes the dry run
+trustworthy. It therefore loads **tracked** entities in both cases; the preview simply never saves.
+
+**⚠ Test recipe — the multipart path is UNVERIFIED, run this first.**
+1. Start the stack (`dotnet run --project PGSH.AppHost`), log in as Scolarité.
+2. Suivi → Affectations → pick a stage whose rotations are **clôturées** (the import refuses open ones).
+3. **Importer les notes** → portée *Tout le stage*, type *Note (0–20)* → **Télécharger le modèle**.
+   ⇒ an .xlsx with CNE/Apogée pre-filled per student, plus a "Mode d'emploi" sheet.
+4. Fill a few *Note* cells, leave one blank, mistype one CNE, put `25` in another → upload.
+   ⇒ the preview must show `Valeur manquante`, `Étudiant inconnu`, `Valeur invalide`, and **Appliquer
+   stays disabled**. Confirm **nothing** was written (the students' notes are unchanged).
+5. Fix the file, re-upload ⇒ all rows green, Appliquer enabled → apply.
+   ⇒ toast with the rotation count; open a student's **Dossier de stage**: the note is there, the stage
+   note recomputed, status *Évaluée*.
+6. Re-upload the same file with a different note ⇒ rows read **Remplace**, apply, note updated.
+7. Repeat with portée *Une période* + a period chip, and with type *Validé / Non validé*.
+
+## ▶ Evaluation import (Excel/CSV) — original agreed design (2026-08-07)
 
 Bulk entry of evaluations from a sheet keyed on **CNE / Apogée**, carrying `valid | unvalid | note`, either
 **per period** or **for the whole stage** (applied across all its periods).
