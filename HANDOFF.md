@@ -1,21 +1,18 @@
 # HANDOFF.md
 
-> **▶ RESUME HERE (2026-08-07, session 9). The three agreed tasks are DONE — what is left is
-> verification and the open security calls.**
+> **▶ RESUME HERE (2026-08-07, session 9). The three agreed tasks are DONE and the import is now
+> VERIFIED against the running stack.**
 >
-> 1. **⚠ Smoke-test the import end-to-end.** The whole pipeline is unit-covered (298 tests green) but
->    the **HTTP multipart path has never run**: the Aspire stack was down this session, and
->    `POST stages/{id}/evaluations/import` is the project's **first** `IFormFile` endpoint. Binding
->    `IFormFile` alongside `[AsParameters] ImportOptions` (+ `.DisableAntiforgery()`) is exactly the
->    kind of thing that compiles and then 415s. Recipe below.
-> 2. **Two open policy calls, still unfixed** (both 🔴, from the 2026-08-06 audit):
->    * `stages/delocalize` is a bare `.RequireAuthorization()` — **any authenticated user, including a
->      student**, can POST their own registrationId with `outcome: Validated` and self-validate a
->      stage. Needs your call: Scolarité + SuperUser only?
->    * the **7 schedule endpoints** (`stages/{id}/schedule/{auto-arrange,publish,start,complete,pause,
->      resume}`) have **no `.RequireAuthorization()` at all** — unauthenticated POSTs mutate data.
->      That one needs no decision, just doing.
-> 3. Also still open from that audit: `MidStageTransferRescheduler` NRE on a slot-less period (#3) and
+> 1. ✅ **Import smoke-tested end-to-end** (see "Evaluation import" below for what was proven).
+> 2. ✅ **Anonymous access closed** — see "Authorization lockdown" below. It was far worse than the 7
+>    schedule routes: `GET /api/students` was serving **5701 students' name, email, CNE, Apogée and
+>    CIN with no token at all**.
+> 3. **Still open — needs your policy call** (🔴, from the 2026-08-06 audit): `stages/delocalize` has
+>    only a bare `.RequireAuthorization()`, so **any authenticated user, including a student**, can
+>    POST their own registrationId with `outcome: Validated` and self-validate a stage. The lockdown
+>    below does NOT fix this — it closes the anonymous door, not the per-role one. Scolarité +
+>    SuperUser only?
+> 4. Also still open from that audit: `MidStageTransferRescheduler` NRE on a slot-less period (#3) and
 >    the unclamped start date (#4); the **IDOR on `/record` and `/fiche`** (#5); `ResumePeriod`
 >    shifting closed periods (#9); `CompletePeriod` missing its `IsStarted` guard (#10, your call).
 > 4. **New, found this session:** `GetServiceEvaluationQueryHandler` (`GET service-periods/{id}/evaluation`)
@@ -210,7 +207,26 @@
 > `--startup-project PGSH.Infrastructure` (design-time factory) since the running API blocks the API build.
 > _Updated 2026-06-25._
 
-## ▶ Evaluation import (Excel) ✅ BUILT (2026-08-07, session 9)
+## ▶ Authorization lockdown ✅ DONE (2026-08-07, session 9)
+
+Probing the running API turned up `GET /api/students` answering **unauthenticated** with 5701
+students' name, email, CNE, Apogée and CIN. Not an isolated miss: **44 of the 93 endpoint files never
+called `RequireAuthorization` at all** — including `Delete` for hospitals, levels, services, students
+and registrations, and the 13 stage-schedule routes flagged in earlier sessions.
+
+All 44 files now carry `.RequireAuthorization()` (**56 endpoints**), the baseline the other 49 files
+already used. Verified after restart — every one of these now returns **401**:
+`GET students · stages · hospitals · levels · employees · internship-assignments · service-periods`,
+`POST stages/{id}/schedule/pause`, `DELETE levels/{id}`, `DELETE hospitals/{id}`.
+
+Nothing depended on anonymous access: the only unauthenticated screens are the landing and about
+pages, and neither calls the API.
+
+⚠ **This closes the anonymous door only.** Per-role scoping is still the Phase 8 `PermissionProvider`
+stub, so *any* authenticated user — including a student — can still reach these routes. The
+délocalisation self-validation hole (RESUME #3) is exactly that shape and is **not** fixed by this.
+
+## ▶ Evaluation import (Excel) ✅ BUILT + VERIFIED (2026-08-07, session 9)
 
 Everything in the agreed design below is implemented, with two deliberate narrowings — both flagged
 rather than silently dropped:
@@ -242,7 +258,28 @@ Routes: `GET|POST stages/{stageId}/evaluations/import/template|preview` and
 **Why the planner is one class:** preview and apply calling *the same* code is what makes the dry run
 trustworthy. It therefore loads **tracked** entities in both cases; the preview simply never saves.
 
-**⚠ Test recipe — the multipart path is UNVERIFIED, run this first.**
+**✅ VERIFIED end-to-end against the running stack (2026-08-07), admin session, stage 2
+"Stage d'anatomie clinique" (601 students, 302 assignments fully clôturées):**
+- **Template** — `notes-stage-2.xlsx`, 601 students pre-filled with CNE/Apogée + indicative
+  name/group, plus a *Mode d'emploi* sheet that reflects the chosen scope and mark type.
+- **Multipart binding works.** `IFormFile` + `[AsParameters] ImportOptions` + `.DisableAntiforgery()`
+  bind correctly, including the enums and the nullable `periodNumber`, from a real browser upload.
+  This was the one thing unit tests could not reach.
+- **Preview caught all four planted faults** on one file — blank note (`MissingValue`), 25/20
+  (`InvalidValue`), unknown CNE (`UnknownStudent`), student listed twice (`DuplicateStudent`) —
+  Appliquer stayed disabled and `ServiceEvaluation` count was **unchanged (40)** afterwards.
+- **Apply** — 5 rows × 2 rotations = 10 evaluations written (40 → 50); marks exact, `FinalScore` =
+  mean, `Result` derived (8 ⇒ NonValidé), `Status` → `Evaluated`. The roll-up ran through the
+  aggregate, as designed.
+- **Overwrite** — re-import with new marks left the count at **50** (amended, not duplicated);
+  14 → 17 and 8 → 13, with `Result` correctly flipping NonValidé → Validé.
+- **Per-period scope** — same file at *Une période / P1* reported **5** rotations instead of 10 and
+  touched only P1: Anaïs ended `14.00,17.00`. Innocent ended mean 10.50 but **NonValidé**, which is
+  the all-periods-must-pass rule showing through the import.
+- **Pre-flight guard** — switching to *Une période* with no period chosen marks the Select *Requis*,
+  disables both the template and upload buttons, and clears the stale report.
+
+**Test recipe (to re-run later):**
 1. Start the stack (`dotnet run --project PGSH.AppHost`), log in as Scolarité.
 2. Suivi → Affectations → pick a stage whose rotations are **clôturées** (the import refuses open ones).
 3. **Importer les notes** → portée *Tout le stage*, type *Note (0–20)* → **Télécharger le modèle**.
