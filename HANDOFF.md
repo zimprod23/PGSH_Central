@@ -12,13 +12,14 @@
 >    fiche and evaluation reads = **owner, or a chef/staff of a service the student rotates through,
 >    or the administration**; `CompletePeriod` **gains** the `IsStarted` guard for symmetry with
 >    `PausePeriod`.
-> 4. ⚠ **Role-model consequence worth knowing.** The admin UI admits
->    `[Scolarite, SuperUser, Secretaire]` (`routes/index.tsx`), but the backend's
->    `Roles.Administrative` is only `[Scolarite, SuperUser]` — Secrétaire is *deliberately* excluded
->    as a service-scoped role. So a **Secrétaire can open the admin screens but will now be refused**
->    on délocalisation, and will only see the stage records of students rotating through services she
->    staffs. That follows the documented role model, but if Secrétaires are meant to run scolarité
->    work in practice, the fix is to widen `Roles.Administrative` — not to loosen the handlers.
+> 4. ✅ **Role model confirmed and the frontend brought in line** (user, 2026-08-07):
+>    **administration** = `Scolarite` + `SuperUser` (more can be added); **employees** = `Professor`,
+>    `Secretaire`, …; then **students**. A secrétaire is an *employee*, not administration — the
+>    backend already had this right (`Roles.Administrative`), but `routes/index.tsx` let her into the
+>    whole admin portal. She now reaches only **Présences** there (the one thing the API scopes to
+>    her, via chef-*or*-staff), every other admin route sits behind an administrative-only inner
+>    guard, the sidebar is built from the caller's role, and the employee zone accepts `Secretaire`.
+>    ⚠ Keep that guard and `Roles.Administrative` in step — they are two halves of one rule.
 >
 > **✅ DONE this session (2026-08-07, session 9).**
 > * **Committed the 78-file backlog** (`efcc581`) — the whole 07/08 work stream, incl. `PGSH.Tests`,
