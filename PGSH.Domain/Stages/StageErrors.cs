@@ -111,6 +111,25 @@ public static class StageErrors
         "ServiceEvaluations.ObjectiveNotInStage",
         $"L'objectif '{objectiveId}' n'appartient pas au stage de cette période.");
 
+    // === Evaluation import ===
+    public static Error ImportPeriodNotInStage(int periodNumber, int stageId) => Error.Problem(
+        "ServiceEvaluations.ImportPeriodNotInStage",
+        $"Le stage '{stageId}' n'a pas de période P{periodNumber}.");
+
+    public static readonly Error ImportModeNotSupported = Error.Problem(
+        "ServiceEvaluations.ImportModeNotSupported",
+        "L'import ne gère que la note chiffrée et la validation globale : la validation par objectif "
+        + "demande une note par objectif, qui ne tient pas dans une ligne de tableur.");
+
+    public static Error ImportRejected(int errorCount) => Error.Conflict(
+        "ServiceEvaluations.ImportRejected",
+        $"{errorCount} ligne(s) en erreur — aucune note n'a été enregistrée. "
+        + "Un import de notes est appliqué en totalité ou pas du tout.");
+
+    public static readonly Error ImportSheetUnreadable = Error.Problem(
+        "ServiceEvaluations.ImportSheetUnreadable",
+        "Fichier illisible — attendu un classeur Excel (.xlsx) reprenant les colonnes du modèle.");
+
     public static readonly Error FicheNotAvailable = Error.Conflict(
         "ServiceEvaluations.FicheNotAvailable",
         "La fiche de validation n'est disponible que lorsque toutes les périodes sont évaluées et le stage validé.");

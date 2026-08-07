@@ -2,6 +2,7 @@
 using PGSH.Application.Behaviors;
 using PGSH.Application.Employees.MyServices;
 using PGSH.Application.Stages.Evaluations;
+using PGSH.Application.Stages.Evaluations.Import;
 using PGSH.Application.Stages.Planning;
 using PGSH.Application.Stages.Slots;
 using FluentValidation;
@@ -35,6 +36,7 @@ public static class DependencyInjection
         services.AddScoped<ExecutionAuthorizer>();
         services.AddScoped<SlotOverlapGuard>();
         services.AddScoped<EvaluationObjectiveResolver>();
+        services.AddScoped<EvaluationImportPlanner>();
 
         return services;
     }

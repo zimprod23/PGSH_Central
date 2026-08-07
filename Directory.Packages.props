@@ -55,6 +55,10 @@
     <PackageVersion Include="Aspire.Hosting.AppHost" Version="9.5.2" />
     <PackageVersion Include="Microsoft.Extensions.Hosting" Version="9.0.1" />
   </ItemGroup>
+  <!-- Spreadsheet I/O (evaluation import/export adapter) -->
+  <ItemGroup>
+    <PackageVersion Include="ClosedXML" Version="0.105.1" />
+  </ItemGroup>
   <!-- Test layer -->
   <ItemGroup>
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />

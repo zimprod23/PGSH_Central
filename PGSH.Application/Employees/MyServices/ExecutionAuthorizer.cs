@@ -134,6 +134,15 @@ internal sealed class ExecutionAuthorizer(IApplicationDbContext dbContext, IUser
             : Result.Failure(StageErrors.NotServiceChef);
     }
 
+    /// <summary>
+    /// The same rule as <see cref="EnsureCanActOnPeriodAsync"/>, resolved once for a whole batch:
+    /// <c>null</c> means the caller may evaluate any service (administrative), otherwise the set of
+    /// services they lead. A bulk import checks hundreds of rotations — asking per period would be
+    /// hundreds of round-trips for an answer that cannot change mid-request.
+    /// </summary>
+    public async Task<IReadOnlySet<int>?> EvaluableServiceIdsAsync(CancellationToken ct) =>
+        IsAdministrative ? null : (await ChefServiceIdsAsync(ct)).ToHashSet();
+
     public async Task<Result> EnsureCanActOnEvaluationAsync(Guid evaluationId, CancellationToken ct)
     {
         var periodId = await dbContext.ServiceEvaluation
