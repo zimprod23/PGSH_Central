@@ -7,17 +7,18 @@
 > 2. ✅ **Anonymous access closed** — see "Authorization lockdown" below. It was far worse than the 7
 >    schedule routes: `GET /api/students` was serving **5701 students' name, email, CNE, Apogée and
 >    CIN with no token at all**.
-> 3. **Still open — needs your policy call** (🔴, from the 2026-08-06 audit): `stages/delocalize` has
->    only a bare `.RequireAuthorization()`, so **any authenticated user, including a student**, can
->    POST their own registrationId with `outcome: Validated` and self-validate a stage. The lockdown
->    below does NOT fix this — it closes the anonymous door, not the per-role one. Scolarité +
->    SuperUser only?
-> 4. Also still open from that audit: `MidStageTransferRescheduler` NRE on a slot-less period (#3) and
->    the unclamped start date (#4); the **IDOR on `/record` and `/fiche`** (#5); `ResumePeriod`
->    shifting closed periods (#9); `CompletePeriod` missing its `IsStarted` guard (#10, your call).
-> 4. **New, found this session:** `GetServiceEvaluationQueryHandler` (`GET service-periods/{id}/evaluation`)
->    has **no authorization at all** — same IDOR family as #5. Left alone because the read scope for
->    evaluations is a policy call you have not made.
+> 3. ✅ **Every confirmed defect from the 2026-08-06 audit is now closed** — see "Audit defects" below.
+>    Decisions taken (user delegated them): délocalisation = **Scolarité/SuperUser only**; record,
+>    fiche and evaluation reads = **owner, or a chef/staff of a service the student rotates through,
+>    or the administration**; `CompletePeriod` **gains** the `IsStarted` guard for symmetry with
+>    `PausePeriod`.
+> 4. ⚠ **Role-model consequence worth knowing.** The admin UI admits
+>    `[Scolarite, SuperUser, Secretaire]` (`routes/index.tsx`), but the backend's
+>    `Roles.Administrative` is only `[Scolarite, SuperUser]` — Secrétaire is *deliberately* excluded
+>    as a service-scoped role. So a **Secrétaire can open the admin screens but will now be refused**
+>    on délocalisation, and will only see the stage records of students rotating through services she
+>    staffs. That follows the documented role model, but if Secrétaires are meant to run scolarité
+>    work in practice, the fix is to widen `Roles.Administrative` — not to loosen the handlers.
 >
 > **✅ DONE this session (2026-08-07, session 9).**
 > * **Committed the 78-file backlog** (`efcc581`) — the whole 07/08 work stream, incl. `PGSH.Tests`,
@@ -206,6 +207,25 @@
 > Build backend via `PGSH.Infrastructure.csproj` (API DLLs lock while the app runs); add ef migrations with
 > `--startup-project PGSH.Infrastructure` (design-time factory) since the running API blocks the API build.
 > _Updated 2026-06-25._
+
+## ▶ Audit defects ✅ ALL CLOSED (2026-08-07, session 9)
+
+The ten confirmed defects from the 2026-08-06 audit are done. #2, #6, #7 and #8 were closed earlier
+this session with the evaluation-amend work; the rest here.
+
+| # | What it was | Now |
+|---|---|---|
+| 🔴 1 | `stages/delocalize` had no role check — a **student could self-validate a stage** by posting their own registrationId with `outcome: Validated` | Scolarité/SuperUser only (`EnsureIsAdministrative`) |
+| 🔴 3 | `RerouteAsync` **threw** on a slot-less rotation: the missing-slots guard admitted it (a null cell has no period number, so it fell out of the list being collected) and the loop then dereferenced it | ad-hoc rotations refused with `CannotRerouteAdHocPeriod`; NRE reproduced by test before fixing |
+| 🟠 4 | remaining-window dates unclamped — a transfer before the slot opened started the rotation early; a backdated one left `EndDate < StartDate` | `RemainingWindowStart` + `CutShortAt`, shared by the reroute and the plain materialisation |
+| 🔴 5 | **IDOR** on `/record` and `/fiche` — ids are guessable, neither handler checked anything | `EnsureCanReadAssignmentAsync`: owner, chef/staff of a service the student rotates through, or admin |
+| 🟡 9 | `ResumePeriod` shifted *every* later rotation, back-dating closed and interrupted ones | only rotations still ahead move |
+| 🟡 10 | `CompletePeriod` had no `IsStarted` guard, so a rotation nobody ran could be closed then graded | symmetric with `PausePeriod`; the bulk runner skips failures rather than aborting, so a mixed selection closes what it can |
+| — | `GET service-periods/{id}/evaluation` had **no authorization at all** (found while probing the stack) | same read scope as the period's attendance |
+
+The read/write rules all live in `ExecutionAuthorizer` beside the existing ones, so there is still one
+place that knows who may act on what. The attendance read scope was rewritten in terms of the shared
+period-read rule rather than duplicated.
 
 ## ▶ Authorization lockdown ✅ DONE (2026-08-07, session 9)
 
