@@ -1,6 +1,7 @@
 using FluentAssertions;
 using PGSH.Application.Stages.InternshipAssignments.Fiche;
 using PGSH.Application.Stages.InternshipAssignments.GetRecord;
+using PGSH.Domain.Common.Utils;
 using PGSH.Domain.Hospitals;
 using PGSH.Domain.Stages;
 using PGSH.Infrastructure.Database;
@@ -36,6 +37,10 @@ public class StudentStageRecordTests
         await db.SaveChangesAsync();
         return new Scenario(assignment, first, second);
     }
+
+    /// <summary>The administration officialises the marks — what the fiche gate waits for.</summary>
+    private static void Ratify(InternshipAssignment assignment) =>
+        assignment.Validate().IsSuccess.Should().BeTrue();
 
     private static void Evaluate(InternshipAssignment assignment, ServicePeriod period, decimal mark)
     {
@@ -152,12 +157,13 @@ public class StudentStageRecordTests
     }
 
     [Fact]
-    public async Task The_fiche_is_issued_once_the_whole_stage_passes()
+    public async Task The_fiche_is_issued_once_the_whole_stage_passes_and_is_ratified()
     {
         await using var db = TestHarness.NewContext("fiche-issued");
         var s = await SeedAsync(db);
         Evaluate(s.Assignment, s.First, 14m);
         Evaluate(s.Assignment, s.Second, 16m);
+        Ratify(s.Assignment);
         await db.SaveChangesAsync();
 
         var result = await new GetFicheDeValidationQueryHandler(db)
@@ -169,6 +175,46 @@ public class StudentStageRecordTests
         result.Value.FinalMark.Should().Be(15m);
         result.Value.Periods.Should().HaveCount(2);
         result.Value.Periods.Select(p => p.StartDate).Should().BeInAscendingOrder();
+    }
+
+    // The fiche is an official document: passing marks are not enough on their own, the
+    // administration has to have ratified them. Otherwise a student could print an attestation
+    // the moment the chef saved a grade, before Scolarité ever looked at it.
+    [Fact]
+    public async Task The_fiche_is_refused_while_the_marks_await_ratification()
+    {
+        await using var db = TestHarness.NewContext("fiche-unratified");
+        var s = await SeedAsync(db);
+        Evaluate(s.Assignment, s.First, 14m);
+        Evaluate(s.Assignment, s.Second, 16m);
+        await db.SaveChangesAsync();
+
+        s.Assignment.Result.Should().Be(StageAssignmentResult.Validé, "the marks say the stage passed");
+        s.Assignment.Status.Should().Be(InternshipStatus.Evaluated, "but nobody has ratified them");
+
+        var result = await new GetFicheDeValidationQueryHandler(db)
+            .Handle(new GetFicheDeValidationQuery(s.Assignment.Id), default);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Be(StageErrors.FicheNotAvailable);
+    }
+
+    // Refusing to ratify keeps the fiche shut even though the marks themselves passed.
+    [Fact]
+    public async Task The_fiche_is_refused_when_the_ratification_was_declined()
+    {
+        await using var db = TestHarness.NewContext("fiche-rejected");
+        var s = await SeedAsync(db);
+        Evaluate(s.Assignment, s.First, 14m);
+        Evaluate(s.Assignment, s.Second, 16m);
+        s.Assignment.Reject().IsSuccess.Should().BeTrue();
+        await db.SaveChangesAsync();
+
+        var result = await new GetFicheDeValidationQueryHandler(db)
+            .Handle(new GetFicheDeValidationQuery(s.Assignment.Id), default);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Be(StageErrors.FicheNotAvailable);
     }
 
     [Fact]
@@ -194,6 +240,7 @@ public class StudentStageRecordTests
         var s = await SeedAsync(db);
         Evaluate(s.Assignment, s.First, 12m);
         Evaluate(s.Assignment, s.Second, 18m);
+        Ratify(s.Assignment);
         await db.SaveChangesAsync();
 
         var result = await new GetFicheDeValidationQueryHandler(db)
@@ -212,6 +259,7 @@ public class StudentStageRecordTests
         var s = await SeedAsync(db);
         s.Second.IsInterrupted = true;              // cut short by a mid-stage transfer
         Evaluate(s.Assignment, s.First, 15m);
+        Ratify(s.Assignment);
         await db.SaveChangesAsync();
 
         var result = await new GetFicheDeValidationQueryHandler(db)

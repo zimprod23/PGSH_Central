@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
+using PGSH.Domain.Common.Utils;
 using PGSH.Domain.Stages;
 using PGSH.SharedKernel;
 
@@ -17,14 +18,17 @@ internal sealed class GetFicheDeValidationQueryHandler(IApplicationDbContext dbC
         var head = await dbContext.InternshipAssignments
             .AsNoTracking()
             .Where(a => a.Id == request.AssignmentId)
-            .Select(a => new { a.Result })
+            .Select(a => new { a.Result, a.Status })
             .FirstOrDefaultAsync(cancellationToken);
 
         if (head is null)
             return Result.Failure<FicheDeValidationResponse>(StageErrors.AssignmentNotFound(request.AssignmentId));
 
-        // The fiche certifies a passed stage — refuse it until the whole stage is validated.
-        if (head.Result != StageAssignmentResult.Validé)
+        // The fiche is an official document, so it needs both halves: the marks must say the stage
+        // passed (Result) AND the administration must have ratified them (Status). Gating on the
+        // marks alone would let a student print an attestation the moment the chef saved a grade,
+        // before Scolarité ever saw it — and a ratification can still be refused.
+        if (head.Result != StageAssignmentResult.Validé || head.Status != InternshipStatus.Validated)
             return Result.Failure<FicheDeValidationResponse>(StageErrors.FicheNotAvailable);
 
         var assignment = await dbContext.InternshipAssignments
