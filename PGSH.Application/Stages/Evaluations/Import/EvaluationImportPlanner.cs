@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
+using PGSH.Application.AcademicYears;
 using PGSH.Application.Employees.MyServices;
 using PGSH.Domain.Common.Utils;
 using PGSH.Domain.Stages;
@@ -14,9 +15,15 @@ namespace PGSH.Application.Stages.Evaluations.Import;
 /// Preview and apply both run this and nothing else, so the dry run the user confirmed is literally
 /// the plan that executes — a preview that can drift from the apply is worse than no preview. It
 /// therefore loads tracked entities in both cases; the preview simply never saves.
+///
+/// Everything is scoped to one academic year. Besides bounding what is otherwise a deep tracked
+/// graph over every promotion the stage ever had, it is what makes the identifier index mean
+/// something: a CNE is unique within a year, and matching across years turns a legitimate row into
+/// an ambiguous one.
 /// </summary>
 internal sealed class EvaluationImportPlanner(
     IApplicationDbContext dbContext,
+    AcademicYearResolver yearResolver,
     ExecutionAuthorizer authorizer)
 {
     public async Task<Result<EvaluationImportPlan>> PlanAsync(
@@ -24,6 +31,7 @@ internal sealed class EvaluationImportPlanner(
         EvaluationImportScope scope,
         int? periodNumber,
         EvaluationMode mode,
+        int? academicYearId,
         IReadOnlyList<EvaluationImportRow> rows,
         CancellationToken ct)
     {
@@ -31,17 +39,25 @@ internal sealed class EvaluationImportPlanner(
         if (!stageExists)
             return Result.Failure<EvaluationImportPlan>(StageErrors.NotFound(stageId));
 
+        var year = await yearResolver.ResolveWithLabelAsync(academicYearId, ct);
+        if (year.IsFailure)
+            return Result.Failure<EvaluationImportPlan>(year.Error);
+
+        (int yearId, string yearLabel) = year.Value;
+
         if (scope == EvaluationImportScope.SinglePeriod)
         {
             bool periodExists = await dbContext.StageSlots
-                .AnyAsync(s => s.StageId == stageId && s.PeriodNumber == periodNumber, ct);
+                .AnyAsync(s => s.StageId == stageId
+                            && s.AcademicYearId == yearId
+                            && s.PeriodNumber == periodNumber, ct);
 
             if (!periodExists)
                 return Result.Failure<EvaluationImportPlan>(
                     StageErrors.ImportPeriodNotInStage(periodNumber ?? 0, stageId));
         }
 
-        // Everyone doing this stage, with the graph SubmitEvaluation / AmendEvaluation need.
+        // Everyone doing this stage in this year, with the graph SubmitEvaluation / AmendEvaluation need.
         var assignments = await dbContext.InternshipAssignments
             .Include(a => a.Registration).ThenInclude(r => r.Student)
             .Include(a => a.Cohort)
@@ -49,7 +65,12 @@ internal sealed class EvaluationImportPlanner(
             .Include(a => a.ServicePeriods).ThenInclude(p => p.Evaluation!).ThenInclude(e => e.ObjectiveScores)
             .Include(a => a.ServicePeriods).ThenInclude(p => p.CohortSlotAssignment!).ThenInclude(c => c.StageSlot)
             .Where(a => a.Cohort.StageId == stageId)
+            .Where(a => a.Cohort.AcademicGroup.AcademicYearId == yearId)
             .ToListAsync(ct);
+
+        if (assignments.Count == 0)
+            return Result.Failure<EvaluationImportPlan>(
+                StageErrors.ImportYearHasNoStudents(stageId, yearLabel));
 
         // Null = administrative, may evaluate anything. Otherwise the caller's own services.
         var allowedServices = await authorizer.EvaluableServiceIdsAsync(ct);

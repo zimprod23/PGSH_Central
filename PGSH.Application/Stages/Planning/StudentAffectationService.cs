@@ -33,14 +33,17 @@ internal sealed class StudentAffectationService(IApplicationDbContext dbContext)
         return Result.Success(await AssignAsync([cohort], ct));
     }
 
+    /// <summary>
+    /// Affects every student of the stage's cohorts for one academic year. The year is required:
+    /// a stage keeps a cohort per (group, year), so an unscoped run reached every promotion that
+    /// ever took it.
+    /// </summary>
     public async Task<BulkResponse<Guid, Guid>> AssignByStageAsync(
-        int stageId, IReadOnlyCollection<string>? partitionLabels, CancellationToken ct,
-        int? academicYearId = null)
+        int stageId, int academicYearId, IReadOnlyCollection<string>? partitionLabels, CancellationToken ct)
     {
-        var query = dbContext.Cohorts.AsNoTracking().Where(c => c.StageId == stageId);
-
-        if (academicYearId is not null)
-            query = query.Where(c => c.AcademicGroup.AcademicYearId == academicYearId);
+        var query = dbContext.Cohorts
+            .AsNoTracking()
+            .Where(c => c.StageId == stageId && c.AcademicGroup.AcademicYearId == academicYearId);
 
         if (partitionLabels is { Count: > 0 })
             query = query.Where(c => c.AcademicGroup.RotationGroup != null

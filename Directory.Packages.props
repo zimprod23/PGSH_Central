@@ -59,6 +59,10 @@
   <ItemGroup>
     <PackageVersion Include="ClosedXML" Version="0.105.1" />
   </ItemGroup>
+  <!-- Legacy Access reader (one-off migration tool, Windows-only) -->
+  <ItemGroup>
+    <PackageVersion Include="System.Data.OleDb" Version="9.0.2" />
+  </ItemGroup>
   <!-- Test layer -->
   <ItemGroup>
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />

@@ -9,4 +9,6 @@ public sealed record BulkCreateCohortsFromPartitionsCommand(
 
 public sealed record PartitionStagePair(string RotationGroup, int StageId);
 
-public sealed record BulkCohortsFromPartitionsResult(int Created, int Skipped);
+/// <summary><paramref name="NotRequiredByCnpn"/> counts group×stage pairs refused because the
+/// group's CNPN does not require that stage of its level — usually a mis-ticked row.</summary>
+public sealed record BulkCohortsFromPartitionsResult(int Created, int Skipped, int NotRequiredByCnpn);

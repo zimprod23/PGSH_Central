@@ -18,7 +18,7 @@ Each `AcademicYear` (e.g., "2025-2026") has a set of `AcademicGroups` (e.g., "Gr
 
 A `Stage` defines a rotation type tied to a `Level` (e.g., "Cardiology Rotation, Year 4 Medicine"). It has a duration, coefficient, and objectives (scored criteria). A `Cohort` is a specific instance of a Stage for a particular AcademicGroup in a given year.
 
-The schedule is modelled as a **grid**: rows = cohorts, columns = time periods (StageSlots), cells = service assignments (CohortSlotAssignments). `StageSlot` defines a named time period (P1, P2...) belonging to a Stage with start/end dates. `CohortSlotAssignment` is a grid cell — it maps one Cohort to one Service for one StageSlot. This mirrors the actual paper scheduling documents used by the faculty.
+The schedule is modelled as a **grid**: rows = cohorts, columns = time periods (StageSlots), cells = service assignments (CohortSlotAssignments). `StageSlot` defines a named time period (P1, P2...) belonging to a Stage **for one academic year** — the window carries concrete dates, and the stage runs again next year over different ones. `CohortSlotAssignment` is a grid cell — it maps one Cohort to one Service for one StageSlot. This mirrors the actual paper scheduling documents used by the faculty.
 
 When an admin **publishes** a cohort's schedule (`POST /cohorts/{id}/publish-schedule`), the system creates `ServicePeriod` records for each student in the cohort × each slot assignment. **The capacity check was removed** — it blocked bulk-publishing multiple cohorts assigned to the same service (after the first cohort published, occupancy exceeded capacity for subsequent cohorts even when the total was valid). The schedule grid UI already shows a red capacity badge as a warning. Unpublishing (`DELETE`) removes all ServicePeriods for that cohort where `CohortSlotAssignmentId != null`.
 
@@ -43,11 +43,13 @@ Result:      InternshipAssignment.FinalScore (cached aggregate of scores)
 |---|---|
 | Stage | A type of hospital rotation (e.g., "Chirurgie S6") |
 | Cohort | A group doing a specific stage together in a given year |
-| StageSlot | Time period column (P1, P2...) in the schedule grid — belongs to a Stage |
+| StageSlot | Time period column (P1, P2...) in the schedule grid — belongs to a Stage **and an academic year** |
 | CohortSlotAssignment | Grid cell — maps one Cohort to one Service in one StageSlot |
 | Period | `ServicePeriod` — actual execution record for a student in a service |
 | Assignment | `InternshipAssignment` — one student enrolled in one cohort |
-| Level | Academic year of study (Year 1–6 in Medicine/Pharmacy) |
+| Level | Academic year of study. Médecine ran to 7 under arrêté 2174.18 and runs to 6 under 1650.25 |
+| CnpnVersion | One ministerial text (arrêté). Decides how many years a programme lasts and, via Curriculum, what each level owes |
+| Curriculum | What one CnpnVersion requires of one Level — keyed on the text, never on the year |
 | CNE | Code National de l'Étudiant — unique national student ID |
 | Appogee | University software student number (second unique ID) |
 | PPR | Employee government registration number |
@@ -106,7 +108,7 @@ These are rules enforced in domain or application code — not always obvious fr
   the chef/staff of the period's service; it may be **read** by all of those *plus the student whose own
   rotation it is* (`ExecutionAuthorizer.EnsureCanReadAttendanceAsync`). Consulting your own attendance is not a
   privileged act — gating the read behind the write scope made the student portal 403 on every stage it showed.
-- **Non-validated stages stay with the student (revalidation)**: A student who receives `Result = NonValidé` on a stage does **not** stop progressing. They continue through subsequent academic years normally. The failed stage "sticks" with them — the original `InternshipAssignment` with `Result = NonValidé` remains in the system as a permanent record. At some later year (could be final year), the student is assigned to a cohort doing that same stage again and receives a new `InternshipAssignment` for that attempt. If they pass, that new assignment gets `Result = Validé`. The old failed assignment is never deleted or modified — it is the audit trail. A `History` record of type `Revalidation` marks when this process begins. **Implication:** a student can have multiple `InternshipAssignment` records for the same `Stage` across different academic years. Queries that check "has the student passed Stage X" must look for any `InternshipAssignment` where the `Cohort.StageId == X` and `Result == Validé`, not just the most recent one.
+- **Non-validated stages stay with the student (revalidation)**: A student who receives `Result = NonValidé` on a stage does **not** stop progressing. They continue through subsequent academic years normally. The failed stage "sticks" with them — the original `InternshipAssignment` with `Result = NonValidé` remains in the system as a permanent record. At some later year (could be final year), the student is assigned to a cohort doing that same stage again and receives a new `InternshipAssignment` for that attempt. If they pass, that new assignment gets `Result = Validé`. The old failed assignment is never deleted or modified — it is the audit trail. A `History` record of type `Revalidation` marks when this process begins. **Implication:** a student can have multiple `InternshipAssignment` records for the same `Stage` across different academic years. Queries that check "has the student passed Stage X" must look for any `InternshipAssignment` where the `Cohort.StageId == X` and `Result == Validé`, not just the most recent one. **Why the retake can be years later** *(confirmed 2026-08-07)*: a stage is **not necessarily a criterion for failing the whole registration** — a student can fail a stage, pass the year on their subjects, and carry the unvalidated stage forward. So revalidation must stay flexible across levels, not just across years at the same level. `GetStudentLevelDossierQuery` answers "what is still owed at level L" and `RevalidateStageCommand` re-opens it; the latter deliberately does **not** constrain the stage to the registration's own level, because the prior failed attempt is the real constraint.
 
 ---
 
@@ -312,6 +314,421 @@ return Result.Success();
 
 ---
 
+## Legacy Access database (`Medecine.mdb`)
+
+The system PGSH replaces was VB.NET over a Microsoft Access file. **The file is gitignored** (`*.mdb`)
+— it carries 10,203 real students' CIN, date of birth, address and a plaintext `password` column, and
+must never enter the repository. Read it with `Microsoft.ACE.OLEDB.16.0` (64-bit, already installed);
+ADO uses **ANSI-92 wildcards** (`%`, `_`), not Access's `*`/`#`.
+
+**It is a properly normalized schema, not a spreadsheet** — 29 declared foreign keys, composite primary
+keys, and zero orphans across `AffectStage→stages`, `AffectStage→SERVICES`, `AffectStage→Inscription`,
+`Inscription→ETUDIANT`. The joins are structurally guaranteed; an importer needs no orphan handling.
+
+| Legacy | Rows | PGSH |
+|---|---|---|
+| `AffectStage` (PK `NUMINS,CODEST,PER1`) | 104,924 | `ServicePeriod` |
+| `Inscription` (PK `Numins`) | 43,608 | `Registration` |
+| `ETUDIANT` (PK `NO_ORDRE`) | 10,203 | `Student` |
+| `SERVICES` / `stages` / `Niveaux` / `anneeuniv` | 148 / 27 / 20 / 21 | `Service` / `Stage` / `Level` / `AcademicYear` |
+
+**Grain mismatch — the key structural fact.** `AffectStage` is at *period* grain. There is no
+stage-level row: the internship is implicit in `(NUMINS, CODEST)` — 92,187 single-period, 6,368
+two-period, 1 three-period. So one `(NUMINS, CODEST)` → one `InternshipAssignment`, each row → one
+`ServicePeriod` + `ServiceEvaluation`, and `FinalScore` is **derived** by `StageScoring`, never imported.
+
+**Repeating students are the norm, and the model already handles them.** 2,920 `(student, level)` pairs
+repeat (2,269 ×2, 515 ×3, 136 ×4), concentrated in MED07. `CreateRegistrationCommandHandler` already
+allows this deliberately — its duplicate guard is on `(StudentId, AcademicYearId)`, not level, and its
+chronological check skips when `levelDiff == 0`. The old app re-created the full stage set each year and
+the operator graded only what was genuinely redone, so marks accumulate across registrations. That is
+what `GetStudentLevelDossierQuery` folds together.
+
+**Mark semantics — settled with the user 2026-08-07.** `Note >= 10` is validated, `Note < 10` is not
+(so `0` is a real failing mark, not a "not applicable" sentinel); `-1` and NULL mean ungraded. That is
+exactly `StageScoring.ValidationThreshold`, so an imported row becomes an `EvaluationMode.Numeric`
+evaluation with `TotalScore = Note` and the verdict falls out of the existing domain rules untouched.
+
+Consequence: **`Resultat` never needs decoding.** PGSH derives the verdict from the mark, so the
+undecodable `{0,3,6,10}` column (which does not correlate with pass/fail — `Resultat=0` holds 71,320
+passing *and* 2,744 failing rows) is simply not imported. Rows with `Note` of `-1`/NULL import as
+periods with no evaluation, i.e. `NonÉvalué`.
+
+**Other migration hazards.** No email column at all (`Users.Email` is NOT NULL UNIQUE) — `prenom_nom@um5.ac.ma`
+yields only 31 collisions over 10,203 names, but the numeric suffix must be allocated in a **deterministic
+order** (by `NO_ORDRE`) or re-running the import swaps identities between real people. Names are one
+`NOM PRENOM` field, surname first, and 2,730 (27%) have 3+ tokens where the split is genuinely
+undecidable. Only 5,510 of 10,203 have a CNE (`Student.CNE` is NOT NULL UNIQUE). `SERVICES` has no
+hospital FK — the hospital is embedded in the name string (`"Hôp.IbnSina: Médecine A - Pr.H.Harmouch"`),
+~16 parseable prefixes, 10 with none, and `CHEF_SERV` is empty throughout. Dates are `dd/MM/yyyy` text;
+824 `PER2` values hold free text like `"31/05/2019 & de: 25/06/2019 à:12/07/2019"` — a split period the
+old app could not model and PGSH can, as two `ServicePeriod`s.
+
+### The importer — `PGSH.LegacyImport`
+
+A console tool, run manually, **dry run by default**:
+
+```bash
+dotnet run --project PGSH.LegacyImport -- --source Medecine.mdb                    # plan only, no DB needed
+dotnet run --project PGSH.LegacyImport -- --source Medecine.mdb --review           # hospital tree, for checking
+dotnet run --project PGSH.LegacyImport -- --source Medecine.mdb --connection "…" --apply
+```
+
+Split so the rules are testable without the gitignored .mdb: `AccessLegacyReader` (OleDb, Windows-only,
+reads verbatim) → `LegacyImportPlanner` (pure, builds the whole graph) → `LegacyImportWriter` (saves in
+dependency order, batched). 53 tests cover the mapping; the reader has none by design.
+
+**✅ Applied to the development database 2026-08-07** — 1 min 24 s, counts match the plan exactly.
+The fixture data it replaced was backed up first (`pgsh-prefixture-backup-*.dump`, gitignored).
+
+**Maps all 104,924 rows with no failures:**
+
+| | |
+|---|---|
+| 1 Center / 16 Hospital / 148 Service | hospital tree parsed out of the service name strings |
+| 16 Level / 27 Stage / 21 AcademicYear / 1,003 AcademicGroup | |
+| 10,203 Student | 4,695 with a synthesised `LEGACY-{NO_ORDRE}` CNE |
+| 43,605 Registration / 13,604 Cohort | 3 legacy duplicates dropped, see below |
+| 98,555 InternshipAssignment / 105,626 ServicePeriod / 87,092 ServiceEvaluation | 83,439 marks ≥ 10, 3,653 below |
+| 727 notes | 702 split periods, 18 students with no registration, 4 services naming no hospital, 3 duplicate registrations |
+
+Counts reconcile exactly: 98,555 = the distinct `(NUMINS, CODEST)` pairs; 105,626 = 104,924 rows + 702
+interrupted rotations expanded into a second period.
+
+**Decisions worth knowing before re-running it:**
+- **Cohorts and groups are derived, not imported.** Legacy has no cohort concept; `AcademicGroup` comes
+  from `(ANNEE_UNIV, GROUPE_STG)` and `Cohort` from `(Stage, AcademicGroup)`. 17,529 registrations carry
+  no group — only 67 of those have rotations — so they land in a per-year "Non réparti" group (number 0).
+- **`CohortSlotAssignmentId` is always null.** There was no planning grid, and null already means
+  "recorded outside the published schedule", which is exactly what history is. No `StageSlot` rows.
+- **The lifecycle is replayed, never back-filled.** `Start() → CompletePeriod() → SubmitEvaluation() →
+  Validate()`, so `FinalScore`/`Result` come from `StageScoring` like everything else. Fully-marked
+  stages are ratified so 100k finished rotations don't sit in the "to ratify" worklist.
+- **Registrations import as `Active`** (withdrawals excepted): whether a student passed the *year*
+  depends on subject marks, which are out of scope. Inventing a pass or fail would be a lie.
+- **No Employee rows are created.** The professor is a name inside the service string; a unique email
+  cannot be conjured from "Pr.H.Harmouch". `ServiceChefId` stays null, the name goes in `Description`.
+- **One synthetic Center** ("Centre Hospitalier Universitaire de Rabat") because `Hospital.CenterId` is
+  required.
+- **City and `ServiceType` do not exist in the source** — both are inferred, and `--review` prints the
+  whole reconstructed tree so they can be checked in one pass. Cities the legacy string actually names
+  (Kénitra, Salé, Témara) are kept; the other 13 of 16 default to Rabat and are flagged `?` in the
+  review. Type comes out 82 Medical / 55 Chirurgie / 11 Biologie.
+
+  ⚠ **Classify on word boundaries, never bare `Contains`.** The first version put every neurology ward
+  in surgery — `"Neurologie"` contains `"urologie"` — and missed `"Urg.Porte.Chirurgicale"`, because
+  `"Chirurgicale"` does not contain `"chirurgie"`. `ServiceNameParser` now matches accent-stripped text
+  with `\b` anchors and a `chirurg` stem; `LegacyMapperTests.Look_alike_specialities_are_not_confused`
+  pins all ten of the real catalogue entries that exposed it.
+
+**One student, two registrations in one year** — `IX_Registration_Student_Year` is UNIQUE, Access
+enforced nothing, and 3 pairs out of 43,608 break it. Each is a stale row somebody re-entered instead of
+correcting (student 21025416 holds both a `MED00` retrait with no rotations and the real `MED04` with
+seven, same year). The importer keeps the row with the most rotations, tie-breaking on the later
+`Numins`; on the real data that picks correctly all three times and loses no rotations, because the
+discarded side has none in every case.
+
+> ⚠ This one only surfaced against real PostgreSQL. `UseInMemoryDatabase` does not enforce unique
+> indexes, so the 406-test suite was green while the import died 25 s into writing. The regression is
+> pinned in `LegacyImportPlannerTests` at the planner level, which is the only layer that *can* catch it.
+
+### ⚠ The sample seeder collides with the import
+
+`PGSH.MigrationService` runs `Seeder.SeedAsync` on **every Aspire start**, and it creates 13 `Level`
+rows and 3 `AcademicYear` rows. Both carry unique indexes — `UNIQUE(Year, AcademicProgram)` and
+`UNIQUE(Label)` — and the importer creates 16 levels and 21 years overlapping them. Seeded and imported
+data cannot coexist.
+
+Set **`Seeding:Enabled = false`** (`PGSH.MigrationService/appsettings.json`, or the env var
+`Seeding__Enabled=false`) before importing, and leave it false. Migrations still run; only the Bogus
+fixtures are skipped. The importer's own `--apply` guard now counts every table it writes — not just
+students — so it refuses rather than failing part-way through on a constraint.
+
+**The three static users are not fixtures, and have their own flag.** `amine.bennani@um5.ac.ma`,
+`admin.pgsh@um5.ac.ma` (Scolarité) and `employee.test@um5.ac.ma` carry fixed GUIDs and known e-mails so
+Keycloak's email-matching resolves them — they are the only way into the application. They are
+therefore seeded by **`Seeding:StaticUsers`** (default `true`), which is deliberately independent of
+`Seeding:Enabled`: a database holding real imported records still needs the accounts even though it
+must never receive the Bogus data. Each is created only when its e-mail is absent, so it is safe on
+every start, and none of their identifiers collide with imported students (checked: `Appogee`
+`22003344` and CNE `G135000111` are unused by the legacy set).
+
+That split exists because re-enabling the whole seeder is *not* a safe way to get them back: every
+section skips when its table has rows — **except** `SeedShowcaseServiceAsync`, whose guard is
+`Hospitals.AnyAsync(h => h.LocalisationMaps != null)`. No imported hospital carries GPS, so that one
+would fire and inject a demo service into real data.
+
+**Out of scope by decision:** the pedagogical half of the file (`MATIERES`, `notes*`, `ResExamClin`,
+`creditmat`, `jury`, `amphi`, `groupetp`, anonymized double-marking, credits) belongs to a separate
+project/microservice. PGSH owns stages only, so the Access app cannot simply be switched off at cutover.
+Useful signal: `CRDST` (stage credits) is `0` on every row while `CRDMAT`/`CRDTP` are used on ~42,500 —
+the stage half of their credit system was already dead, which is a clean seam.
+
+## Scale: what real data broke, and the rule it taught
+
+Seeded fixtures hid every unbounded query. The legacy import turned them into crashes overnight, so
+treat these figures as the baseline any list screen must survive:
+
+| | |
+|---|---|
+| 1,003 AcademicGroups (101 in 2025-2026) | 13,604 Cohorts (1,684 in the current year) |
+| **"Non réparti" 2025-2026 holds 4,725 students in one group** | 681 cohorts on a single stage across years |
+| 10,203 Students · 43,605 Registrations · 98,555 Assignments | 105,626 ServicePeriods |
+
+Fixed (2026-08-07):
+
+| Handler | Was | Now |
+|---|---|---|
+| `GetGroupByIdQuery` | whole roster + 2 correlated loan lookups **per student** — 4,725 rows | paged (25) + debounced search; header count via `StudentCount` |
+| `GetCohortsByStageQuery` | **no year filter at all** — every year the stage ever ran | year-scoped + paged |
+| `GetAcademicGroupsQuery` | all 1,003 groups | paged, with `StudentCount` per row |
+| `GetStageScheduleQuery` | unfiltered year returned every year's cohorts | falls back to the current year |
+| `GetYearTimelineQuery` | all 1,684 cohorts of a year to draw one stage | optional `StageId` narrows the tree |
+
+> ⚠ **A nested collection is the one pagination audit misses.** Grepping for handlers returning
+> `List<T>` finds the flat offenders; it does *not* find `GetGroupByIdQuery`, whose 4,725 rows sit
+> inside a single `GroupDetailResponse`. When reviewing a query for scale, ask what the *response*
+> contains, not what the handler's generic parameter says.
+
+> ⚠ **Counting is not listing.** `AdminDashboardPage` fetched all 1,003 groups to render one number.
+> Ask for `pageSize: 1` and read `TotalCount`.
+
+On the frontend, screens that need a list as a *lookup* (dropdowns, filters, assignment grids) use
+`getAcademicGroupOptions` / `getCohortOptionsByStage` — thin wrappers that still hit the paged
+endpoint but ask for one large page and unwrap `.items`. Screens that display a list paginate for real.
+
+## CNPN versioning — why the curriculum is its own aggregate
+
+The CNPN (national pedagogical standards) is reissued whenever the ministry decides, and what it
+contains is a political outcome — a new minister can change a level's stages at will. **This already
+happened five times in the imported history**, e.g. *Pharmacie Clinique 3* ran 2019-20 → 2022-23 and
+then vanished while Clinique 1 and 2 carried on.
+
+Before `Curriculum`, the model could not express any of it: `Stage` was `(Id, Name, Coefficient,
+DurationInDays, LevelId)` with **no temporal dimension at all**. The only link to a year was indirect,
+through `Cohort → AcademicGroup → AcademicYear` — which records *what was executed*, not *what was
+required*. Three consequences: "which stages did 3e année Médecine have in 2024?" was answerable only
+by inference (a stage nobody ran that year looks removed); editing a `Stage` retroactively rewrote
+what every past assignment displays; and adding a successor left the old one indistinguishable from a
+live one.
+
+**The rejected design was a validity window** (`Stage.EffectiveFrom/To`). It is the wrong shape, not
+merely impractical: a window says *"this stage is valid from X to Y"*, which forces someone to know
+when it ends, and cannot express a stage that is dropped and later reinstated. A CNPN says
+*"in year Y, level L requires exactly this set"* — a per-year requirement set predicts nothing.
+
+```
+Curriculum  (aggregate root, UNIQUE(LevelId, AcademicYearId))
+  └── CurriculumStage  (StageId, Coefficient, DurationInDays)   ← that year's weight
+```
+
+- `Stage` stays the **timeless catalogue entry**, so historical `InternshipAssignment`s keep pointing
+  at a stable identity. Everything that varies between years lives on `CurriculumStage` — including
+  coefficient and duration, because a text can keep a stage and reweight it.
+- `Curriculum.CopyFrom(previous)` is the realistic flow: most years repeat the last one with one edit,
+  and cloning keeps each year an independent record rather than a diff nobody can read back.
+- `RemoveStage` raises `CurriculumStageRemovedDomainEvent`. Removal settles nothing on its own —
+  students who failed that stage still owe it, and the administration decides each case by hand.
+
+### An abolished stage is still served — settled 2026-08-07
+
+**When a stage is removed from the CNPN, a student who failed it still has to serve it.** Removal
+releases *new* students from the requirement; it does not erase an obligation already incurred. There
+is **no waiver and no substitution** — no "dispense", no equivalent stage standing in for another.
+
+This is exactly why `Stage` is a timeless catalogue entry rather than something with an expiry date:
+the stage record survives its removal from the curriculum, so it can still be served. The service is
+still physically there too — only the curriculum entry went away.
+
+Nothing extra was needed to support it: `RevalidateStageCommand` already re-opens any stage the
+student has a settled `NonValidé` on, regardless of whether the current CNPN still lists it, and
+places the retake back in the service of the failed rotation. `AbolishedStageRevalidationTests` walks
+the whole *Pharmacie Clinique 3* scenario — comparison flags it Removed, the retake is served in the
+original service, the original failure stays untouched as history, and passing the retake moves the
+dossier to `Validated` with both attempts on record.
+
+> The one wart: `InternshipAssignment.CurrentCohortId` is non-null, so a retake of an abolished stage
+> needs a cohort created for it even though no *group* runs that stage. It is harmless but it models
+> a group activity for what is one student's individual rotation. Fixing it properly means moving
+> `StageId` onto `InternshipAssignment` and making the cohort optional — a wide refactor, deliberately
+> not done for a case that currently affects nobody.
+
+**Writes:** the aggregate's behaviour is reached through two commands, both Scolarité-only.
+
+| | |
+|---|---|
+| `PUT levels/{levelId}/curriculum/{yearId}` | `SaveCurriculumCommand` — the **whole text at once**, because that is how a CNPN is issued. Idempotent, so re-sending the same set changes nothing. |
+| `POST levels/{levelId}/curriculum/{yearId}/copy` | `CopyCurriculumCommand` — opens a year from another year's text. Refuses if the target already has one; amending goes through Save. |
+
+Save **reconciles** against what is stored rather than replacing it wholesale: a stage that disappears
+from the submitted set goes through `Curriculum.RemoveStage` and raises its domain event, while one
+that is kept with a different coefficient is amended in place and raises nothing. Without the
+reconciliation a dropped stage would vanish silently, which is precisely the event students who failed
+it depend on.
+
+**Screen:** `CurriculumPage` (admin → Académique → *CNPN (programme)*, `/admin/curriculum`). Pick a
+level and two years; the table shows each stage as `Ajouté | Retiré | Recoté | Inchangé` with both
+coefficients, changes first. When a stage is `Retiré` a red banner states the rule explicitly — the
+student repasses it anyway, because removal releases only new inscrits.
+
+> **The page is still read-only.** It compares and displays; recording a newly published CNPN is
+> API-only for now. The editing UI — stage picker, per-stage coefficient/duration, and a "cloner
+> l'année précédente" button over `CopyCurriculumCommand` — is the remaining piece.
+
+**Reads:** `GetCurriculumQuery(levelId, yearId)` answers "what was the CNPN then";
+`CompareCurriculaQuery(levelId, fromYear, toYear)` returns per stage
+`Unchanged | Added | Removed | Reweighted` with both sides' coefficients — the view behind manual
+revalidation, where a student is judged against the text of the year they failed in but can only be
+re-planned against today's.
+
+**Backfilling history — ✅ applied 2026-08-07: 51 curricula / 175 stage entries.** The derivation lives
+in `CurriculumHistoryReconstructor` (Application) because it has two callers:
+
+```bash
+# authenticated endpoint, dry run by default
+POST curricula/seed-from-history          { "dryRun": true }
+
+# same rule without an HTTP identity — the pass that follows a legacy import
+dotnet run --project PGSH.LegacyImport -- --seed-curricula --connection "…"          # dry run
+dotnet run --project PGSH.LegacyImport -- --seed-curricula --connection "…" --apply
+```
+
+It is an approximation and says so: a stage the text required but which no group ran leaves no trace.
+**Idempotent** — verified by re-running: the second pass reported `0 created, 51 already recorded,
+left alone`, so a year confirmed by hand survives.
+
+The history is now explicit data rather than inference:
+
+| Pharmacie Y5 | required |
+|---|---|
+| 2019-20 → 2022-23 | Clinique 1, Clinique 2, **Clinique 3** |
+| 2023-24 → 2025-26 | Clinique 1, Clinique 2 |
+
+> Migrations can now be authored with `--startup-project PGSH.MigrationService` (it carries
+> `Microsoft.EntityFrameworkCore.Design`), which avoids having to stop a running `PGSH.API` to free
+> its build output.
+
+## Revalidation is demande-driven and served where the student failed
+
+Confirmed with the user 2026-08-07:
+
+1. **It starts from a demande.** Revalidation is never automatic — the student requests it. The
+   Demande service is Phase 5, so `RevalidateStageCommand.DemandeId` carries the reference and, since
+   only `Delocalization` has a column for it today, the link survives in the audit entry. **A
+   revalidation needs its own `DemandeId` column when Phase 5 lands.**
+2. **The retake is served in the service where the stage was failed**, not wherever this year's grid
+   would send the student's group. Leave `ServiceId` null and the failed rotation's service is reused.
+   A change of service is itself subject to an approved demande.
+3. It is therefore an **ad-hoc placement like a délocalisation** — `CohortSlotAssignmentId` stays null,
+   the schema's own meaning for "outside the published schedule".
+
+**Batch or individual?** Neither, exactly — the target service is *per student*, and batching is only a
+convenience over that rule. Failures scatter far too widely to send everyone to one place:
+
+| Stage | Failed attempts | Distinct services |
+|---|---|---|
+| CHIRURGIE | 377 | **26** |
+| MEDECINE | 441 | **21** |
+| GYNECOLOGIE OBSTETRIQUE | 386 | 5 (≈77 per service — a real cluster) |
+
+So: resolve each student's own service, then group the resulting list by service to process a whole
+cluster in one window.
+
+> ⚠ **`Result<T>`'s implicit operator maps a null value to a FAILURE** (`Error.NullValue`), so an
+> optional result can never be expressed as `Result<T?>` returning null — it silently becomes an
+> error. Resolve optional values only when they are wanted, and keep `Result<T>` non-nullable.
+
+## There is no average above the stage — settled 2026-08-08
+
+The **only** mean in this domain is *inside* a stage: a stage holds several periods, so its note is
+the mean of its periods' marks. That is `StageScoring` / `InternshipAssignment.RecomputeFinalScore`,
+and it already exists.
+
+Above that, **nothing**. No year average, no cursus average, no coefficient-weighted roll-up. A
+relevé prints each stage's own note and stops. `Stage.Coefficient` exists in the schema but **no rule
+uses it**, and it must not be pressed into service to invent a moyenne.
+
+This closes an open question carried since the student portal was built (session 10), where the
+dashboard deliberately shipped without a "moyenne générale" rather than guess a formula. Do not add
+one — if a future requirement needs it, it is a new rule to be agreed, not a derivation to be
+assumed.
+
+## `Registration.Status` is unmanaged — and why past years all read "En cours"
+
+*(Established with the user 2026-08-08, after the student portal made it visible.)*
+
+**The gap.** PGSH covers stages only. It is **not linked to the pedagogical side of the faculty** —
+the system that knows a student's subject marks and therefore who passed the year and who repeated
+it. Nothing in PGSH ever moves a `Registration` off `Active`, so every past registration a student
+holds still reads `Status = Active` → the badge "En cours" on a year that ended two years ago. The
+badge is faithful; the data was simply never closed out. Do **not** patch this in the UI.
+
+⚠ Not to be confused with `InternshipAssignment.Status`/`Result`, which *are* managed and are the
+subject of the ratify-vs-pass rule above. This is the **registration** (the academic year enrolment),
+one level up.
+
+**The rule to apply later** *(user, 2026-08-08 — an inference, deliberately deferred)*. Order a
+student's registrations by academic year. The most recent one is the year in progress; every earlier
+one can be settled from the shape of the sequence alone, because a student only re-registers at a
+level they did not clear:
+
+| Level sequence | Reading |
+|---|---|
+| 1, 2, 3, 4 | 4 = **en cours**; 1, 2, 3 = **validated** (they progressed past each) |
+| 1, 2, 3, 3, 4 | the **first** 3 = **failed** (repeated), the second 3 = validated, 4 = en cours |
+
+So: *a registration is failed when a later registration exists at the same level; otherwise it is
+validated; the latest is in progress.*
+
+**Why it is not implemented yet.** It is an inference from enrolment history, not a fact — the
+authoritative answer lives in the pedagogical system PGSH cannot see. It also has cases the table
+does not cover and which need a ruling before any code is written:
+
+- a student whose **latest** registration is not in the current academic year (dropped out, on leave,
+  graduated) — is the last one still "en cours"?
+- a **skipped** level, or a non-consecutive repeat (1, 2, 3, 4, 3) — the 2nd-year-later retake is a
+  revalidation pattern, not a repeat of the year;
+- a student who **passed the year while still owing a stage** — already a settled rule here (see the
+  revalidation notes above), so "registration validated" must **not** be read as "all stages
+  validated". The two verdicts are independent, and the graduation gate is the place that joins them.
+- writing an inferred verdict into `Registration.Status` **destroys the distinction** between
+  "inferred" and "known". If it is implemented, it should be a derived/read-model field, or carry a
+  provenance flag, so a later link to the pedagogical system can overwrite guesses without
+  overwriting facts.
+
+## Code review 2026-08-08 — what it caught
+
+Two real defects, both now fixed with regression tests:
+
+- **`RevalidateStageCommandHandler`: `Any` where it needed `All`.** The guard read
+  `!priorAttempts.Any(r == NonValidé)`, so a student with a settled 2022 failure *and* a 2023 attempt
+  still awaiting its verdict got a retake opened alongside the live one — the exact "two live
+  attempts" the comment claimed to prevent, and the dossier would call the same student `InProgress`.
+  `DossierStageState` uses `All`; the command now matches it.
+- **The level dossier missed cross-level retakes entirely.** Attempts were found through the
+  registrations *of that level*, but a retake of an earlier level's stage hangs off the registration
+  the student holds *now*. It was therefore absent from the earlier level's dossier (wrong
+  registration) and dropped from the later one (wrong stage) — so the earlier level read
+  `ToRevalidate` forever, even after the retake passed. Attempts are now scoped by the **stage's**
+  level, and each carries its own year rather than looking it up in the level's registration list.
+
+Smaller fixes: `BacYear` was the one string not `Truncate`d (varchar(10) — one long `ANNEE_BAC` would
+abort the whole students batch); the reader's `when (provider == Provider)` filter made its own
+friendly ACE-provider error unreachable and leaked the connection; `LegacyPeriodParser.DanglingDate`
+was computed and never reported, contradicting its own "reported, never guessed at" comment (now a
+`DanglingPeriodDate` problem kind); the retake's default service came from an unordered `First()`.
+
+**Checked and accepted, not fixed:** the importer folds a legacy `revalide='O'` row into the same
+assignment when it shares `(NUMINS, CODEST)` with a normal rotation. That happens on **3 keys out of
+98,555**, and in all three every mark involved is ≥ 10 — so the verdict is `Validé` either way and only
+the displayed `FinalScore` differs. Not worth a re-import.
+
+**Left for a decision:** `Seeding:Enabled=false` sits in the committed base `appsettings.json`, not a
+Development/user override — correct for the imported database, but anyone checking out this branch
+against a fresh one gets migrations plus three login accounts and nothing else.
+`GetStageScheduleQuery` also now substitutes the current year silently when none is given, with no way
+to ask for all years and no field in the response saying which year was applied.
+
 ## Open Questions / Things to Verify
 
 - **`GenerateScheduleCommandHandler`**: Does it correctly handle the case where students are transferred between cohorts mid-year? The `CohortMembership` model supports it but the handler logic needs review.
@@ -320,7 +737,8 @@ return Result.Success();
 - **`Employee.WorkPlace`**: The enum has values `Hospital` and `Fmpr`. Is `Fmpr` still the correct name for the faculty workplace, or should it be renamed to match the actual institution name?
 - **Domain events on Hospital/Center/Service**: Currently no domain events are raised on creation or modification of these entities. If downstream notifications (e.g., service capacity changes affecting rotation scheduling) are needed, events should be added.
 - **`Student.Ranking`**: What is this field for? National ranking for program entry? It's nullable and has no business logic around it.
-- **Revalidation cohort assignment**: When a Year 4 student needs to redo a Year 1 Stage, which `AcademicGroup` / `Cohort` do they get assigned to? Are there dedicated revalidation cohorts mixing students from different years and groups, or are they slotted into an existing cohort for that stage? The current `Cohort.AcademicGroupId` FK assumes a cohort is for one specific group. Needs clarification before implementing the revalidation assignment flow.
+- **Revalidation cohort assignment** *(answered 2026-08-07 — see `RevalidateStageCommandHandler`)*: `RevalidateStageCommand` takes an optional `CohortId`. Left null it falls back to the cohort of the student's own registration group for that stage (the repeating student, same level, next year). Given explicitly it slots the student into any cohort currently running that stage — which is how a **cross-level** retake works, e.g. a 6th-year student redoing a 1st-year stage joins a current 1st-year cohort. No cohort of that stage hangs off any group they still belong to, so the fallback fails with `NoCohortForRevalidation`, whose message names the missing field. No schema change was needed: `Cohort.AcademicGroupId` still means "one specific group" — the student joins that group's cohort for the duration of the retake.
+- **Settling `Registration.Status` for past years** *(raised 2026-08-08, deferred by the user)*: PGSH has no link to the pedagogical side, so no registration is ever closed out and every past year reads "En cours". The inference rule (a registration is failed when a later one exists at the same level) and the four cases that still need a ruling are written up in "`Registration.Status` is unmanaged" above. Feature work is queued as **Phase 14.3**.
 - **Graduation gate on revalidation**: Is there a check before a student can graduate (registration `Status → Validated`) that all stages in their program have at least one `InternshipAssignment` with `Result = Validé`? This would be the enforcement point for the revalidation rule. Not yet implemented.
 
 ## Regression / Stress Checks (verification recipes)

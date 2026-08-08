@@ -28,6 +28,7 @@
     <ProjectReference Include="..\PGSH.Domain\PGSH.Domain.csproj" />
     <ProjectReference Include="..\PGSH.Application\PGSH.Application.csproj" />
     <ProjectReference Include="..\PGSH.Infrastructure\PGSH.Infrastructure.csproj" />
+    <ProjectReference Include="..\PGSH.LegacyImport\PGSH.LegacyImport.csproj" />
   </ItemGroup>
 
 </Project>

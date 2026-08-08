@@ -27,7 +27,9 @@ internal sealed class StageScheduleEndpoints : IEndpoint
         app.MapPost("stages/{stageId:int}/slots",
             async (int stageId, SlotRequest request, ISender sender, CancellationToken ct) =>
             {
-                var command = new CreateStageSlotCommand(stageId, request.PeriodNumber, request.Label, request.StartDate, request.EndDate);
+                var command = new CreateStageSlotCommand(
+                    stageId, request.AcademicYearId, request.PeriodNumber, request.Label,
+                    request.StartDate, request.EndDate);
                 var result = await sender.Send(command, ct);
                 return result.Match(id => Results.Created($"stages/{stageId}/slots/{id}", id), CustomResults.Problem);
             })
@@ -86,6 +88,7 @@ internal sealed class StageScheduleEndpoints : IEndpoint
             {
                 var command = new AutoArrangeStageScheduleCommand(
                     stageId,
+                    request?.AcademicYearId,
                     request?.PartitionCount,
                     request?.PartitionLabels,
                     request?.PeriodNumbers);
@@ -100,6 +103,7 @@ internal sealed class StageScheduleEndpoints : IEndpoint
             {
                 var command = new PublishStageScheduleCommand(
                     stageId,
+                    request?.AcademicYearId,
                     request?.PartitionLabels,
                     request?.PeriodNumbers,
                     request?.AllowOverCapacity ?? false);
@@ -113,7 +117,8 @@ internal sealed class StageScheduleEndpoints : IEndpoint
             async (int stageId, [FromBody] StageLifecycleRequest? request, ISender sender, CancellationToken ct) =>
             {
                 var command = new StartStagePeriodsCommand(
-                    stageId, request?.CohortIds, request?.PartitionLabels, request?.PeriodNumbers);
+                    stageId, request?.AcademicYearId, request?.CohortIds, request?.PartitionLabels,
+                    request?.PeriodNumbers);
                 var result = await sender.Send(command, ct);
                 return result.Match(count => Results.Ok(new { started = count }), CustomResults.Problem);
             })
@@ -124,7 +129,8 @@ internal sealed class StageScheduleEndpoints : IEndpoint
             async (int stageId, [FromBody] StageLifecycleRequest? request, ISender sender, CancellationToken ct) =>
             {
                 var command = new CompleteStagePeriodsCommand(
-                    stageId, request?.CohortIds, request?.PartitionLabels, request?.PeriodNumbers);
+                    stageId, request?.AcademicYearId, request?.CohortIds, request?.PartitionLabels,
+                    request?.PeriodNumbers);
                 var result = await sender.Send(command, ct);
                 return result.Match(count => Results.Ok(new { completed = count }), CustomResults.Problem);
             })
@@ -135,7 +141,7 @@ internal sealed class StageScheduleEndpoints : IEndpoint
             async (int stageId, [FromBody] StagePauseRequest? request, ISender sender, CancellationToken ct) =>
             {
                 var command = new PauseStagePeriodsCommand(
-                    stageId, request?.Kind ?? PauseKind.Exam, request?.Reason,
+                    stageId, request?.Kind ?? PauseKind.Exam, request?.Reason, request?.AcademicYearId,
                     request?.CohortIds, request?.PartitionLabels, request?.PeriodNumbers);
                 var result = await sender.Send(command, ct);
                 return result.Match(count => Results.Ok(new { paused = count }), CustomResults.Problem);
@@ -147,7 +153,8 @@ internal sealed class StageScheduleEndpoints : IEndpoint
             async (int stageId, [FromBody] StageLifecycleRequest? request, ISender sender, CancellationToken ct) =>
             {
                 var command = new ResumeStagePeriodsCommand(
-                    stageId, request?.CohortIds, request?.PartitionLabels, request?.PeriodNumbers);
+                    stageId, request?.AcademicYearId, request?.CohortIds, request?.PartitionLabels,
+                    request?.PeriodNumbers);
                 var result = await sender.Send(command, ct);
                 return result.Match(count => Results.Ok(new { resumed = count }), CustomResults.Problem);
             })
@@ -156,9 +163,11 @@ internal sealed class StageScheduleEndpoints : IEndpoint
     }
 }
 
-internal sealed record SlotRequest(int PeriodNumber, string? Label, DateOnly StartDate, DateOnly EndDate);
+// AcademicYearId is nullable on the wire and resolved to the current year server-side, so an older
+// client cannot silently widen a stage operation to every promotion that ever took the stage.
+internal sealed record SlotRequest(int AcademicYearId, int PeriodNumber, string? Label, DateOnly StartDate, DateOnly EndDate);
 internal sealed record SetAssignmentRequest(int ServiceId);
-internal sealed record AutoArrangeRequest(int? PartitionCount, IReadOnlyList<string>? PartitionLabels, IReadOnlyList<int>? PeriodNumbers);
-internal sealed record PublishStageRequest(IReadOnlyList<string>? PartitionLabels, IReadOnlyList<int>? PeriodNumbers, bool AllowOverCapacity = false);
-internal sealed record StageLifecycleRequest(IReadOnlyList<int>? CohortIds, IReadOnlyList<string>? PartitionLabels, IReadOnlyList<int>? PeriodNumbers);
-internal sealed record StagePauseRequest(PauseKind? Kind, string? Reason, IReadOnlyList<int>? CohortIds, IReadOnlyList<string>? PartitionLabels, IReadOnlyList<int>? PeriodNumbers);
+internal sealed record AutoArrangeRequest(int? AcademicYearId, int? PartitionCount, IReadOnlyList<string>? PartitionLabels, IReadOnlyList<int>? PeriodNumbers);
+internal sealed record PublishStageRequest(int? AcademicYearId, IReadOnlyList<string>? PartitionLabels, IReadOnlyList<int>? PeriodNumbers, bool AllowOverCapacity = false);
+internal sealed record StageLifecycleRequest(int? AcademicYearId, IReadOnlyList<int>? CohortIds, IReadOnlyList<string>? PartitionLabels, IReadOnlyList<int>? PeriodNumbers);
+internal sealed record StagePauseRequest(int? AcademicYearId, PauseKind? Kind, string? Reason, IReadOnlyList<int>? CohortIds, IReadOnlyList<string>? PartitionLabels, IReadOnlyList<int>? PeriodNumbers);

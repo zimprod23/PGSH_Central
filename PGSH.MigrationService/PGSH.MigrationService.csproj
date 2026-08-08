@@ -11,6 +11,13 @@
     <PackageReference Include="Aspire.Npgsql.EntityFrameworkCore.PostgreSQL" />
     <PackageReference Include="Bogus" />
     <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <!-- Design-time host for `dotnet ef`. This project already owns applying migrations, so it is
+         the natural place to author them from — and using it as the startup project means adding a
+         migration no longer requires stopping a running PGSH.API to free its build output. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
   </ItemGroup>
 
   <ItemGroup>

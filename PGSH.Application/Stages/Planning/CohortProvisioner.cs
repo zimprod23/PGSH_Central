@@ -5,12 +5,31 @@ using PGSH.SharedKernel;
 
 namespace PGSH.Application.Stages.Planning;
 
-public sealed record CohortProvisionResult(int Created, int Skipped, int MatchedGroups);
+public sealed record CohortProvisionResult(
+    int Created,
+    int Skipped,
+    int MatchedGroups,
+    /// <summary>
+    /// Group×stage pairs refused because the group's CNPN does not require that stage of its level.
+    /// Reported rather than silently dropped: it usually means the wrong row was ticked in the
+    /// matrix, and a plan that quietly omits a partition is worse than one that says why.
+    /// </summary>
+    int NotRequiredByCnpn = 0);
 
 /// <summary>
 /// Ensures a <see cref="Cohort"/> exists for every academic group of the given
 /// partitions in the given stages, idempotently (existing group×stage pairs are
 /// skipped). Shared by bulk cohort creation and the macro-plan orchestrator.
+///
+/// <para><b>The CNPN is a guardrail here, not just documentation.</b> A group is only given a cohort
+/// for a stage its own text requires of its level. Since arrêté 1650.25 one level holds students of
+/// two texts owing different stage sets, so "this stage belongs to this level" is no longer enough —
+/// it has to be "this stage belongs to this level <i>under the text these students follow</i>".</para>
+///
+/// <para>Where no requirement set is recorded for a (text, level) the check stands aside and the
+/// cohort is created. Refusing would be worse than useless: arrêté 1650.25's requirements have not
+/// been entered yet, so an enforcing check would block all planning for six-year students on the
+/// strength of data nobody has typed in.</para>
 /// </summary>
 internal sealed class CohortProvisioner(IApplicationDbContext dbContext)
 {
@@ -50,11 +69,32 @@ internal sealed class CohortProvisioner(IApplicationDbContext dbContext)
                 g.RotationGroup,
                 g.LevelId,
                 RegLevels = g.Registrations.Where(r => levelIds.Contains(r.LevelId)).Select(r => r.LevelId).Distinct().ToList(),
+                // Auto-arrange keeps a group to one text; a hand-built one might not, so take the
+                // distinct set and only trust it when there is exactly one.
+                CnpnVersionIds = g.Registrations
+                    .Where(r => r.Student.CnpnVersionId != null)
+                    .Select(r => r.Student.CnpnVersionId!.Value)
+                    .Distinct()
+                    .ToList(),
             })
             .ToListAsync(ct);
 
         if (groups.Count == 0)
             return Result.Success(new CohortProvisionResult(0, 0, 0));
+
+        // (text, level) → the stages it requires. Absent from this map means nothing was recorded for
+        // that pair, which is the "stand aside" case rather than "requires nothing".
+        var required = (await dbContext.Curriculums
+                .AsNoTracking()
+                .Where(c => levelIds.Contains(c.LevelId))
+                .Select(c => new
+                {
+                    c.CnpnVersionId,
+                    c.LevelId,
+                    StageIds = c.Stages.Select(s => s.StageId).ToList(),
+                })
+                .ToListAsync(ct))
+            .ToDictionary(c => (c.CnpnVersionId, c.LevelId), c => c.StageIds.ToHashSet());
 
         var groupIds = groups.Select(g => g.Id).ToList();
         var existingSet = (await dbContext.Cohorts
@@ -68,7 +108,7 @@ internal sealed class CohortProvisioner(IApplicationDbContext dbContext)
         bool GroupInLevel(int? groupLevel, IReadOnlyList<int> regLevels, int level) =>
             groupLevel == level || regLevels.Contains(level);
 
-        int created = 0, skipped = 0;
+        int created = 0, skipped = 0, notRequired = 0;
         var newCohorts = new List<Cohort>();
 
         foreach (var mapping in mappings)
@@ -80,6 +120,17 @@ internal sealed class CohortProvisioner(IApplicationDbContext dbContext)
 
             foreach (var group in partitionGroups)
             {
+                // Only a group settled on one text can be checked against it. A mixed or unstamped
+                // group is left to the existing level rule — flagging it here would report the same
+                // problem twice, and auto-arrange is where it gets prevented.
+                if (group.CnpnVersionIds.Count == 1
+                    && required.TryGetValue((group.CnpnVersionIds[0], level), out var stagesOfText)
+                    && !stagesOfText.Contains(mapping.StageId))
+                {
+                    notRequired++;
+                    continue;
+                }
+
                 if (!existingSet.Add((group.Id, mapping.StageId)))
                 {
                     skipped++;
@@ -102,6 +153,6 @@ internal sealed class CohortProvisioner(IApplicationDbContext dbContext)
             await dbContext.SaveChangesAsync(ct);
         }
 
-        return Result.Success(new CohortProvisionResult(created, skipped, groups.Count));
+        return Result.Success(new CohortProvisionResult(created, skipped, groups.Count, notRequired));
     }
 }

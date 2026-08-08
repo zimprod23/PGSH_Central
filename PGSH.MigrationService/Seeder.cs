@@ -13,11 +13,20 @@ namespace PGSH.MigrationService;
 
 internal static class Seeder
 {
+    /// <summary>
+    /// The three fixed accounts, and nothing else. Separated from <see cref="SeedAsync"/> because they
+    /// are not fixtures: they carry fixed GUIDs and known e-mails so Keycloak's email-matching resolves
+    /// them, which makes them the only way into the application. A database carrying real imported
+    /// records still needs them, while it must never receive the Bogus data below.
+    /// </summary>
+    public static Task SeedStaticUsersOnlyAsync(
+        ApplicationDbContext context, ILogger<Worker> logger, CancellationToken ct) =>
+        SeedStaticUsersAsync(context, logger, ct);
+
     public static async Task SeedAsync(ApplicationDbContext context, ILogger<Worker> logger, CancellationToken ct)
     {
         logger.LogInformation("Starting database seeding...");
 
-        await SeedStaticUsersAsync(context, logger, ct);
         await SeedAcademicYearsAsync(context, logger, ct);
         await SeedLevelsAsync(context, logger, ct);
         await SeedCentersAsync(context, logger, ct);

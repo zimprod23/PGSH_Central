@@ -54,12 +54,15 @@ internal sealed class SchedulePublisher(IApplicationDbContext dbContext, Service
 
     public async Task<Result<PublishResult>> PublishStageAsync(
         int stageId,
+        int academicYearId,
         IReadOnlyCollection<string>? partitionLabels,
         IReadOnlyCollection<int>? periodNumbers,
         bool allowOverCapacity,
         CancellationToken ct)
     {
-        var cohortQuery = dbContext.Cohorts.AsNoTracking().Where(c => c.StageId == stageId);
+        var cohortQuery = dbContext.Cohorts
+            .AsNoTracking()
+            .Where(c => c.StageId == stageId && c.AcademicGroup.AcademicYearId == academicYearId);
 
         if (partitionLabels is { Count: > 0 })
             cohortQuery = cohortQuery.Where(c => c.AcademicGroup.RotationGroup != null

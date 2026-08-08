@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>PGSH.LegacyImport</RootNamespace>
+    <!-- The Access reader is OleDb, which exists on Windows only. The mapping/planning half carries
+         no such dependency and is exercised by PGSH.Tests on any platform. -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Data.OleDb" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PGSH.Domain\PGSH.Domain.csproj" />
+    <ProjectReference Include="..\PGSH.Application\PGSH.Application.csproj" />
+    <ProjectReference Include="..\PGSH.Infrastructure\PGSH.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>

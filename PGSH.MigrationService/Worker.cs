@@ -10,10 +10,27 @@ namespace PGSH.MigrationService;
 
 public class Worker(
     IServiceProvider serviceProvider,
+    IConfiguration configuration,
     IHostApplicationLifetime hostApplicationLifetime
     ) : BackgroundService
 {
     public const string ActivitySourceName = "Migrations";
+
+    /// <summary>
+    /// Whether to inject the Bogus sample data. Defaults to true so development is unchanged, but it
+    /// MUST be false on any database carrying real records: the seeder runs on every Aspire start, and
+    /// its Levels and AcademicYears collide with the imported ones on their unique indexes.
+    /// </summary>
+    public const string SeedingEnabledKey = "Seeding:Enabled";
+
+    /// <summary>
+    /// Whether to ensure the three fixed accounts exist. Independent of <see cref="SeedingEnabledKey"/>
+    /// on purpose: they are the only way into the application, so a database holding real imported
+    /// records still needs them even though it must never receive the sample data. Each is created only
+    /// when its e-mail is absent, so this is safe to run on every start.
+    /// </summary>
+    public const string SeedingStaticUsersKey = "Seeding:StaticUsers";
+
     private static ActivitySource s_activitySource = new(ActivitySourceName);
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -21,7 +38,7 @@ public class Worker(
         try
         {
             using var scope = serviceProvider.CreateScope();
-            
+
             var logger = scope.ServiceProvider.GetRequiredService<ILogger<Worker>>();
 
             var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
@@ -29,8 +46,22 @@ public class Worker(
             //Launch operations
             await EnsureDatabaseCreated(dbContext, stoppingToken);//To Remove later
             await RunMigrationAsync(dbContext, stoppingToken);
-            await Seeder.SeedAsync(dbContext, logger, stoppingToken);
-            //await SeedDataAsync(dbContext,logger, stoppingToken);
+
+            if (configuration.GetValue(SeedingStaticUsersKey, defaultValue: true))
+            {
+                await Seeder.SeedStaticUsersOnlyAsync(dbContext, logger, stoppingToken);
+            }
+
+            if (configuration.GetValue(SeedingEnabledKey, defaultValue: true))
+            {
+                await Seeder.SeedAsync(dbContext, logger, stoppingToken);
+            }
+            else
+            {
+                logger.LogInformation(
+                    "Sample seeding disabled ({Key}=false) — migrations only, no fixture data written.",
+                    SeedingEnabledKey);
+            }
         }
         catch(Exception ex) 
         {

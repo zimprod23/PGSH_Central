@@ -236,7 +236,7 @@ public class SchedulePublishTests
         await Publisher(db).PublishCohortAsync(CohortId, true, default);
 
         var result = await Publisher(db).PublishStageAsync(
-            TestHarness.StageId, null, null, allowOverCapacity: true, default);
+            TestHarness.StageId, TestHarness.CurrentYearId, null, null, allowOverCapacity: true, default);
 
         result.IsSuccess.Should().BeTrue();
         result.Value.PublishedCohorts.Should().Be(1);
@@ -251,7 +251,8 @@ public class SchedulePublishTests
         db.SeedCatalog();
         await db.SaveChangesAsync();
 
-        var result = await Publisher(db).PublishStageAsync(TestHarness.StageId, null, null, false, default);
+        var result = await Publisher(db).PublishStageAsync(
+            TestHarness.StageId, TestHarness.CurrentYearId, null, null, false, default);
 
         result.IsSuccess.Should().BeTrue();
         result.Value.Should().Be(new PublishResult(0, 0, 0));
@@ -270,7 +271,8 @@ public class SchedulePublishTests
         await db.SaveChangesAsync();
 
         var result = await Publisher(db).PublishStageAsync(
-            TestHarness.StageId, null, periodNumbers: [1], allowOverCapacity: true, default);
+            TestHarness.StageId, TestHarness.CurrentYearId, null, periodNumbers: [1],
+            allowOverCapacity: true, ct: default);
 
         result.IsSuccess.Should().BeTrue();
         result.Value.PeriodsCreated.Should().Be(1, "only period 1 was asked for");

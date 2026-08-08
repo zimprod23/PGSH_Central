@@ -1,4 +1,4 @@
-﻿using MediatR;
+using MediatR;
 using PGSH.API.Extensions;
 using PGSH.API.Infrastructure;
 using PGSH.Application.Stages.Cohorts.GetByStage;
@@ -9,9 +9,11 @@ public sealed class GetByStageId : IEndpoint
 {
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
-        app.MapGet("stages/{stageId:int}/cohorts", async (int stageId, ISender sender, CancellationToken ct) =>
+        // [AsParameters] binds StageId from the route, the year filter and paging from the query string.
+        app.MapGet("stages/{stageId:int}/cohorts", async (
+            [AsParameters] GetCohortsByStageQuery query, ISender sender, CancellationToken ct) =>
         {
-            var result = await sender.Send(new GetCohortsByStageQuery(stageId), ct);
+            var result = await sender.Send(query, ct);
             return result.Match(Results.Ok, CustomResults.Problem);
         })
         .WithTags(Tags.Cohorts)

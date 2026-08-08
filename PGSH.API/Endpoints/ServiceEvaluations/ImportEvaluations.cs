@@ -24,11 +24,12 @@ public sealed class ImportEvaluations : IEndpoint
             EvaluationImportScope scope,
             EvaluationMode mode,
             int? periodNumber,
+            int? academicYearId,
             ISender sender,
             CancellationToken ct) =>
         {
             var result = await sender.Send(
-                new GetEvaluationImportTemplateQuery(stageId, scope, periodNumber, mode), ct);
+                new GetEvaluationImportTemplateQuery(stageId, scope, periodNumber, mode, academicYearId), ct);
 
             return result.Match(
                 file => Results.File(
@@ -53,7 +54,8 @@ public sealed class ImportEvaluations : IEndpoint
                 return CustomResults.Problem(rows);
 
             var result = await sender.Send(new PreviewEvaluationImportQuery(
-                stageId, options.Scope, options.PeriodNumber, options.Mode, rows.Value), ct);
+                stageId, options.Scope, options.PeriodNumber, options.Mode, rows.Value,
+                options.AcademicYearId), ct);
 
             return result.Match(Results.Ok, CustomResults.Problem);
         })
@@ -74,7 +76,8 @@ public sealed class ImportEvaluations : IEndpoint
                 return CustomResults.Problem(rows);
 
             var result = await sender.Send(new ImportEvaluationsCommand(
-                stageId, options.Scope, options.PeriodNumber, options.Mode, rows.Value), ct);
+                stageId, options.Scope, options.PeriodNumber, options.Mode, rows.Value,
+                options.AcademicYearId), ct);
 
             return result.Match(Results.Ok, CustomResults.Problem);
         })
@@ -83,7 +86,8 @@ public sealed class ImportEvaluations : IEndpoint
         .RequireAuthorization();
     }
 
-    public sealed record ImportOptions(EvaluationImportScope Scope, EvaluationMode Mode, int? PeriodNumber);
+    public sealed record ImportOptions(
+        EvaluationImportScope Scope, EvaluationMode Mode, int? PeriodNumber, int? AcademicYearId);
 
     /// <summary>
     /// A workbook we cannot open is a bad request, not a 500 — the user picked the wrong file, and

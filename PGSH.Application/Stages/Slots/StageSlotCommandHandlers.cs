@@ -18,24 +18,32 @@ internal sealed class CreateStageSlotCommandHandler(
         if (!stageExists)
             return Result.Failure<int>(StageErrors.NotFound(request.StageId));
 
+        bool yearExists = await dbContext.AcademicYears
+            .AnyAsync(y => y.Id == request.AcademicYearId, cancellationToken);
+        if (!yearExists)
+            return Result.Failure<int>(StageErrors.AcademicYearNotFound(request.AcademicYearId));
+
         bool duplicate = await dbContext.StageSlots
-            .AnyAsync(s => s.StageId == request.StageId && s.PeriodNumber == request.PeriodNumber, cancellationToken);
+            .AnyAsync(s => s.StageId == request.StageId
+                        && s.AcademicYearId == request.AcademicYearId
+                        && s.PeriodNumber == request.PeriodNumber, cancellationToken);
         if (duplicate)
             return Result.Failure<int>(StageErrors.DuplicatePeriodNumber(request.PeriodNumber));
 
         var overlap = await overlapGuard.EnsureNoOverlapAsync(
-            request.StageId, request.PeriodNumber, request.StartDate, request.EndDate,
+            request.StageId, request.AcademicYearId, request.PeriodNumber, request.StartDate, request.EndDate,
             excludedSlotId: null, cancellationToken);
         if (overlap.IsFailure)
             return Result.Failure<int>(overlap.Error);
 
         var slot = new StageSlot
         {
-            StageId      = request.StageId,
-            PeriodNumber = request.PeriodNumber,
-            Label        = request.Label,
-            StartDate    = request.StartDate,
-            EndDate      = request.EndDate,
+            StageId        = request.StageId,
+            AcademicYearId = request.AcademicYearId,
+            PeriodNumber   = request.PeriodNumber,
+            Label          = request.Label,
+            StartDate      = request.StartDate,
+            EndDate        = request.EndDate,
         };
 
         dbContext.StageSlots.Add(slot);
@@ -60,7 +68,7 @@ internal sealed class UpdateStageSlotCommandHandler(
         // Moving a period must respect the same rule as creating one — it is the same collision,
         // just reached by editing dates instead of adding a row.
         var overlap = await overlapGuard.EnsureNoOverlapAsync(
-            request.StageId, slot.PeriodNumber, request.StartDate, request.EndDate,
+            request.StageId, slot.AcademicYearId, slot.PeriodNumber, request.StartDate, request.EndDate,
             excludedSlotId: slot.Id, cancellationToken);
         if (overlap.IsFailure)
             return overlap;
@@ -221,6 +229,7 @@ internal sealed class CreateStageSlotCommandValidator : AbstractValidator<Create
     public CreateStageSlotCommandValidator()
     {
         RuleFor(x => x.StageId).GreaterThan(0);
+        RuleFor(x => x.AcademicYearId).GreaterThan(0);
         RuleFor(x => x.PeriodNumber).GreaterThan(0);
         RuleFor(x => x.EndDate).GreaterThanOrEqualTo(x => x.StartDate)
             .WithMessage("End date must be on or after start date.");

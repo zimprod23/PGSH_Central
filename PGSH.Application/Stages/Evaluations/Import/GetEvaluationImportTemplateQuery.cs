@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
+using PGSH.Application.AcademicYears;
 using PGSH.Domain.Stages;
 using PGSH.SharedKernel;
 
@@ -9,17 +10,24 @@ namespace PGSH.Application.Stages.Evaluations.Import;
 /// <summary>
 /// The blank sheet, pre-filled with the stage's own students. Handing out an empty template would
 /// mean everyone retypes identifiers by hand, and a mistyped CNE is a row that belongs to nobody.
+///
+/// Scoped to one academic year, and never to all of them. A stage keeps a cohort per (group, year),
+/// so the unscoped canvas listed every promotion that ever took it — 3,500 rows for one 7ème année
+/// stage, of which a handful belonged to the year being marked. <paramref name="AcademicYearId"/>
+/// omitted resolves to the current year.
 /// </summary>
 public sealed record GetEvaluationImportTemplateQuery(
     int StageId,
     EvaluationImportScope Scope,
     int? PeriodNumber,
-    EvaluationMode Mode) : IQuery<EvaluationImportTemplateFile>;
+    EvaluationMode Mode,
+    int? AcademicYearId = null) : IQuery<EvaluationImportTemplateFile>;
 
 public sealed record EvaluationImportTemplateFile(string FileName, byte[] Content);
 
 internal sealed class GetEvaluationImportTemplateQueryHandler(
     IApplicationDbContext dbContext,
+    AcademicYearResolver yearResolver,
     IEvaluationSheetParser sheetParser)
     : IQueryHandler<GetEvaluationImportTemplateQuery, EvaluationImportTemplateFile>
 {
@@ -35,10 +43,18 @@ internal sealed class GetEvaluationImportTemplateQueryHandler(
         if (stageName is null)
             return Result.Failure<EvaluationImportTemplateFile>(StageErrors.NotFound(request.StageId));
 
+        var year = await yearResolver.ResolveWithLabelAsync(request.AcademicYearId, cancellationToken);
+        if (year.IsFailure)
+            return Result.Failure<EvaluationImportTemplateFile>(year.Error);
+
+        (int academicYearId, string yearLabel) = year.Value;
+
         if (request.Scope == EvaluationImportScope.SinglePeriod)
         {
             bool periodExists = await dbContext.StageSlots
-                .AnyAsync(s => s.StageId == request.StageId && s.PeriodNumber == request.PeriodNumber,
+                .AnyAsync(s => s.StageId == request.StageId
+                            && s.AcademicYearId == academicYearId
+                            && s.PeriodNumber == request.PeriodNumber,
                     cancellationToken);
 
             if (!periodExists)
@@ -48,16 +64,23 @@ internal sealed class GetEvaluationImportTemplateQueryHandler(
 
         var students = await dbContext.InternshipAssignments
             .AsNoTracking()
-            .Where(a => a.Cohort.StageId == request.StageId)
-            .OrderBy(a => a.Cohort.AcademicGroup!.Label)
+            .Where(a => a.Cohort.StageId == request.StageId
+                     && a.Cohort.AcademicGroup.AcademicYearId == academicYearId)
+            .OrderBy(a => a.Cohort.AcademicGroup.Label)
             .ThenBy(a => a.Registration.Student.LastName)
             .ThenBy(a => a.Registration.Student.FirstName)
             .Select(a => new EvaluationImportTemplateStudent(
                 a.Registration.Student.CNE,
                 a.Registration.Student.Appogee,
                 ((a.Registration.Student.FirstName ?? "") + " " + (a.Registration.Student.LastName ?? "")).Trim(),
-                a.Cohort.AcademicGroup!.Label ?? a.Cohort.Label))
+                a.Cohort.AcademicGroup.Label ?? a.Cohort.Label))
             .ToListAsync(cancellationToken);
+
+        // An empty sheet is worse than an error: it looks like the stage has no students, when in
+        // fact the year picker is on a year this stage did not run.
+        if (students.Count == 0)
+            return Result.Failure<EvaluationImportTemplateFile>(
+                StageErrors.ImportYearHasNoStudents(request.StageId, yearLabel));
 
         var template = new EvaluationImportTemplate(
             stageName, request.Scope, request.Mode, request.PeriodNumber, students);
@@ -67,7 +90,7 @@ internal sealed class GetEvaluationImportTemplateQueryHandler(
             : "-stage";
 
         return new EvaluationImportTemplateFile(
-            $"notes-{Slug(stageName)}{suffix}.xlsx",
+            $"notes-{Slug(stageName)}-{Slug(yearLabel)}{suffix}.xlsx",
             sheetParser.BuildTemplate(template));
     }
 

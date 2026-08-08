@@ -21,6 +21,7 @@ internal sealed class BulkCreateCohortsFromPartitionsCommandHandler(CohortProvis
                 Error.Validation("MacroPlan.NoPartitionedGroups",
                     "No groups with rotation labels found. Run stage auto-arrange first to assign partition labels to groups."));
 
-        return Result.Success(new BulkCohortsFromPartitionsResult(result.Value.Created, result.Value.Skipped));
+        return Result.Success(new BulkCohortsFromPartitionsResult(
+            result.Value.Created, result.Value.Skipped, result.Value.NotRequiredByCnpn));
     }
 }

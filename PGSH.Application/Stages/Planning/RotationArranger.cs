@@ -8,17 +8,19 @@ namespace PGSH.Application.Stages.Planning;
 public sealed record RotationArrangeResult(int Assigned, int SaturatedServices, int TotalStudents, int TotalCapacity);
 
 /// <summary>
-/// Capacity-proportional cyclic rotation of cohorts across services, optionally
-/// scoped to a subset of partitions and/or a window of periods. Scoping is what
-/// expresses the macro split: arranging Partition A into periods 1–2 and B into
-/// 3–4 of the same stage. Removal of prior cells is restricted to the targeted
-/// cohorts × targeted slots, so arranging one partition's window never erases
-/// another's. Shared by the auto-arrange command and the macro-plan orchestrator.
+/// Capacity-proportional cyclic rotation of cohorts across services within one
+/// academic year, optionally scoped further to a subset of partitions and/or a
+/// window of periods. Scoping is what expresses the macro split: arranging
+/// Partition A into periods 1–2 and B into 3–4 of the same stage. Removal of prior
+/// cells is restricted to the targeted cohorts × targeted slots, so arranging one
+/// partition's window never erases another's. Shared by the auto-arrange command
+/// and the macro-plan orchestrator.
 /// </summary>
 internal sealed class RotationArranger(IApplicationDbContext dbContext, ServiceOccupancyCalculator occupancyCalculator)
 {
     public async Task<Result<RotationArrangeResult>> ArrangeAsync(
         int stageId,
+        int academicYearId,
         IReadOnlyCollection<string>? partitionLabels,
         IReadOnlyCollection<int>? periodNumbers,
         int? partitionCount,
@@ -46,7 +48,7 @@ internal sealed class RotationArranger(IApplicationDbContext dbContext, ServiceO
 
         var allSlots = await dbContext.StageSlots
             .AsNoTracking()
-            .Where(s => s.StageId == stageId)
+            .Where(s => s.StageId == stageId && s.AcademicYearId == academicYearId)
             .OrderBy(s => s.PeriodNumber)
             .Select(s => new { s.Id, s.PeriodNumber, s.StartDate, s.EndDate })
             .ToListAsync(cancellationToken);
@@ -72,7 +74,7 @@ internal sealed class RotationArranger(IApplicationDbContext dbContext, ServiceO
         // are not dropped here — only their published cells are protected below.
         var cohorts = await dbContext.Cohorts
             .AsNoTracking()
-            .Where(c => c.StageId == stageId)
+            .Where(c => c.StageId == stageId && c.AcademicGroup.AcademicYearId == academicYearId)
             .OrderBy(c => c.AcademicGroup.GroupNumber)
             .Select(c => new CohortInfo(
                 c.Id,

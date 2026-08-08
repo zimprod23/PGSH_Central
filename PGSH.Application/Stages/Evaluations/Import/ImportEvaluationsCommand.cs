@@ -12,7 +12,8 @@ public sealed record ImportEvaluationsCommand(
     EvaluationImportScope Scope,
     int? PeriodNumber,
     EvaluationMode Mode,
-    IReadOnlyList<EvaluationImportRow> Rows) : ICommand<EvaluationImportReport>;
+    IReadOnlyList<EvaluationImportRow> Rows,
+    int? AcademicYearId = null) : ICommand<EvaluationImportReport>;
 
 internal sealed class ImportEvaluationsCommandValidator : AbstractValidator<ImportEvaluationsCommand>
 {
@@ -51,8 +52,8 @@ internal sealed class ImportEvaluationsCommandHandler(
         ImportEvaluationsCommand request, CancellationToken cancellationToken)
     {
         var plan = await planner.PlanAsync(
-            request.StageId, request.Scope, request.PeriodNumber, request.Mode, request.Rows,
-            cancellationToken);
+            request.StageId, request.Scope, request.PeriodNumber, request.Mode, request.AcademicYearId,
+            request.Rows, cancellationToken);
 
         if (plan.IsFailure)
             return Result.Failure<EvaluationImportReport>(plan.Error);

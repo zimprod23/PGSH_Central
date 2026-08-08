@@ -1,6 +1,307 @@
 # HANDOFF.md
 
-> **▶ RESUME HERE (2026-08-07, session 9). The three agreed tasks are DONE and the import is now
+> **⚠ RESTART THE API BEFORE TESTING.** The targeting endpoints
+> (`POST cnpn-versions/{id}/target[/preview]`) are new since the running process started, and
+> `PGSH.API`'s DLLs cannot be rebuilt while it holds them — the *Simuler* button 404s until you
+> restart. Code compiles clean (0 CS errors; the 20 MSB errors are the file lock).
+>
+> **▶ THE TEXTS THEMSELVES (session 13).** A CNPN is **three layers**, and only two had a screen:
+> **(1) the text** — code, intitulé, `TotalYears` (6 vs 7 — *what kind of degree it defines*),
+> publication, and the intake year from which new registrations attach automatically;
+> **(2) what it demands** — the per-level stage requirements; **(3) whom it binds** — the targeting.
+> Layer 1 existed only as migration-inserted rows, so adding an arrêté, renaming `PHARM-LEGACY` or
+> fixing a wrong `TotalYears` all meant SQL. Now `Cnpn/Manage/` + a **Textes CNPN** card at the top of
+> the CNPN page, with a **completeness bar per text** (`4 / 6 niveaux`) so half-finished is visible,
+> and **« X reprend Y »** — clone every level of one text from another in one action, then edit only
+> the years the arrêté changes. Levels already saved by hand are never overwritten; levels beyond the
+> target's span are counted, not silently dropped.
+>
+> ⚠ **Two texts of one programme may not claim the same intake year.** Version selection resolves
+> "the latest intake at or before entry"; a tie has no defensible winner. Guarded on create *and*
+> edit.
+>
+> ⚠ **Delete is gated on students, not on curricula** — the two foreign keys pointing at a text
+> behave differently: `Users` is `NO ACTION` (raw FK violation → 500) and `Curriculums` is `CASCADE`
+> (silent destruction of authored requirement sets). So deletion refuses while anyone carries the
+> stamp, inferred included, and otherwise reports how many requirement sets went with it. Allowing
+> the cascade is safe *because* of the gate: a text nobody follows has nobody who could owe anything.
+> It is for the mistyped row — a superseded arrêté stays, because its students stay. The UI disables
+> the control rather than letting it fail, and warns when the text governs an intake.
+>
+> ⚠ **The Stages page is neither year- nor CNPN-scoped**, and it never was — it is the timeless
+> catalogue. Switching the navbar year there changes nothing, and the Durée/Coefficient it shows come
+> from `Stage`, **not** from any CNPN. Those columns duplicate `CurriculumStage`'s and agree today only
+> because the history reconstruction seeded one from the other; the first text that reweights a stage
+> makes them disagree. To read what a text requires, use the CNPN page. Logged against Phase 15.1
+> alongside `Stage.LevelId`, since it is the same root cause.
+>
+> **▶ TARGETING (session 13).** Who a CNPN binds is now **authored**, not inferred: a rule
+> (`programme + année ≤ N`) is previewed, reviewed, then frozen. `Cnpn/Targeting/`, and see
+> CLAUDE.md → "The CNPN is a cohort's text" for the four rules that make it safe — no stored rule,
+> selector *plus* standing rule, bulk never moves a confirmed stamp, and disagreements between the
+> rule and the arrêté are reported rather than resolved.
+>
+> Same session, from a browser stress test of the CNPN page: **"Texte comparé" defaulted to arrêté
+> 2175.22** (my sort fix pushed non-governing texts last, and `to` takes the last element — and `to`
+> is the picker the editor *writes to*); **two red `Erreur 404` toasts** on every load (the error
+> middleware had no 404 branch — a 404 from a query is now silent, from a mutation still toasts); the
+> page **opened on "Retrait"** (year 0); and the pickers **allowed a Pharmacie level with a Médecine
+> arrêté**, which only failed at save time. All four fixed.
+>
+> **▶ TEST FIRST: [`SMOKE-TEST.md`](SMOKE-TEST.md)** — nine checks over sessions 11 and 12, with the
+> expected numbers from your own data, and a rollback procedure at the bottom. Both migrations are
+> already applied to the dev database.
+>
+> **▶ RESUME HERE (2026-08-08, session 12). The CNPN is versioned: Médecine goes 7 years → 6, and
+> the two texts run side by side for years.**
+>
+> **The text.** `cnpn/CNPN Diplôme de Docteur en Médecine.pdf` — arrêté **1650.25** du 26 juin 2025,
+> BO 7422 du 17 juillet 2025. (Not password-protected; `pdfinfo` says `Encrypted: no`. Its Arabic has
+> no Unicode CMap, so text extraction yields nothing — rasterise with `pdftoppm -png -r 150` and read
+> the pages as images.)
+>
+> **⚠ The decree's transition rule is not the one described in conversation.** Art. 2: effective from
+> **2024-2025** (retroactive — it has already governed two intakes), and *"students registered before
+> academic year 2024-2025 remain subject to arrêté 2174.18 **in its form prior to the amendment by
+> arrêté 2175.22**"*. So the criterion is **date of first registration**, not current level, and there
+> are **three** texts, not two. The two criteria agree for students who never repeated and part company
+> for the 2,635 who have: **21 students** (1 at level 1, 20 at level 2) are new-CNPN by the level rule
+> and old-CNPN by the decree. The decree wins.
+>
+> **`Curriculum` is re-keyed `(CnpnVersionId, LevelId)`** — see CLAUDE.md → "The CNPN is a cohort's
+> text". `CnpnAssignment` (`Application/Stages/Cnpn/`) resolves the text from the earliest recorded
+> registration; `Student.CnpnVersionId` is sticky and only `AssignCnpnVersion` writes it.
+>
+> **Migration `20260808135315_CnpnVersioning`, applied.** Verified on a clone of live data first. It
+> creates the four texts, attributes each recorded curriculum to the text governing the intake that
+> reached its level, **unions** the years that collapse onto one version (the reconstruction
+> under-reports, so union recovers more of the text), and stamps every student. Result on live data:
+>
+> | Text | Years | Curricula | Students |
+> |---|---|---|---|
+> | 2174.18 (Médecine, superseded) | 7 | 6 | 6,460 |
+> | 1650.25 (Médecine, in force from 2024-25) | 6 | **0** | 1,980 |
+> | 2175.22 (citation only, governs nobody) | 7 | 0 | 0 |
+> | PHARM-LEGACY (placeholder) | 6 | 3 | 1,745 |
+>
+> 1,980 = the 2,001 students at levels 1–2 minus the 21 the decree keeps on the old text. Curricula
+> collapsed 51 → 9. 19 students stayed unstamped: they have no registration at all (import artifacts).
+>
+> **⚠ Two things scolarité must do next.**
+> 1. **1650.25 has zero recorded requirements.** Nothing historical maps to it — its stage lists have
+>    to be entered from the PDF. Until then, six-year students have no CNPN content.
+> 2. **`PHARM-LEGACY` is a placeholder** I invented so Pharmacie's 13 existing curricula had somewhere
+>    to go. Replace its code, label and reference with the real Pharmacie text.
+>
+> **⚠ Known gap, deferred by agreement:** the new CNPN is **12 semesters** with typed placements
+> (S1–4 immersion/nursing, S5–8 part-time clinical, S9–12 full-time + family medicine) and credits
+> (10/20/30 per semester). PGSH has year-levels and a free coefficient, so 1650.25's requirements can
+> only be recorded approximately. That is the next piece of modelling work.
+>
+> **~2,200 assignments are flagged `CnpnAssignmentIsInferred`** — students whose entry was never
+> imported, deduced from their current level. The one assumption in the whole backfill is that the
+> 1,013 at level 2 did not repeat an unrecorded first year.
+>
+> **Planning under two texts (same session).** Answering "how do we configure stages for 2nd-years on
+> the new CNPN vs 3rd-years on the old one":
+> - **2025-2026 needs nothing.** Levels 2 and 3 are different levels and already carry different
+>   stages via `Stage.LevelId`; the new CNPN gives years 1–2 no clinical placements anyway. The
+>   divergence is invisible this year.
+> - **2026-2027 is when it bites**, at level 3: ~920 students arriving on the six-year text plus the
+>   repeaters on the seven-year one, in one level.
+> - **Done:** groups are now homogeneous by CNPN (`AutoArrangeGroupsCommandHandler` splits by
+>   (year, level, version); unstamped students get their own "CNPN à confirmer" bucket), and
+>   `CohortProvisioner` refuses a cohort for a stage the group's text does not require — standing
+>   aside where no set is recorded, and reporting refusals as `NotRequiredByCnpn` (surfaced in the
+>   macro-plan result and as an orange "n hors CNPN" badge on the Groupes page).
+> - **Also found:** planning previously consulted `Curriculum` **nowhere at all** — the macro plan was
+>   whatever an admin ticked in the matrix, with nothing checking the stage was required.
+> - **Also missing:** "médecine de famille" (طب الأسرة, semesters 11–12) does not exist as a `Stage`.
+>   The new CNPN requires it; someone must create it.
+>
+> Suite: **505 green**.
+>
+> ---
+>
+> **Session 11. The academic year is a hard boundary, not a filter
+> callers may forget.**
+>
+> **The report.** The groups page felt heavy; the évaluation-import canvas for a 6ème année stage
+> came back with ~3,500 rows; and it was unclear whether changing the navbar year revalidated
+> anything. All three turned out to be the same defect seen from three angles.
+>
+> **The defect.** A stage keeps a **cohort per (group, year)**, and groups are per year — so anything
+> reached by `stageId` alone spans every promotion that ever took the stage. Measured on the live
+> data: `CHIRURGIE` (6ème année) has **3,553** assignments across **6** academic years, of which
+> **688** belong to the current one. That is the canvas number exactly. The same unscoped shape was
+> in `EvaluationImportPlanner`, `RotationArranger`, `SchedulePublisher`, `StagePeriodRunner`,
+> `StagePauseRunner` and `StudentAffectationService` — i.e. *publishing, arranging, starting,
+> closing, pausing and resuming* a stage all reached into past promotions whenever they were scoped
+> by partition label rather than by explicit cohort ids.
+>
+> **`AcademicYearResolver`** (`Application/AcademicYears/`) is the new single answer: an omitted year
+> resolves to the year flagged current and **never** to "all years". Widening on absence is the bug;
+> a read that genuinely spans years must say so by other means. Every handler above now takes the
+> year and every command carries `int? AcademicYearId`.
+>
+> **`StageSlot` is year-stamped** (migration `20260808114953_StageSlotAcademicYear`, applied). It
+> held `StageId + PeriodNumber + dates` with no year, so P1 authored for 2025-2026 would have
+> surfaced — with 2025 dates — under every other year. Unique index is now
+> `(StageId, AcademicYearId, PeriodNumber)`, FK to `AcademicYears` is `Restrict`, and
+> `SlotOverlapGuard`'s level-wide rule became level-**and-year**-wide: two promotions never share a
+> student, so identical calendar windows in different years are not a clash. The table was empty
+> (see periods, below) so nothing needed backfilling, but the migration backfills defensively.
+>
+> **Students are now filtered by year, not just formatted by it.** `GetStudentsQueryHandler` applied
+> `AcademicYearId` only to the projected level/group/status columns, so "students of 2024-2025"
+> listed the entire imported history with every column past the name blank — and the dashboard's
+> "étudiants inscrits" counted everyone ever enrolled.
+>
+> **⚠ There are no periods in the app, and that is data the legacy system never had.** Verified:
+> `StageSlots` **0** rows, `CohortSlotAssignments` **0**, `ServicePeriods` **105,626**. The Access
+> base had no planning grid — only, per student per stage, a date range and a mark. See
+> `LegacyImportPlanner.cs:20` and its `CohortSlotAssignmentId = null`. So the importer produced real
+> rotations but zero P1/P2 windows, and everything that reads periods (the grid, the Affectations
+> period chips, the `SinglePeriod` import scope) is legitimately empty. **The grid has to be
+> authored going forward** — that is the next piece of work, and it is now year-scoped so each
+> promotion gets its own windows.
+>
+> **Frontend.** Groups list pages for real (25/page + `totalCount`, debounced label search) instead
+> of asking for one 200-row page; `StageTimelinePage`'s second year picker is gone (the navbar drives
+> it); `StageDetailPage`'s cohort-creation modal opens on the navbar year and follows it; the import
+> modal, the schedule grid, and every start/close/pause/resume/publish/auto-arrange call now send
+> `academicYearId`, which is also what makes RTK Query refetch them when the navbar year changes.
+>
+> **Tests.** `PGSH.Tests/Application/YearScopingTests.cs` — 16 cases on the boundary itself (canvas
+> scoping + fallback + empty-year refusal, import can't reach another year's student, grid slots and
+> cohorts, same period number once per year, cross-year windows don't overlap, same-year ones still
+> do, lifecycle and affectation confined to one year, student population). Suite: **487 green**.
+>
+> **Two design questions raised and closed — do not re-litigate without new numbers.**
+> - *Denormalise `AcademicYearId` onto `Cohort`* to shorten the two-hop filter? **No.** Measured on
+>   CHIRURGIE (563 cohorts, 6 years): the join is **49 of 910 shared buffers, ~5%**; the remaining 861
+>   are the nested loop into `InternshipAssignments`, untouched by it. The join was never the cost —
+>   the missing predicate was. Drift is *not* the reason to refuse (a composite FK to
+>   `AcademicGroup(Id, AcademicYearId)` would make the copy non-driftable); it simply buys ~5%.
+> - *A global EF query filter on the year?* **No.** ~101 handlers touch year-constituted tables and
+>   ~15 are deliberately cross-year — parcours, level dossier, curriculum comparison, revalidation's
+>   cross-level retake. Those are the load-bearing reads, and `IgnoreQueryFilters()` is all-or-nothing.
+>
+> **Vocabulary, now written on the entities.** Three things are called "groupe":
+> `AcademicGroup` (the roster, per year+level) → `Cohort` (that roster doing one stage) →
+> `CohortSlotAssignment` (that cohort in one period, in one service). A group is therefore **not "in a
+> service"** — it is in a *sequence* of them, one per period, two levels out. XML docs on all three
+> cross-reference each other.
+>
+> **Pre-flight guard fixed (was a tracked offender, now acute).** With zero `StageSlots` anywhere,
+> "Répartition automatique" was clickable and guaranteed to fail on *every* stage in the app. It is
+> now disabled with the specific reason — no periods / no allowed services / no cohorts in selection —
+> mirroring the three guards `RotationArranger` returns. The grid's both-empty state also said
+> "Aucune cohorte…" unconditionally (its second arm was unreachable); it now names both and points at
+> the year-scoped nature of créneaux.
+>
+> ---
+>
+> **Session 10. Student portal now shows the whole parcours, not just
+> the current registration.**
+>
+> **The defect.** The portal read its stages from `GET /internship-assignments?registrationId=…`
+> using `student.currentRegistration`. A registration is *one academic year*, so a 6th-year student
+> saw only the months since September, and every previous year's stages and marks disappeared the
+> day a new registration was created. The dashboard then labelled a card "Stages planifiés" but gave
+> it `assignments.length` — the total — so a stage that had been served, closed and marked still
+> counted as planned. `Status` (workflow) and `Result` (academic outcome) were being conflated.
+>
+> **New read model.** `GET /students/{id}/parcours` → `GetStudentParcoursQuery`
+> (`Application/Students/GetParcours/`). Every registration the student holds, most recent first,
+> each with its stage attempts. Scoped by `ExecutionAuthorizer.EnsureCanReadStudentDossierAsync` —
+> administration or the student themselves, same as the level dossier; a chef cannot read it.
+> Deliberately unpaginated: bounded by years enrolled × stages of a level, it cannot grow with the
+> faculty. A stage carries **its own level**, not the registration's, so a cross-level retake reads
+> correctly, and attempts are numbered by academic year (`attemptNumber`).
+>
+> **`ParcoursTotals` — five disjoint buckets**, the fix for the conflation above:
+> `planned` / `ongoing` / `awaitingVerdict` (rotations over, marks not all in) / `validated` /
+> `failed`. The verdict outranks the workflow status. Mirrored on the client by `stageStateOf` in
+> `features/student/utils/stageState.tsx` — **change one, change both.**
+>
+> **Frontend.** Year rail on Mes Stages (switch academic year; the catalogue of not-yet-assigned
+> stages is fetched only for the year in progress), a "Relevé de stages" tab on Historique next to
+> the event timeline, dashboard stats rebuilt off the totals, and the stage detail page resolves its
+> attempt through the parcours with an `?attempt=<assignmentId>` tab per sitting — a past year's
+> stage no longer reads "pas encore affecté". `getMyAssignments` is gone from the student slice.
+>
+> **UI follow-up (same session).** The selected year moved from component state into the URL
+> (`/student/stages?year=<registrationId>`) so the dashboard can link to one; tapping a year on the
+> dashboard now opens *that* year instead of dropping the student back on the current one. The
+> progression card lists **every** registration (was `slice(0, 4)`) inside an autosized scroll area.
+> Mobile: the stage detail page's right panel used `gridColumn: 'span 2'` inside a `base: 1`
+> `SimpleGrid`, which forced horizontal overflow on a phone — it is a `Grid` now, with `order` so the
+> affectation comes first on small screens; the filter pills and attempt tabs scroll on one line
+> instead of wrapping into a block; the objectives table and rotation dates no longer overflow.
+> `ParcoursTotalsBar` gained a headline (`n sur m validés` + %), a track behind the bar, and legend
+> chips that wrap.
+>
+> **Verified in Chrome at ~494 px CSS width** against the running stack (student Jawad, 5
+> registrations): dashboard reads 9 validés / 16 affectés, 0 en cours, 7 en attente, 0 à venir — the
+> old build would have said "16 planifiés". All 5 years listed; tapping 2024-2025 opened
+> `/student/stages?year=…` on that year. `documentElement.scrollWidth === clientWidth` on dashboard,
+> stages and relevé: **no horizontal overflow anywhere**, no console errors.
+>
+> Two things that only showed up on the device and are now fixed: the `RegistrationBadge` on
+> `CurrentStageCard`'s blue gradient was invisible (`variant="light"` paints a pale tint of its own
+> colour) — it takes an `onDark` prop now; and the relevé's four-column table pushed the **Note**
+> column off a phone screen and truncated the state badge to "EN ATTE…" — under `sm` it renders
+> stacked rows instead (`hiddenFrom`/`visibleFrom` pair in `ParcoursRecord`).
+>
+> **Past years badged "EN COURS" — explained, deferred** (user, 2026-08-08). Not a UI bug: PGSH is
+> **not linked to the pedagogical side of the faculty**, so nothing ever moves a `Registration` off
+> `Active` and every past year still reads "En cours". The badge is faithful. The agreed inference —
+> *a registration is failed when a later one exists at the same level (1,2,3,**3**,4 → the first 3
+> failed); otherwise validated; the latest is in progress* — plus the four cases that still need a
+> ruling, are written up in [NOTES.md → "`Registration.Status` is unmanaged"](NOTES.md) and queued as
+> **Phase 14.3**. Do not patch this in the UI.
+>
+> **▶ NEXT UP — [Phase 14 in PHASES.md](PHASES.md)**, specified with the user 2026-08-08:
+> **14.1** printable relevé de stages by **year** and by **whole cursus** (today only the per-stage
+> fiche exists) + **14.1b** the signed-delivery flow; **14.2** the admin student file gaining all
+> stages + all events (the `parcours` endpoint already serves the first and is already authorized for
+> admins; ⚠ `GetStudentHistoryQuery` has no read scoping yet); **14.3** the registration-status
+> inference above; **14.4** the *répartition annuelle des stages* planning matrix.
+>
+> **Settled this session, so nobody re-opens them:**
+> * **Output = client-side print** (`@media print` on a React view). No server-side PDF library.
+> * **NO AVERAGE above the stage.** The only mean is *within* a stage (mean of its periods —
+>   `StageScoring`, already built). No year average, no cursus average, no coefficient roll-up;
+>   `Stage.Coefficient` must not be used to invent one. Closes the question open since session 10.
+> * **Signature is a separate microservice**, reached through the demandes queue:
+>   `student requests → demandes queue → scolarité generates → signed → returned as the demande's
+>   response`. ⚠ **Phase 5 (demandes) is a prerequisite**; until then 14.1 is a print view only.
+> * **Template**: one exists but is "quite messed up" — the user supplies **logos + header/footer
+>   texts**, the layout is ours. `example_stage_assignement/` shows the house style.
+>
+> **14.4 is the one genuinely new artefact** — the *Répartition annuelle des stages*, the table the
+> faculty actually publishes (see `example_stage_assignement/Med3.png`, `Med6.png`). Rows are
+> `Stage | Service (Chef)`, columns are the level's periods with their date ranges, cells are
+> **collapsed group-number ranges** (`47-50` = groups 47,48,49,50), banded by rotation partition.
+> Planning only — no marks, no execution state. **No new modelling is needed**: every cell is an
+> existing `CohortSlotAssignment`; what is missing is the orientation. `GetStageScheduleQuery` is
+> cohorts × slots for *one* stage; 14.4 is (stage, service) × periods for a *whole level*. It also
+> ships as a **public read-only view** because students are emailed only their group number today —
+> and it is explicitly **transitional**, to be switched off once everyone uses the portal. One thing
+> to check in the data first: whether all stages of a level share a single period axis (`Med3` says
+> yes; `Med6`'s repeated column pairs may mean two-month slots drawn over a one-month axis).
+>
+> ⚠ **Open question for the user:** there is still **no cross-stage average** anywhere — no
+> "moyenne générale" on the dashboard or the relevé. `StageScoring` settles the per-stage note
+> (mean of period marks) but nothing in the domain says how stages roll up into a year mark, and
+> `Stage.Coefficient` exists without a rule that uses it. Left out rather than invented.
+>
+> Verified: 471/471 tests green (15 new in `StudentParcoursTests`); both new EF queries confirmed to
+> translate to Postgres SQL via a throwaway `ToQueryString()` probe (the in-memory suite cannot see
+> translation defects); `npm run build` + `tsc --noEmit` clean.
+
+> **(2026-08-07, session 9). The three agreed tasks are DONE and the import is now
 > VERIFIED against the running stack.**
 >
 > 1. ✅ **Import smoke-tested end-to-end** (see "Evaluation import" below for what was proven).
@@ -208,6 +509,33 @@
 > Build backend via `PGSH.Infrastructure.csproj` (API DLLs lock while the app runs); add ef migrations with
 > `--startup-project PGSH.Infrastructure` (design-time factory) since the running API blocks the API build.
 > _Updated 2026-06-25._
+
+## ▶ CNPN editing UI ✅ DONE (2026-08-08, session 10)
+
+The CNPN (per-`(level, year)` requirement set) had a full write API — `PUT levels/{id}/curriculum/{yearId}`
+(`SaveCurriculumCommand`) and `POST …/copy` (`CopyCurriculumCommand`), both Scolarité-only, 10 tests —
+but `CurriculumPage` was **read-only**, so recording a text meant calling the API by hand. Closed.
+
+- `adminApi.ts` gained `saveCurriculum` (PUT) + `copyCurriculum` (POST); both invalidate the
+  `curriculum-{level}-{year}` tag **and** `CURRICULUM_DIFF`, since every comparison now reads differently.
+- New `features/admin/components/CurriculumEditor.tsx`. The **compared** year ("ce qui s'applique
+  aujourd'hui") is the one edited. No text for it ⇒ *Cloner depuis* another year, or *Saisir le texte*;
+  a text ⇒ *Modifier le texte* → stage picker limited to the level's stages (coefficient/duration
+  pre-filled from the stage catalogue), per-row inputs, remove.
+- **Dropped stages are shown before the save lands**, with the rule spelled out: removal releases only
+  new students, so anyone who failed the stage still owes it. That is the whole reason this screen exists.
+- Pre-flight guards mirror `SaveCurriculumCommandValidator` — Enregistrer is disabled with a tooltip
+  reason when nothing changed, a coefficient is < 1, a duration is < 1, or the reference exceeds 200 chars.
+  Cloning is offered only for a year with no text, which is the only case the server accepts.
+- ⚠ **`react-hooks/set-state-in-effect` is an error here.** The form is remounted by key on
+  (level, year, curriculum id) instead of mirroring server data into state, and the page's two
+  default-selection effects became derived values. Lint + `npm run build` clean; backend suite 456 green.
+
+**Test recipe:** admin (Scolarité) → Académique → **CNPN (programme)** → pick a level and set *Texte
+comparé* to a year with no CNPN ⇒ orange "Aucun CNPN enregistré" + *Cloner depuis* → pick the previous
+year → **Cloner** ⇒ the programme appears. **Modifier le texte** → drop a stage ⇒ a red banner names it
+and says the student repasses it anyway → change a coefficient → **Enregistrer** ⇒ the comparison table
+re-reads *Retiré* / *Recoté* for the same pair of years without a page reload.
 
 ## ▶ Audit defects ✅ ALL CLOSED (2026-08-07, session 9)
 
@@ -681,9 +1009,10 @@ backend requires it (`NotEmpty`) → now `required` + submit disabled until fill
 documented in `PGSH.Frontend/CLAUDE.md` → "Performance & Pre-flight Validation"; apply them whenever touching
 a page, and burn down the known offenders below:
 - **Pre-flight guards** — disable any action the server is guaranteed to reject / that is a no-op, with an
-  inline reason, instead of firing the request and showing an error toast. Known: `ScheduleGridModal`
-  "Répartition automatique" is clickable even when the stage has **no periods/slots** (should be disabled,
-  like the Suivi bar's `selectionHasTargetPeriod` guard). Audit every page's primary mutation for the same.
+  inline reason, instead of firing the request and showing an error toast. ✅ `ScheduleGridModal`
+  "Répartition automatique" **DONE (2026-08-08)** — disabled with the specific reason (no periods / no
+  allowed services / no cohorts in selection), mirroring `RotationArranger`'s three guards. Still open:
+  audit every *other* page's primary mutation for the same.
 - **Debounce search inputs** — every server-querying free-text field must use `useDebouncedValue` (300–350ms)
   + `skip` until ≥2 chars (pattern in `EmployeesPage`/`GroupsPage`/`InfrastructurePage`). Reported laggy:
   the **academic-group student search**. Sweep all search/filter inputs for missing debounce; memoize

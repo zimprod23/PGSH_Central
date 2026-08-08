@@ -54,3 +54,10 @@ Thumbs.db
 
 # Local database backups
 *.dump
+
+# Legacy Access database — carries real student personal data (CIN, date of birth,
+# addresses, plus a plaintext password column). Keep it out of the repository.
+*.mdb
+*.accdb
+*.ldb
+*.laccdb

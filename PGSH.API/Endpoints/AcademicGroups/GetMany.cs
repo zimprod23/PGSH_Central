@@ -10,13 +10,9 @@ public sealed class GetAcademicGroups : IEndpoint
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
         app.MapGet("groups", async (
-            int? academicYearId,
-            int? levelId,
-            Guid? studentId,
-            ISender sender,
-            CancellationToken ct) =>
+            [AsParameters] GetAcademicGroupsQuery query, ISender sender, CancellationToken ct) =>
         {
-            var result = await sender.Send(new GetAcademicGroupsQuery(academicYearId, levelId, studentId), ct);
+            var result = await sender.Send(query, ct);
             return result.Match(Results.Ok, CustomResults.Problem);
         })
         .WithTags(Tags.Groups)

@@ -2,6 +2,19 @@ using PGSH.Domain.Registrations;
 
 namespace PGSH.Domain.Stages;
 
+/// <summary>
+/// One roster doing one stage — (<see cref="AcademicGroup"/> × <see cref="Stage"/>). The unit a
+/// rotation is planned against.
+///
+/// ⚠ It is <b>year-constituted through its group</b>, not through the stage: the stage is catalog
+/// data that outlives every promotion, so a cohort exists per (group, year) and filtering on
+/// <see cref="StageId"/> alone reaches all of them. Measured on the imported data, "CHIRURGIE" has
+/// 563 cohorts across six years. Always pair it with
+/// <c>AcademicGroup.AcademicYearId</c> — see the year rules in CLAUDE.md.
+///
+/// Not to be confused with the roster itself or with one cell of the grid; see
+/// <see cref="AcademicGroup"/> for the three-way distinction.
+/// </summary>
 public sealed class Cohort
 {
     public int Id { get; set; }

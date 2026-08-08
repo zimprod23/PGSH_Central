@@ -16,6 +16,16 @@ public static class StudentErrors
         "Students.DuplicateCNE",
         $"A student with CNE/CIN = '{cne}' already exists.");
 
+    /// <summary>
+    /// The student already carries a confirmed CNPN. Moving them to another text changes how many
+    /// years they owe, so it cannot happen as a side effect of a re-run — only as a deliberate,
+    /// audited correction.
+    /// </summary>
+    public static Error CnpnAlreadyAssigned(Guid studentId, int cnpnVersionId) => Error.Conflict(
+        "Students.CnpnAlreadyAssigned",
+        $"L'étudiant '{studentId}' relève déjà du CNPN {cnpnVersionId} ; un changement de CNPN "
+        + "doit être décidé explicitement.");
+
     public static Error Conflict(string field, string value) => Error.Conflict(
         "Students.Conflict",
         $"A student with the {field} '{value}' already exists.");

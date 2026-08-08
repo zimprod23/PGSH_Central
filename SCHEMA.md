@@ -25,10 +25,14 @@ AcademicYear (int)
                           └── ServiceEvaluation (uuid)
                                 └── ObjectiveScore (uuid)
 
+CnpnVersion (int)                    ← one ministerial text (arrêté)
+  └── Curriculum (int)               ← what it requires of one level  [+ CnpnVersionId on Student]
+        └── CurriculumStage (int)    → Stage
+
 Level (int)
   └── Stage (int)
         ├── StageObjective (int)          ← ObjectiveScore references these
-        ├── StageSlot (int)               ← time period columns (P1, P2, ...)
+        ├── StageSlot (int)               ← time period columns (P1, P2, ...) — per academic year
         └── Cohort (int)
               ├── CohortSlotAssignment (int)  → StageSlot + Service (grid cells)
               └── InternshipAssignment         [CurrentCohortId FK]
@@ -76,6 +80,8 @@ Student → History (audit trail)
 | `Academy` | varchar | enum, nullable |
 | `Province` | varchar | enum, nullable |
 | `Ranking` | int | nullable |
+| `CnpnVersionId` | int | nullable, FK → CnpnVersions — the text governing this student, fixed at entry. **The frozen membership**: written only by `Student.AssignCnpnVersion`, never moved in bulk once confirmed |
+| `CnpnAssignmentIsInferred` | bool | nullable — true when entry was deduced from the level rather than read. An inferred stamp may be upgraded; a confirmed one may not be moved |
 | **Employee columns** | | Discriminator = `Employee` |
 | `PPR` | varchar(50) | nullable |
 | `Grade` | varchar | enum: `MC`, `PES`, `PH`, `Nurse`, `Administrator` |
@@ -180,7 +186,7 @@ Student → History (audit trail)
 | `CenterId` | int | FK → Centers, RESTRICT |
 | `Name` | varchar(100) | NOT NULL |
 | `City` | varchar(50) | NOT NULL |
-| `HospitalType` | varchar | NOT NULL, enum: `None`, `Public`, `Private`, `Military` |
+| `HospitalType` | varchar | NOT NULL, enum: `None`, `Autre`, `Spetialité`, `Central`, `CHU`, `LHOMA` |
 | `Description` | varchar(500) | nullable |
 | `Email` | varchar(100) | nullable |
 | `X` | varchar(50) | owned GPS, nullable |
@@ -218,6 +224,82 @@ Student → History (audit trail)
 
 ---
 
+### `CnpnVersions` — one issue of the Cahier des Normes Pédagogiques Nationales
+
+| Column | Type | Constraints |
+|---|---|---|
+| `Id` | int | PK (identity) |
+| `Code` | varchar(50) | NOT NULL — the arrêté number as cited, e.g. `1650.25` |
+| `Label` | varchar(200) | NOT NULL |
+| `AcademicProgram` | text | NOT NULL — varchar via `HasConversion<string>()` |
+| `TotalYears` | int | NOT NULL — 7 under arrêté 2174.18, 6 under 1650.25 |
+| `Reference` | varchar(300) | nullable — Bulletin Officiel number and date |
+| `AppliesToEntrantsFromAcademicYearId` | int | **nullable**, FK → AcademicYears, RESTRICT |
+
+**Indexes:** `IX_CnpnVersion_Program_Code` (AcademicProgram, Code) UNIQUE
+
+> A CNPN applies to a **cohort**, not to a year, and follows it to graduation. Arrêté 1650.25
+> (BO 7422, 17 July 2025) took Médecine from 7 years to 6 from 2024-2025 while art. 2 leaves everyone
+> registered earlier under 2174.18 *in its pre-2175.22 form*. A **null**
+> `AppliesToEntrantsFromAcademicYearId` marks a text kept for citation that governs no intake — which
+> is exactly what 2175.22 became.
+
+> ⚠ **Deleting a row here is asymmetric, and the application gates it.** `Curriculums` cascades from
+> this table (its requirement sets and their `CurriculumStages` go silently), while `Users` is
+> `NO ACTION` (a raw foreign-key violation). `DeleteCnpnVersionCommand` therefore refuses while any
+> student carries the stamp — inferred stamps included — and reports how many requirement sets the
+> cascade removed. Allowing the cascade is safe only because of that gate: a text nobody follows has
+> nobody who could owe anything.
+
+> **There is deliberately no `CnpnTargetRules` table.** Who a text binds is authored as a rule
+> (programme + `année ≤ N` + as-of year) and applied once — see `Application/Stages/Cnpn/Targeting/`.
+> Persisting the rule as live state would re-target people: re-evaluated next September, "année ≤ 2"
+> selects a different set, and the whole point of the stamp is that a student's text does not move
+> under them. What survives is the **membership** (`Users.CnpnVersionId`) plus the apply command's
+> row in `AuditLogs`, which records the criteria, the author and the date.
+>
+> The rule reaches only students who already exist. Future intakes are covered by
+> `AppliesToEntrantsFromAcademicYearId` above — a text needs both halves.
+
+---
+
+### `Curriculums` — what one CNPN requires of one level
+
+| Column | Type | Constraints |
+|---|---|---|
+| `Id` | int | PK (identity) |
+| `LevelId` | int | FK → Levels, RESTRICT |
+| `CnpnVersionId` | int | FK → CnpnVersions, CASCADE |
+| `Reference` | varchar(200) | nullable — the ministerial text this set came from |
+
+**Indexes:** `IX_Curriculum_Version_Level` (CnpnVersionId, LevelId) UNIQUE
+
+> Keyed on the **text**, not the academic year. It was keyed on the year until 1650.25 made that
+> impossible: from 2026-2027 one (level, year) holds students of two texts — those arriving on the
+> six-year CNPN and those repeating under the seven-year one — so a year cannot identify a
+> requirement set. Still a **requirement set** rather than a validity window on `Stage`: a window
+> would force someone to know when a stage ends and could not express one dropped then reinstated.
+> `Stage` stays the timeless catalogue entry so historical assignments keep a stable identity.
+
+---
+
+### `CurriculumStages` — one stage required by a curriculum
+
+| Column | Type | Constraints |
+|---|---|---|
+| `Id` | int | PK (identity) |
+| `CurriculumId` | int | FK → Curriculums, CASCADE |
+| `StageId` | int | FK → Stages, RESTRICT |
+| `Coefficient` | int | NOT NULL — **that text's** weight |
+| `DurationInDays` | int | NOT NULL — **that text's** duration |
+
+**Indexes:** `IX_CurriculumStage_Curriculum_Stage` (CurriculumId, StageId) UNIQUE
+
+> Coefficient and duration live here, not only on `Stage`, because a CNPN can keep a stage and reweight
+> it. `Stage.Coefficient` remains the catalogue default used when adding a new entry.
+
+---
+
 ### `StageObjectives`
 
 | Column | Type | Constraints |
@@ -244,18 +326,21 @@ Student → History (audit trail)
 
 ### `StageSlots`
 
-Time period columns for the schedule grid — one row per period (P1, P2, ...) per Stage.
+Time period columns for the schedule grid — one row per period (P1, P2, ...) per Stage **per academic
+year**. The window carries concrete dates and the stage runs again next year over different ones, so
+the year is part of the identity, not decoration.
 
 | Column | Type | Constraints |
 |---|---|---|
 | `Id` | int | PK (identity) |
 | `StageId` | int | FK → Stages, CASCADE |
+| `AcademicYearId` | int | FK → AcademicYears, RESTRICT |
 | `PeriodNumber` | int | NOT NULL — display order (1, 2, 3, ...) |
 | `Label` | varchar(50) | nullable — optional human-readable name (e.g., "Janvier") |
 | `StartDate` | date | NOT NULL |
 | `EndDate` | date | NOT NULL |
 
-**Indexes:** `IX_StageSlot_Stage_Period` (StageId, PeriodNumber) UNIQUE
+**Indexes:** `IX_StageSlot_Stage_Year_Period` (StageId, AcademicYearId, PeriodNumber) UNIQUE
 
 ---
 
@@ -391,6 +476,9 @@ Grid cells — maps one Cohort to one Service for one StageSlot. Unique per (Coh
 | ServicePeriod → AttendanceRecord | CASCADE | Attendance follows the period |
 | ServicePeriod → ServiceEvaluation | CASCADE | Evaluation follows the period |
 | ServiceEvaluation → ObjectiveScore | CASCADE | Scores follow the evaluation |
+| Curriculum → CurriculumStage | CASCADE | The stage list is part of the CNPN record |
+| CurriculumStage → Stage | RESTRICT | A stage any CNPN ever required cannot be deleted out from under it |
+| Level / AcademicYear → Curriculum | RESTRICT | A year or level with a recorded CNPN cannot be deleted |
 | Stage → StageObjective | CASCADE | Objectives are part of the stage definition |
 | Stage → StageSlot | CASCADE | Slots are part of the stage schedule definition |
 | StageSlot → CohortSlotAssignment | CASCADE | Grid cells are invalidated when the slot is deleted |
@@ -414,7 +502,7 @@ Grid cells — maps one Cohort to one Service for one StageSlot. Unique per (Coh
 | `AttendanceStatus` | `Present`, `Absent`, `JustifiedAbsent`, `Late` | AttendanceRecord |
 | `HistoryType` | `Inscription`, `ValidationStage`, `NonValidation`, `Fraud`, `Revalidation` | History |
 | `ServiceType` | `Biologie`, `Chirurgie`, `Medical` | Service |
-| `HospitalType` | `None`, `Public`, `Private`, `Military` | Hospital |
+| `HospitalType` | `None`, `Autre`, `Spetialité`, `Central`, `CHU`, `LHOMA` | Hospital |
 | `CenterType` | `None`, `CHU`, `CHR`, `CHP`, `CSU` | Center |
 | `Grade` | `MC`, `PES`, `PH`, `Nurse`, `Administrator` | Employee |
 | `Position` | `ServiceChef`, `Normal` | Employee |

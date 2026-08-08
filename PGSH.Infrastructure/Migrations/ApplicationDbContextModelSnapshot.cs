@@ -387,6 +387,49 @@ namespace PGSH.Infrastructure.Migrations
                     b.ToTable("AttendanceRecords", "public");
                 });
 
+            modelBuilder.Entity("PGSH.Domain.Stages.CnpnVersion", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("AcademicProgram")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int?>("AppliesToEntrantsFromAcademicYearId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Reference")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<int>("TotalYears")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AppliesToEntrantsFromAcademicYearId");
+
+                    b.HasIndex("AcademicProgram", "Code")
+                        .IsUnique()
+                        .HasDatabaseName("IX_CnpnVersion_Program_Code");
+
+                    b.ToTable("CnpnVersions", "public");
+                });
+
             modelBuilder.Entity("PGSH.Domain.Stages.Cohort", b =>
                 {
                     b.Property<int>("Id")
@@ -482,6 +525,66 @@ namespace PGSH.Infrastructure.Migrations
                         .HasDatabaseName("IX_CohortSlotAssignment_Cohort_Slot");
 
                     b.ToTable("CohortSlotAssignments", "public");
+                });
+
+            modelBuilder.Entity("PGSH.Domain.Stages.Curriculum", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("CnpnVersionId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("LevelId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Reference")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("LevelId");
+
+                    b.HasIndex("CnpnVersionId", "LevelId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_Curriculum_Version_Level");
+
+                    b.ToTable("Curriculums", "public");
+                });
+
+            modelBuilder.Entity("PGSH.Domain.Stages.CurriculumStage", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("Coefficient")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("CurriculumId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("DurationInDays")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("StageId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("StageId");
+
+                    b.HasIndex("CurriculumId", "StageId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_CurriculumStage_Curriculum_Stage");
+
+                    b.ToTable("CurriculumStages", "public");
                 });
 
             modelBuilder.Entity("PGSH.Domain.Stages.Delocalization", b =>
@@ -766,6 +869,9 @@ namespace PGSH.Infrastructure.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<int>("AcademicYearId")
+                        .HasColumnType("integer");
+
                     b.Property<DateOnly>("EndDate")
                         .HasColumnType("date");
 
@@ -783,9 +889,11 @@ namespace PGSH.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("StageId", "PeriodNumber")
+                    b.HasIndex("AcademicYearId");
+
+                    b.HasIndex("StageId", "AcademicYearId", "PeriodNumber")
                         .IsUnique()
-                        .HasDatabaseName("IX_StageSlot_Stage_Period");
+                        .HasDatabaseName("IX_StageSlot_Stage_Year_Period");
 
                     b.ToTable("StageSlots", "public");
                 });
@@ -965,6 +1073,12 @@ namespace PGSH.Infrastructure.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
 
+                    b.Property<bool>("CnpnAssignmentIsInferred")
+                        .HasColumnType("boolean");
+
+                    b.Property<int?>("CnpnVersionId")
+                        .HasColumnType("integer");
+
                     b.Property<int?>("Province")
                         .HasColumnType("integer");
 
@@ -979,6 +1093,8 @@ namespace PGSH.Infrastructure.Migrations
                     b.HasIndex("CNE")
                         .IsUnique()
                         .HasDatabaseName("IX_Student_CNE");
+
+                    b.HasIndex("CnpnVersionId");
 
                     b.HasDiscriminator().HasValue("Student");
                 });
@@ -1203,6 +1319,16 @@ namespace PGSH.Infrastructure.Migrations
                     b.Navigation("ServicePeriod");
                 });
 
+            modelBuilder.Entity("PGSH.Domain.Stages.CnpnVersion", b =>
+                {
+                    b.HasOne("PGSH.Domain.Registrations.AcademicYear", "AppliesToEntrantsFromAcademicYear")
+                        .WithMany()
+                        .HasForeignKey("AppliesToEntrantsFromAcademicYearId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("AppliesToEntrantsFromAcademicYear");
+                });
+
             modelBuilder.Entity("PGSH.Domain.Stages.Cohort", b =>
                 {
                     b.HasOne("PGSH.Domain.Registrations.AcademicGroup", "AcademicGroup")
@@ -1264,6 +1390,44 @@ namespace PGSH.Infrastructure.Migrations
                     b.Navigation("Service");
 
                     b.Navigation("StageSlot");
+                });
+
+            modelBuilder.Entity("PGSH.Domain.Stages.Curriculum", b =>
+                {
+                    b.HasOne("PGSH.Domain.Stages.CnpnVersion", "CnpnVersion")
+                        .WithMany("Curricula")
+                        .HasForeignKey("CnpnVersionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("PGSH.Domain.Common.Utils.Level", "Level")
+                        .WithMany()
+                        .HasForeignKey("LevelId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("CnpnVersion");
+
+                    b.Navigation("Level");
+                });
+
+            modelBuilder.Entity("PGSH.Domain.Stages.CurriculumStage", b =>
+                {
+                    b.HasOne("PGSH.Domain.Stages.Curriculum", "Curriculum")
+                        .WithMany("Stages")
+                        .HasForeignKey("CurriculumId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("PGSH.Domain.Stages.Stage", "Stage")
+                        .WithMany()
+                        .HasForeignKey("StageId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Curriculum");
+
+                    b.Navigation("Stage");
                 });
 
             modelBuilder.Entity("PGSH.Domain.Stages.Delocalization", b =>
@@ -1387,11 +1551,19 @@ namespace PGSH.Infrastructure.Migrations
 
             modelBuilder.Entity("PGSH.Domain.Stages.StageSlot", b =>
                 {
+                    b.HasOne("PGSH.Domain.Registrations.AcademicYear", "AcademicYear")
+                        .WithMany()
+                        .HasForeignKey("AcademicYearId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("PGSH.Domain.Stages.Stage", "Stage")
                         .WithMany("Slots")
                         .HasForeignKey("StageId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.Navigation("AcademicYear");
 
                     b.Navigation("Stage");
                 });
@@ -1491,6 +1663,15 @@ namespace PGSH.Infrastructure.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("PGSH.Domain.Students.Student", b =>
+                {
+                    b.HasOne("PGSH.Domain.Stages.CnpnVersion", "CnpnVersion")
+                        .WithMany()
+                        .HasForeignKey("CnpnVersionId");
+
+                    b.Navigation("CnpnVersion");
+                });
+
             modelBuilder.Entity("PGSH.Domain.Hospitals.Center", b =>
                 {
                     b.Navigation("Hospitals");
@@ -1523,11 +1704,21 @@ namespace PGSH.Infrastructure.Migrations
                     b.Navigation("InternshipAssignments");
                 });
 
+            modelBuilder.Entity("PGSH.Domain.Stages.CnpnVersion", b =>
+                {
+                    b.Navigation("Curricula");
+                });
+
             modelBuilder.Entity("PGSH.Domain.Stages.Cohort", b =>
                 {
                     b.Navigation("Assignments");
 
                     b.Navigation("SlotAssignments");
+                });
+
+            modelBuilder.Entity("PGSH.Domain.Stages.Curriculum", b =>
+                {
+                    b.Navigation("Stages");
                 });
 
             modelBuilder.Entity("PGSH.Domain.Stages.InternshipAssignment", b =>

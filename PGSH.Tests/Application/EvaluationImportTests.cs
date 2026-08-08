@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Authentication;
+using PGSH.Application.AcademicYears;
 using PGSH.Application.Employees.MyServices;
 using PGSH.Application.Stages.Evaluations.Import;
 using PGSH.Domain.Common.Utils;
@@ -61,7 +62,8 @@ public class EvaluationImportTests
     }
 
     private static EvaluationImportPlanner Planner(ApplicationDbContext db, params string[] roles) =>
-        new(db, new ExecutionAuthorizer(db, TestHarness.UserContext(ChefIdentity, roles)));
+        new(db, new AcademicYearResolver(db),
+            new ExecutionAuthorizer(db, TestHarness.UserContext(ChefIdentity, roles)));
 
     private static ImportEvaluationsCommandHandler ApplyHandler(ApplicationDbContext db, params string[] roles) =>
         new(db, Planner(db, roles), new ExecutionAuthorizer(db, TestHarness.UserContext(ChefIdentity, roles)));

@@ -10,8 +10,9 @@ namespace PGSH.Application.Stages.Timeline;
 /// Builds the Year → Level → Stage → Partition timeline tree for the calendar view.
 /// A <c>Stage</c> has no dates of its own — every span here is derived from
 /// <c>StageSlot</c> windows: a stage spans the union of its slots, a partition spans
-/// the slots its cohorts actually occupy. The year is reached through cohorts
-/// (<c>AcademicGroup.AcademicYearId</c>), since slots/cohorts are not year-stamped.
+/// the slots its cohorts actually occupy. Slots are year-stamped, cohorts reach the year
+/// through <c>AcademicGroup.AcademicYearId</c>; both are filtered, so a stage that ran for
+/// several promotions spans only the requested year's windows.
 /// </summary>
 internal sealed class GetYearTimelineQueryHandler(
     IApplicationDbContext dbContext,
@@ -35,6 +36,7 @@ internal sealed class GetYearTimelineQueryHandler(
             .AsNoTracking()
             .Where(c => c.AcademicGroup.AcademicYearId == request.AcademicYearId)
             .Where(c => request.LevelId == null || c.Stage.LevelId == request.LevelId)
+            .Where(c => request.StageId == null || c.StageId == request.StageId)
             .Select(c => new
             {
                 c.Id,
@@ -87,7 +89,7 @@ internal sealed class GetYearTimelineQueryHandler(
 
         var stageSpans = (await dbContext.StageSlots
             .AsNoTracking()
-            .Where(s => stageIds.Contains(s.StageId))
+            .Where(s => stageIds.Contains(s.StageId) && s.AcademicYearId == request.AcademicYearId)
             .Select(s => new { s.StageId, s.StartDate, s.EndDate })
             .ToListAsync(ct))
             .GroupBy(s => s.StageId)
@@ -96,7 +98,7 @@ internal sealed class GetYearTimelineQueryHandler(
         var slotCountByStage = stageSpans.Count > 0
             ? await dbContext.StageSlots
                 .AsNoTracking()
-                .Where(s => stageIds.Contains(s.StageId))
+                .Where(s => stageIds.Contains(s.StageId) && s.AcademicYearId == request.AcademicYearId)
                 .GroupBy(s => s.StageId)
                 .Select(g => new { StageId = g.Key, Count = g.Count() })
                 .ToDictionaryAsync(x => x.StageId, x => x.Count, ct)

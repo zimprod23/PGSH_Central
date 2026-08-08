@@ -2,7 +2,17 @@ using PGSH.Application.Abstractions.Messaging;
 
 namespace PGSH.Application.Stages.Timeline;
 
-public sealed record GetYearTimelineQuery(int AcademicYearId, int? LevelId) : IQuery<YearTimelineResponse>;
+/// <summary>
+/// The Year → Level → Stage → Partition tree behind the calendar.
+/// </summary>
+/// <param name="StageId">
+/// Narrows the tree to one stage. The overview legitimately needs the whole year, but drilling into a
+/// stage's détail/répartitions does not: a year holds 1,684 cohorts on the imported data, and building
+/// every one of them — plus each cohort's service periods and pause bands — to render a single stage
+/// is what makes the detail view crawl.
+/// </param>
+public sealed record GetYearTimelineQuery(int AcademicYearId, int? LevelId, int? StageId = null)
+    : IQuery<YearTimelineResponse>;
 
 public sealed record YearTimelineResponse(
     int       AcademicYearId,

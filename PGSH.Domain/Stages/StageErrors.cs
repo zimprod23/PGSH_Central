@@ -132,7 +132,15 @@ public static class StageErrors
     // === Evaluation import ===
     public static Error ImportPeriodNotInStage(int periodNumber, int stageId) => Error.Problem(
         "ServiceEvaluations.ImportPeriodNotInStage",
-        $"Le stage '{stageId}' n'a pas de période P{periodNumber}.");
+        $"Le stage '{stageId}' n'a pas de période P{periodNumber} pour l'année sélectionnée.");
+
+    /// <summary>
+    /// The stage ran in other years but not the one being imported. Distinguished from an empty stage
+    /// because the fix differs: switch the year in the navbar, rather than plan the stage.
+    /// </summary>
+    public static Error ImportYearHasNoStudents(int stageId, string yearLabel) => Error.Problem(
+        "ServiceEvaluations.ImportYearHasNoStudents",
+        $"Aucun étudiant n'est affecté au stage '{stageId}' pour l'année {yearLabel}.");
 
     public static readonly Error ImportModeNotSupported = Error.Problem(
         "ServiceEvaluations.ImportModeNotSupported",
@@ -164,7 +172,20 @@ public static class StageErrors
 
     public static Error DuplicatePeriodNumber(int periodNumber) => Error.Conflict(
         "Schedule.DuplicatePeriodNumber",
-        $"A slot with period number {periodNumber} already exists for this stage.");
+        $"A slot with period number {periodNumber} already exists for this stage in this academic year.");
+
+    public static Error AcademicYearNotFound(int academicYearId) => Error.NotFound(
+        "AcademicYears.NotFound",
+        $"The academic year with Id = '{academicYearId}' was not found.");
+
+    /// <summary>
+    /// No year could be resolved for an operation that is year-scoped. Reached only when the caller
+    /// passed none and no year is flagged current — never silently widened to "all years", which is
+    /// what made the import canvas list every promotion the stage ever had.
+    /// </summary>
+    public static readonly Error NoCurrentAcademicYear = Error.Problem(
+        "AcademicYears.NoCurrent",
+        "Aucune année universitaire courante n'est définie — sélectionnez une année.");
 
     /// <summary>
     /// Two periods of the same academic level would run at the same time. A level's students follow
@@ -268,4 +289,70 @@ public static class StageErrors
     public static Error CohortMissingForStage(int stageId) => Error.Conflict(
         "Delocalizations.CohortMissing",
         $"Aucune cohorte n'existe pour le groupe de l'étudiant sur le stage {stageId} ; configurez les cohortes du stage avant de délocaliser.");
+
+    // === Dossier de niveau ===
+    public static readonly Error DossierReadNotAllowed = Error.Forbidden(
+        "StudentDossier.ReadNotAllowed",
+        "Le dossier de niveau retrace toutes les inscriptions d'un étudiant : il est réservé à la "
+        + "scolarité et à l'étudiant lui-même.");
+
+    // === Revalidation ===
+    public static readonly Error RevalidationNotAllowed = Error.Forbidden(
+        "Revalidations.NotAllowed",
+        "Seule la scolarité peut ouvrir un stage en revalidation.");
+
+    public static readonly Error NoGroupForRevalidation = Error.Conflict(
+        "Revalidations.NoGroup",
+        "L'étudiant n'est rattaché à aucun groupe pour cette inscription ; affectez-le à un groupe "
+        + "avant d'ouvrir une revalidation.");
+
+    public static Error CohortNotForStage(int cohortId, int stageId) => Error.Validation(
+        "Revalidations.CohortNotForStage",
+        $"La cohorte {cohortId} ne concerne pas le stage {stageId}.");
+
+    /// <summary>
+    /// No cohort exists for the student's own group on this stage. Routine when the stage belongs to an
+    /// earlier level — a 6th-year student redoing a 1st-year stage has no 1st-year group — so the
+    /// message points at the way out: name the cohort to join explicitly.
+    /// </summary>
+    public static Error NoCohortForRevalidation(int stageId) => Error.Conflict(
+        "Revalidations.NoCohortForGroup",
+        $"Aucune cohorte n'existe pour le groupe de l'étudiant sur le stage {stageId}. C'est le cas "
+        + "habituel d'un stage rattrapé à un niveau antérieur : précisez la cohorte d'accueil "
+        + "(cohortId) que l'étudiant doit rejoindre.");
+
+    public static Error AlreadyAssignedForStage(int stageId) => Error.Conflict(
+        "Revalidations.AlreadyAssigned",
+        $"Cette inscription porte déjà une affectation pour le stage {stageId} ; il n'y a rien à "
+        + "rouvrir. Consultez le stage existant.");
+
+    public static Error NothingToRevalidate(int stageId) => Error.Conflict(
+        "Revalidations.NothingToRevalidate",
+        $"L'étudiant n'a jamais passé le stage {stageId} : il relève de la planification normale, "
+        + "pas d'une revalidation.");
+
+    public static Error StageAlreadyValidated(int stageId) => Error.Conflict(
+        "Revalidations.AlreadyValidated",
+        $"Le stage {stageId} est déjà validé lors d'une inscription précédente — un stage acquis "
+        + "reste acquis et n'est pas repassé.");
+
+    /// <summary>
+    /// A retake is served where the student failed it, so the failed attempt has to say where that was.
+    /// It cannot when the original rotation was never recorded — legacy rows with unreadable dates, or
+    /// an assignment that was created and never placed.
+    /// </summary>
+    public static readonly Error OriginalServiceUnknown = Error.Conflict(
+        "Revalidations.OriginalServiceUnknown",
+        "La rotation initiale n'indique aucun service : impossible de déterminer où repasser le stage. "
+        + "Précisez le service d'accueil (serviceId).");
+
+    public static readonly Error IncompletePlacement = Error.Validation(
+        "Revalidations.IncompletePlacement",
+        "Pour placer la rotation il faut une date de début et une date de fin ; sinon laissez les trois "
+        + "champs vides et planifiez la rotation plus tard.");
+
+    public static Error RevalidationStillOpen(int stageId) => Error.Conflict(
+        "Revalidations.StillOpen",
+        $"Le stage {stageId} n'est pas encore soldé sur une inscription précédente : attendez son "
+        + "verdict avant d'ouvrir une revalidation.");
 }

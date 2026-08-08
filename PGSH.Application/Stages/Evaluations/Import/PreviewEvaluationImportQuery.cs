@@ -13,7 +13,8 @@ public sealed record PreviewEvaluationImportQuery(
     EvaluationImportScope Scope,
     int? PeriodNumber,
     EvaluationMode Mode,
-    IReadOnlyList<EvaluationImportRow> Rows) : IQuery<EvaluationImportReport>;
+    IReadOnlyList<EvaluationImportRow> Rows,
+    int? AcademicYearId = null) : IQuery<EvaluationImportReport>;
 
 internal sealed class PreviewEvaluationImportQueryHandler(EvaluationImportPlanner planner)
     : IQueryHandler<PreviewEvaluationImportQuery, EvaluationImportReport>
@@ -22,8 +23,8 @@ internal sealed class PreviewEvaluationImportQueryHandler(EvaluationImportPlanne
         PreviewEvaluationImportQuery request, CancellationToken cancellationToken)
     {
         var plan = await planner.PlanAsync(
-            request.StageId, request.Scope, request.PeriodNumber, request.Mode, request.Rows,
-            cancellationToken);
+            request.StageId, request.Scope, request.PeriodNumber, request.Mode, request.AcademicYearId,
+            request.Rows, cancellationToken);
 
         return plan.IsFailure
             ? Result.Failure<EvaluationImportReport>(plan.Error)

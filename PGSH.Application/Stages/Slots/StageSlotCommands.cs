@@ -4,6 +4,7 @@ namespace PGSH.Application.Stages.Slots;
 
 public sealed record CreateStageSlotCommand(
     int      StageId,
+    int      AcademicYearId,
     int      PeriodNumber,
     string?  Label,
     DateOnly StartDate,

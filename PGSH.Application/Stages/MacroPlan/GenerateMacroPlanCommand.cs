@@ -27,4 +27,10 @@ public sealed record MacroPlanResult(
     int CellsArranged,
     int SaturatedServices,
     int CohortsPublished,
-    int PeriodsPublished);
+    int PeriodsPublished,
+    /// <summary>
+    /// Group×stage pairs the plan refused because the group's CNPN does not require that stage of
+    /// its level. Surfaced rather than dropped: a plan that quietly leaves out a partition looks
+    /// like it worked.
+    /// </summary>
+    int CohortsNotRequiredByCnpn = 0);

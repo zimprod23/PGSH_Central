@@ -51,8 +51,8 @@ public class SlotOverlapTests
         new(db, new SlotOverlapGuard(db));
 
     private static CreateStageSlotCommand NewSlot(
-        int stageId, int periodNumber, DateOnly start, DateOnly end) =>
-        new(stageId, periodNumber, null, start, end);
+        int stageId, int periodNumber, DateOnly start, DateOnly end, int? academicYearId = null) =>
+        new(stageId, academicYearId ?? TestHarness.CurrentYearId, periodNumber, null, start, end);
 
     [Fact]
     public async Task A_period_overlapping_another_period_of_the_same_stage_is_refused()

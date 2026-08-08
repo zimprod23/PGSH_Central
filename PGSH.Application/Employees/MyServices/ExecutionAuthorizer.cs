@@ -151,6 +151,24 @@ internal sealed class ExecutionAuthorizer(IApplicationDbContext dbContext, IUser
     }
 
     /// <summary>
+    /// Read scoping for a student's whole level dossier — every registration at one level and every
+    /// stage attempt under them. Deliberately tighter than <see cref="EnsureCanReadAssignmentAsync"/>:
+    /// a chef may read the record of a stage a student actually served in his service, but the dossier
+    /// exposes years of failures and retakes across the level, which is scolarité business. The
+    /// administration and the student themselves — nobody else.
+    /// </summary>
+    public async Task<Result> EnsureCanReadStudentDossierAsync(Guid studentId, CancellationToken ct)
+    {
+        if (IsAdministrative)
+            return Result.Success();
+
+        var currentUserId = await CurrentEmployeeIdAsync(ct);
+        return currentUserId is not null && currentUserId == studentId
+            ? Result.Success()
+            : Result.Failure(StageErrors.DossierReadNotAllowed);
+    }
+
+    /// <summary>
     /// Presence write scoping: a period's attendance may be recorded by a global administrative user,
     /// or by the chef or staff of that period's service — nobody else.
     /// </summary>

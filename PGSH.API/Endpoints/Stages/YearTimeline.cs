@@ -10,9 +10,9 @@ internal sealed class YearTimelineEndpoint : IEndpoint
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
         app.MapGet("academic-years/{academicYearId:int}/timeline",
-            async (int academicYearId, int? levelId, ISender sender, CancellationToken ct) =>
+            async (int academicYearId, int? levelId, int? stageId, ISender sender, CancellationToken ct) =>
             {
-                var result = await sender.Send(new GetYearTimelineQuery(academicYearId, levelId), ct);
+                var result = await sender.Send(new GetYearTimelineQuery(academicYearId, levelId, stageId), ct);
                 return result.Match(Results.Ok, CustomResults.Problem);
             })
             .WithTags("Stages")

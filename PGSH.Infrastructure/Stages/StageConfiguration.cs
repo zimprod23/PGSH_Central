@@ -77,9 +77,16 @@ internal sealed class StageSlotConfiguration : IEntityTypeConfiguration<StageSlo
                .HasForeignKey(s => s.StageId)
                .OnDelete(DeleteBehavior.Cascade);
 
-        builder.HasIndex(s => new { s.StageId, s.PeriodNumber })
+        // Restrict, not Cascade: dropping an academic year must not silently take a whole year's
+        // planning grid — and the published rotations hanging off it — with it.
+        builder.HasOne(s => s.AcademicYear)
+               .WithMany()
+               .HasForeignKey(s => s.AcademicYearId)
+               .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasIndex(s => new { s.StageId, s.AcademicYearId, s.PeriodNumber })
                .IsUnique()
-               .HasDatabaseName("IX_StageSlot_Stage_Period");
+               .HasDatabaseName("IX_StageSlot_Stage_Year_Period");
     }
 }
 

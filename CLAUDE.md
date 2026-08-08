@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **PGSH** — *Plateforme de Gestion des Stages Hospitaliers* — manages hospital internships for medical and pharmacy students (Medecine, Pharmacie, Master, Doctorat programs). It covers the full lifecycle: hospital structure, academic groups, student registrations, rotation planning, execution, attendance, and evaluation.
 
-See [`SCHEMA.md`](SCHEMA.md) for the full database schema, [`PHASES.md`](PHASES.md) for the development roadmap, and [`NOTES.md`](NOTES.md) for accumulated domain knowledge and codebase context.
+See [`SCHEMA.md`](SCHEMA.md) for the full database schema, [`PHASES.md`](PHASES.md) for the development roadmap, [`NOTES.md`](NOTES.md) for accumulated domain knowledge and codebase context, and [`SMOKE-TEST.md`](SMOKE-TEST.md) for the manual verification pass over the most recent sessions.
 
 ## Build & Run Commands
 
@@ -59,6 +59,11 @@ Every endpoint implements `IEndpoint` (defined in `PGSH.API/Endpoints/IEndpoint.
 ### Result Pattern
 All handlers return `Result<T>`. Endpoints map failures to HTTP problem responses via `CustomResults.Problem(result)`. Never throw exceptions for expected business failures — use `Result.Failure(Error.NotFound(...))` etc.
 
+⚠ **`Result<T>` cannot carry a null success value.** Its implicit operator is
+`value is not null ? Success(value) : Failure(Error.NullValue)`, so returning `null` from a method
+declared `Result<T?>` silently produces a *failure*, not an empty success. Never model an optional
+outcome that way — resolve the value only when it is actually wanted, and keep `Result<T>` non-nullable.
+
 ### Domain Events
 Entities inheriting `Entity` raise events via `entity.Raise(new SomeEvent(...))`. `ApplicationDbContext.SaveChangesAsync` publishes them **after** the transaction commits (eventual consistency). Event handlers live in `PGSH.Application/<domain>/`.
 
@@ -103,6 +108,121 @@ Scalar UI at `/scalar/v1`, Swagger UI at `/swagger`. Both are configured with Ke
 
 ### Shared helpers — always use these, never inline
 - **Pagination** — `QueryableExtensions.ToPaginatedResponseAsync(pageNumber, pageSize, selector, ct)` in `Application/Extensions/`. Apply after filtering and `OrderBy`. Never manually write `CountAsync + Skip + Take + ToListAsync + new PaginatedResponse`.
+  - ⚠ **Paginate by what the response *contains*, not by the handler's return type.** A single-object
+    response hides unbounded collections from any `List<T>` grep: `GetGroupByIdQuery` returned one
+    `GroupDetailResponse` carrying 4,725 students — one per registration in the "Non réparti" group —
+    each with two correlated sub-queries, and that is what crashed the browser.
+  - ⚠ **Anything scoped per academic year must filter on it server-side.** Cohorts exist per
+    (stage, group) and groups per year, so an unscoped stage query returns every year it ever ran
+    (681 rows for "Chirurgie"). Never fetch all years and filter in the client.
+- **Academic year** — `AcademicYearResolver` in `Application/AcademicYears/`. Any handler whose result
+  depends on the year resolves it through this, and takes `int? AcademicYearId` on its command/query.
+  - ⚠ **An omitted year means "the current one", never "all of them".** Widening on absence is the
+    defect, not the fallback: it is what made the évaluation-import canvas list 3,553 students across
+    six promotions where 688 were wanted, and what let *publish / auto-arrange / start / close / pause
+    / resume* reach into past years whenever they were scoped by partition label instead of by
+    explicit cohort ids. A read that genuinely spans years says so some other way.
+  - ⚠ **Year-stamped tables:** `AcademicGroup`, `Curriculum` and `StageSlot`. A `StageSlot` is keyed
+    `(StageId, AcademicYearId, PeriodNumber)` — the same P1 exists once per promotion with its own
+    dates — and `SlotOverlapGuard`'s no-two-periods-at-once rule is level-**and-year**-wide, since two
+    promotions never share a student.
+  - ⚠ **Do not denormalise `AcademicYearId` onto `Cohort`** to shorten
+    `a.Cohort.AcademicGroup.AcademicYearId`. Measured 2026-08-08 on the worst stage (CHIRURGIE, 563
+    cohorts over 6 years): the whole two-hop join is **49 of 910 shared buffers — ~5%**; the other 861
+    are the nested loop into `InternshipAssignments`, which denormalising `Cohort` does not touch. The
+    join was never the cost — the *missing predicate* was (3,553 rows fetched where 688 were wanted).
+    Drift is not the objection (a composite FK to `AcademicGroup(Id, AcademicYearId)` would make the
+    copy non-driftable); the objection is that it optimises the cheap half.
+
+### The CNPN is a cohort's text, not a year's
+`Curriculum` is keyed **(CnpnVersionId, LevelId)** — never on the academic year. Arrêté 1650.25
+(BO 7422, 17 July 2025) took Médecine from 7 years to 6 from 2024-2025, while art. 2 leaves everyone
+registered *before* that year under arrêté 2174.18 in its pre-2175.22 form. From 2026-2027 one
+(level, year) therefore holds students of two texts, so the year cannot identify a requirement set.
+- **Assignment is by first registration and sticky** — `CnpnAssignment` in `Application/Stages/Cnpn/`.
+  Never by the level a student currently sits in: those agree only for students who never repeated,
+  and 2,635 have. `Student.CnpnVersionId` is written solely by `Student.AssignCnpnVersion`, which
+  refuses to move a confirmed stamp without `overrideExisting`.
+- **Who a text binds is authored, not inferred** — `Cnpn/Targeting/`. A rule
+  (`programme + année ≤ N + as-of year`) is previewed, reviewed, then frozen onto
+  `Student.CnpnVersionId`. Preview and apply share `CnpnTargetPlanner`, so the dry run *is* the plan —
+  the same guarantee the evaluation import makes, for the same reason.
+  - ⚠ **The rule is never stored as live state.** Re-evaluated next September, "année ≤ 2" selects a
+    different set of people, and the whole point of the stamp is that a student's text does not move
+    under them. What survives is the membership plus the command's audit entry (`IAuditableCommand`
+    records the criteria, author and date) — that is why there is no `CnpnTargetRule` entity.
+  - ⚠ **A selector covers only students who already exist.** Future intakes are the version's
+    `AppliesToEntrantsFromAcademicYearId`. A text needs *both* halves or next year's first-years land
+    under nothing.
+  - ⚠ **Bulk never moves a confirmed stamp.** Doing it wholesale is exactly how the per-student guard
+    gets defeated, so a conflict is reported (`ConfirmedOnAnotherText`) and left alone. Upgrading an
+    *inferred* stamp is not a move and is allowed — that is how scolarité confirms the ~2,200
+    deduced assignments.
+  - ⚠ **Where the rule and the arrêté disagree, the system reports and the faculty decides.**
+    `EntryPredatesText` is the repeater sitting in an early level; `IncludeEntryContradictions` is
+    the faculty saying yes, and it is never assumed.
+- ⚠ **Entry is often unrecorded.** The legacy import only carried students once they had stages, so
+  ~2,200 enrolled students have no registration before 2025-2026. `CnpnAssignment` then deduces entry
+  from their level (you cannot be in year 3 without two prior years) and sets
+  `CnpnAssignmentIsInferred` — surfaced for scolarité, never presented as fact.
+- A version with a null `AppliesToEntrantsFromAcademicYearId` is recorded for citation and never
+  selected (arrêté 2175.22 is exactly this).
+- **Groups are homogeneous by CNPN.** `AutoArrangeGroupsCommandHandler` splits by
+  (year, level, `CnpnVersionId`) — a group rotates through a stage set together, so two students
+  owing different sets cannot share one. Unstamped students form their own bucket, labelled
+  "CNPN à confirmer", rather than being folded into a text they may not follow.
+- **`CohortProvisioner` will not give a group a cohort for a stage its text does not require** of
+  its level. Where no requirement set is recorded for a (text, level) the check stands aside — an
+  enforcing check would block all planning for six-year students, since 1650.25's requirements are
+  not entered yet. Refusals are counted, not dropped (`NotRequiredByCnpn`).
+- ⚠ **`Stage.LevelId` is the next thing to break.** A stage belongs to exactly one level, but the
+  new text moves stages between years ("les stages du 7e glissent vers le 6e"), so one `Stage` row
+  needs two levels. `CurriculumStage` already expresses `(version, level) → stage`; `Stage.LevelId`
+  should become advisory. Deferred deliberately — it is the same problem as the semester gap below.
+- **Recording a text** — `Cnpn/Manage/`: create, correct, delete, and « X reprend Y » (clone every
+  level of one text from another in one act, skipping levels the target already has or that fall
+  outside its span). Two guards worth knowing: a code is unique *per programme*, and **two texts of
+  one programme cannot claim the same intake year** — version selection resolves "the latest intake
+  at or before entry" and a tie has no defensible winner. `TotalYears` cannot be shortened below a
+  level that already carries requirements. `AcademicProgram` is not editable: curricula and student
+  stamps hang off the row.
+- ⚠ **Deleting a text is gated on students, not on curricula.** `Users → CnpnVersions` is `NO ACTION`
+  (a raw FK violation, i.e. a 500) and `Curriculums → CnpnVersions` is `CASCADE` (silent destruction
+  of authored requirement sets). So `DeleteCnpnVersionCommand` refuses outright while any student is
+  stamped — including an *inferred* stamp — and otherwise reports how many requirement sets the
+  cascade took, so the confirmation can name the number. The justification for allowing the cascade
+  at all is the gate: **a text nobody follows has nobody who could owe anything**, so removing its
+  requirements strands no obligation. Deletion is for the mistyped row; a superseded arrêté stays,
+  because the students who followed it stay.
+  - The UI disables the control when `studentCount > 0` rather than letting it fail, and warns that
+    removing the only text governing an intake sends new registrations to the previous one.
+- ⚠ **`Stage.Coefficient` / `Stage.DurationInDays` duplicate `CurriculumStage`'s.** The catalogue
+  carries its own weight *and* every text carries one for the same stage. They agree today only
+  because the history reconstruction seeded one from the other; the first text that reweights a stage
+  makes them disagree, and the **Stages page shows the catalogue value** — a number no CNPN
+  necessarily states. The Stages page is also not year- or CNPN-scoped at all: it is the timeless
+  catalogue, so switching the navbar year changes nothing there. Resolve with Phase 15.1.
+- ⚠ **Still year-based, and shouldn't be:** the new CNPN organises 12 *semesters* with typed
+  placements (immersion / nursing / part-time clinical / full-time / family medicine) and credits
+  (10 per semester S5–S8, 20 for S9–S10, 30 for S11–S12). PGSH models year-levels and a free
+  coefficient. Recording 1650.25's requirements is an approximation until that gap is closed.
+
+### The year is constitutive, not an attribute — know which side a table is on
+- **Year-constituted** — `AcademicGroup`, `Cohort`, `Registration`, `Curriculum`, `StageSlot`. Remove
+  the year and the row is meaningless. `AcademicGroup.AcademicYearId` being non-nullable is the schema
+  already saying so.
+- **Year-invariant catalog** — `Stage`, `Level`, `Service`, `Hospital`, `Center`, and the
+  `Student`/`Employee` identities. "Chirurgie" and "Service de Cardiologie" outlive every promotion.
+
+Every bug in this class lives exactly on that boundary: a year-invariant key (`stageId`, `serviceId`)
+used to reach year-constituted rows. When you write `.Where(x => x.StageId == id)` against cohorts,
+assignments or slots, the year predicate is not optional.
+
+A global EF query filter was considered and rejected: of ~101 handlers touching year-constituted
+tables, ~15 are *deliberately* cross-year — student parcours, level dossier, curriculum comparison,
+revalidation's cross-level retake — and those are the load-bearing reads, not edge cases.
+`IgnoreQueryFilters()` is also all-or-nothing, so the escape hatch would disable unrelated filters.
+  - ⚠ **To show a count, ask for `pageSize: 1` and read `TotalCount`** — never fetch the rows.
 - **Localization mapping** — `LocalizationMapper.FromCoordinates(x, y, z)` in `Application/Hospitals/`. Use for any Center, Hospital, or Service handler that maps GPS coordinates.
 - **Per-period mark / verdict** — `StageScoring.PeriodMark` / `IsPeriodValidated` in `Domain/Stages/`. The single source of truth shared by the domain roll-up and every read handler (student record, fiche). Never recompute a mark inline.
 - **Execution scoping** — `ExecutionAuthorizer` in `Application/Employees/MyServices/`. Every handler acting on a period/evaluation/attendance goes through it: `EnsureCanActOnPeriodAsync`, `EnsureCanActOnEvaluationAsync`, `EnsureCanRecordAttendanceAsync` (write), `EnsureCanReadAttendanceAsync` (read — wider, includes the owning student).

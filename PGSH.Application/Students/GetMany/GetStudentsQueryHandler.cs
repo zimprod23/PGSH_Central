@@ -27,6 +27,13 @@ internal sealed class GetStudentsQueryHandler(IApplicationDbContext context)
         if (request.Program.HasValue)
             query = query.Where(s => s.AcademicProgram == request.Program.Value);
 
+        // A year narrows the population, not just the columns. Projecting the year's registration
+        // while still returning students who have none listed the whole imported history under
+        // whichever year was selected, every row blank past the name — and made the dashboard's
+        // "étudiants inscrits" a count of everyone ever enrolled rather than of this promotion.
+        if (request.AcademicYearId.HasValue)
+            query = query.Where(s => s.registrations.Any(r => r.AcademicYearId == request.AcademicYearId.Value));
+
         if (!string.IsNullOrWhiteSpace(request.SearchTerm))
         {
             // Trimmed and lowered on both sides: a pasted CNE carries stray spaces, and Appogee was

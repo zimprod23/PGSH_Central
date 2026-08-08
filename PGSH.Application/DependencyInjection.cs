@@ -1,6 +1,9 @@
 ﻿using PGSH.Application.Abstractions.Behaviors;
+using PGSH.Application.AcademicYears;
 using PGSH.Application.Behaviors;
 using PGSH.Application.Employees.MyServices;
+using PGSH.Application.Stages.Cnpn;
+using PGSH.Application.Stages.Cnpn.Targeting;
 using PGSH.Application.Stages.Evaluations;
 using PGSH.Application.Stages.Evaluations.Import;
 using PGSH.Application.Stages.Planning;
@@ -34,6 +37,9 @@ public static class DependencyInjection
         services.AddScoped<MidStageTransferRescheduler>();
         services.AddScoped<CohortProvisioner>();
         services.AddScoped<ExecutionAuthorizer>();
+        services.AddScoped<CnpnAssignment>();
+        services.AddScoped<CnpnTargetPlanner>();
+        services.AddScoped<AcademicYearResolver>();
         services.AddScoped<SlotOverlapGuard>();
         services.AddScoped<EvaluationObjectiveResolver>();
         services.AddScoped<EvaluationImportPlanner>();

@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
+using PGSH.Application.AcademicYears;
 using PGSH.Application.Stages.Planning;
 using PGSH.SharedKernel;
 
@@ -8,15 +9,25 @@ namespace PGSH.Application.Stages.Schedule;
 
 internal sealed class GetStageScheduleQueryHandler(
     IApplicationDbContext dbContext,
+    AcademicYearResolver yearResolver,
     ServiceOccupancyCalculator occupancyCalculator)
     : IQueryHandler<GetStageScheduleQuery, StageScheduleResponse>
 {
     public async Task<Result<StageScheduleResponse>> Handle(
         GetStageScheduleQuery request, CancellationToken cancellationToken)
     {
+        // Both axes of the grid are year-scoped: slots carry the year's dates, and a cohort exists
+        // per (stage, group) with groups per year — unscoped, "Chirurgie" returned the 681 cohorts of
+        // every year it ever ran.
+        var year = await yearResolver.ResolveAsync(request.AcademicYearId, cancellationToken);
+        if (year.IsFailure)
+            return Result.Failure<StageScheduleResponse>(year.Error);
+
+        int academicYearId = year.Value;
+
         var slots = await dbContext.StageSlots
             .AsNoTracking()
-            .Where(s => s.StageId == request.StageId)
+            .Where(s => s.StageId == request.StageId && s.AcademicYearId == academicYearId)
             .OrderBy(s => s.PeriodNumber)
             .Select(s => new StageSlotResponse(s.Id, s.PeriodNumber, s.Label, s.StartDate, s.EndDate))
             .ToListAsync(cancellationToken);
@@ -24,7 +35,7 @@ internal sealed class GetStageScheduleQueryHandler(
         var cohorts = await dbContext.Cohorts
             .AsNoTracking()
             .Where(c => c.StageId == request.StageId
-                     && (request.AcademicYearId == null || c.AcademicGroup.AcademicYearId == request.AcademicYearId))
+                     && c.AcademicGroup.AcademicYearId == academicYearId)
             .OrderBy(c => c.Id)
             .Select(c => new
             {

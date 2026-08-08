@@ -4,6 +4,27 @@ using PGSH.Domain.Students;
 
 namespace PGSH.Domain.Registrations;
 
+/// <summary>
+/// A roster: the fixed set of students who move together through a year. Nothing more.
+///
+/// ⚠ "Groupe" in conversation usually means something narrower than this class. Three distinct
+/// things share the word, and confusing them is how the year-scoping bugs got written:
+///
+/// <list type="bullet">
+/// <item><b><see cref="AcademicGroup"/></b> — the roster, per (year, level). No stage, no service.</item>
+/// <item><b><see cref="Cohort"/></b> — that roster <i>doing one stage</i>: (group × stage). This is
+/// what a stage's "groups" are, and why a stage accumulates one per year it runs.</item>
+/// <item><b><see cref="CohortSlotAssignment"/></b> — that cohort <i>in one period, in one service</i>:
+/// (cohort × slot → service). When someone says "the group in Cardiologie in P2", this is the row.</item>
+/// </list>
+///
+/// So a group is not "in a service" — it is in a <i>sequence</i> of them, one per period, and the
+/// service lives two levels out. Reaching for <see cref="AcademicGroup"/> when you mean one cell of
+/// the rotation grid is a category error the compiler cannot catch.
+///
+/// The year is constitutive, not decoration: a roster outside a year is not a roster, which is why
+/// <see cref="AcademicYearId"/> is non-nullable.
+/// </summary>
 public sealed class AcademicGroup
 {
     public int Id { get; set; }

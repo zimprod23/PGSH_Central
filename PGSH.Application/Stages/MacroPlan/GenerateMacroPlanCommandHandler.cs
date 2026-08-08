@@ -30,14 +30,15 @@ internal sealed class GenerateMacroPlanCommandHandler(
 
             if (request.AssignStudents)
             {
-                var affected = await affectation.AssignByStageAsync(plan.StageId, partition, cancellationToken);
+                var affected = await affectation.AssignByStageAsync(
+                    plan.StageId, request.AcademicYearId, partition, cancellationToken);
                 studentsAssigned += affected.SuccessCount;
             }
 
             if (request.AutoArrange)
             {
                 var arranged = await arranger.ArrangeAsync(
-                    plan.StageId, partition, plan.PeriodNumbers, null, cancellationToken);
+                    plan.StageId, request.AcademicYearId, partition, plan.PeriodNumbers, null, cancellationToken);
 
                 // A stage whose period slots aren't defined yet is a setup-order issue,
                 // not a hard error: keep the cohorts/affectation already done and let the
@@ -58,7 +59,8 @@ internal sealed class GenerateMacroPlanCommandHandler(
             foreach (var plan in request.Plans)
             {
                 var published = await publisher.PublishStageAsync(
-                    plan.StageId, [plan.RotationGroup], plan.PeriodNumbers, request.AllowOverCapacity, cancellationToken);
+                    plan.StageId, request.AcademicYearId, [plan.RotationGroup], plan.PeriodNumbers,
+                    request.AllowOverCapacity, cancellationToken);
                 if (published.IsFailure)
                     return Result.Failure<MacroPlanResult>(published.Error);
 
@@ -74,6 +76,7 @@ internal sealed class GenerateMacroPlanCommandHandler(
             cellsArranged,
             saturated,
             cohortsPublished,
-            periodsPublished));
+            periodsPublished,
+            cohortResult.Value.NotRequiredByCnpn));
     }
 }

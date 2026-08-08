@@ -8,6 +8,7 @@ using PGSH.Domain.Registrations;
 using PGSH.Domain.Stages;
 using PGSH.Domain.Students;
 using PGSH.Infrastructure.Database;
+using AcademicProgram = PGSH.Domain.Common.Utils.AcademicProgram;
 using Level = PGSH.Domain.Common.Utils.Level;
 
 namespace PGSH.Tests;
@@ -24,10 +25,18 @@ namespace PGSH.Tests;
 /// </remarks>
 public static class TestHarness
 {
-    public const int CurrentYearId = 1;
-    public const int LevelId       = 1;
-    public const int StageId       = 1;
-    public const int HospitalId    = 1;
+    public const int CurrentYearId  = 1;
+    public const int PreviousYearId = 2;
+    public const int LevelId        = 1;
+    public const int StageId        = 1;
+    public const int HospitalId     = 1;
+
+    /// <summary>The superseded seven-year text. Recorded but governing no intake, so it never wins
+    /// version selection — tests that want it name it explicitly.</summary>
+    public const int OldCnpnId = 91;
+
+    /// <summary>The six-year text in force, governing entrants from <see cref="CurrentYearId"/>.</summary>
+    public const int NewCnpnId = 92;
 
     public static ApplicationDbContext NewContext(string name) =>
         new(new DbContextOptionsBuilder<ApplicationDbContext>()
@@ -65,9 +74,67 @@ public static class TestHarness
             EndDate   = yearEnd   ?? new DateOnly(2026, 8, 31),
         });
 
-        var level = new Level { Id = LevelId, Label = "3ème année", Year = 3 };
+        // Program stated rather than left to default: AcademicProgram's zero value is Master, so an
+        // unset level silently disagreed with every Médecine CNPN.
+        var level = new Level
+        {
+            Id = LevelId, Label = "3ème année", Year = 3, AcademicProgram = AcademicProgram.Medecine,
+        };
         var stage = new Stage { Id = StageId, Name = "Cardiologie", LevelId = LevelId, Level = level, Coefficient = 2 };
         db.Levels.Add(level);
+        db.Stages.Add(stage);
+
+        // Two texts, as the real data now has them: one superseded and governing nobody, one in force.
+        db.SeedCnpnVersion(OldCnpnId, "2174.18", totalYears: 7, appliesFromAcademicYearId: null);
+        db.SeedCnpnVersion(NewCnpnId, "1650.25", totalYears: 6);
+
+        return stage;
+    }
+
+    /// <summary>
+    /// A CNPN text. <paramref name="appliesFromAcademicYearId"/> is the first intake it governs;
+    /// null records a text kept for citation that never governed one (as arrêté 2175.22 became).
+    /// </summary>
+    public static CnpnVersion SeedCnpnVersion(
+        this ApplicationDbContext db, int id, string code, int totalYears,
+        AcademicProgram program = AcademicProgram.Medecine,
+        int? appliesFromAcademicYearId = CurrentYearId)
+    {
+        var version = new CnpnVersion
+        {
+            Id = id, Code = code, Label = $"CNPN {code} ({totalYears} ans)",
+            AcademicProgram = program, TotalYears = totalYears,
+            AppliesToEntrantsFromAcademicYearId = appliesFromAcademicYearId,
+            // The nav, not just the key: version selection reads StartDate through it, and the
+            // in-memory provider does not fix up a reference from a foreign key alone.
+            AppliesToEntrantsFromAcademicYear = appliesFromAcademicYearId is { } yearId
+                ? db.AcademicYears.Local.FirstOrDefault(y => y.Id == yearId)
+                : null,
+        };
+        db.CnpnVersions.Add(version);
+        return version;
+    }
+
+    /// <summary>
+    /// An earlier academic year, for the repeating student: the same level registered twice, once per
+    /// year. Defaults to the year before <see cref="SeedCatalog"/>'s.
+    /// </summary>
+    public static AcademicYear SeedAcademicYear(
+        this ApplicationDbContext db, int id, string label, DateOnly start, DateOnly end)
+    {
+        var year = new AcademicYear { Id = id, Label = label, StartDate = start, EndDate = end };
+        db.AcademicYears.Add(year);
+        return year;
+    }
+
+    /// <summary>An additional stage on the shared level — a level is a set of stages, not just one.</summary>
+    public static Stage SeedStage(this ApplicationDbContext db, int stageId, string name, int coefficient = 1)
+    {
+        var level = db.Levels.Local.First(l => l.Id == LevelId);
+        var stage = new Stage
+        {
+            Id = stageId, Name = name, LevelId = LevelId, Level = level, Coefficient = coefficient,
+        };
         db.Stages.Add(stage);
         return stage;
     }
@@ -102,11 +169,13 @@ public static class TestHarness
     }
 
     /// <summary>A group and its cohort for <paramref name="stage"/> — the pair a rotation is planned against.</summary>
-    public static Cohort SeedCohort(this ApplicationDbContext db, Stage stage, int groupId, string groupLabel)
+    public static Cohort SeedCohort(
+        this ApplicationDbContext db, Stage stage, int groupId, string groupLabel,
+        int academicYearId = CurrentYearId)
     {
         var group = new AcademicGroup
         {
-            Id = groupId, Label = groupLabel, GroupNumber = groupId, AcademicYearId = CurrentYearId,
+            Id = groupId, Label = groupLabel, GroupNumber = groupId, AcademicYearId = academicYearId,
         };
         var cohort = new Cohort
         {
@@ -121,7 +190,7 @@ public static class TestHarness
     /// <summary>A student with this year's registration, optionally attached to <paramref name="group"/>.</summary>
     public static Registration SeedRegistration(
         this ApplicationDbContext db, string firstName, string lastName, AcademicGroup? group = null,
-        int academicYearId = CurrentYearId)
+        int academicYearId = CurrentYearId, int levelId = LevelId)
     {
         var student = new Student
         {
@@ -131,7 +200,7 @@ public static class TestHarness
         };
         var registration = new Registration
         {
-            Id = Guid.NewGuid(), AcademicYearId = academicYearId, LevelId = LevelId,
+            Id = Guid.NewGuid(), AcademicYearId = academicYearId, LevelId = levelId,
             StudentId = student.Id, Student = student, AcademicGroupId = group?.Id,
         };
         db.Users.Add(student);
@@ -176,13 +245,48 @@ public static class TestHarness
         return period;
     }
 
-    /// <summary>A period of the stage's grid (P1, P2…) — the window every cohort is routed through.</summary>
+    /// <summary>
+    /// An assignment carried all the way to a verdict: one rotation, started, closed, then marked
+    /// <paramref name="mark"/> out of 20. Goes through the real lifecycle rather than back-filling
+    /// <c>FinalScore</c>/<c>Result</c> — those have private setters precisely so the verdict can only
+    /// come from marks the domain actually rolled up. A mark of 10 or more yields <c>Validé</c>.
+    /// </summary>
+    public static InternshipAssignment SeedGradedAssignment(
+        this ApplicationDbContext db, Registration registration, Cohort cohort, Service service,
+        decimal mark, DateOnly? from = null)
+    {
+        var assignment = db.SeedAssignment(registration, cohort);
+        var start = from ?? new DateOnly(2025, 10, 1);
+        var period = db.SeedPeriod(assignment, service, start, start.AddDays(30), started: false);
+
+        assignment.Start();
+        assignment.CompletePeriod(period.Id);
+
+        // No pre-set Id: the evaluation joins an already-tracked assignment, where a store-generated
+        // key makes EF classify it Modified instead of Added.
+        assignment.SubmitEvaluation(period.Id, new ServiceEvaluation
+        {
+            ServicePeriodId = period.Id,
+            Mode            = EvaluationMode.Numeric,
+            TotalScore      = mark,
+        });
+
+        return assignment;
+    }
+
+    /// <summary>
+    /// A period of the stage's grid (P1, P2…) — the window every cohort is routed through. Slots are
+    /// per (stage, year): <paramref name="academicYearId"/> defaults to the current one so the common
+    /// case stays a one-liner, and a test covering two promotions passes it explicitly.
+    /// </summary>
     public static StageSlot SeedSlot(
-        this ApplicationDbContext db, Stage stage, int slotId, int periodNumber, DateOnly start, DateOnly end)
+        this ApplicationDbContext db, Stage stage, int slotId, int periodNumber, DateOnly start, DateOnly end,
+        int? academicYearId = null)
     {
         var slot = new StageSlot
         {
-            Id = slotId, StageId = stage.Id, PeriodNumber = periodNumber, StartDate = start, EndDate = end,
+            Id = slotId, StageId = stage.Id, AcademicYearId = academicYearId ?? CurrentYearId,
+            PeriodNumber = periodNumber, StartDate = start, EndDate = end,
         };
         db.StageSlots.Add(slot);
         return slot;
