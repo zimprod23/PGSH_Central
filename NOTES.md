@@ -794,6 +794,63 @@ last bullet above is answered: `Registration.OutcomeSource` is the provenance fl
 year* below. What is **still open** is the inference itself, for the six imported years nobody will
 ever upload a canvas for — the first three bullets need rulings before that is written (Phase 14.3c).
 
+## The crossover is generated now, and the shared axis is authored once (2026-08-09)
+
+Asked for as a "mirror effect": configure one stage, get the opposite for the other. Generalised,
+because two stages is the easy case and the new CNPN's 3rd year is six.
+
+**`Stages/RotationCycle/`** produces the `PartitionStagePlan[]` matrix that `GenerateMacroPlanCommand`
+already consumes — so this generates what was previously ticked by hand and changes nothing downstream.
+
+- ⚠ **`S × k` columns, not `partitions × k`.** The user's formula (partitions × periods) held only
+  because their example had 2 stages *and* 2 partitions. The timeline must fit one partition visiting
+  every stage of the block; partitions subdivide *who is where*, they do not lengthen it. Three stages,
+  k = 1, six partitions ⇒ 3 columns with two partitions per stage per turn.
+- **Lane `p mod S`, stage `(lane + t) mod S` in turn `t`.** A Latin square. S = 2 gives exactly the
+  requested mirror; S = 3 gives the three-way rotation the new CNPN needs; P a multiple of S puts
+  several partitions in a lane and they travel together.
+- **Uneven or short is reported, not refused.** P not a multiple of S still gives every partition every
+  stage — the turns just carry unequal effectifs, which is a capacity surprise worth naming. Fewer
+  partitions than stages leaves a stage empty for a whole turn, which gets its own warning. Neither
+  blocks: only the faculty knows whether it was intended.
+- **`RotationCyclePlanner` is pure.** No DB, no clock — which is why the crossover is tested by
+  properties over many (S, k, P) combinations (every partition visits every stage exactly once; no
+  partition is in two stages at a time; every stage is occupied in every column) rather than through
+  a fixture that only proves one shape.
+- **Authoring the axis ≠ running the plan.** Apply writes the slots and returns the matrix; the caller
+  passes it to the macro plan. Same split as déliberation / réinscription, and it keeps
+  `CohortProvisioner` / `RotationArranger` / `SchedulePublisher` on their existing path.
+- **Replacement is wholesale and scoped to the named stages.** Half-old, half-new columns are the exact
+  misalignment this removes; and two blocks of one level (semester 1 / semester 2) do not disturb each
+  other. Refused outright while any cell is published.
+- ⚠ Stage order in the command **is** the rotation — `RotationCycleContext` preserves it deliberately
+  rather than sorting, because reordering would silently change which stage a partition starts in.
+
+### The gap it works around: nothing declares that two stages share a period
+
+`StageSlot` is keyed (stage, year, period number), so Médecine P1 and Chirurgie P1 are independent rows
+with independent dates. Nothing asserts they are the same window — the axis is *derived* from dates by
+`PeriodAxis`, never declared. And neither guard notices: `SlotOverlapGuard` is per-stage (that is what
+makes the crossover authorable at all) and `GroupScheduleConflictGuard` only fires on a group genuinely
+double-booked, which a crossover never is.
+
+- ⚠ **The small drift is the dangerous one.** Chir P1 = 01/10–02/11 against Med P1 = 01/10–31/10:
+  Chirurgie's window *strictly contains* Médecine's, so `PeriodAxis` treats it as a composite, drops it,
+  and Chirurgie claims Médecine's column by midpoint. The two-day error vanishes without trace. A
+  *partial* overlap is louder — both survive as columns, the table grows one, and the holes are hatched
+  and counted.
+- `PeriodAxisDiagnostics` (pure) reports period numbers whose stages declare different windows, on
+  `LevelRepartitionResponse.AxisDisagreements`. **Never an error:** Med6 legitimately runs Chirurgie's
+  P1 over two months and ANES REA's over one. Code cannot separate that from a typo; a human can.
+- It reads the **slots**, not the cells — a period nobody is placed in yet still has dates, and that is
+  exactly when you want to hear about it.
+- ⚠ `AxisDisagreements` sits on the *response*, not on `RepartitionSummary`. The summary is a bag of
+  counts compared by value in tests; a collection member silently breaks record equality (caught by two
+  existing tests when it was first put there).
+- The structural fix — one declared axis entity per block, with slots referencing it — is deferred to
+  15.1, same root cause as the semester gap. `RotationCycle` avoids the class in practice by writing all
+  of a block's windows in one act.
+
 ## Why the répartition prints `1, 3, 5, 7` where the faculty prints `1-10` (2026-08-09)
 
 Raised by the user from reading the annual planning, and their diagnosis was exactly right. Three links

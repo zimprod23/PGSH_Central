@@ -207,6 +207,43 @@ registered *before* that year under arrêté 2174.18 in its pre-2175.22 form. Fr
   (10 per semester S5–S8, 20 for S9–S10, 30 for S11–S12). PGSH models year-levels and a free
   coefficient. Recording 1650.25's requirements is an approximation until that gap is closed.
 
+### A block of stages runs on one axis, and the crossover is generated
+`Stages/RotationCycle/` turns "these stages run concurrently, each for k periods" into the matrix
+`GenerateMacroPlanCommand` already consumes. It generates what used to be ticked by hand; nothing
+downstream of the matrix changed.
+
+- ⚠ **A block of S stages at k periods each occupies `S × k` columns — not `partitions × k`.** The
+  timeline must be long enough for one partition to visit every stage; partitions do not lengthen it,
+  they subdivide who is where. The two coincide only when S = P, which is why the 2-stage/2-partition
+  case hid the distinction. Three stages, k=1, six partitions ⇒ **3** columns, two partitions per stage.
+- **The rule:** partition *p* takes lane `p mod S`, and in turn *t* sits in stage `(lane + t) mod S`.
+  With S = 2 that is exactly the mirror — A does Médecine then Chirurgie, B the reverse.
+- **`RotationCyclePlanner` is pure** (no DB, no clock), which is what lets the crossover be tested
+  exhaustively — every partition visits every stage exactly once, and is never in two at a time — rather
+  than through a planning fixture.
+- **Authoring the axis and running the plan are two acts.** The apply writes the `StageSlot`s and
+  *returns* the matrix; the caller hands it to the macro plan. Same separation as déliberation /
+  réinscription, and it keeps cohort provisioning, arranging and publishing on their existing path.
+- **The axis is replaced wholesale, never merged** — half-old, half-new columns are the exact
+  misalignment the feature removes — and is **refused outright while any cell is published**.
+- The new CNPN's 3rd year is **two blocks** (three stages per semester), not one block of six. Blocks of
+  one level coexist; replacement is scoped to the stages named in the command.
+
+### ⚠ Nothing declares that two stages share a period — the axis is derived
+`StageSlot` is keyed `(StageId, AcademicYearId, PeriodNumber)`, so Médecine P1 and Chirurgie P1 are
+independent rows with independent dates. No constraint ties them, and neither guard notices a drift:
+`SlotOverlapGuard` is per-stage (which is what makes the crossover authorable), and
+`GroupScheduleConflictGuard` only fires on a group actually double-booked, which a crossover never is.
+
+- ⚠ **A small drift is more dangerous than a large one.** Where one window strictly contains another,
+  `PeriodAxis` treats the outer as a composite and drops it — absorbing the mistake without trace. A
+  partial overlap at least shows up as an extra column with hatched holes.
+- `PeriodAxisDiagnostics` reports period numbers whose stages disagree, surfaced on the répartition
+  response. It **cannot** be an error: Med6 legitimately has Chirurgie's P1 at two months and ANES REA's
+  at one. Telling those apart is the human's job; showing them is ours.
+- Using `RotationCycle` avoids the class entirely — the block's stages get one set of windows written
+  once, so they cannot drift.
+
 ### A partition's shape is a choice, and it shows up in the published table
 `PartitionAllocator` cuts a promotion into rotation partitions (`AcademicGroup.RotationGroup`). Two
 strategies, both producing equal-sized partitions, and the arranger cannot tell them apart:

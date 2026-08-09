@@ -19,7 +19,7 @@ Timings below are the real figures from your data — if you see a different num
 ## 0 · Sanity (2 min)
 
 ```bash
-dotnet test PGSH.Tests/PGSH.Tests.csproj      # expect: 673 passed, 0 failed
+dotnet test PGSH.Tests/PGSH.Tests.csproj      # expect: 714 passed, 0 failed
 ```
 
 Then, with the app up, `GET /cnpn-versions` (Scalar at `/scalar/v1`, or the browser). Expect **four**:
@@ -287,6 +287,52 @@ it), or if a service with no rows is treated as unconfigured.
    source-note derived, not presented as a dated tenure.
 
 ❌ **Fail if** a row's cells are silently shortened where a period has no assignment.
+
+---
+
+## 12c · Rotation cycle: the generated crossover (6 min)
+
+`POST levels/{levelId}/rotation-cycle[/preview]`
+
+Replaces ticking the macro matrix by hand. Body: the stages that run **concurrently**, how many periods
+each takes, and the block's date windows.
+
+1. Two stages, `periodsPerStage: 2`, **4** windows → preview returns Médecine `A:P1-P2, B:P3-P4` and
+   Chirurgie `B:P1-P2, A:P3-P4`. That is the mirror.
+2. Send **6** windows for a 3-stage block at k=1 → refused, and the message states the arithmetic:
+   `S × k` columns, **not** partitions × k. Three stages at one period each need **3** windows however
+   many partitions exist.
+3. Apply → every stage of the block gets a slot on **every** column, all from one list of dates. Check
+   in the grid that Med P1 and Chir P1 are the same window — they cannot drift, they are written once.
+4. Take the returned `matrix` and post it to `stages/macro-plan`. Cohorts, affectation, arrange and
+   publish behave exactly as for a hand-ticked matrix.
+5. Re-apply → `slotsReplaced` equals the previous count; the axis is replaced, never merged.
+6. Apply a **second block** (semester 2, other stages, non-overlapping windows) → `slotsReplaced: 0`
+   and the first block is untouched.
+7. On a block with a **published** cell, both preview (`canApply: false`) and apply
+   (`RotationCycle.CannotReplacePublished`) refuse.
+8. Four partitions over three stages → applies, with a warning that one lane carries an extra partition.
+   Two partitions over three stages → a warning that a stage sits empty for a whole turn. Neither blocks.
+
+❌ **Fail if** a partition appears twice in the same column, or a stage is empty in a column when
+partitions ≥ stages.
+
+---
+
+## 12d · Period drift between stages (2 min)
+
+The gap 12c works around: nothing in the schema says Médecine P1 and Chirurgie P1 are the same window.
+
+1. Author two stages by hand with the *same* period numbers and deliberately different dates — say
+   Chir P1 running two days past Med P1.
+2. `GET levels/{id}/repartition` → **`axisDisagreements`** names P1 and prints both windows with the
+   stages declaring each.
+3. Note the table itself looks **normal** in that case: Chirurgie's window contains Médecine's, so the
+   axis drops it as a composite and absorbs the error. That is exactly why the diagnostic exists.
+4. Widen the drift to a partial overlap → the table now grows an extra column with hatched holes.
+
+⚠ **Not an error, by design.** Med6 legitimately has Chirurgie on two-month periods and ANES REA on
+monthly ones, both numbered P1.
 
 ---
 

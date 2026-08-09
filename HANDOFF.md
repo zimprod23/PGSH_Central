@@ -1,5 +1,51 @@
 # HANDOFF.md
 
+> **▶ SESSION 14 — the crossover is generated now (« mirror effect », generalised).**
+>
+> Asked for as: configure one stage, get the opposite for the other. Built as the general rotation,
+> because two stages is the easy case and the new CNPN's 3rd year is six (three per semester).
+>
+> `Stages/RotationCycle/` produces the `PartitionStagePlan[]` matrix `GenerateMacroPlanCommand`
+> **already consumes** — so it generates what was previously ticked by hand and changes nothing
+> downstream. `POST levels/{id}/rotation-cycle[/preview]`; the apply writes the slots and *returns* the
+> matrix, which you then post to `stages/macro-plan`.
+>
+> ⚠ **One correction to the mental model this was specified with.** A block of S stages at k periods
+> each occupies **`S × k` columns, not `partitions × k`.** The timeline has to fit one partition
+> visiting every stage; partitions subdivide *who is where*, they do not lengthen it. The two coincide
+> only when S = P — which is why the 2-stage/2-partition example hid it. Three stages at k=1 with six
+> partitions is **3** columns, two partitions per stage per turn. The planner refuses a wrong window
+> count and states the arithmetic.
+>
+> The rule: partition *p* takes lane `p mod S`, and in turn *t* sits in stage `(lane + t) mod S`. S = 2
+> is exactly the requested mirror. `RotationCyclePlanner` is **pure** — no DB, no clock — so the
+> crossover is tested by properties over many (S, k, P): every partition visits every stage exactly
+> once, none is ever in two at a time, every stage is occupied in every column.
+>
+> Uneven splits are **reported, not refused**: P not a multiple of S still gives everyone every stage,
+> the turns just carry unequal effectifs; fewer partitions than stages leaves a stage empty for a turn.
+> Only the faculty knows if that was intended.
+>
+> The axis is **replaced wholesale** (half-old/half-new columns are the misalignment this removes),
+> scoped to the stages named — so semester 1 and semester 2 are two independent blocks — and **refused
+> outright while any cell is published**.
+>
+> **▶ AND THE GAP IT WORKS AROUND — read this one.** Nothing in the schema says Médecine P1 and
+> Chirurgie P1 are the same window: `StageSlot` is keyed (stage, year, period number), the axis is
+> *derived* from dates, and neither guard notices a drift (`SlotOverlapGuard` is per-stage by design;
+> `GroupScheduleConflictGuard` only fires on a real double-booking, which a crossover never is).
+>
+> ⚠ **The small drift is the dangerous one.** Chir P1 two days longer than Med P1 means Chirurgie's
+> window *contains* Médecine's, so `PeriodAxis` drops it as a composite and the error vanishes without
+> trace. `PeriodAxisDiagnostics` now reports it on `LevelRepartitionResponse.AxisDisagreements`. It is
+> **never an error** — Med6 legitimately runs Chirurgie's P1 over two months and ANES REA's over one,
+> and code cannot tell that from a typo. Recipes: SMOKE-TEST **12c** and **12d**. The structural fix (a
+> declared axis entity) is logged against 15.1; `RotationCycle` avoids the class in practice.
+>
+> Suite: **714 green** (+41).
+>
+> ---
+>
 > **▶ ALSO SESSION 14 — the partition stripe, explained and now optional.**
 >
 > You spotted that a cell of the annual planning holds groups `1, 3, 5` rather than `47-50`, and

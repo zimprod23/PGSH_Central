@@ -24,7 +24,12 @@ public sealed record LevelRepartitionResponse(
     string AcademicYearLabel,
     IReadOnlyList<PeriodWindow> Columns,
     IReadOnlyList<RepartitionRow> Rows,
-    RepartitionSummary Summary);
+    RepartitionSummary Summary,
+    // Period numbers whose stages declare different windows. Legitimate when stages genuinely run at
+    // different lengths, a mistyped date otherwise — and nothing else in the system can tell you.
+    // Kept off RepartitionSummary on purpose: that record is a bag of counts compared by value, and a
+    // collection member would silently break its equality.
+    IReadOnlyList<AxisDisagreement> AxisDisagreements);
 
 /// <summary>
 /// One printed line: a service, under the stage it hosts. A service appearing in two stages of the

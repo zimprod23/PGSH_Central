@@ -8,6 +8,7 @@ using PGSH.Application.Stages.Cnpn.Targeting;
 using PGSH.Application.Stages.Evaluations;
 using PGSH.Application.Stages.Evaluations.Import;
 using PGSH.Application.Students.Registrations.Deliberation;
+using PGSH.Application.Stages.RotationCycle;
 using PGSH.Application.Students.Registrations.Reinscription;
 using PGSH.Application.Stages.Planning;
 using PGSH.Application.Stages.Slots;
@@ -51,6 +52,7 @@ public static class DependencyInjection
         services.AddScoped<EvaluationImportPlanner>();
         services.AddScoped<DeliberationPlanner>();
         services.AddScoped<ReinscriptionPlanner>();
+        services.AddScoped<RotationCycleContext>();
 
         return services;
     }

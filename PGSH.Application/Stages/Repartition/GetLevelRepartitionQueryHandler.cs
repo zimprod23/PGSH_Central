@@ -55,11 +55,23 @@ internal sealed class GetLevelRepartitionQueryHandler(
 
         var axis = PeriodAxis.Build(cells.Select(c => (c.SlotStart, c.SlotEnd)));
 
+        // Read from the slots themselves rather than from the cells: a period nobody has been placed in
+        // yet still has dates, and a drift there is exactly what the admin wants to hear about before
+        // arranging on top of it.
+        var declaredSlots = await dbContext.StageSlots
+            .AsNoTracking()
+            .Where(s => s.Stage.LevelId == request.LevelId && s.AcademicYearId == academicYearId)
+            .Select(s => new { s.PeriodNumber, StageName = s.Stage.Name, s.StartDate, s.EndDate })
+            .ToListAsync(cancellationToken);
+
+        var disagreements = PeriodAxisDiagnostics.Find(
+            declaredSlots.Select(s => (s.PeriodNumber, s.StageName, s.StartDate, s.EndDate)));
+
         if (cells.Count == 0 || axis.Count == 0)
         {
             return new LevelRepartitionResponse(
                 level.Id, level.Label, level.Year, level.AcademicProgram, academicYearId, yearLabel,
-                axis, [], new RepartitionSummary(0, axis.Count, 0, 0, 0));
+                axis, [], new RepartitionSummary(0, axis.Count, 0, 0, 0), disagreements);
         }
 
         var chefs = await ResolveChefsAsync(
@@ -80,7 +92,7 @@ internal sealed class GetLevelRepartitionQueryHandler(
 
         return new LevelRepartitionResponse(
             level.Id, level.Label, level.Year, level.AcademicProgram, academicYearId, yearLabel,
-            axis, rows, summary);
+            axis, rows, summary, disagreements);
     }
 
     /// <summary>
