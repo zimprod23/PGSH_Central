@@ -99,6 +99,11 @@ These are rules enforced in domain or application code — not always obvious fr
   the same level — would put a group in two services on the same day. Different levels may share dates freely.
   Windows are **inclusive of both ends**, so a period ending 31/03 and one starting 31/03 collide; the next must
   start 01/04. Enforced on both create and update of a `StageSlot`. Error: `StageErrors.SlotOverlap`.
+  - ⚠ **Superseded 2026-08-08 — the rule above is now per-STAGE, not per-level.** It used to refuse any two
+    overlapping windows anywhere in a level, which contradicted the faculty's own published planning: in
+    `Med3.png` Médecine and Chirurgie run the **same** windows, partition A in one and B in the other. That is
+    the whole point of partitioning — it halves the load on every service — and the old rule made the published
+    layout unauthorable. See *No group in two services at once* below for what replaced it.
 - **The chef worklist is never year-scoped by default** *(learned the hard way — two live incidents)*: a chef's
   list is "what is live in my services", expressed by `IsStarted`. Any implicit scoping to the current academic
   year couples live work to a bookkeeping record that drifts out of step with the dates rotations actually run
@@ -214,6 +219,93 @@ The complex planning operations were extracted into DI-registered services under
 
 ### Stage timeline / calendar (read-only Gantt)
 `GetYearTimelineQuery` (`Application/Stages/Timeline/`, endpoint `GET /academic-years/{id}/timeline?levelId=`) returns a `Level → Stage → Partition → Group` tree for the calendar view. Each `TimelinePartition` now carries its `Groups` (`TimelineGroup`: id, label, number, student count) — the academic groups whose cohorts make up that partition in the stage. Frontend `PartitionDrawer` renders each partition as a clickable row (`PartitionRow`) that expands to a grid of its group cards. **A `Stage` has no dates** — every span is *derived* from `StageSlot.StartDate/EndDate`: a stage spans the union of its slots; a partition spans the slots its cohorts occupy. The year is reached via `AcademicGroup.AcademicYearId` (slots/cohorts are not year-stamped). Reuses `ServiceOccupancyCalculator` for the per-partition saturation flag. Frontend: `StageTimelinePage` (`/admin/timeline`, nav "Calendrier") — a **custom CSS Gantt** (date→% offset via dayjs, no Gantt library); year picker, month axis, collapsible level rows, stage bars → partition-window Drawer. Cache tag `Stage/TIMELINE` + `refetchOnMountOrArgChange` (fine-grained invalidation from the ~15 plan-mutations is not wired yet — Phase 7.6 Phase B / robustness).
+
+### Répartition annuelle des stages (the published planning table)
+`GetLevelRepartitionQuery` (`Application/Stages/Repartition/`, endpoint
+`GET /levels/{levelId}/repartition?academicYearId=`) is the schedule grid **turned a quarter**: the
+grid asks "where does this cohort go each period", this asks "which groups does this service hold
+each period", across every stage of the level at once. Pure pivot of `CohortSlotAssignment` — no new
+modelling, no marks, no execution state.
+
+- **The column axis is the finest partition present.** Stages of one level do not share a period
+  length (`Med6`: ANES REA monthly, Chirurgie two-monthly), so `PeriodAxis.Build` drops any window
+  that strictly contains another and keeps the atoms. A stage then occupies the columns whose
+  **midpoint** falls inside its own window — bare overlap would let a window spilling a few days past
+  a boundary seize the next column from the stage that really runs there. A multi-column period
+  repeats its cell in each column carrying one `SlotId`, exactly as the published table does.
+- **Rows and stages share one sort key: the lowest group number the line opens on.** That single rule
+  reproduces both reference images — `Med3` (Médecine 1-40 above Chirurgie 41-80) and `Med6`
+  (Chirurgie 1-20, ANES REA 21-30, URGS-TRAUMA 31-40…) — and keeps the rotation cycle readable down
+  the page. Neither is alphabetical or by id; don't "fix" it to either.
+- **The colour band is the partition of the row's *first* period.** A row visits groups from every
+  partition over the year, so only the opening cell says which block of the rotation it is.
+- **The chef is resolved as of the first column's start**, from `ServiceChefAssignment`, falling back
+  to the sitting chef where no tenure covers it. A répartition reprinted years later keeps naming the
+  chef it was published with.
+- **It ships as an export, not a public page** — the faculty uploads the file to its own site.
+  `RepartitionPage` (admin → Formation → Répartition annuelle) previews it, then serializes **the
+  very DOM node on screen** into a standalone `.html` (`buildRepartitionFile`, stylesheet inlined via
+  Vite `?raw`) and prints that same file to PDF. Preview, print and upload are one document by
+  construction, not three implementations kept in step.
+- ⚠ **Nothing renders yet: the database holds 0 `StageSlots` and 0 `CohortSlotAssignments`** (13,604
+  cohorts, but no grid). The legacy Access base had no planning grid — see *No periods in legacy*.
+  Every level's répartition is empty until periods and cells are authored in `ScheduleGridModal`.
+- **Verified end-to-end 2026-08-08** on level 3 (Médecine + Chirurgie, 80 groups each): allowed
+  services and 2 periods per stage seeded, then **the real `RotationArranger`** run from the UI —
+  320 cells, 26 rows, 4 columns, 12.8 KB self-contained export. The union axis did its job: two
+  stages declaring *different* windows merged into one 4-column axis. Partition banding tracked the
+  arranger's own A/B allocation, and the 52 unplanned cells were hatched and counted. Non-contiguous
+  cells printed as `1, 3, 5, 7, 9, 11` — correctly *not* collapsed to `1-11`.
+  Revert script: `scratchpad/revert-repartition-testdata.sql` (slots cascade to cells).
+  - ⚠ That table is **half empty by construction**, and the empty half *is* the `SlotOverlapGuard`
+    defect made visible: because the two stages may not share date windows, they were forced into
+    sequential ones, so Médecine holds P1-P2 and Chirurgie P3-P4. In the published `Med3.png` all
+    four columns are full for **both** stages.
+- ⚠ **Two things block authoring a real planning**, both found in that pass — see
+  `SlotOverlapGuard` above, and the empty-`AllowedServices` note below.
+
+### No group in two services at once (`GroupScheduleConflictGuard`, 2026-08-08)
+The rule that actually prevents double-booking, checked **where a group is really placed** rather than
+where a date column is merely declared. A `StageSlot` on its own places nobody; only a
+`CohortSlotAssignment` puts a group somewhere.
+
+- **The planning model it exists to permit.** For a level with *S* stages, each stage declares
+  `periods-per-stage × number-of-partitions` periods over **one shared date axis**, and the partitions
+  cross over. Med3: 2 stages, 2 partitions → 4 periods in each stage, A→Médecine P1-P2 + Chirurgie
+  P3-P4, B mirrored. Every column is full for every stage, and each service carries only half the
+  promotion at a time. `SlotOverlapGuard`'s old level-wide rule made this impossible to author.
+- **What it refuses**: assigning a cohort to a slot when *its academic group* already occupies another
+  slot whose window overlaps. A group has one cohort per stage, so the conflict is naturally
+  cross-stage. Error `Schedule.GroupAlreadyPlaced`, which names the group — that is what lets it tell
+  the legitimate case (A in Médecine P1, B in Chirurgie P1, same dates) from the mistake (group 1 in
+  both). A windows-only comparison never could.
+- **Applied in three places**, because there are three ways to double-book:
+  1. `SetCohortSlotAssignmentCommandHandler` — assigning a cohort to a slot.
+  2. `RotationArranger` — bulk, one snapshot query via `BuildAsync`, so no N+1. Skips conflicting
+     cells and returns `GroupConflicts`; `AutoArrangeResult` and `MacroPlanResult` both carry it and
+     both UIs show it, because a run that writes nothing otherwise looks like it had nothing to do.
+     `GenerateMacroPlanCommand` inherits the check — both arrange paths go through the arranger.
+  3. `UpdateStageSlotCommandHandler` via `EnsureSlotCanMoveAsync` — **dragging a period's dates
+     double-books every group already in it without touching a single cell**, and the per-stage
+     `SlotOverlapGuard` cannot see that. Missing this was a regression opened by narrowing the
+     overlap rule.
+  - ⚠ The slots being rewritten are **excluded** from the snapshot (`ignoredSlotIds`), or a second
+    arrange of the same stage would see the cells it is about to replace and refuse every one.
+  - ⚠ **Conflicts are computed before the stale-cell removal, and conflicting pairs are excluded
+    from it.** Deciding afterwards deleted a cohort's existing cell and then declined to write the
+    replacement — re-running an arrange across all partitions silently destroyed a correct plan.
+    Covered by `A_refused_cell_keeps_the_plan_it_already_had`.
+- Changing only the *service* of a cell the group already holds is not a conflict.
+
+### An empty `Stage.AllowedServices` blocks planning — it does not mean "all services"
+`RotationArranger` refuses with `Schedule.NoAllowedServices` when the list is empty, so
+"Répartition auto." can never run. **25 of 27 stages have zero allowed services** (2 rows in
+`StageAllowedServices` for 148 services), which is a large part of why the grid has never been filled.
+`StageDetailPage` used to read *"Aucune restriction — tous les services peuvent être utilisés dans la
+grille"* and badge it **Tous** — the exact opposite of what the backend does — so an admin had no way
+to learn why the button was disabled. Corrected 2026-08-08 to an orange **Aucun** badge and a warning.
+The backend is the side that is right: auto-arranging Médecine across all 148 services, Pharmacie and
+Réanimation included, is not a sensible default.
 
 ### Date pickers (`@mantine/dates`)
 `@mantine/dates` + `dayjs` are installed; `@mantine/dates/styles.css` is imported in `main.tsx` and the app is wrapped in `<DatesProvider settings={{ locale: 'fr', firstDayOfWeek: 1 }}>`. Mantine 8 date components use **string `"YYYY-MM-DD"` values** (no `Date` conversion), which matches the backend `DateOnly`. `StageSlot` start/end in `ScheduleGridModal` uses `DatePickerInput type="range"`.

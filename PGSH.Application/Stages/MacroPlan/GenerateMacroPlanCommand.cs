@@ -33,4 +33,9 @@ public sealed record MacroPlanResult(
     /// its level. Surfaced rather than dropped: a plan that quietly leaves out a partition looks
     /// like it worked.
     /// </summary>
-    int CohortsNotRequiredByCnpn = 0);
+    int CohortsNotRequiredByCnpn = 0,
+    /// <summary>
+    /// Cells the arranger declined because the group was already placed in an overlapping period of
+    /// another stage — the plan's partitions were authored to collide.
+    /// </summary>
+    int GroupConflicts = 0);

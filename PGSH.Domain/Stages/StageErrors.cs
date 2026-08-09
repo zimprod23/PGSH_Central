@@ -188,28 +188,77 @@ public static class StageErrors
         "Aucune année universitaire courante n'est définie — sélectionnez une année.");
 
     /// <summary>
-    /// Two periods of the same academic level would run at the same time. A level's students follow
-    /// every one of its stages, so overlapping windows — whether inside one stage or across two —
-    /// would place the same group in two services at once.
+    /// Two periods <b>of one stage</b> would run at the same time. Its cohorts rotate through those
+    /// periods in sequence, so overlapping windows are always a mistake.
+    ///
+    /// Two <i>different</i> stages of the same level may share a window — that is how a promotion
+    /// split into partitions is planned, and it is guarded per group by
+    /// <c>GroupScheduleConflictGuard</c> instead.
     /// </summary>
     public static Error SlotOverlap(
         int periodNumber, DateOnly start, DateOnly end,
-        string conflictingStageName, int conflictingPeriodNumber, DateOnly conflictStart, DateOnly conflictEnd,
-        bool sameStage) => Error.Conflict(
+        int conflictingPeriodNumber, DateOnly conflictStart, DateOnly conflictEnd) => Error.Conflict(
         "Schedule.SlotOverlap",
-        sameStage
-            ? $"La période {periodNumber} ({start:dd/MM/yyyy} – {end:dd/MM/yyyy}) chevauche la période "
-              + $"{conflictingPeriodNumber} ({conflictStart:dd/MM/yyyy} – {conflictEnd:dd/MM/yyyy}) du même stage. "
-              + "Les périodes d'un stage doivent se suivre sans se chevaucher."
-            : $"La période {periodNumber} ({start:dd/MM/yyyy} – {end:dd/MM/yyyy}) chevauche la période "
-              + $"{conflictingPeriodNumber} du stage « {conflictingStageName} » "
-              + $"({conflictStart:dd/MM/yyyy} – {conflictEnd:dd/MM/yyyy}), qui concerne le même niveau. "
-              + "Un groupe ne peut pas être affecté à deux stages en même temps.");
+        $"La période {periodNumber} ({start:dd/MM/yyyy} – {end:dd/MM/yyyy}) chevauche la période "
+        + $"{conflictingPeriodNumber} ({conflictStart:dd/MM/yyyy} – {conflictEnd:dd/MM/yyyy}) du même stage. "
+        + "Les périodes d'un stage doivent se suivre sans se chevaucher.");
+
+    /// <summary>
+    /// A group would sit in two services at once: it is already placed in a period whose dates
+    /// overlap the one being assigned. This is the real double-booking rule — it names the group,
+    /// so it can tell the legitimate case (partition A in Médecine P1, partition B in Chirurgie P1,
+    /// same dates) from the mistake (group 1 in both).
+    /// </summary>
+    public static Error GroupAlreadyPlaced(
+        int groupNumber, string stageName, int periodNumber, DateOnly start, DateOnly end) => Error.Conflict(
+        "Schedule.GroupAlreadyPlaced",
+        $"Le groupe {groupNumber} est déjà affecté au stage « {stageName} » période {periodNumber} "
+        + $"({start:dd/MM/yyyy} – {end:dd/MM/yyyy}), qui chevauche cette période. "
+        + "Un groupe ne peut pas être dans deux services en même temps — ciblez une autre partition.");
 
     public static Error CapacityExceeded(
         int periodNumber, string serviceName, DateOnly start, DateOnly end, int occupancy, int capacity) => Error.Conflict(
         "Schedule.CapacityExceeded",
         $"Period {periodNumber} cannot be published: service \"{serviceName}\" ({start:dd/MM/yyyy} – {end:dd/MM/yyyy}) already has {occupancy} student(s) and its capacity is {capacity}. Reduce the number of cohorts assigned to this service or choose a service with higher capacity.");
+
+    /// <summary>
+    /// The service has room overall but not for <i>this</i> promotion. Named separately from
+    /// <see cref="CapacityExceeded"/> because the remedy is different: the total is relieved by
+    /// moving anyone out, the quota only by moving out students of that level — or by raising
+    /// the quota, which is a decision the service makes, not the planner.
+    /// </summary>
+    public static Error LevelCapacityExceeded(
+        int periodNumber, string serviceName, string levelLabel,
+        DateOnly start, DateOnly end, int occupancy, int capacity) => Error.Conflict(
+        "Schedule.LevelCapacityExceeded",
+        $"La période {periodNumber} ne peut pas être publiée : le service « {serviceName} » "
+        + $"({start:dd/MM/yyyy} – {end:dd/MM/yyyy}) accueillerait {occupancy} étudiant(s) de {levelLabel} "
+        + $"alors que son quota pour cette promotion est de {capacity}. Réduisez le nombre de groupes de "
+        + "cette promotion affectés à ce service, ou augmentez son quota depuis la fiche du service.");
+
+    /// <summary>
+    /// The service does not take this promotion at all — it carries intake rules and none of them
+    /// name this level. Distinct from a quota of zero only in wording; both refuse, but this one
+    /// tells the planner the service was never a candidate rather than that it is full.
+    /// </summary>
+    public static Error LevelNotAdmitted(
+        int periodNumber, string serviceName, string levelLabel,
+        DateOnly start, DateOnly end) => Error.Conflict(
+        "Schedule.LevelNotAdmitted",
+        $"La période {periodNumber} ne peut pas être publiée : le service « {serviceName} » "
+        + $"({start:dd/MM/yyyy} – {end:dd/MM/yyyy}) n'accueille pas les étudiants de {levelLabel}. "
+        + "Choisissez un autre service, ou ajoutez un quota pour cette promotion depuis la fiche du service.");
+
+    /// <summary>
+    /// Every service the stage allows refuses its level. Raised by auto-arrange rather than
+    /// silently producing an empty grid, because "no services" and "no services <i>for you</i>"
+    /// send the user to two different screens.
+    /// </summary>
+    public static Error NoServicesAdmitLevel(string stageName, string levelLabel) => Error.Validation(
+        "Schedule.NoServicesAdmitLevel",
+        $"Aucun des services autorisés pour le stage « {stageName} » n'accueille les étudiants de {levelLabel}. "
+        + "Ajoutez un quota pour cette promotion sur au moins un de ces services, ou élargissez la liste "
+        + "des services autorisés du stage.");
 
     public static readonly Error ScheduleNotConfigured = Error.Validation(
         "Schedule.NotConfigured",
@@ -239,6 +288,18 @@ public static class StageErrors
     public static Error ServiceNotAllowed(int serviceId, int stageId) => Error.Conflict(
         "Stages.ServiceNotAllowed",
         $"Service {serviceId} is not in the allowed-services list for stage {stageId}.");
+
+    /// <summary>
+    /// The service carries intake quotas and none of them names this stage's promotion, so it could
+    /// never host the stage. Refused at the moment the list is authored rather than left for
+    /// auto-arrange to skip and publish to reject — those happen weeks later, to someone else.
+    /// </summary>
+    public static Error ServiceDoesNotAdmitStageLevel(
+        string serviceName, string levelLabel, IReadOnlyList<string> admittedLevels) => Error.Conflict(
+        "Stages.ServiceDoesNotAdmitStageLevel",
+        $"Le service « {serviceName} » n'accueille pas les étudiants de {levelLabel}, et ne peut donc pas "
+        + $"être autorisé pour ce stage. Il est réservé à : {string.Join(", ", admittedLevels)}. "
+        + "Ajoutez un quota pour cette promotion depuis la fiche du service, ou choisissez un autre service.");
 
     // === InternshipAssignment lifecycle ===
     public static Error InvalidStatusTransition(string action, InternshipStatus current) => Error.Validation(

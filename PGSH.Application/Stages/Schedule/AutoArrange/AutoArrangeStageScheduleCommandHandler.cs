@@ -29,6 +29,7 @@ internal sealed class AutoArrangeStageScheduleCommandHandler(
             return Result.Failure<AutoArrangeResult>(result.Error);
 
         var r = result.Value;
-        return Result.Success(new AutoArrangeResult(r.Assigned, r.SaturatedServices, r.TotalStudents, r.TotalCapacity));
+        return Result.Success(new AutoArrangeResult(
+            r.Assigned, r.SaturatedServices, r.TotalStudents, r.TotalCapacity, r.GroupConflicts));
     }
 }

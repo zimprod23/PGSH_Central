@@ -8,9 +8,12 @@ using Xunit;
 
 namespace PGSH.Tests.Application;
 
-// Two periods of the same academic level may never run at the same time. A level's students follow
-// every one of its stages, so an overlap — inside one stage or across two — would put a group in two
-// services on the same day. Windows are inclusive of both ends, so touching dates already collide.
+// Two periods of ONE stage may never run at the same time: its cohorts rotate through them in
+// sequence. Windows are inclusive of both ends, so touching dates already collide.
+//
+// Two *different* stages of the same level may share a window — that is how a promotion split into
+// partitions is planned (Médecine P1 and Chirurgie P1 on the same dates, A in one and B in the
+// other). Double-booking is caught per group instead; see GroupScheduleConflictTests.
 public class SlotOverlapTests
 {
     private const int SecondStageId = 2;
@@ -48,7 +51,7 @@ public class SlotOverlapTests
         new(db, new SlotOverlapGuard(db));
 
     private static UpdateStageSlotCommandHandler UpdateHandler(ApplicationDbContext db) =>
-        new(db, new SlotOverlapGuard(db));
+        new(db, new SlotOverlapGuard(db), new GroupScheduleConflictGuard(db));
 
     private static CreateStageSlotCommand NewSlot(
         int stageId, int periodNumber, DateOnly start, DateOnly end, int? academicYearId = null) =>
@@ -69,18 +72,19 @@ public class SlotOverlapTests
     }
 
     [Fact]
-    public async Task A_period_overlapping_another_stage_of_the_same_level_is_refused()
+    public async Task Another_stage_of_the_same_level_may_run_over_the_same_dates()
     {
+        // The faculty's own layout (example_stage_assignement/Med3.png): Médecine and Chirurgie run
+        // the same windows, with partition A in one and B in the other — which is the point of
+        // partitioning, since it halves the load on every service. Refusing this made the published
+        // planning unrepresentable; the double-booking it was meant to stop is caught per group.
         await using var db = TestHarness.NewContext("slot-cross-stage");
         await SeedAsync(db);
 
-        // Pédiatrie P1 in the middle of March, while Cardiologie already occupies March.
         var result = await CreateHandler(db).Handle(
-            NewSlot(SecondStageId, 1, new DateOnly(2026, 3, 10), new DateOnly(2026, 3, 20)), default);
+            NewSlot(SecondStageId, 1, MarchStart, MarchEnd), default);
 
-        result.IsFailure.Should().BeTrue();
-        result.Error.Code.Should().Be("Schedule.SlotOverlap");
-        result.Error.Description.Should().Contain("Cardiologie").And.Contain("même niveau");
+        result.IsSuccess.Should().BeTrue("no group is placed by declaring a period");
     }
 
     [Fact]
@@ -132,7 +136,7 @@ public class SlotOverlapTests
         await SeedAsync(db);
 
         var result = await CreateHandler(db).Handle(
-            NewSlot(SecondStageId, 1, DateOnly.Parse(start), DateOnly.Parse(end)), default);
+            NewSlot(TestHarness.StageId, 2, DateOnly.Parse(start), DateOnly.Parse(end)), default);
 
         result.IsFailure.Should().BeTrue();
         result.Error.Code.Should().Be("Schedule.SlotOverlap");
@@ -145,7 +149,7 @@ public class SlotOverlapTests
         await SeedAsync(db);
 
         var result = await CreateHandler(db).Handle(
-            NewSlot(SecondStageId, 1, new DateOnly(2026, 1, 5), new DateOnly(2026, 2, 5)), default);
+            NewSlot(TestHarness.StageId, 2, new DateOnly(2026, 1, 5), new DateOnly(2026, 2, 5)), default);
 
         result.IsSuccess.Should().BeTrue();
     }
@@ -170,7 +174,7 @@ public class SlotOverlapTests
         await SeedAsync(db);
 
         await CreateHandler(db).Handle(
-            NewSlot(SecondStageId, 1, new DateOnly(2026, 3, 10), new DateOnly(2026, 3, 20)), default);
+            NewSlot(TestHarness.StageId, 2, new DateOnly(2026, 3, 10), new DateOnly(2026, 3, 20)), default);
 
         (await db.StageSlots.CountAsync()).Should().Be(1, "only the original March period exists");
     }

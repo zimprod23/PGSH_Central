@@ -54,7 +54,8 @@ internal sealed class CreateStageSlotCommandHandler(
 
 internal sealed class UpdateStageSlotCommandHandler(
     IApplicationDbContext dbContext,
-    SlotOverlapGuard overlapGuard)
+    SlotOverlapGuard overlapGuard,
+    GroupScheduleConflictGuard groupGuard)
     : ICommandHandler<UpdateStageSlotCommand>
 {
     public async Task<Result> Handle(UpdateStageSlotCommand request, CancellationToken cancellationToken)
@@ -72,6 +73,13 @@ internal sealed class UpdateStageSlotCommandHandler(
             excludedSlotId: slot.Id, cancellationToken);
         if (overlap.IsFailure)
             return overlap;
+
+        // Dragging a period onto another stage's window double-books every group already in it,
+        // without any cell being touched. The per-stage overlap check above cannot see that.
+        var free = await groupGuard.EnsureSlotCanMoveAsync(
+            slot.Id, request.StartDate, request.EndDate, cancellationToken);
+        if (free.IsFailure)
+            return free;
 
         slot.Label     = request.Label;
         slot.StartDate = request.StartDate;
@@ -108,7 +116,9 @@ internal sealed class DeleteStageSlotCommandHandler(IApplicationDbContext dbCont
     }
 }
 
-internal sealed class SetCohortSlotAssignmentCommandHandler(IApplicationDbContext dbContext)
+internal sealed class SetCohortSlotAssignmentCommandHandler(
+    IApplicationDbContext dbContext,
+    GroupScheduleConflictGuard groupGuard)
     : ICommandHandler<SetCohortSlotAssignmentCommand, int>
 {
     public async Task<Result<int>> Handle(SetCohortSlotAssignmentCommand request, CancellationToken cancellationToken)
@@ -155,10 +165,17 @@ internal sealed class SetCohortSlotAssignmentCommandHandler(IApplicationDbContex
 
         if (existing is not null)
         {
+            // Only the service changes; the group already occupies this period legitimately, so
+            // there is nothing new to conflict with.
             existing.ServiceId = request.ServiceId;
             await dbContext.SaveChangesAsync(cancellationToken);
             return existing.Id;
         }
+
+        var free = await groupGuard.EnsureGroupIsFreeAsync(
+            request.CohortId, request.StageSlotId, cancellationToken);
+        if (free.IsFailure)
+            return Result.Failure<int>(free.Error);
 
         var assignment = new CohortSlotAssignment
         {

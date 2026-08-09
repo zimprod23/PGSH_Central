@@ -1,6 +1,7 @@
 ﻿using MediatR;
 using PGSH.API.Extensions;
 using PGSH.API.Infrastructure;
+using PGSH.Application.Hospitals.Services;
 using PGSH.Application.Hospitals.Services.Update;
 using PGSH.Domain.Hospitals;
 
@@ -14,7 +15,11 @@ public sealed class Update : IEndpoint
         ServiceType ServiceType,
         int Capacity,
         int HospitalId,
-        string? Specialty);
+        string? Specialty,
+        string? LocalizationX,
+        string? LocalizationY,
+        string? LocalizationZ,
+        IReadOnlyCollection<ServiceLevelCapacityRequest>? LevelCapacities);
 
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
@@ -22,7 +27,9 @@ public sealed class Update : IEndpoint
         {
             var command = new UpdateServiceCommand(
                 id, request.Name, request.Description, request.ServiceType,
-                request.Capacity, request.HospitalId, request.Specialty);
+                request.Capacity, request.HospitalId, request.Specialty,
+                request.LocalizationX, request.LocalizationY, request.LocalizationZ,
+                request.LevelCapacities);
 
             var result = await sender.Send(command, ct);
             return result.Match(Results.NoContent, CustomResults.Problem);

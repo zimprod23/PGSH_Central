@@ -8,8 +8,13 @@ namespace PGSH.Application.Stages.Planning;
 /// over the window of one slot. Drawn from every stage, so the load it represents
 /// is global — the same physical service used by different partitions/stages over
 /// overlapping dates is summed, not counted per stage.
+///
+/// <paramref name="LevelId"/> is the level of the stage the cohort is doing, which is what a
+/// service's intake quotas are written against. Two promotions sharing a service on overlapping
+/// dates consume its total ceiling together but their own quotas separately.
 /// </summary>
-internal sealed record OccupancyEntry(int ServiceId, int CohortId, int StageSlotId, DateOnly Start, DateOnly End, int Students);
+internal sealed record OccupancyEntry(
+    int ServiceId, int LevelId, int CohortId, int StageSlotId, DateOnly Start, DateOnly End, int Students);
 
 /// <summary>
 /// In-memory view over the planned occupancy of a set of services. Two windows
@@ -24,6 +29,24 @@ internal sealed class ServiceOccupancyLookup(IReadOnlyList<OccupancyEntry> entri
         entries
             .Where(e => e.ServiceId == serviceId && e.Start <= end && start <= e.End)
             .Sum(e => e.Students);
+
+    /// <summary>
+    /// The share of that load belonging to one level — what a per-level quota is measured against.
+    /// A service holding 10 first-years and 15 third-years is at 25 against its ceiling but at 10
+    /// against the first-year quota.
+    /// </summary>
+    public int LoadOn(int serviceId, int levelId, DateOnly start, DateOnly end) =>
+        entries
+            .Where(e => e.ServiceId == serviceId && e.LevelId == levelId && e.Start <= end && start <= e.End)
+            .Sum(e => e.Students);
+
+    /// <summary>The levels actually present on a service over a window, for reporting which quota broke.</summary>
+    public IReadOnlyList<int> LevelsOn(int serviceId, DateOnly start, DateOnly end) =>
+        entries
+            .Where(e => e.ServiceId == serviceId && e.Start <= end && start <= e.End)
+            .Select(e => e.LevelId)
+            .Distinct()
+            .ToList();
 }
 
 /// <summary>
@@ -45,6 +68,7 @@ internal sealed class ServiceOccupancyCalculator(IApplicationDbContext dbContext
             .Where(a => serviceIds.Contains(a.ServiceId))
             .Select(a => new OccupancyEntry(
                 a.ServiceId,
+                a.Cohort.Stage.LevelId,
                 a.CohortId,
                 a.StageSlotId,
                 a.StageSlot.StartDate,

@@ -22,6 +22,12 @@ internal class GetServicesQueryHandler(IApplicationDbContext dbContext) : IQuery
         if (request.ServiceChefId.HasValue)
             query = query.Where(s => s.ServiceChefId == request.ServiceChefId.Value);
 
+        // An unrestricted service admits everyone, so it belongs in the answer too — filtering on
+        // the quota row alone would hide every service nobody has restricted yet.
+        if (request.AdmitsLevelId.HasValue)
+            query = query.Where(s => s.LevelCapacities.Count == 0
+                                  || s.LevelCapacities.Any(c => c.LevelId == request.AdmitsLevelId.Value));
+
         if (!string.IsNullOrWhiteSpace(request.SearchTerm))
         {
             string term = request.SearchTerm.Trim().ToLower();
@@ -34,6 +40,7 @@ internal class GetServicesQueryHandler(IApplicationDbContext dbContext) : IQuery
                 request.PageNumber, request.PageSize,
                 s => new ServiceSummaryResponse(
                     s.Id, s.Name, s.ServiceType.ToString(), s.Specialty, s.Capacity,
+                    s.LevelCapacities.Count,
                     s.HospitalId, s.Hospital.Name,
                     s.ServiceChef != null ? s.ServiceChef.FirstName + " " + s.ServiceChef.LastName : null,
                     // Staff is a field not a property; EF cannot translate field navigation in LINQ-to-SQL

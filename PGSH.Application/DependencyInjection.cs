@@ -2,6 +2,7 @@
 using PGSH.Application.AcademicYears;
 using PGSH.Application.Behaviors;
 using PGSH.Application.Employees.MyServices;
+using PGSH.Application.Hospitals.Services;
 using PGSH.Application.Stages.Cnpn;
 using PGSH.Application.Stages.Cnpn.Targeting;
 using PGSH.Application.Stages.Evaluations;
@@ -29,6 +30,8 @@ public static class DependencyInjection
         services.AddValidatorsFromAssembly(typeof(DependencyInjection).Assembly, includeInternalTypes: true);
 
         services.AddScoped<ServiceOccupancyCalculator>();
+        services.AddScoped<ServiceIntakeCalculator>();
+        services.AddScoped<ServiceLevelCapacityResolver>();
         services.AddScoped<RotationArranger>();
         services.AddScoped<StudentAffectationService>();
         services.AddScoped<SchedulePublisher>();
@@ -41,6 +44,7 @@ public static class DependencyInjection
         services.AddScoped<CnpnTargetPlanner>();
         services.AddScoped<AcademicYearResolver>();
         services.AddScoped<SlotOverlapGuard>();
+        services.AddScoped<GroupScheduleConflictGuard>();
         services.AddScoped<EvaluationObjectiveResolver>();
         services.AddScoped<EvaluationImportPlanner>();
 

@@ -28,7 +28,12 @@ internal sealed class GetManyHospitalsQueryHandler(IApplicationDbContext dbConte
             .OrderBy(h => h.Name)
             .ToPaginatedResponseAsync(
                 request.PageNumber, request.PageSize,
-                h => new HospitalSummaryResponse(h.Id, h.Name, h.CenterId, h.Center.Name, h.HospitalType.ToString(), h.City, h.Email),
+                h => new HospitalSummaryResponse(
+                    h.Id, h.Name, h.CenterId, h.Center.Name, h.HospitalType.ToString(), h.City, h.Email,
+                    h.Description,
+                    h.LocalisationMaps != null ? h.LocalisationMaps.x : null,
+                    h.LocalisationMaps != null ? h.LocalisationMaps.y : null,
+                    h.LocalisationMaps != null ? h.LocalisationMaps.z : null),
                 cancellationToken);
 
         return Result.Success(response);

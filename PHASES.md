@@ -565,7 +565,52 @@ later link to the pedagogical system will overwrite facts with guesses.
 
 ### 14.4 — Répartition annuelle des stages (printable level planning matrix)
 
-**Status: Not started — specified 2026-08-08. Reference output: [`example_stage_assignement/`](example_stage_assignement/) (`Med3.png`, `Med6.png`).**
+**Status: Built 2026-08-08. Reference output: [`example_stage_assignement/`](example_stage_assignement/) (`Med3.png`, `Med6.png`).**
+
+⚠ **The database holds 0 `StageSlots` and 0 `CohortSlotAssignments`**, so every level's répartition is
+empty until a planning is authored — see *No periods in legacy* in NOTES.md. Verified 2026-08-08
+against a temporary Med3-shaped fixture (inserted, checked, deleted): the table matched `Med3.png`,
+including the row order, and the export was self-contained.
+
+**Two defects found in that pass blocked authoring a planning at all:**
+1. ✅ **`SlotOverlapGuard` forbade the published Med3 planning** — fixed 2026-08-08. It is now
+   per-stage, and double-booking is enforced per group by `GroupScheduleConflictGuard` where a cohort
+   is actually placed. This unlocks the real model: *periods-per-stage × partitions* periods on one
+   shared axis, with the partitions crossing over (A→Médecine P1-P2 + Chirurgie P3-P4, B mirrored).
+   Verified on level 3 — 320 cells, 26 rows × 4 columns, **zero empty cells**, zero double-booked
+   groups. Details in NOTES.md.
+2. ⚠ **25 of 27 stages have an empty `AllowedServices`**, which `RotationArranger` refuses outright.
+   Only the misleading UI copy was corrected (it claimed empty meant "all services allowed"); the
+   stage→service mapping itself still has to be entered per stage.
+
+Shipped as an **export**, not a public endpoint — the faculty uploads a file to its own site rather
+than PGSH serving the page. `GET /levels/{levelId}/repartition` stays behind
+`RequireAuthorization()` like everything else.
+
+- `GetLevelRepartitionQuery` + handler, `GroupNumberRanges`, `PeriodAxis` in `Application/Stages/Repartition/`
+- `RepartitionPage` (admin → Formation → Répartition annuelle) previews it; the same DOM node is
+  serialized into a standalone `.html` and printed to PDF, so preview, print and uploaded file are
+  one document by construction rather than three implementations agreeing.
+
+**Answers to the three open questions below**, settled during the build:
+
+- **Do all stages share one period axis?** No — the axis is the **finest partition present**. A
+  window that strictly contains another stage's window is a composite of it and is dropped, leaving
+  the atoms. `Med3` (every stage on the same four periods) drops nothing; `Med6` keeps ten monthly
+  columns and the two-month stages repeat their cell across each pair, carrying one `SlotId` so a
+  renderer may merge them. A period claims a column by **midpoint containment**, not bare overlap —
+  otherwise a window spilling a few days past a boundary seizes the next column from the stage that
+  really runs there.
+- **Rows with no assignment in a period?** Blank, hatched, and **counted**: `Summary.EmptyCells`
+  drives an orange banner on the page. A hole is a planning gap to review, not a shorter row.
+- **Is the chef printed live or frozen?** Resolved from `ServiceChefAssignment` **as of the first
+  column's start date**, falling back to the sitting chef where no tenure covers it (the legacy
+  import carried no trail). A répartition reprinted years later keeps naming the chef it was
+  published with.
+
+Row **and** stage order both fall out of one rule: sort by the lowest group number each line opens
+on. That reproduces `Med3` (Médecine 1-40 above Chirurgie 41-80) and `Med6` (Chirurgie 1-20, ANES REA
+21-30, URGS-TRAUMA 31-40…) exactly, and keeps the rotation cycle readable down the page.
 
 The one artefact the faculty actually publishes today, and the one PGSH cannot yet produce. It is a
 **planning** document: it shows *who goes where and when*, before any rotation runs. **No marks, no
@@ -622,17 +667,17 @@ is redundant: the parcours (session 10) already answers "where am I and when" pe
 so it can be **switched off**, and do not let the public view accrete features that belong in the
 portal.
 
-#### Open questions for 14.4
+#### Still open on 14.4
 
-- **Do all stages of a level share one period axis?** `Med3` is clean — four periods, every stage
-  aligned. `Med6` has ten columns where Chirurgie rows repeat the same groups across column pairs
-  while ANES REA changes every column. Two readings: either Chirurgie has 5 two-month slots drawn
-  across a shared one-month axis, or it has 10 slots and simply keeps its groups for two. **Check the
-  real `StageSlot` rows before designing the column model** — the first reading needs a union axis
-  with column spanning, the second does not.
-- **Rows with no assignment in a period** — blank cell, or is that a planning error worth flagging?
-- **Is the chef printed live or frozen?** `Service.ServiceChef` changes; a planning published in
-  November should probably keep the chef it was published with.
+- **The reference images could not be checked against real `StageSlot` rows** — there are none. The
+  axis builder handles both readings of `Med6` (five two-month slots on a shared monthly axis, or ten
+  monthly ones), so the design does not depend on which it is; but the first real planning authored
+  is the moment to confirm it, and the moment the whole page gets its first end-to-end pass.
+- **The letterhead is hardcoded** in `RepartitionDocument.tsx` — there is no institution entity in
+  the schema and one faculty publishes these. Becomes wrong the day a second one does.
+- **Nothing records that a répartition was published**, so "the chef at publication" is approximated
+  by "the chef when the first period starts". Close enough while the two dates are weeks apart;
+  wrong if a planning is drawn up a year ahead.
 
 ---
 

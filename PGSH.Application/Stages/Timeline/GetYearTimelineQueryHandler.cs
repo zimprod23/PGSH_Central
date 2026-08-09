@@ -16,7 +16,8 @@ namespace PGSH.Application.Stages.Timeline;
 /// </summary>
 internal sealed class GetYearTimelineQueryHandler(
     IApplicationDbContext dbContext,
-    ServiceOccupancyCalculator occupancyCalculator)
+    ServiceOccupancyCalculator occupancyCalculator,
+    ServiceIntakeCalculator intakeCalculator)
     : IQueryHandler<GetYearTimelineQuery, YearTimelineResponse>
 {
     public async Task<Result<YearTimelineResponse>> Handle(
@@ -52,8 +53,7 @@ internal sealed class GetYearTimelineQueryHandler(
                 Cells = c.SlotAssignments.Select(a => new CellRow(
                     a.ServiceId,
                     a.StageSlot.StartDate,
-                    a.StageSlot.EndDate,
-                    a.Service.Capacity)).ToList(),
+                    a.StageSlot.EndDate)).ToList(),
             })
             .ToListAsync(ct))
             .Select(c => new CohortRow(
@@ -106,6 +106,7 @@ internal sealed class GetYearTimelineQueryHandler(
 
         var serviceIds = cohorts.SelectMany(c => c.Cells.Select(cell => cell.ServiceId)).Distinct().ToList();
         var occupancy = await occupancyCalculator.BuildAsync(serviceIds, ct);
+        var intake = await intakeCalculator.BuildAsync(serviceIds, ct);
 
         var levels = cohorts
             .GroupBy(c => new { c.LevelId, c.LevelLabel })
@@ -115,7 +116,7 @@ internal sealed class GetYearTimelineQueryHandler(
                 var stages = lg
                     .GroupBy(c => new { c.StageId, c.StageName })
                     .OrderBy(sg => sg.Key.StageName)
-                    .Select(sg => BuildStage(sg.Key.StageId, sg.Key.StageName, sg.ToList(), stageSpans, slotCountByStage, occupancy, periodsByCohort))
+                    .Select(sg => BuildStage(sg.Key.StageId, sg.Key.StageName, lg.Key.LevelId, sg.ToList(), stageSpans, slotCountByStage, occupancy, intake, periodsByCohort))
                     .ToList();
 
                 var (start, end) = SpanOf(stages.Select(s => (s.Start, s.End)));
@@ -128,10 +129,11 @@ internal sealed class GetYearTimelineQueryHandler(
     }
 
     private static TimelineStage BuildStage(
-        int stageId, string stageName, List<CohortRow> stageCohorts,
+        int stageId, string stageName, int levelId, List<CohortRow> stageCohorts,
         IReadOnlyDictionary<int, (DateOnly Start, DateOnly End)> stageSpans,
         IReadOnlyDictionary<int, int> slotCountByStage,
         ServiceOccupancyLookup occupancy,
+        ServiceIntakeLookup intake,
         IReadOnlyDictionary<int, CohortPeriods> periodsByCohort)
     {
         var partitions = stageCohorts
@@ -165,8 +167,14 @@ internal sealed class GetYearTimelineQueryHandler(
                     .OrderBy(b => b.Start)
                     .ToList();
 
+                // One ceiling each, matching publish: a restricted service is measured on this
+                // promotion alone against its quota, an unrestricted one on everybody against its total.
                 bool saturated = cells.Any(cell =>
-                    occupancy.LoadOn(cell.ServiceId, cell.Start, cell.End) > cell.Capacity);
+                    !intake.Admits(cell.ServiceId, levelId)
+                    || (intake.HasLevelRestrictions(cell.ServiceId)
+                            ? occupancy.LoadOn(cell.ServiceId, levelId, cell.Start, cell.End)
+                            : occupancy.LoadOn(cell.ServiceId, cell.Start, cell.End))
+                        > intake.CapacityFor(cell.ServiceId, levelId));
 
                 var groups = pg
                     .GroupBy(c => new { c.AcademicGroupId, c.GroupLabel, c.GroupNumber })
@@ -210,7 +218,7 @@ internal sealed class GetYearTimelineQueryHandler(
         string? Partition, int AcademicGroupId, string GroupLabel, int GroupNumber,
         int StudentCount, List<CellRow> Cells);
 
-    private sealed record CellRow(int ServiceId, DateOnly Start, DateOnly End, int Capacity);
+    private sealed record CellRow(int ServiceId, DateOnly Start, DateOnly End);
 
     private sealed record CohortPeriods(DateOnly? MaxEnd, List<PauseRow> Pauses);
 

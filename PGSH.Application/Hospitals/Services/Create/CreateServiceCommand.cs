@@ -1,4 +1,4 @@
-﻿using PGSH.Application.Abstractions.Messaging;
+using PGSH.Application.Abstractions.Messaging;
 using PGSH.Domain.Hospitals;
 
 namespace PGSH.Application.Hospitals.Services.Create;
@@ -9,4 +9,8 @@ public record CreateServiceCommand(
     ServiceType ServiceType,
     int Capacity,
     string Description,
-    string? Specialty) : ICommand<int>;
+    string? Specialty,
+    string? LocalizationX = null,
+    string? LocalizationY = null,
+    string? LocalizationZ = null,
+    IReadOnlyCollection<ServiceLevelCapacityRequest>? LevelCapacities = null) : ICommand<int>;

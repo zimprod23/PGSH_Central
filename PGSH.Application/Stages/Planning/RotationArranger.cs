@@ -5,7 +5,13 @@ using PGSH.SharedKernel;
 
 namespace PGSH.Application.Stages.Planning;
 
-public sealed record RotationArrangeResult(int Assigned, int SaturatedServices, int TotalStudents, int TotalCapacity);
+/// <summary>
+/// <paramref name="GroupConflicts"/> counts cells that were <b>not</b> written because the group was
+/// already placed in an overlapping period of another stage — the normal signal that an arrange was
+/// run across every partition where it should have targeted one.
+/// </summary>
+public sealed record RotationArrangeResult(
+    int Assigned, int SaturatedServices, int TotalStudents, int TotalCapacity, int GroupConflicts = 0);
 
 /// <summary>
 /// Capacity-proportional cyclic rotation of cohorts across services within one
@@ -16,7 +22,10 @@ public sealed record RotationArrangeResult(int Assigned, int SaturatedServices, 
 /// partition's window never erases another's. Shared by the auto-arrange command
 /// and the macro-plan orchestrator.
 /// </summary>
-internal sealed class RotationArranger(IApplicationDbContext dbContext, ServiceOccupancyCalculator occupancyCalculator)
+internal sealed class RotationArranger(
+    IApplicationDbContext dbContext,
+    ServiceOccupancyCalculator occupancyCalculator,
+    Slots.GroupScheduleConflictGuard groupGuard)
 {
     public async Task<Result<RotationArrangeResult>> ArrangeAsync(
         int stageId,
@@ -29,20 +38,35 @@ internal sealed class RotationArranger(IApplicationDbContext dbContext, ServiceO
         var stage = await dbContext.Stages
             .AsNoTracking()
             .Include(s => s.AllowedServices)
+            .ThenInclude(s => s.LevelCapacities)
+            .Include(s => s.Level)
             .FirstOrDefaultAsync(s => s.Id == stageId, cancellationToken);
 
         if (stage is null)
             return Result.Failure<RotationArrangeResult>(StageErrors.NotFound(stageId));
 
+        if (stage.AllowedServices.Count == 0)
+            return Result.Failure<RotationArrangeResult>(
+                Error.Validation("Schedule.NoAllowedServices",
+                    "No allowed services are configured for this stage."));
+
+        // A service that does not take this promotion is not a candidate at all — leaving it in the
+        // rotation would place a cohort somewhere publish is then guaranteed to refuse. Its capacity
+        // is the level quota, not the physical ceiling: weighting by the ceiling hands a service of
+        // 40 that accepts 5 first-years the largest share of the first-year rotation.
+        int levelId = stage.LevelId;
+        string levelLabel = stage.Level?.Label ?? $"niveau {levelId}";
+
         var services = stage.AllowedServices
+            .Where(s => s.Admits(levelId))
             .OrderBy(s => s.Id)
-            .Select(s => new ServiceInfo(s.Id, s.Capacity))
+            .Select(s => new ServiceInfo(s.Id, s.CapacityFor(levelId)))
+            .Where(s => s.Capacity > 0)
             .ToList();
 
         if (services.Count == 0)
             return Result.Failure<RotationArrangeResult>(
-                Error.Validation("Schedule.NoAllowedServices",
-                    "No allowed services are configured for this stage."));
+                StageErrors.NoServicesAdmitLevel(stage.Name, levelLabel));
 
         int totalCapacity = services.Sum(s => s.Capacity);
 
@@ -124,6 +148,29 @@ internal sealed class RotationArranger(IApplicationDbContext dbContext, ServiceO
 
         var targetCohortIds = ordered.Select(c => c.Id).ToList();
 
+        // Where these groups already sit OUTSIDE the window being rewritten. Two stages of a level
+        // may share a window — that is how partitions are planned — so the conflict that matters is
+        // per group, not per date column: arranging Chirurgie P1 for a partition already placed in
+        // Médecine P1 would put those students in two services at once.
+        //
+        // ⚠ This is computed *before* the removal below, and the conflicting pairs are excluded from
+        // it. Deciding it afterwards deleted the cohort's existing cell and then declined to write a
+        // replacement, so re-running an arrange across all partitions silently destroyed a good plan.
+        var occupiedElsewhere = await groupGuard.BuildAsync(
+            ordered.Select(c => c.AcademicGroupId).Distinct().ToList(),
+            slotIds,
+            cancellationToken);
+
+        var conflicting = new HashSet<(int CohortId, int SlotId)>();
+        foreach (var slot in slots)
+        {
+            foreach (var cohort in ordered)
+            {
+                if (occupiedElsewhere.ConflictFor(cohort.AcademicGroupId, slot.StartDate, slot.EndDate) is not null)
+                    conflicting.Add((cohort.Id, slot.Id));
+            }
+        }
+
         // Scoped removal: only the targeted cohorts within the targeted slots — but a cell
         // that is already published (a ServicePeriod points at it) is a locked execution
         // record. It is never deleted nor rewritten, so a started stage keeps its history
@@ -149,8 +196,11 @@ internal sealed class RotationArranger(IApplicationDbContext dbContext, ServiceO
             .Select(e => (e.CohortId, e.StageSlotId))
             .ToHashSet();
 
+        // A cell that will be refused is left exactly as it is: it is not stale, it is simply out of
+        // this run's reach.
         var staleIds = existingCells
             .Where(e => !lockedCellIdSet.Contains(e.Id))
+            .Where(e => !conflicting.Contains((e.CohortId, e.StageSlotId)))
             .Select(e => e.Id)
             .ToList();
 
@@ -189,7 +239,11 @@ internal sealed class RotationArranger(IApplicationDbContext dbContext, ServiceO
         int cycleLength = phaseBySlotId.Count;
         int shiftPerSlot = cycleLength > 1 ? n / cycleLength : 0;
 
+        // Conflicting cells are skipped and counted rather than failing the whole run, so a
+        // partially targeted arrange still does the part it legitimately can.
         var newAssignments = new List<CohortSlotAssignment>(n * slots.Count);
+        int groupConflicts = 0;
+
         foreach (var slot in slots)
         {
             int offset = phaseBySlotId[slot.Id] * shiftPerSlot;
@@ -197,6 +251,12 @@ internal sealed class RotationArranger(IApplicationDbContext dbContext, ServiceO
             {
                 if (lockedCells.Contains((targetCohortIds[ci], slot.Id)))
                     continue;
+
+                if (conflicting.Contains((targetCohortIds[ci], slot.Id)))
+                {
+                    groupConflicts++;
+                    continue;
+                }
 
                 newAssignments.Add(new CohortSlotAssignment
                 {
@@ -212,16 +272,29 @@ internal sealed class RotationArranger(IApplicationDbContext dbContext, ServiceO
 
         // Saturation is measured after the save against the global load on each service —
         // a service over-filled by another stage/partition over an overlapping window counts here too.
+        // One ceiling each, matching what publish will enforce: a restricted service is measured on
+        // this promotion alone against its quota, an unrestricted one on everybody against its total.
         var occupancy = await occupancyCalculator.BuildAsync(
             services.Select(s => s.Id).ToList(), cancellationToken);
+
+        var restricted = stage.AllowedServices
+            .Where(s => s.HasLevelRestrictions)
+            .Select(s => s.Id)
+            .ToHashSet();
+
+        // services[] already holds CapacityFor(levelId) — the quota for a restricted service, the
+        // total for an open one.
         var capacityByService = services.ToDictionary(s => s.Id, s => s.Capacity);
 
         int saturatedServices = slots
             .SelectMany(slot => newAssignments
                 .Where(a => a.StageSlotId == slot.Id)
                 .Select(a => a.ServiceId)
-                .Where(serviceId => occupancy.LoadOn(serviceId, slot.StartDate, slot.EndDate)
-                                    > capacityByService.GetValueOrDefault(serviceId)))
+                .Where(serviceId =>
+                    (restricted.Contains(serviceId)
+                        ? occupancy.LoadOn(serviceId, levelId, slot.StartDate, slot.EndDate)
+                        : occupancy.LoadOn(serviceId, slot.StartDate, slot.EndDate))
+                    > capacityByService.GetValueOrDefault(serviceId)))
             .Distinct()
             .Count();
 
@@ -229,7 +302,8 @@ internal sealed class RotationArranger(IApplicationDbContext dbContext, ServiceO
             newAssignments.Count,
             saturatedServices,
             ordered.Sum(c => c.StudentCount),
-            totalCapacity));
+            totalCapacity,
+            groupConflicts));
     }
 
     private static List<int> BuildServiceQueue(List<ServiceInfo> services, List<CohortInfo> cohorts, int n)

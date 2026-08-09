@@ -13,10 +13,7 @@ public sealed class UpdateStudentCommandValidator : AbstractValidator<UpdateStud
             .Must(email => email.EndsWith("@um5.ac.ma"))
             .WithMessage("Email must belong to the University domain (@um5.ac.ma).");
 
-        RuleFor(x => x.CNE)
-            .NotEmpty()
-            .Matches(@"^[A-Z]\d{6,12}$")
-            .WithMessage("CNE must start with a letter followed by 6 to 12 digits.");
+        RuleFor(x => x.CNE).ValidCne();
 
         RuleFor(x => x.Appogee)
             .NotEmpty()

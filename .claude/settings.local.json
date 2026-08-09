@@ -84,7 +84,9 @@
       "Bash(grep -nE \"^#{1,3} \" NOTES.md)",
       "Bash(npx eslint *)",
       "PowerShell(npx eslint src/features/admin/pages/AssignmentsPage.tsx src/features/admin/api/adminApi.ts 2>&1 | Select-Object -Last 20)",
-      "Bash(dotnet --version)"
+      "Bash(dotnet --version)",
+      "Bash(dotnet test *)",
+      "Bash(grep -n \"schedule-\\\\${stageId}\" src/features/admin/api/adminApi.ts)"
     ]
   }
 }

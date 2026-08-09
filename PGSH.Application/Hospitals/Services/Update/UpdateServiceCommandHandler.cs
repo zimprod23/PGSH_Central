@@ -1,19 +1,23 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
+using PGSH.Domain.Hospitals;
 using PGSH.SharedKernel;
 
 namespace PGSH.Application.Hospitals.Services.Update;
 
-internal sealed class UpdateServiceCommandHandler(IApplicationDbContext dbContext) : ICommandHandler<UpdateServiceCommand>
+internal sealed class UpdateServiceCommandHandler(
+    IApplicationDbContext dbContext,
+    ServiceLevelCapacityResolver capacityResolver) : ICommandHandler<UpdateServiceCommand>
 {
     public async Task<Result> Handle(UpdateServiceCommand request, CancellationToken cancellationToken)
     {
         var service = await dbContext.Services
+            .Include(s => s.LevelCapacities)
             .FirstOrDefaultAsync(s => s.Id == request.Id, cancellationToken);
 
         if (service is null)
-            return Result.Failure(Error.NotFound("Services.NotFound", "Service not found."));
+            return Result.Failure(ServiceErrors.NotFound(request.Id));
 
         if (service.HospitalId != request.HospitalId)
         {
@@ -29,13 +33,21 @@ internal sealed class UpdateServiceCommandHandler(IApplicationDbContext dbContex
             s.Name.ToLower() == request.Name.ToLower(), cancellationToken);
 
         if (nameExists)
-            return Result.Failure(Error.Conflict("Services.DuplicateName", "A service with this name already exists in this hospital."));
+            return Result.Failure(ServiceErrors.DuplicateName);
+
+        var quotas = await capacityResolver.ResolveAsync(request.LevelCapacities, cancellationToken);
+        if (quotas.IsFailure)
+            return Result.Failure(quotas.Error);
 
         service.Name = request.Name;
         service.Description = request.Description;
         service.Specialty = request.Specialty;
         service.ServiceType = request.ServiceType;
         service.Capacity = request.Capacity;
+        service.LocalisationMaps = LocalizationMapper.FromCoordinates(
+            request.LocalizationX, request.LocalizationY, request.LocalizationZ);
+
+        service.ReplaceLevelCapacities(quotas.Value);
 
         await dbContext.SaveChangesAsync(cancellationToken);
         return Result.Success();

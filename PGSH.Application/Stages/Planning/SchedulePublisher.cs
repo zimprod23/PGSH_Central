@@ -16,7 +16,10 @@ public sealed record PublishResult(int PublishedCohorts, int PeriodsCreated, int
 /// already-published or unconfigured cohorts, optionally scoped to a partition
 /// and/or a window of periods.
 /// </summary>
-internal sealed class SchedulePublisher(IApplicationDbContext dbContext, ServiceOccupancyCalculator occupancyCalculator)
+internal sealed class SchedulePublisher(
+    IApplicationDbContext dbContext,
+    ServiceOccupancyCalculator occupancyCalculator,
+    ServiceIntakeCalculator intakeCalculator)
 {
     public async Task<Result> PublishCohortAsync(int cohortId, bool allowOverCapacity, CancellationToken ct)
     {
@@ -144,15 +147,23 @@ internal sealed class SchedulePublisher(IApplicationDbContext dbContext, Service
         return await query
             .Select(a => new SlotAssignmentInfo(
                 a.Id, a.CohortId, a.ServiceId, a.StageSlot.StartDate, a.StageSlot.EndDate,
-                a.StageSlot.PeriodNumber, a.Service.Name, a.Service.Capacity))
+                a.StageSlot.PeriodNumber, a.Service.Name,
+                a.Cohort.Stage.LevelId,
+                a.Cohort.Stage.Level.Label ?? ("niveau " + a.Cohort.Stage.LevelId)))
             .ToListAsync(ct);
     }
 
     /// <summary>
-    /// Refuses to publish if any service would hold more students than its capacity over an
-    /// overlapping window — counted globally across every stage, so a service shared by two
-    /// partitions running different stages on overlapping dates cannot be silently over-booked.
-    /// The cohort being published is already part of the planned occupancy the lookup measures.
+    /// Refuses to publish if any service would be over-booked over an overlapping window — counted
+    /// globally across every stage, so a service shared by two partitions running different stages
+    /// on overlapping dates cannot be silently over-filled. The cohort being published is already
+    /// part of the planned occupancy the lookup measures.
+    ///
+    /// <b>One</b> ceiling per service, not two — quotas replace the total rather than sitting under
+    /// it. A restricted service is measured per promotion against that promotion's quota; an
+    /// unrestricted one against its total, across every promotion at once. So a service of 20
+    /// granting 10 and 15 publishes 6 + 15 = 21 without complaint, and the same service with no
+    /// quotas refuses at 21. See <see cref="Domain.Hospitals.Service.CapacityFor"/>.
     /// </summary>
     private async Task<Result> EnsureCapacityAsync(
         IReadOnlyCollection<SlotAssignmentInfo> slotAssignments, CancellationToken ct)
@@ -162,15 +173,37 @@ internal sealed class SchedulePublisher(IApplicationDbContext dbContext, Service
 
         var serviceIds = slotAssignments.Select(s => s.ServiceId).Distinct().ToList();
         var occupancy = await occupancyCalculator.BuildAsync(serviceIds, ct);
+        var intake = await intakeCalculator.BuildAsync(serviceIds, ct);
 
         foreach (var sa in slotAssignments
-                     .GroupBy(s => new { s.ServiceId, s.StartDate, s.EndDate })
+                     .GroupBy(s => new { s.ServiceId, s.LevelId, s.StartDate, s.EndDate })
                      .Select(g => g.First()))
         {
+            if (intake.HasLevelRestrictions(sa.ServiceId))
+            {
+                if (!intake.Admits(sa.ServiceId, sa.LevelId))
+                    return Result.Failure(StageErrors.LevelNotAdmitted(
+                        sa.PeriodNumber, sa.ServiceName, sa.LevelLabel, sa.StartDate, sa.EndDate));
+
+                // This promotion's students only: the quota is about them, and another promotion
+                // filling its own quota is not this one's problem.
+                int levelLoad = occupancy.LoadOn(sa.ServiceId, sa.LevelId, sa.StartDate, sa.EndDate);
+                int levelCapacity = intake.CapacityFor(sa.ServiceId, sa.LevelId);
+                if (levelLoad > levelCapacity)
+                    return Result.Failure(StageErrors.LevelCapacityExceeded(
+                        sa.PeriodNumber, sa.ServiceName, sa.LevelLabel,
+                        sa.StartDate, sa.EndDate, levelLoad, levelCapacity));
+
+                continue;
+            }
+
+            // Unrestricted: one number for everybody, so the load is everybody. Blaming a "quota"
+            // here would send the user looking for a rule nobody authored.
             int load = occupancy.LoadOn(sa.ServiceId, sa.StartDate, sa.EndDate);
-            if (load > sa.ServiceCapacity)
+            int capacity = intake.TotalCapacity(sa.ServiceId);
+            if (load > capacity)
                 return Result.Failure(StageErrors.CapacityExceeded(
-                    sa.PeriodNumber, sa.ServiceName, sa.StartDate, sa.EndDate, load, sa.ServiceCapacity));
+                    sa.PeriodNumber, sa.ServiceName, sa.StartDate, sa.EndDate, load, capacity));
         }
 
         return Result.Success();
@@ -196,5 +229,5 @@ internal sealed class SchedulePublisher(IApplicationDbContext dbContext, Service
 
     private sealed record SlotAssignmentInfo(
         int Id, int CohortId, int ServiceId, DateOnly StartDate, DateOnly EndDate,
-        int PeriodNumber, string ServiceName, int ServiceCapacity);
+        int PeriodNumber, string ServiceName, int LevelId, string LevelLabel);
 }

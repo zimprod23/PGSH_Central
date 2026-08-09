@@ -23,6 +23,7 @@ internal sealed class GenerateMacroPlanCommandHandler(
             return Result.Failure<MacroPlanResult>(cohortResult.Error);
 
         int studentsAssigned = 0, cellsArranged = 0, saturated = 0, cohortsPublished = 0, periodsPublished = 0;
+        int groupConflicts = 0;
 
         foreach (var plan in request.Plans)
         {
@@ -49,8 +50,12 @@ internal sealed class GenerateMacroPlanCommandHandler(
                     return Result.Failure<MacroPlanResult>(arranged.Error);
                 }
 
-                cellsArranged += arranged.Value.Assigned;
-                saturated     += arranged.Value.SaturatedServices;
+                cellsArranged  += arranged.Value.Assigned;
+                saturated      += arranged.Value.SaturatedServices;
+                // Same reason the auto-arrange path reports it: a partition authored to collide
+                // with another stage's window arranges nothing, and "0 cells" alone reads as
+                // "there was nothing to do".
+                groupConflicts += arranged.Value.GroupConflicts;
             }
         }
 
@@ -77,6 +82,7 @@ internal sealed class GenerateMacroPlanCommandHandler(
             saturated,
             cohortsPublished,
             periodsPublished,
-            cohortResult.Value.NotRequiredByCnpn));
+            cohortResult.Value.NotRequiredByCnpn,
+            groupConflicts));
     }
 }

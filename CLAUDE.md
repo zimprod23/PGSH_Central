@@ -227,6 +227,77 @@ revalidation's cross-level retake — and those are the load-bearing reads, not 
 - **Per-period mark / verdict** — `StageScoring.PeriodMark` / `IsPeriodValidated` in `Domain/Stages/`. The single source of truth shared by the domain roll-up and every read handler (student record, fiche). Never recompute a mark inline.
 - **Execution scoping** — `ExecutionAuthorizer` in `Application/Employees/MyServices/`. Every handler acting on a period/evaluation/attendance goes through it: `EnsureCanActOnPeriodAsync`, `EnsureCanActOnEvaluationAsync`, `EnsureCanRecordAttendanceAsync` (write), `EnsureCanReadAttendanceAsync` (read — wider, includes the owning student).
 - **Period overlap** — `SlotOverlapGuard` in `Application/Stages/Slots/`. Any handler creating or moving a `StageSlot` must call it; the rule is level-wide, not per-stage.
+- **Service capacity** — two numbers, never one. `ServiceOccupancyCalculator` says how many students are
+  *there*; `ServiceIntakeCalculator` says how many are *allowed*. Every capacity decision compares the two.
+
+### A service states its capacity one way, and which way depends on whether it is restricted
+`Service.CapacityFor(levelId)` is the single answer; nothing outside the domain should reason about
+the two fields separately.
+
+| service | limit in force | load counted against it |
+|---|---|---|
+| no `ServiceLevelCapacity` rows | `Service.Capacity` | every promotion at once |
+| rows, one for this level | that row's quota | **this promotion alone** |
+| rows, none for this level | 0 — not admitted | — |
+
+`ServiceLevelCapacity` is keyed `(ServiceId, LevelId)`, and a `Level` is already (programme × année),
+so one key expresses "10 first-year Médecine, 15 third-year, no pharmaciens" — the last by omission.
+
+- ⚠ **No rows means the service admits everyone.** That is not "unconfigured", it is a service nobody
+  has restricted, and it is what keeps the 148 imported services plannable without a data-entry pass.
+  Restriction is an act: the *first* row closes the service to every level without one. Any UI showing
+  this must say so — an empty table reads as "nothing set yet" when it means "open".
+- ⚠ **Quotas replace `Service.Capacity`, they do not sit under it.** On a restricted service that
+  number is **dead data**: a service of 20 granting 10 and 15 will hold 25 and nothing objects. Chosen
+  deliberately — the quotas *are* the statement of what the service accepts, and a second ceiling
+  silently contradicting them was judged worse than the arithmetic. Consequences: no "quota exceeds
+  capacity" validation (it contradicts nothing), and the service form must say the total is ignored
+  once a quota exists, or admins keep tuning a number with no effect.
+- **The load must be counted the way the limit is written** — per promotion against a quota, across
+  all promotions against a total. Mixing them is the bug this table exists to prevent.
+- **Only a restricted service can breach a quota.** On an unrestricted one the guard reports the plain
+  `CapacityExceeded` — naming a quota nobody authored sends the user hunting for a rule that is not there.
+- **Every capacity refusal is waived by `AllowOverCapacity`** (the publish checkbox), including
+  `LevelNotAdmitted`: the whole check sits inside `if (!allowOverCapacity)`.
+- `RotationArranger` drops services that refuse the stage's level *before* building the rotation, and
+  weights by `CapacityFor(levelId)`: weighting by `Capacity` hands a service of 40 that accepts 5
+  first-years the largest share of the first-year rotation. All refusing → `NoServicesAdmitLevel`,
+  because "no services" and "no services *for you*" are different screens.
+- **`AddAllowedServiceCommand` refuses a service whose quotas exclude the stage's level**, naming the
+  promotions it does take. Caught when the list is authored, not weeks later when auto-arrange skips
+  it silently. The Stage page's picker passes `admitsLevelId` so the option never appears.
+- The level of a cell is `Cohort.Stage.LevelId` (non-nullable), not `AcademicGroup.LevelId` (nullable).
+  ⚠ This inherits the `Stage.LevelId` problem noted under the CNPN: when one stage spans two levels,
+  quotas will need the same rework.
+
+### A service's chef is usually only a string in its description
+The Access base named the professor as free text and nothing else — no email, no PPR — so the import
+could not create an `Employee` without inventing an identity. Measured 2026-08-09: **140 of 148
+services carry `Responsable (source) : Pr.A.Settaf` in `Description`, and 0 have `ServiceChefId` set.**
+`ServiceChefSourceNote` in `Domain/Hospitals/` owns the format (the importer writes it, the
+répartition reads it) so the two ends cannot drift.
+
+Resolution order is authority order: the tenure open on the planning start date → the sitting chef →
+the note. ⚠ Only the first is **dated**, which is what lets a répartition reprinted years later name
+the chef it was published under. The note is undated and says who the legacy base last recorded, so
+it is flagged (`ChefIsFromSourceNote`) rather than blended in. Linking real chefs is what upgrades
+those rows; until then, printing the note beats printing nothing on 95% of the document.
+
+### A summary response feeds the edit form, so it must carry every field that form writes back
+`HospitalSummaryResponse` omitted `Description`, and the admin form dutifully sent `''` — so
+**editing any hospital erased its description**. The same shape was about to eat the coordinates.
+When adding a column that an admin form edits, add it to the *summary* too, or make the form load the
+detail (`ServiceFormModal` does the latter, since quotas do not belong in a list row).
+
+### Identifiers of external provenance get a format check, not a shape check
+`StudentIdentifierRules.ValidCne` in `Application/Students/`, used by both the create and update
+validators — a rule enforced on one path only is a student who can be created and then never saved.
+The old `^[A-Z]\d{6,12}$` described the modern CNE correctly and **rejected 5,646 of the 10,204
+students in the base**, so more than half of them could not be edited at all, whatever field was being
+corrected: 4,695 `LEGACY-nnnnn` placeholders the Access import manufactured, 835 digits-only codes,
+plus faculty codes like `22FMPR1444` and codes with an internal space (`R 13089613`). PGSH is not the
+authority on the grammar of a national code; **uniqueness is the constraint that protects anything
+here**, and it is enforced separately.
 
 ### Search handlers — one shape
 Always `request.SearchTerm.Trim().ToLower()` and compare against `Field.ToLower().Contains(term)` for **every**

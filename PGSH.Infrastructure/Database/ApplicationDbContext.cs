@@ -47,6 +47,7 @@ public sealed class ApplicationDbContext : DbContext, IApplicationDbContext
     public DbSet<Center> Centers { get; set; }
     public DbSet<Hospital> Hospitals { get; set; }
     public DbSet<Service> Services { get; set; }
+    public DbSet<ServiceLevelCapacity> ServiceLevelCapacities { get; set; }
 
     // ===== Academic Structure =====
     public DbSet<Level> Levels { get; set; }

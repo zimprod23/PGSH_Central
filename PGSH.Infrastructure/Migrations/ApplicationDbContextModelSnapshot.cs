@@ -249,6 +249,33 @@ namespace PGSH.Infrastructure.Migrations
                     b.ToTable("ServiceChefAssignment", "public");
                 });
 
+            modelBuilder.Entity("PGSH.Domain.Hospitals.ServiceLevelCapacity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("Capacity")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("LevelId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("ServiceId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("LevelId");
+
+                    b.HasIndex("ServiceId", "LevelId")
+                        .IsUnique();
+
+                    b.ToTable("ServiceLevelCapacities", "public");
+                });
+
             modelBuilder.Entity("PGSH.Domain.Registrations.AcademicGroup", b =>
                 {
                     b.Property<int>("Id")
@@ -1205,7 +1232,39 @@ namespace PGSH.Infrastructure.Migrations
                         .HasForeignKey("ServiceChefId")
                         .OnDelete(DeleteBehavior.Restrict);
 
+                    b.OwnsOne("PGSH.Domain.Common.Utils.Localization", "LocalisationMaps", b1 =>
+                        {
+                            b1.Property<int>("ServiceId")
+                                .HasColumnType("integer");
+
+                            b1.Property<string>("x")
+                                .IsRequired()
+                                .HasMaxLength(50)
+                                .HasColumnType("character varying(50)")
+                                .HasColumnName("X");
+
+                            b1.Property<string>("y")
+                                .IsRequired()
+                                .HasMaxLength(50)
+                                .HasColumnType("character varying(50)")
+                                .HasColumnName("Y");
+
+                            b1.Property<string>("z")
+                                .HasMaxLength(50)
+                                .HasColumnType("character varying(50)")
+                                .HasColumnName("Z");
+
+                            b1.HasKey("ServiceId");
+
+                            b1.ToTable("Services", "public");
+
+                            b1.WithOwner()
+                                .HasForeignKey("ServiceId");
+                        });
+
                     b.Navigation("Hospital");
+
+                    b.Navigation("LocalisationMaps");
 
                     b.Navigation("ServiceChef");
                 });
@@ -1225,6 +1284,25 @@ namespace PGSH.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("Employee");
+
+                    b.Navigation("Service");
+                });
+
+            modelBuilder.Entity("PGSH.Domain.Hospitals.ServiceLevelCapacity", b =>
+                {
+                    b.HasOne("PGSH.Domain.Common.Utils.Level", "Level")
+                        .WithMany()
+                        .HasForeignKey("LevelId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("PGSH.Domain.Hospitals.Service", "Service")
+                        .WithMany("LevelCapacities")
+                        .HasForeignKey("ServiceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Level");
 
                     b.Navigation("Service");
                 });
@@ -1685,6 +1763,8 @@ namespace PGSH.Infrastructure.Migrations
             modelBuilder.Entity("PGSH.Domain.Hospitals.Service", b =>
                 {
                     b.Navigation("ChefHistory");
+
+                    b.Navigation("LevelCapacities");
                 });
 
             modelBuilder.Entity("PGSH.Domain.Registrations.AcademicGroup", b =>

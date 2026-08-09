@@ -21,6 +21,7 @@ public interface IApplicationDbContext
     DbSet<Hospital> Hospitals { get; set; }
     DbSet<Level> Levels { get; set; }
     DbSet<Service> Services { get; set; }
+    DbSet<ServiceLevelCapacity> ServiceLevelCapacities { get; set; }
     DbSet<Registration> Registrations { get; set; }
     DbSet<History> Histories { get; set; }
     DbSet<AttendanceRecord> AttendanceRecords { get; set; }

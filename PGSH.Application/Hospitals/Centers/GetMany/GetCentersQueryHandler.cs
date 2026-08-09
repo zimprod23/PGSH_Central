@@ -29,7 +29,8 @@ internal sealed class GetCentersQueryHandler(IApplicationDbContext dbContext)
                 c => new CenterSummaryResponse(
                     c.Id, c.Name, c.CenterType.ToString(), c.City,
                     c.LocalisationMaps != null ? c.LocalisationMaps.x : null,
-                    c.LocalisationMaps != null ? c.LocalisationMaps.y : null),
+                    c.LocalisationMaps != null ? c.LocalisationMaps.y : null,
+                    c.LocalisationMaps != null ? c.LocalisationMaps.z : null),
                 cancellationToken);
 
         return Result.Success(response);

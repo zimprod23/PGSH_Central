@@ -24,7 +24,7 @@ public class SchedulePublishTests
     private static readonly DateOnly P2End   = new(2026, 4, 30);
 
     private static SchedulePublisher Publisher(ApplicationDbContext db) =>
-        new(db, new ServiceOccupancyCalculator(db));
+        new(db, new ServiceOccupancyCalculator(db), new ServiceIntakeCalculator(db));
 
     /// <summary>A cohort of <paramref name="students"/> routed through one slot in one service.</summary>
     private static async Task<Cohort> SeedGridAsync(

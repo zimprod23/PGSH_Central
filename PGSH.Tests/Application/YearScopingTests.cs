@@ -202,7 +202,8 @@ public class YearScopingTests
         await db.SaveChangesAsync();
 
         var result = await new GetStageScheduleQueryHandler(
-                db, new AcademicYearResolver(db), new ServiceOccupancyCalculator(db))
+                db, new AcademicYearResolver(db), new ServiceOccupancyCalculator(db),
+                new ServiceIntakeCalculator(db))
             .Handle(new GetStageScheduleQuery(TestHarness.StageId, TestHarness.CurrentYearId), default);
 
         result.IsSuccess.Should().BeTrue();

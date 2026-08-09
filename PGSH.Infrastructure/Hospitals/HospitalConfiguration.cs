@@ -115,6 +115,27 @@ internal sealed class ServiceConfiguration : IEntityTypeConfiguration<Service>
         builder.Property(s => s.Capacity)
                .IsRequired();
 
+        builder.OwnsOne(s => s.LocalisationMaps, loc =>
+        {
+            loc.Property(l => l.x)
+                .HasColumnName("X")
+                .HasMaxLength(50);
+
+            loc.Property(l => l.y)
+                .HasColumnName("Y")
+                .HasMaxLength(50);
+
+            loc.Property(l => l.z)
+                .HasColumnName("Z")
+                .HasMaxLength(50);
+        });
+
+        // Cascade: an intake rule is meaningless without the service it restricts.
+        builder.HasMany(s => s.LevelCapacities)
+               .WithOne(c => c.Service)
+               .HasForeignKey(c => c.ServiceId)
+               .OnDelete(DeleteBehavior.Cascade);
+
         // One Service -> Many Employees (Staff)
         builder.HasMany(s => s.Staff)
                .WithMany(); // optional: if Employee has no navigation to Service
@@ -135,6 +156,27 @@ internal sealed class ServiceConfiguration : IEntityTypeConfiguration<Service>
                .WithOne(h => h.Service)
                .HasForeignKey(h => h.ServiceId)
                .OnDelete(DeleteBehavior.Cascade);
+    }
+}
+
+internal sealed class ServiceLevelCapacityConfiguration : IEntityTypeConfiguration<ServiceLevelCapacity>
+{
+    public void Configure(EntityTypeBuilder<ServiceLevelCapacity> builder)
+    {
+        builder.HasKey(c => c.Id);
+
+        builder.Property(c => c.Capacity)
+               .IsRequired();
+
+        // (service, level) is the natural key — two quotas for one promotion have no defensible winner.
+        builder.HasIndex(c => new { c.ServiceId, c.LevelId })
+               .IsUnique();
+
+        // Restrict: deleting a level that services still budget for would silently reopen them.
+        builder.HasOne(c => c.Level)
+               .WithMany()
+               .HasForeignKey(c => c.LevelId)
+               .OnDelete(DeleteBehavior.Restrict);
     }
 }
 

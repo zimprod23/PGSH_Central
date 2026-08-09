@@ -128,15 +128,43 @@ public static class TestHarness
     }
 
     /// <summary>An additional stage on the shared level — a level is a set of stages, not just one.</summary>
-    public static Stage SeedStage(this ApplicationDbContext db, int stageId, string name, int coefficient = 1)
+    public static Stage SeedStage(
+        this ApplicationDbContext db, int stageId, string name, int coefficient = 1, int levelId = LevelId)
     {
-        var level = db.Levels.Local.First(l => l.Id == LevelId);
+        var level = db.Levels.Local.First(l => l.Id == levelId);
         var stage = new Stage
         {
-            Id = stageId, Name = name, LevelId = LevelId, Level = level, Coefficient = coefficient,
+            Id = stageId, Name = name, LevelId = levelId, Level = level, Coefficient = coefficient,
         };
         db.Stages.Add(stage);
         return stage;
+    }
+
+    /// <summary>
+    /// A second promotion, for the rules that only bite when two of them meet: a service's per-level
+    /// quotas, and the physical ceiling they share. A <see cref="Level"/> is (programme × année), so
+    /// this is how "1ère année Pharmacie" is expressed.
+    /// </summary>
+    public static Level SeedLevel(
+        this ApplicationDbContext db, int levelId, string label, int year,
+        AcademicProgram program = AcademicProgram.Medecine)
+    {
+        var level = new Level { Id = levelId, Label = label, Year = year, AcademicProgram = program };
+        db.Levels.Add(level);
+        return level;
+    }
+
+    /// <summary>
+    /// Grants <paramref name="service"/> an intake quota for one level. ⚠ The first call also
+    /// <i>restricts</i> the service: from then on it admits no level without a row of its own.
+    /// </summary>
+    public static ServiceLevelCapacity SeedLevelCapacity(
+        this ApplicationDbContext db, Service service, int levelId, int capacity)
+    {
+        var quota = new ServiceLevelCapacity { Service = service, LevelId = levelId, Capacity = capacity };
+        service.LevelCapacities.Add(quota);
+        db.ServiceLevelCapacities.Add(quota);
+        return quota;
     }
 
     /// <summary>A hospital service, optionally led by <paramref name="chef"/> (who is added to its staff first).</summary>
@@ -183,6 +211,37 @@ public static class TestHarness
             AcademicGroupId = groupId, AcademicGroup = group,
         };
         db.AcademicGroups.Add(group);
+        db.Cohorts.Add(cohort);
+        return cohort;
+    }
+
+    /// <summary>
+    /// A roster on its own, with an explicit number and partition label. <see cref="SeedCohort"/>
+    /// covers the common case of one group taking one stage; a level whose groups rotate through
+    /// several stages needs the roster separate from the cohorts hanging off it.
+    /// </summary>
+    public static AcademicGroup SeedGroup(
+        this ApplicationDbContext db, int groupId, int groupNumber, string? rotationGroup = null,
+        int academicYearId = CurrentYearId)
+    {
+        var group = new AcademicGroup
+        {
+            Id = groupId, Label = $"G{groupNumber}", GroupNumber = groupNumber,
+            RotationGroup = rotationGroup, AcademicYearId = academicYearId, LevelId = LevelId,
+        };
+        db.AcademicGroups.Add(group);
+        return group;
+    }
+
+    /// <summary>Attaches an existing roster to <paramref name="stage"/> — one cohort per (group, stage).</summary>
+    public static Cohort SeedCohortFor(
+        this ApplicationDbContext db, Stage stage, AcademicGroup group, int cohortId)
+    {
+        var cohort = new Cohort
+        {
+            Id = cohortId, Label = $"{stage.Name} · {group.Label}", StageId = stage.Id, Stage = stage,
+            AcademicGroupId = group.Id, AcademicGroup = group,
+        };
         db.Cohorts.Add(cohort);
         return cohort;
     }

@@ -1,10 +1,5 @@
 ﻿using FluentValidation;
 using PGSH.Domain.Users;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace PGSH.Application.Students.Create;
 
@@ -18,13 +13,7 @@ public sealed class CreateStudentCommandValidator : AbstractValidator<CreateStud
             .Must(email => email.EndsWith("@um5.ac.ma"))
             .WithMessage("Email must belong to the University domain (@um5.ac.ma).");
 
-        // 2. CNE: Letter + 6 to 12 digits
-        // We pre-compile the Regex for performance if this were a static utility, 
-        // but FluentValidation handles its own caching well.
-        RuleFor(x => x.CNE)
-            .NotEmpty()
-            .Matches(@"^[A-Z]\d{6,12}$")
-            .WithMessage("CNE must start with a letter followed by 6 to 12 digits.");
+        RuleFor(x => x.CNE).ValidCne();
 
         // 3. Appogee: Must be a numeric string (or number)
         RuleFor(x => x.Appogee)

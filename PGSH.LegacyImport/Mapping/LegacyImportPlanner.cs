@@ -121,7 +121,7 @@ public sealed class LegacyImportPlanner
             servicesByCode[legacy.CodeS] = new Service
             {
                 Name = Truncate(parsed.Name, 100),
-                Description = parsed.ChefName is null ? "" : Truncate($"Responsable (source) : {parsed.ChefName}", 500),
+                Description = parsed.ChefName is null ? "" : Truncate(ServiceChefSourceNote.Format(parsed.ChefName), 500),
                 ServiceType = parsed.Type,
                 Hospital = hospital,
             };

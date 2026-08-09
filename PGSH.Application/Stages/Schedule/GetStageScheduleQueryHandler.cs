@@ -3,6 +3,7 @@ using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
 using PGSH.Application.AcademicYears;
 using PGSH.Application.Stages.Planning;
+using PGSH.Domain.Stages;
 using PGSH.SharedKernel;
 
 namespace PGSH.Application.Stages.Schedule;
@@ -10,7 +11,8 @@ namespace PGSH.Application.Stages.Schedule;
 internal sealed class GetStageScheduleQueryHandler(
     IApplicationDbContext dbContext,
     AcademicYearResolver yearResolver,
-    ServiceOccupancyCalculator occupancyCalculator)
+    ServiceOccupancyCalculator occupancyCalculator,
+    ServiceIntakeCalculator intakeCalculator)
     : IQueryHandler<GetStageScheduleQuery, StageScheduleResponse>
 {
     public async Task<Result<StageScheduleResponse>> Handle(
@@ -24,6 +26,18 @@ internal sealed class GetStageScheduleQueryHandler(
             return Result.Failure<StageScheduleResponse>(year.Error);
 
         int academicYearId = year.Value;
+
+        // The grid is one stage, so one level: every quota shown below is that level's.
+        var stage = await dbContext.Stages
+            .AsNoTracking()
+            .Where(s => s.Id == request.StageId)
+            .Select(s => new { s.LevelId })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (stage is null)
+            return Result.Failure<StageScheduleResponse>(StageErrors.NotFound(request.StageId));
+
+        int levelId = stage.LevelId;
 
         var slots = await dbContext.StageSlots
             .AsNoTracking()
@@ -53,7 +67,6 @@ internal sealed class GetStageScheduleQueryHandler(
                     a.ServiceId,
                     ServiceName   = a.Service.Name,
                     HospitalName  = a.Service.Hospital.Name,
-                    ServiceCapacity = a.Service.Capacity,
                 }).ToList(),
             })
             .ToListAsync(cancellationToken);
@@ -68,6 +81,7 @@ internal sealed class GetStageScheduleQueryHandler(
             .ToList();
 
         var occupancy = await occupancyCalculator.BuildAsync(serviceIds, cancellationToken);
+        var intake = await intakeCalculator.BuildAsync(serviceIds, cancellationToken);
 
         var cohortRows = cohorts.Select(c =>
         {
@@ -78,9 +92,20 @@ internal sealed class GetStageScheduleQueryHandler(
                 if (!cellsBySlot.TryGetValue(slot.Id, out var a))
                     return (SlotCellResponse?)null;
 
-                int occupied = occupancy.LoadOn(a.ServiceId, slot.StartDate, slot.EndDate);
+                // The load has to be counted the same way the governing limit is written: against
+                // this promotion when the service grants it a quota, against everybody when the
+                // service has one number for all comers.
+                bool isLevelQuota = intake.HasLevelRestrictions(a.ServiceId);
 
-                return new SlotCellResponse(a.Id, a.StageSlotId, a.ServiceId, a.ServiceName, a.HospitalName, a.ServiceCapacity, occupied);
+                int occupied = isLevelQuota
+                    ? occupancy.LoadOn(a.ServiceId, levelId, slot.StartDate, slot.EndDate)
+                    : occupancy.LoadOn(a.ServiceId, slot.StartDate, slot.EndDate);
+
+                return new SlotCellResponse(
+                    a.Id, a.StageSlotId, a.ServiceId, a.ServiceName, a.HospitalName,
+                    intake.CapacityFor(a.ServiceId, levelId), occupied,
+                    isLevelQuota,
+                    intake.Admits(a.ServiceId, levelId));
             }).ToList();
 
             return new CohortScheduleRow(c.Id, c.Label, c.AcademicGroupId, c.AcademicGroupLabel, c.RotationGroup, c.StudentCount, c.IsSchedulePublished, cells);

@@ -1,4 +1,4 @@
-﻿using PGSH.Application.Abstractions.Messaging;
+using PGSH.Application.Abstractions.Messaging;
 using PGSH.Domain.Hospitals;
 
 namespace PGSH.Application.Hospitals.Services.Update;
@@ -10,4 +10,8 @@ public record UpdateServiceCommand(
     ServiceType ServiceType,
     int Capacity,
     int HospitalId,
-    string? Specialty) : ICommand;
+    string? Specialty,
+    string? LocalizationX = null,
+    string? LocalizationY = null,
+    string? LocalizationZ = null,
+    IReadOnlyCollection<ServiceLevelCapacityRequest>? LevelCapacities = null) : ICommand;
