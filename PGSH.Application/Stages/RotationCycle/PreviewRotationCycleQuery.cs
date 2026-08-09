@@ -109,6 +109,12 @@ internal sealed class RotationCycleContext(IApplicationDbContext dbContext)
     public async Task<Result<Resolution>> ResolveAsync(
         int levelId, IReadOnlyList<int> stageIds, int academicYearId, CancellationToken ct)
     {
+        // Checked here and not only in the planner: this method runs first and indexes the stage ids
+        // into a dictionary, which throws on a duplicate key — so the planner's own DuplicateStage
+        // guard was unreachable through the handler, and a repeated id came back as a 500.
+        if (stageIds.Distinct().Count() != stageIds.Count)
+            return Result.Failure<Resolution>(RotationCycleErrors.DuplicateStage);
+
         var level = await dbContext.Levels
             .AsNoTracking()
             .Where(l => l.Id == levelId)

@@ -220,6 +220,25 @@ public class RotationCycleHandlerTests
     }
 
     [Fact]
+    public async Task A_stage_listed_twice_is_refused_by_the_handler_and_not_only_by_the_planner()
+    {
+        await using var db = TestHarness.NewContext(nameof(A_stage_listed_twice_is_refused_by_the_handler_and_not_only_by_the_planner));
+        SeedBlock(db);
+        await db.SaveChangesAsync();
+
+        // Found against the running API: the context resolves and indexes the stage ids *before* the
+        // planner ever sees them, so its DuplicateStage guard was unreachable and a repeated id threw
+        // out of ToDictionary as a 500. Testing the planner in isolation could not catch this.
+        var result = await ApplyHandler(db).Handle(
+            new ApplyRotationCycleCommand(
+                TestHarness.LevelId, [TestHarness.StageId, TestHarness.StageId], 2, Months(4)),
+            default);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be("RotationCycle.DuplicateStage");
+    }
+
+    [Fact]
     public async Task A_promotion_whose_groups_carry_no_partition_is_refused_by_name()
     {
         await using var db = TestHarness.NewContext(nameof(A_promotion_whose_groups_carry_no_partition_is_refused_by_name));
