@@ -794,6 +794,45 @@ last bullet above is answered: `Registration.OutcomeSource` is the provenance fl
 year* below. What is **still open** is the inference itself, for the six imported years nobody will
 ever upload a canvas for — the first three bullets need rulings before that is written (Phase 14.3c).
 
+## Why the répartition prints `1, 3, 5, 7` where the faculty prints `1-10` (2026-08-09)
+
+Raised by the user from reading the annual planning, and their diagnosis was exactly right. Three links
+in one chain, none of them a defect:
+
+1. **`PartitionAllocator` fills the smallest partition, walking groups in `GroupNumber` order.** With two
+   empty partitions that alternates on every single group → `A = {1,3,5,7…}`, `B = {2,4,6,8…}`. The
+   stripe was never a deliberate interleave for efficiency; **balance was the only property sought**, and
+   the stripe is what falls out of chunking one group at a time. In general the step is the *partition
+   count* — four partitions give `1,5,9,13`.
+2. **`RotationArranger` orders by `(label, groupNumber)` and indexes the service queue by position**
+   (`serviceQueue[(ci + offset) % n]`, line 265). The queue repeats each service in a run sized by its
+   capacity share, so consecutive `ci` share a service. Contiguity is real — it just lives in *index*
+   space, and index space is one partition.
+3. **`GroupNumberRanges` then has nothing to collapse.** It is correct to refuse: `47-50` is a promise
+   that 48 and 49 are in that service too, so merging across a hole would misdirect two whole groups.
+
+`Med3.png` reads `47-50` because the faculty cuts in **blocks** (1-40 Médecine / 41-80 Chirurgie).
+PGSH cut in stripes. `PartitionStrategy` now offers both, `Interleaved` remaining the default so no
+existing plan moves.
+
+- **Correctness-wise the two are interchangeable** — equal-sized, disjoint, and the crossover
+  (A→P1-2, B→P3-4) works identically. The difference is entirely in the *published artefact*, whose
+  function is to be read at a glance: ten comma-separated numbers per cell over 26 rows × 10 columns is
+  a materially worse table than the one the faculty publishes. Cosmetic in the code, not cosmetic on paper.
+- ⚠ **Re-cutting is destructive to a plan.** `Reassign: true` is refused while any cell of the promotion
+  is **published** (a `ServicePeriod` points at it — students were sent there, possibly already served),
+  and reports `PlannedCellsAffected` for the merely-planned ones so the caller knows to re-arrange.
+- ⚠ **Contiguous partitions inherit whatever ordered the group numbers**, and
+  `AutoArrangeGroupsCommandHandler` numbers sequentially *per CNPN bucket*. From 2026-2027 a contiguous
+  partition can therefore be entirely one text where an interleaved one mixes both — which changes which
+  rows exist in that partition's half of the matrix, since `CohortProvisioner` skips unrequired stages.
+  Verify on real data before switching the default.
+- The interleaved tie-break used to be `counts.MinBy(...)` over a `Dictionary`, i.e. it depended on
+  dictionary enumeration order — stable in practice, guaranteed nowhere. It is now an explicit
+  `(count, labelIndex)` ordering, so A-before-B is stated rather than inherited.
+- `AssignRotationGroupsCommand` returns each partition's membership through `GroupNumberRanges.Format`,
+  which is what makes the two strategies comparable at a glance without arranging anything first.
+
 ## Closing a year — the déliberation canvas and the réinscription (2026-08-09)
 
 The user's framing, and it is the right one: *"we do not possess the pedagogical side — exams, TP,

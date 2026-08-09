@@ -207,6 +207,35 @@ registered *before* that year under arrêté 2174.18 in its pre-2175.22 form. Fr
   (10 per semester S5–S8, 20 for S9–S10, 30 for S11–S12). PGSH models year-levels and a free
   coefficient. Recording 1650.25's requirements is an approximation until that gap is closed.
 
+### A partition's shape is a choice, and it shows up in the published table
+`PartitionAllocator` cuts a promotion into rotation partitions (`AcademicGroup.RotationGroup`). Two
+strategies, both producing equal-sized partitions, and the arranger cannot tell them apart:
+
+| `PartitionStrategy` | 8 groups, 2 partitions | printed cell |
+|---|---|---|
+| `Interleaved` (default) | A = 1,3,5,7 · B = 2,4,6,8 | `1, 3, 5, 7, 9…` |
+| `Contiguous` | A = 1-4 · B = 5-8 | `1-40` |
+
+- ⚠ **The stripe was never designed — it falls out of balancing.** "Fill the smallest partition,
+  walking groups in number order" alternates on every group, so each partition steps by the partition
+  count. The step is `partitionCount`, not always 2, and `RotationArranger` defaults it to
+  **`partitionCount ?? services.Count`** when nobody says otherwise.
+- **Contiguity in the cell comes from contiguity in the partition.** A cell's service is
+  `serviceQueue[(ci + offset) % n]` where `ci` is the cohort's index *within the partition*, and the
+  queue repeats each service in a run — so consecutive `ci` share a service. Interleaved partitions
+  make those consecutive indices non-consecutive group numbers, and `GroupNumberRanges` correctly
+  refuses to merge across a hole. Nothing is broken; there is simply nothing to collapse.
+- ⚠ **`Contiguous` interacts with the CNPN split.** `AutoArrangeGroupsCommandHandler` buckets by
+  (year, level, `CnpnVersionId`) and numbers sequentially per bucket, so each text's groups occupy a
+  contiguous run — a contiguous partition can therefore land entirely inside one text where an
+  interleaved one mixes them. Since `CohortProvisioner` skips stages a text does not require, that
+  changes which rows exist in each partition's half of the matrix.
+- **A gap-fill never re-cuts.** `AssignUnlabelled` only fills `null` labels, and `BuildLabels` lets the
+  *existing* partition count win over the requested one — so a re-run cannot reshuffle a plan already
+  built on the current partitioning. Changing the cut is `Reassign: true` (`ReassignAll`), which is
+  **refused outright while any cell of the promotion is published**: students have been sent there.
+  Merely-planned cells are counted (`PlannedCellsAffected`) so the caller knows an arrange is owed.
+
 ### PGSH cannot know who passed the year — the faculty declares it
 There is no exam, no TP, no note de module and no jury in this system; it covers stages. So
 `Registration.Status` is not computed, it is **stated**: a canvas per promotion (`(year, level)`),

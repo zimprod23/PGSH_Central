@@ -1,5 +1,48 @@
 # HANDOFF.md
 
+> **▶ ALSO SESSION 14 — the partition stripe, explained and now optional.**
+>
+> You spotted that a cell of the annual planning holds groups `1, 3, 5` rather than `47-50`, and
+> diagnosed it correctly: the macro split alternates. Confirmed in the code — `PartitionAllocator` fills
+> the *smallest* partition walking groups in number order, so with two partitions it alternates on every
+> group. **The stripe was never designed; balance was the only property sought and the stripe falls out
+> of it.** The step is the partition count, not always 2, and `RotationArranger` defaults that count to
+> `services.Count` when nobody passes one.
+>
+> The cell inherits it because the service is picked by the cohort's **index within the partition**
+> (`serviceQueue[(ci + offset) % n]`), and the queue repeats each service in a capacity-sized run — so
+> consecutive indices share a service, and consecutive indices of a striped partition are non-consecutive
+> group numbers. `GroupNumberRanges` is right to refuse to merge across the hole.
+>
+> **`PartitionStrategy` now offers both**, `Interleaved` staying the default so nothing existing moves:
+>
+> | | 8 groups, 2 partitions | printed cell |
+> |---|---|---|
+> | `Interleaved` (default) | A = 1,3,5,7 | `1, 3, 5, 7…` |
+> | `Contiguous` | A = 1-4 | `1-40` — matches `Med3.png` |
+>
+> `POST groups/assign-partitions` takes `strategy` and `reassign`, and **returns each partition's
+> membership through `GroupNumberRanges.Format`** — so the two are comparable at a glance without
+> arranging anything. Recipe: [`SMOKE-TEST.md`](SMOKE-TEST.md) step **12b**.
+>
+> ⚠ **Two things before adopting `Contiguous` as the default.**
+> 1. **Re-cutting is destructive to a plan.** A gap-fill never reshuffles (by design); `reassign: true`
+>    does, and it is **refused outright while any cell is published** — students were sent there. Planned
+>    cells are counted (`plannedCellsAffected`) so you know an arrange is owed.
+> 2. **Group numbers run contiguously per CNPN text** (`AutoArrangeGroupsCommandHandler` numbers per
+>    bucket), so from 2026-2027 a contiguous partition can land entirely inside one text where an
+>    interleaved one mixes both. `CohortProvisioner` skips unrequired stages, so that changes which rows
+>    exist in each partition's half of the matrix. **Check on real data first** — this is the one thing I
+>    could not settle from the code.
+>
+> Also fixed while here: the interleaved tie-break was `counts.MinBy(...)` over a `Dictionary`, i.e. it
+> relied on dictionary enumeration order. Stable in practice, guaranteed nowhere; now an explicit
+> `(count, labelIndex)` ordering.
+>
+> Suite: **673 green** (+13).
+>
+> ---
+>
 > **▶ RESUME HERE (2026-08-09, session 14). A year is now closed by declaration, because PGSH cannot
 > compute the verdict and never could.**
 >

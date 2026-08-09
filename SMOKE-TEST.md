@@ -19,7 +19,7 @@ Timings below are the real figures from your data — if you see a different num
 ## 0 · Sanity (2 min)
 
 ```bash
-dotnet test PGSH.Tests/PGSH.Tests.csproj      # expect: 660 passed, 0 failed
+dotnet test PGSH.Tests/PGSH.Tests.csproj      # expect: 673 passed, 0 failed
 ```
 
 Then, with the app up, `GET /cnpn-versions` (Scalar at `/scalar/v1`, or the browser). Expect **four**:
@@ -287,6 +287,31 @@ it), or if a service with no rows is treated as unconfigured.
    source-note derived, not presented as a dated tenure.
 
 ❌ **Fail if** a row's cells are silently shortened where a period has no assignment.
+
+---
+
+## 12b · Partition shape: stripes vs blocks (4 min)
+
+`POST groups/assign-partitions?academicYearId=…&levelId=…`
+
+The response now prints each partition's membership in the same collapsed form the répartition uses, so
+the two strategies are comparable **without arranging anything**.
+
+1. `{ "partitionCount": 2 }` on an unpartitioned promotion → `A: "1, 3, 5, 7…"`. That is the historical
+   behaviour and the default; it is what makes the published table print comma lists.
+2. `{ "partitionCount": 2, "strategy": "Contiguous" }` → `A: "1-40"`, `B: "41-80"`, matching `Med3.png`.
+3. Send **either** a second time without `reassign` → `labeled: 0`, nothing moves. A gap-fill must never
+   reshuffle a plan already built on the current cut.
+4. Add `"reassign": true` → it re-cuts, reports `reassigned` and **`plannedCellsAffected`**. Those cells
+   are untouched but were placed for a partition the group may have left, so **re-run auto-arrange**.
+5. On a promotion with a **published** cell, `reassign: true` must be **refused**
+   (`Partitions.CannotReassignPublished`) — students were sent there.
+6. Then re-arrange and open the répartition: with `Contiguous`, cells read `47-50` instead of
+   `47, 49, 51, 53`.
+
+❌ **Fail if** partition sizes differ between the two strategies — they must be identical; only the
+membership changes. ⚠ Check the CNPN interaction before adopting `Contiguous` as the default: group
+numbers run contiguously *per text*, so a block can land entirely inside one CNPN.
 
 ---
 
