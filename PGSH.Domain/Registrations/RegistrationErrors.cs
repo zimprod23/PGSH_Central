@@ -41,6 +41,15 @@ public static class RegistrationErrors
         "Registrations.ChronologicalInconsistency",
         "The registration year and level are inconsistent with the student's existing academic progression.");
 
+    // === Year outcome (déliberation) ===
+    public static Error NotAYearOutcome(RegistrationStatus status) => Error.Validation(
+        "Registrations.NotAYearOutcome",
+        $"'{status}' is not a verdict a deliberation can pronounce — it is a position in a year that is still running.");
+
+    public static Error OutcomeAlreadyDeclared(Guid registrationId) => Error.Conflict(
+        "Registrations.OutcomeAlreadyDeclared",
+        $"The registration '{registrationId}' already carries a verdict declared by the faculty; an inferred one cannot replace it.");
+
     // === FailureReasons ===
     public static Error FailureReasonNotFound(Guid registrationId) => Error.NotFound(
         "FailureReasons.NotFound",

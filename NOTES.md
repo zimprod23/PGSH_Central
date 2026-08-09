@@ -788,6 +788,56 @@ does not cover and which need a ruling before any code is written:
   provenance flag, so a later link to the pedagogical system can overwrite guesses without
   overwriting facts.
 
+**⚠ Superseded in part, 2026-08-09 — a year is now closed by declaration, not by inference.** The
+last bullet above is answered: `Registration.OutcomeSource` is the provenance flag, and
+`RecordYearOutcome` refuses to let an `Inferred` verdict overwrite a `Declared` one. See *Closing a
+year* below. What is **still open** is the inference itself, for the six imported years nobody will
+ever upload a canvas for — the first three bullets need rulings before that is written (Phase 14.3c).
+
+## Closing a year — the déliberation canvas and the réinscription (2026-08-09)
+
+The user's framing, and it is the right one: *"we do not possess the pedagogical side — exams, TP,
+déliberation — so we cannot know who graduated or failed, so we adjust our side"*. PGSH stops trying to
+derive the verdict and accepts it as input, in the shape the évaluation import already proved works.
+
+**Two acts, months apart, and they must stay apart.**
+
+| | when | what it does | on re-run |
+|---|---|---|---|
+| Déliberation (`…/Deliberation/`) | July | writes each registration's verdict | replaces (a jury corrects itself) |
+| Réinscription (`…/Reinscription/`) | September | creates next year's registrations | **skips** — idempotent |
+
+Fusing them was considered and rejected: not every *admis* comes back, so the combined act would
+invent registrations for students who abandoned, and it would need next year's `AcademicYear` row to
+exist in July.
+
+- **The canvas is per (year, level)** — one jury, one file. It is also what makes the CNE index mean
+  something: unique within a promotion, ambiguous across years.
+- **`RegistrationStatus` gained `Graduated` and `Excluded`**, and both distinctions earn their keep in
+  exactly one consumer — the réinscription, which sends *Admis* up a level, *Redoublant* round again,
+  and *Diplômé / Exclu / Abandon* nowhere. Collapsing either pair breaks it.
+- ⚠ **The two error policies differ on purpose.** All-or-nothing for the déliberation, because the
+  uploaded file is *not stored* and a half-closed promotion could not be reconstructed. Skip-and-report
+  for the réinscription, because re-running it is safe, and refusing 690 legitimate rows over three
+  anomalies buys nothing. Do not "make them consistent".
+- ⚠ **`NextLevelMissing`** — *Admis* on a level with nothing above it. Almost always a PV that meant
+  *Diplômé*, and it is reported rather than converted: guessing a graduation is guessing the one thing
+  the faculty is there to say.
+- ⚠ **`Diplômé` is checked against `CnpnVersion.TotalYears`, and stands aside when the stamp is
+  missing.** ~2,200 stamps are inferred and 19 students carry none; refusing on absence would make the
+  feature unusable on the real base. Same standing-aside rule as `CohortProvisioner`'s.
+- **An *Admis* with an unvalidated stage is flagged, not blocked.** PGSH sees stages; the jury sees the
+  year. With **0 authored `StageSlots`** an unmarked stage is currently the *normal* state, so enforcing
+  this would refuse every import — and the graduation gate (still unbuilt) is the place that joins the
+  two verdicts, not the déliberation.
+- **A motif is kept only on an adverse verdict** (`FailureReasons`), and a row that had its motif
+  dropped says so. Silently discarding what someone typed is how a user learns not to trust a preview.
+- New registrations are `Active` with **no group**. Nothing in the app filters planning by
+  `Registration.Status` — checked — so `Pending` would be planned exactly like `Active` while claiming
+  not to be enrolled. The empty group is deliberate: auto-arrange reads the "Non réparti" bucket next.
+- `IX_Registration_Year_Level` added while here — `Registration.LevelId` had no index at all, which
+  Phase 13 had logged.
+
 ## Code review 2026-08-08 — what it caught
 
 Two real defects, both now fixed with regression tests:

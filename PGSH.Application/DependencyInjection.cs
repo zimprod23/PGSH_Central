@@ -7,6 +7,8 @@ using PGSH.Application.Stages.Cnpn;
 using PGSH.Application.Stages.Cnpn.Targeting;
 using PGSH.Application.Stages.Evaluations;
 using PGSH.Application.Stages.Evaluations.Import;
+using PGSH.Application.Students.Registrations.Deliberation;
+using PGSH.Application.Students.Registrations.Reinscription;
 using PGSH.Application.Stages.Planning;
 using PGSH.Application.Stages.Slots;
 using FluentValidation;
@@ -47,6 +49,8 @@ public static class DependencyInjection
         services.AddScoped<GroupScheduleConflictGuard>();
         services.AddScoped<EvaluationObjectiveResolver>();
         services.AddScoped<EvaluationImportPlanner>();
+        services.AddScoped<DeliberationPlanner>();
+        services.AddScoped<ReinscriptionPlanner>();
 
         return services;
     }

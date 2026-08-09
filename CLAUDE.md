@@ -207,6 +207,36 @@ registered *before* that year under arrêté 2174.18 in its pre-2175.22 form. Fr
   (10 per semester S5–S8, 20 for S9–S10, 30 for S11–S12). PGSH models year-levels and a free
   coefficient. Recording 1650.25's requirements is an approximation until that gap is closed.
 
+### PGSH cannot know who passed the year — the faculty declares it
+There is no exam, no TP, no note de module and no jury in this system; it covers stages. So
+`Registration.Status` is not computed, it is **stated**: a canvas per promotion (`(year, level)`),
+filled from the PV de déliberation and uploaded — `Application/Students/Registrations/Deliberation/`.
+`RecordYearOutcome` is the only writer, and it records **how** the verdict was learned.
+
+| Décision | `RegistrationStatus` | next year |
+|---|---|---|
+| Admis | `Validated` | niveau + 1 |
+| Redoublant | `Failed` | même niveau |
+| Exclu | `Excluded` | — |
+| Diplômé | `Graduated` | — |
+| Abandon | `Withdrawn` | — |
+
+- ⚠ **`OutcomeSource` (`Declared` | `Inferred`) is load-bearing, not bookkeeping.** An inferred verdict
+  may never overwrite a declared one — a guess that can silently replace a fact makes the whole column
+  unreadable. It is also what lets Phase 14.3c back-fill the six imported years safely.
+  `null` means nobody has pronounced yet, which is every legacy year.
+- ⚠ **`Excluded` is not `Failed` and `Graduated` is not `Validated`.** One ends the cursus, the other
+  repeats or advances. Collapsing either pair breaks the réinscription, which is the only consumer that
+  has to tell them apart.
+- **A contradiction against our own stage record is reported, never enforced.** An *Admis* with an
+  unvalidated stage is flagged and the import proceeds: the jury rules on the whole year, we see only
+  stages, and with 0 authored periods an unmarked stage is the norm. Same choice as `EntryPredatesText`.
+- **Déliberation is all-or-nothing; réinscription is idempotent.** Not an inconsistency — the
+  deliberation file is *not stored*, so a half-closed promotion cannot be reconstructed, while a
+  rollover can simply be re-run once the odd verdicts are fixed. Keep both properties.
+- **They are two acts, months apart** (July / September), and not every admis comes back. Never fuse
+  them.
+
 ### The year is constitutive, not an attribute — know which side a table is on
 - **Year-constituted** — `AcademicGroup`, `Cohort`, `Registration`, `Curriculum`, `StageSlot`. Remove
   the year and the row is meaningless. `AcademicGroup.AcademicYearId` being non-nullable is the schema

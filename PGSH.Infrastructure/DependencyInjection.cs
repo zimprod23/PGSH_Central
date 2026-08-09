@@ -1,8 +1,10 @@
 using PGSH.Application.Abstractions.Authentication;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Stages.Evaluations.Import;
+using PGSH.Application.Students.Registrations.Deliberation;
 using PGSH.Infrastructure.Authentication;
 using PGSH.Infrastructure.Evaluations;
+using PGSH.Infrastructure.Registrations;
 using PGSH.Infrastructure.Authorization;
 using PGSH.Infrastructure.Database;
 using PGSH.Infrastructure.Time;
@@ -28,8 +30,9 @@ public static class DependencyInjection
     private static IServiceCollection AddServices(this IServiceCollection services)
     {
         services.AddSingleton<IDateTimeProvider, DateTimeProvider>();
-        // Adapter for the Application's IEvaluationSheetParser port — stateless, so a singleton.
+        // Adapters for the Application's sheet ports — stateless, so singletons.
         services.AddSingleton<IEvaluationSheetParser, ClosedXmlEvaluationSheetParser>();
+        services.AddSingleton<IDeliberationSheetParser, ClosedXmlDeliberationSheetParser>();
         return services;
     }
 

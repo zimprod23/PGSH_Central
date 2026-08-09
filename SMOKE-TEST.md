@@ -1,10 +1,16 @@
-# Smoke test — sessions 11 & 12
+# Smoke test — sessions 11 → 14
 
-Covers the year-scoping lockdown (session 11) and CNPN versioning (session 12).
+Covers the year-scoping lockdown (11), CNPN versioning + targeting + text editing (12–13), per-level
+service quotas and the répartition annuelle (14), and the déliberation / réinscription flow (14).
 **Rollback is at the bottom** — read it before you start, not after.
 
 Prerequisites: `dotnet run --project PGSH.AppHost`, log in as an admin (Scolarité).
-Both migrations are **already applied** to your dev database, so startup will not re-run them.
+
+| Migration | Applied? |
+|---|---|
+| `StageSlotAcademicYear`, `CnpnVersioning` | ✅ already in your dev database |
+| `AddServiceLevelCapacityAndLocalization` | ✅ already in your dev database |
+| `RegistrationYearOutcome` | ⚠ generated, **not yet applied** — restart `PGSH.AppHost` and `MigrationService` applies it |
 
 Timings below are the real figures from your data — if you see a different number, that is the bug.
 
@@ -13,7 +19,7 @@ Timings below are the real figures from your data — if you see a different num
 ## 0 · Sanity (2 min)
 
 ```bash
-dotnet test PGSH.Tests/PGSH.Tests.csproj      # expect: 509 passed, 0 failed
+dotnet test PGSH.Tests/PGSH.Tests.csproj      # expect: 660 passed, 0 failed
 ```
 
 Then, with the app up, `GET /cnpn-versions` (Scalar at `/scalar/v1`, or the browser). Expect **four**:
@@ -239,9 +245,112 @@ clickable on a text with students.
 
 ---
 
+## 11 · A service's capacity, two ways (6 min)
+
+*Admin → Hôpitaux → un service → modifier*
+
+The rule under test: **no quota rows means the service admits everyone against `Service.Capacity`;
+the first row closes it to every level without one.** An empty quota table reads as "nothing set yet"
+but means "open" — the form has to say so.
+
+1. Pick an unrestricted service (all 148 imported ones are). The quota section must state that it is
+   **open to every promotion** and that the total applies.
+2. Add one quota — say **3ème année Médecine: 10**. On save, the form must warn that
+   `Service.Capacity` is **now ignored** and that every level without a row is no longer admitted.
+3. Add the service to a stage of a level it has **no** quota for
+   (*Formation → Stages → un stage → Services autorisés*). Expect a refusal naming the promotions it
+   *does* take. The picker should not even offer it — it passes `admitsLevelId`.
+4. Auto-arrange that stage. Expect **`NoServicesAdmitLevel`**, not "no services" — the two are
+   different screens.
+
+❌ **Fail if** a quota is validated against the total (it deliberately is not — the quotas *replace*
+it), or if a service with no rows is treated as unconfigured.
+
+---
+
+## 12 · Répartition annuelle (4 min)
+
+*Admin → Formation → Répartition annuelle*
+
+⚠ **Expect it to be empty** unless you have authored a planning: the base holds **0 `StageSlots`** and
+**0 `CohortSlotAssignments`**. That is the honest state, not a bug — see *No periods in legacy*.
+
+1. Pick a level and the current year. With no planning, the page says so and names both missing
+   pieces (no créneaux / no cohortes), and the export button is disabled.
+2. To see it work, author two periods on one stage and run **Répartition auto.** Then: rows are
+   `Stage | Service (Chef)`, columns are the periods with their date ranges, cells are collapsed group
+   ranges (`47-50`), and unplanned cells are **hatched and counted** in an orange banner.
+3. Export. The `.html` must open standalone with its styling intact — it is the same DOM node the
+   preview rendered, serialized.
+4. Chefs: on ~95% of services the name comes from the `Description` note (140 of 148 carry
+   `Responsable (source) : Pr.X`, 0 have `ServiceChefId`). Those rows must be **flagged** as
+   source-note derived, not presented as a dated tenure.
+
+❌ **Fail if** a row's cells are silently shortened where a period has no assignment.
+
+---
+
+## 13 · Closing a year: the déliberation canvas (8 min)
+
+*Admin → Étudiants → une promotion → « Clôturer l'année »*
+
+> **Restart the API first.** `levels/{id}/deliberation*` and `levels/{id}/reinscription*` are new.
+
+PGSH has no exams, no TP, no deliberation — so the verdict comes from the faculty as a file. This is
+what replaces guessing at `Registration.Status`.
+
+1. **Download the canvas** for a level + year. It must carry one row per registration of *that*
+   promotion only — a 3ème année of the current year, not the six years the level ever ran. The
+   `Décision` column is a dropdown (`Admis / Redoublant / Exclu / Diplômé / Abandon`), and a
+   *Mode d'emploi* sheet explains each.
+2. Fill a handful, leave the rest blank, **Simuler**. Expect:
+   - the rows you filled as *à enregistrer*
+   - **`NotCovered`** = everyone the file does not mention, shown before you apply
+   - a **contradiction count** for any *Admis* whose stages are not all validated — flagged, **never
+     blocking** (the jury deliberates on the whole year; PGSH sees only stages)
+3. Mistype one decision (`Peut-être`) and Simuler → that row errors and **Appliquer is disabled**.
+   One bad row refuses the whole file: a promotion half closed cannot be reconstructed, because the
+   file is not stored.
+4. Fix it, **Appliquer**. Each registration now carries the verdict, `OutcomeSource = Declared`, a
+   recorded date, and a timeline entry on the student's Historique.
+5. Re-download the canvas → the verdicts you just applied come back **pre-filled**. Change one,
+   re-upload → it reports *remplace* and the correction lands.
+6. Write `Diplômé` on a 3ème année student who carries a CNPN stamp → refused (`NotAFinalYear`). Do
+   the same on an **unstamped** student → allowed, because ~2,200 stamps are inferred and 19 students
+   have none, and refusing on absence would make the feature unusable.
+
+❌ **Fail if** the good rows land when one row is in error, or if a motif written next to *Admis* is
+dropped without the row saying so.
+
+---
+
+## 14 · Réinscription: next year from the verdicts (5 min)
+
+*Admin → Étudiants → une promotion clôturée → « Réinscrire »*
+
+Deliberately a **separate act** from step 13 — the deliberation is July, re-registration is September,
+and not every admis comes back.
+
+1. Preview the rollover from the closed year into the next. Expect, per bucket:
+   *Admis → niveau + 1*, *Redoublant → même niveau*, *Diplômé / Exclu / Abandon → rien*, and
+   **NoOutcome** for anyone the deliberation never covered.
+2. Apply. New registrations are `Active`, carry **no group** (répartition is auto-arrange's job and
+   runs next), and no outcome of their own.
+3. **Run it again.** Every row must read *AlreadyRegistered* and nothing new is created — it is
+   idempotent on purpose, so you fix the odd verdicts and re-run. (This is the opposite choice from
+   step 13's all-or-nothing, because here re-running *is* safe.)
+4. An *Admis* on the last year of a programme with no level above → **NextLevelMissing**, reported
+   rather than guessed as a graduation. Fix the PV to `Diplômé` and re-run.
+5. Then run **auto-arrange groups** for the new year: the students you just registered are the
+   "Non réparti" bucket it reads from, and groups stay homogeneous by CNPN.
+
+❌ **Fail if** a second run duplicates registrations, or if a *Diplômé* gets a new year.
+
+---
+
 # Rollback
 
-Two migrations were applied to `TodoDatabase`. Reverse in the order below.
+Three migrations have been applied to `TodoDatabase`. Reverse in the order below.
 
 ### Database (destructive — take a dump first)
 
@@ -250,12 +359,20 @@ Two migrations were applied to `TodoDatabase`. Reverse in the order below.
 docker exec -e PGPASSWORD='<pw>' postgres-0fae29d8 \
   pg_dump -U postgres -d TodoDatabase -Fc -f /tmp/pre-rollback.dump
 
-# 2. Revert both migrations, newest first
+# 2. Revert, newest first.
+dotnet ef database update AddServiceLevelCapacityAndLocalization \
+  --project PGSH.Infrastructure --startup-project PGSH.Infrastructure   # undoes RegistrationYearOutcome
+dotnet ef database update CnpnVersioning \
+  --project PGSH.Infrastructure --startup-project PGSH.Infrastructure   # undoes AddServiceLevelCapacityAndLocalization
 dotnet ef database update StageSlotAcademicYear \
   --project PGSH.Infrastructure --startup-project PGSH.Infrastructure   # undoes CnpnVersioning
 dotnet ef database update CurriculumCnpn \
   --project PGSH.Infrastructure --startup-project PGSH.Infrastructure   # undoes StageSlotAcademicYear
 ```
+
+⚠ **Reverting `RegistrationYearOutcome` drops every verdict.** `OutcomeSource` and
+`OutcomeRecordedOn` are the only record that a year was closed by declaration rather than guessed at,
+and no other table carries it. Dump first, without exception.
 
 ⚠ **`CnpnVersioning.Down()` restores the shape, not the data.** The forward migration *merged* 51
 curricula into 9 by union; reverting cannot split them again and points every survivor at the current
@@ -271,29 +388,36 @@ Or restore the dump, which is cleaner:
 
 ### Code
 
-Both sessions are uncommitted working-tree changes in two separate repos:
+Sessions 11–13 are **committed** on `cnpn-versioning-and-year-scoping`, nothing is pushed:
 
 ```bash
-cd PGSH               && git status --short     # backend + docs
-cd PGSH/PGSH.Frontend && git status --short     # frontend (separate repo)
+git log --oneline -3
+#   008fd37  Per-level service quotas, the répartition annuelle, and a CNE that admits real students
+#   f9875e4  Scope everything by academic year, and version the CNPN
 ```
 
-Nothing was committed and nothing was pushed, so `git checkout -- <paths>` (or `git stash`) reverses
-the code entirely. Note the frontend had **pre-existing** uncommitted work before these sessions —
+So `git revert 008fd37` / `git reset --hard f9875e4` are the levers for those two, and `git status`
+covers whatever is still in the tree (the déliberation / réinscription work, at time of writing).
+The **frontend is a separate repo** and had pre-existing uncommitted work before all of this:
+
+```bash
+cd PGSH/PGSH.Frontend && git status --short
+```
+
 `git checkout .` there would discard that too. Stash rather than checkout if in doubt.
 
-Untracked files added by these sessions (checkout will not remove them):
+Untracked backend files added since `008fd37` (checkout will not remove them):
 
 ```
-PGSH.Domain/Stages/CnpnVersion.cs
-PGSH.Application/Stages/Cnpn/
-PGSH.Infrastructure/Migrations/20260808114953_StageSlotAcademicYear*.cs
-PGSH.Infrastructure/Migrations/20260808135315_CnpnVersioning*.cs
-PGSH.Tests/Application/YearScopingTests.cs
-PGSH.Tests/Application/CnpnAssignmentTests.cs
-PGSH.Tests/Application/CnpnPlanningTests.cs
-PGSH.Domain/Students/StudentCnpnVersionAssignedDomainEvent.cs
-PGSH.Application/AcademicYears/AcademicYearResolver.cs
-SMOKE-TEST.md
+PGSH.Domain/Registrations/RegistrationOutcomeSource.cs
+PGSH.Domain/Registrations/RegistrationYearOutcomeRecordedDomainEvent.cs
+PGSH.Application/Students/Registrations/Deliberation/
+PGSH.Application/Students/Registrations/Reinscription/
+PGSH.Application/Students/Registrations/RegistrationYearOutcomeRecordedEventHandler.cs
+PGSH.Infrastructure/Registrations/ClosedXmlDeliberationSheetParser.cs
+PGSH.API/Endpoints/Registrations/Deliberation.cs
+PGSH.API/Endpoints/Registrations/Reinscription.cs
+PGSH.Tests/Application/DeliberationTests.cs
+PGSH.Tests/Application/ReinscriptionTests.cs
 cnpn/                                    ← your PDF, keep this
 ```

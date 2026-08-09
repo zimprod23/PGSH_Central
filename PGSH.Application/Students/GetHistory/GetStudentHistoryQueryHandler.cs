@@ -2,16 +2,25 @@
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
+using PGSH.Application.Employees.MyServices;
 using PGSH.Domain.Students;
 using PGSH.SharedKernel;
 
 namespace PGSH.Application.Students.GetHistory;
 
 internal sealed class GetStudentHistoryQueryHandler(
-    IApplicationDbContext dbContext) : IQueryHandler<GetStudentHistoryQuery, List<StudentHistoryResponse>>
+    IApplicationDbContext dbContext,
+    ExecutionAuthorizer authorizer) : IQueryHandler<GetStudentHistoryQuery, List<StudentHistoryResponse>>
 {
     public async Task<Result<List<StudentHistoryResponse>>> Handle(GetStudentHistoryQuery request, CancellationToken cancellationToken)
     {
+        // Same scope as the parcours and the level dossier. A timeline is not a lighter read than the
+        // marks it sits beside: it carries every transfer, délocalisation, group move and failure the
+        // student has ever had, and the id is guessable.
+        var access = await authorizer.EnsureCanReadStudentDossierAsync(request.StudentId, cancellationToken);
+        if (access.IsFailure)
+            return Result.Failure<List<StudentHistoryResponse>>(access.Error);
+
         var studentExists = await dbContext.Students
             .AnyAsync(s => s.Id == request.StudentId, cancellationToken);
 

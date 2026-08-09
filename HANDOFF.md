@@ -1,5 +1,72 @@
 # HANDOFF.md
 
+> **▶ RESUME HERE (2026-08-09, session 14). A year is now closed by declaration, because PGSH cannot
+> compute the verdict and never could.**
+>
+> **⚠ TWO THINGS BEFORE YOU TEST.**
+> 1. **Migration `20260809151109_RegistrationYearOutcome` is generated but not applied** — restart
+>    `PGSH.AppHost` and `MigrationService` applies it. (Starting the stack *before* it existed is what
+>    threw `PendingModelChangesWarning` at `Worker.cs:95` — that was the missing migration, nothing else.)
+>    Two nullable columns on `Registrations` (`OutcomeSource`, `OutcomeRecordedOn`) plus
+>    `IX_Registration_Year_Level`. **No data migration**: every existing row keeps
+>    `OutcomeSource = null`, which is exactly "nobody has pronounced yet".
+>    - ⚠ It also **drops `IX_Registrations_AcademicYearId`**, and that is correct: the new composite
+>      index leads with `AcademicYearId`, so Postgres serves the FK lookups from its prefix and EF's
+>      convention skips the redundant one. Not a regression — one less index to maintain.
+> 2. **There is no frontend for this yet.** The three déliberation routes and two réinscription routes
+>    work end to end and are covered, but no screen calls them — see *Still to build* below.
+>
+> **The framing, which is yours and is the right one.** PGSH has no exams, no TP, no notes de module
+> and no jury. So it cannot know who cleared a year, and the fix is not a cleverer inference — it is to
+> **accept the verdict as input**, in the shape the évaluation import already proved works: a canvas per
+> promotion, filled from the PV de déliberation, previewed, then applied.
+>
+> **This supersedes the Phase 14.3 inference for every year going forward**, and makes the inference
+> *safe* for the six imported years: `Registration.OutcomeSource` is `Declared` or `Inferred`, and
+> `RecordYearOutcome` refuses to let a guess overwrite a fact. That was the objection that had 14.3
+> blocked, and it is now answered. Renumbered: **14.3a** (déliberation, done), **14.3b** (réinscription,
+> done), **14.3c** (the inference, still needs your rulings on three cases in NOTES.md).
+>
+> **Two acts, months apart, and they must stay apart** — deliberation in July, re-registration in
+> September, because not every *admis* comes back. Fusing them would invent registrations for students
+> who abandoned.
+>
+> | | route | policy on error |
+> |---|---|---|
+> | Déliberation | `GET\|POST levels/{id}/deliberation[/template\|/preview]` | **all-or-nothing** |
+> | Réinscription | `GET levels/{id}/reinscription/preview`, `POST levels/{id}/reinscription` | **skip, idempotent** |
+>
+> ⚠ **The two policies differ on purpose, do not "make them consistent".** The uploaded canvas is not
+> stored, so a half-closed promotion could never be reconstructed — hence all-or-nothing. A rollover can
+> simply be re-run once the odd verdicts are corrected, so refusing 690 legitimate rows over three
+> anomalies buys nothing.
+>
+> **`RegistrationStatus` gained `Graduated` and `Excluded`.** Both distinctions earn their keep in
+> exactly one consumer, the réinscription: *Admis* → niveau + 1, *Redoublant* → même niveau,
+> *Diplômé / Exclu / Abandon* → nothing. Collapsing either pair breaks it.
+>
+> **Three judgement calls worth knowing before you change them:**
+> - **An *Admis* whose stages are not all validated is flagged, never blocked.** The jury rules on the
+>   whole year; PGSH sees only stages — and with **0 authored `StageSlots`** an unmarked stage is the
+>   *normal* state, so enforcing this would refuse every import.
+> - **`Diplômé` off the final year is refused where the CNPN is known, and stands aside where it is
+>   not.** ~2,200 stamps are inferred and 19 students carry none.
+> - **New registrations are `Active` with no group.** Nothing in the app filters planning by
+>   `Registration.Status` (checked), so `Pending` would be planned identically while claiming not to be
+>   enrolled. The empty group is what puts them in the "Non réparti" bucket auto-arrange reads next.
+>
+> **Also this session:** `GET /students/{id}/history` had **no read scoping** — only
+> `RequireAuthorization()`, so any logged-in user could read any student's transfers, délocalisations and
+> failures. Now behind `EnsureCanReadStudentDossierAsync`, same as the parcours. That was the one real
+> gap inside Phase 14.2.
+>
+> **Still to build on this:** the frontend for both acts (upload + preview table + apply, mirroring the
+> évaluation import modal), and 14.2's admin student file, which is otherwise untouched.
+>
+> Suite: **660 green** (+29). Test recipes: [`SMOKE-TEST.md`](SMOKE-TEST.md) steps **13** and **14**.
+>
+> ---
+>
 > **⚠ RESTART THE API BEFORE TESTING.** The targeting endpoints
 > (`POST cnpn-versions/{id}/target[/preview]`) are new since the running process started, and
 > `PGSH.API`'s DLLs cannot be rebuilt while it holds them — the *Simuler* button 404s until you

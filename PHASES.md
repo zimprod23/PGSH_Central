@@ -551,17 +551,72 @@ The student portal gained the full parcours; the **admin** side still shows a st
 - ⚠ `GetStudentHistoryQuery` currently has **no read scoping** (unlike the parcours) — it is only
   behind `RequireAuthorization()`. Scope it before exposing it more widely.
 
-### 14.3 — Settling `Registration.Status` for past years
+### ✅ 14.3a — Closing a year by declaration (the déliberation canvas)
 
-PGSH is not linked to the pedagogical side of the faculty, so no registration is ever closed and every
-past year reads "En cours" in both portals. The inference rule agreed with the user — *a registration
-is failed when a later registration exists at the same level; otherwise validated; the latest is in
-progress* — plus the four cases that still need a ruling before any code is written, are documented in
-[NOTES.md → "`Registration.Status` is unmanaged"](NOTES.md).
+**Built 2026-08-09.** The answer to "who cleared the year" is not something PGSH can compute and was
+never going to be: there is no exam, no TP, no note de module and no jury in the system. So the
+faculty states it, in the shape it already works in — a canvas per promotion, filled from the PV de
+déliberation and uploaded, exactly like the évaluation import.
 
-Do not start this before those cases are answered. In particular: an inferred verdict must not be
-written into `Registration.Status` in a way that makes it indistinguishable from a known one, or a
-later link to the pedagogical system will overwrite facts with guesses.
+`Application/Students/Registrations/Deliberation/` — `GetDeliberationTemplateQuery`,
+`PreviewDeliberationQuery`, `ApplyDeliberationCommand`, all three sharing `DeliberationPlanner` so the
+dry run *is* the plan. API: `GET|POST levels/{levelId}/deliberation[/template|/preview]`.
+
+- **One canvas is one promotion — (academic year, level).** That is how a jury sits, and it is what
+  makes the identifier index mean anything: a CNE is unique within a promotion, and matching across
+  years turns a legitimate row into an ambiguous one.
+- **`RegistrationStatus` gained `Graduated` and `Excluded`.** *Exclu* is not *redouble* — one ends the
+  cursus, the other repeats the year — and the réinscription below is the thing that must tell them
+  apart. `Diplômé` is separate from `Admis` for the same reason: there is no level above it.
+- **`Registration.RecordYearOutcome` is the only writer**, and it stamps
+  `OutcomeSource` (`Declared` | `Inferred`) plus `OutcomeRecordedOn`. Re-declaring is allowed — a jury
+  corrects itself — but **an inferred verdict may never overwrite a declared one**. That guard is what
+  makes 14.3b safe to build afterwards.
+- **All-or-nothing.** One unreadable decision refuses the whole file, because the file is not stored:
+  a promotion half closed could not be reconstructed afterwards.
+- ⚠ **A contradiction against PGSH's own stage record is reported, never enforced.** An *Admis* whose
+  stages are not all validated is flagged and counted, and the import proceeds. The jury deliberates
+  on the whole year and PGSH sees only the stages — and with 0 authored periods in the base, an
+  unmarked stage is currently the norm, so enforcing would block every import.
+- ⚠ **`Diplômé` off the final year is refused** where the student's CNPN is known, and **stands aside**
+  where it is not: ~2,200 stamps are inferred and 19 students carry none, so refusing on absence would
+  make the feature unusable on the real data. Same standing-aside rule as `CohortProvisioner`'s.
+- `NotCovered` counts the registrations no row mentions — a promotion of 688 closed with a 200-row
+  file is worth seeing *before* applying.
+
+### ✅ 14.3b — Réinscription: next year from the verdicts
+
+**Built 2026-08-09.** `Application/Students/Registrations/Reinscription/` —
+`PreviewReinscriptionQuery`, `ApplyReinscriptionCommand`, sharing `ReinscriptionPlanner`.
+API: `GET levels/{levelId}/reinscription/preview`, `POST levels/{levelId}/reinscription`.
+
+*Admis → niveau + 1. Redoublant → même niveau. Diplômé / Exclu / Abandon → rien.*
+
+- **A separate act from the déliberation, deliberately.** Deliberation is July, re-registration is
+  September, and not every admis comes back. One combined act would invent registrations for students
+  who abandoned, and would require next year's `AcademicYear` row to exist in July.
+- ⚠ **Idempotent and additive, not all-or-nothing** — the opposite of 14.3a, and for a reason worth
+  keeping straight: a student already registered in the target year is *skipped*, so the rollover is
+  re-run after the odd verdicts are corrected. Refusing 690 rows over three anomalies would buy
+  nothing when re-running is safe. The déliberation cannot work that way; its file is not stored.
+- **`NextLevelMissing`** is *Admis* with no level above — almost always a PV that should have read
+  *Diplômé*. Reported, never guessed into a graduation.
+- New registrations are `Active` and carry **no group**: nothing in the app filters planning by
+  `Registration.Status`, so a `Pending` row would be grouped and planned exactly like an active one
+  while claiming not to be enrolled. Grouping is `AutoArrangeGroupsCommand`'s job and runs next — these
+  students are the "Non réparti" bucket it reads from.
+
+### 🔲 14.3c — Inferring the imported years (still open)
+
+Nobody will upload a canvas for 2019-2025, so those six years still read "En cours". The inference
+rule agreed with the user — *a registration is failed when a later registration exists at the same
+level; otherwise validated; the latest is in progress* — plus the four cases that still need a ruling,
+are documented in [NOTES.md → "`Registration.Status` is unmanaged"](NOTES.md).
+
+Do not start before those cases are answered. The half that *is* now settled: an inferred verdict
+writes `OutcomeSource = Inferred`, which `RecordYearOutcome` refuses to let overwrite a declared one —
+so a later link to the pedagogical system can never have its facts replaced by guesses, and every
+reader can tell which is which.
 
 ### 14.4 — Répartition annuelle des stages (printable level planning matrix)
 

@@ -15,6 +15,11 @@ internal sealed class RegistrationConfiguration : IEntityTypeConfiguration<Regis
         builder.Property(r => r.Status)
                .HasConversion<string>()
                .IsRequired();
+
+        // Nullable: a year still running has no verdict, and neither has any of the six years the
+        // legacy import carried — the column has to be able to say "nobody has pronounced yet".
+        builder.Property(r => r.OutcomeSource)
+               .HasConversion<string>();
         // Enum mapping
         //builder.Property(r => r.Level)
         //       .HasConversion<string>()
@@ -65,6 +70,11 @@ internal sealed class RegistrationConfiguration : IEntityTypeConfiguration<Regis
         builder.HasIndex(r => new { r.StudentId, r.AcademicYearId })
                .HasDatabaseName("IX_Registration_Student_Year")
                .IsUnique();
+
+        // One promotion = one (year, level), which is how the déliberation canvas, the réinscription
+        // and every auto-arrange query reach registrations. LevelId had no index at all (Phase 13).
+        builder.HasIndex(r => new { r.AcademicYearId, r.LevelId })
+               .HasDatabaseName("IX_Registration_Year_Level");
     }
 }
 

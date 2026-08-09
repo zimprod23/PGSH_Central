@@ -364,6 +364,12 @@ namespace PGSH.Infrastructure.Migrations
                     b.Property<int>("LevelId")
                         .HasColumnType("integer");
 
+                    b.Property<DateTime?>("OutcomeRecordedOn")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("OutcomeSource")
+                        .HasColumnType("text");
+
                     b.Property<DateTime?>("RegistrationDate")
                         .HasColumnType("timestamp with time zone");
 
@@ -378,9 +384,10 @@ namespace PGSH.Infrastructure.Migrations
 
                     b.HasIndex("AcademicGroupId");
 
-                    b.HasIndex("AcademicYearId");
-
                     b.HasIndex("LevelId");
+
+                    b.HasIndex("AcademicYearId", "LevelId")
+                        .HasDatabaseName("IX_Registration_Year_Level");
 
                     b.HasIndex("StudentId", "AcademicYearId")
                         .IsUnique()
