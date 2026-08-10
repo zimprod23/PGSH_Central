@@ -1,4 +1,4 @@
-# Smoke test — sessions 11 → 14
+# Smoke test — sessions 11 → 15
 
 Covers the year-scoping lockdown (11), CNPN versioning + targeting + text editing (12–13), per-level
 service quotas and the répartition annuelle (14), and the déliberation / réinscription flow (14).
@@ -19,7 +19,7 @@ Timings below are the real figures from your data — if you see a different num
 ## 0 · Sanity (2 min)
 
 ```bash
-dotnet test PGSH.Tests/PGSH.Tests.csproj      # expect: 714 passed, 0 failed
+dotnet test PGSH.Tests/PGSH.Tests.csproj      # expect: 721 passed, 0 failed
 ```
 
 Then, with the app up, `GET /cnpn-versions` (Scalar at `/scalar/v1`, or the browser). Expect **four**:
@@ -290,32 +290,45 @@ it), or if a service with no rows is treated as unconfigured.
 
 ---
 
-## 12c · Rotation cycle: the generated crossover (6 min)
+## 12c · Rotation cycle: the generated crossover (8 min)
 
 `POST levels/{levelId}/rotation-cycle[/preview]`
 
-Replaces ticking the macro matrix by hand. Body: the stages that run **concurrently**, how many periods
-each takes, and the block's date windows.
+Replaces ticking the macro matrix by hand. Body: the stages that run **concurrently** *with each stage's
+own period count*, plus the block's date windows — entered **once**, at the finest granularity any stage
+in the block uses.
 
-1. Two stages, `periodsPerStage: 2`, **4** windows → preview returns Médecine `A:P1-P2, B:P3-P4` and
-   Chirurgie `B:P1-P2, A:P3-P4`. That is the mirror.
-2. Send **6** windows for a 3-stage block at k=1 → refused, and the message states the arithmetic:
-   `S × k` columns, **not** partitions × k. Three stages at one period each need **3** windows however
-   many partitions exist.
-3. Apply → every stage of the block gets a slot on **every** column, all from one list of dates. Check
-   in the grid that Med P1 and Chir P1 are the same window — they cannot drift, they are written once.
-4. Take the returned `matrix` and post it to `stages/macro-plan`. Cohorts, affectation, arrange and
-   publish behave exactly as for a hand-ticked matrix.
-5. Re-apply → `slotsReplaced` equals the previous count; the axis is replaced, never merged.
-6. Apply a **second block** (semester 2, other stages, non-overlapping windows) → `slotsReplaced: 0`
-   and the first block is untouched.
-7. On a block with a **published** cell, both preview (`canApply: false`) and apply
-   (`RotationCycle.CannotReplacePublished`) refuse.
-8. Four partitions over three stages → applies, with a warning that one lane carries an extra partition.
-   Two partitions over three stages → a warning that a stage sits empty for a whole turn. Neither blocks.
+```json
+{ "stages": [ { "stageId": 1, "periods": 2 }, { "stageId": 2, "periods": 2 } ],
+  "windows": [ {...}, {...}, {...}, {...} ] }
+```
 
-❌ **Fail if** a partition appears twice in the same column, or a stage is empty in a column when
-partitions ≥ stages.
+1. **The mirror.** Two stages at 2 periods, 4 windows → Médecine `A:P1-P2, B:P3-P4` and Chirurgie
+   `B:P1-P2, A:P3-P4`.
+2. **The arithmetic.** Send 6 windows for three stages at 1 period → refused, message states
+   `T = Σkₛ = 3` columns however many partitions exist.
+3. **Mixed durations — the 6th year.** Four stages at 2 periods and two at 1 → `T = 10`, and it needs
+   **exactly 10 partitions** (`L = [2,2,2,2,1,1]`). With any other count it refuses and names the
+   multiples of 10. Check the layout: each 2-period stage reports `concurrency: 2`, each 1-period stage
+   `concurrency: 1`, and they sum to 10.
+4. **Apply** → every stage gets a slot per column, all from the one list of dates. In the grid, Med P1 and
+   Chir P1 must be the same window — they cannot drift, there is only one set of dates.
+5. Post the returned `matrix` to `stages/macro-plan`; cohorts, affectation, arrange and publish behave
+   exactly as for a hand-ticked matrix.
+6. Re-apply → `slotsReplaced` equals the previous count; the axis is replaced, never merged.
+7. Apply a **second block** (semester 2, other stages, non-overlapping windows) → `slotsReplaced: 0`,
+   first block untouched.
+8. On a block with a **published** cell, preview says `canApply: false` and apply refuses with
+   `RotationCycle.CannotReplacePublished`.
+9. **The impossible case.** One stage at 2 periods beside one at 1 → `T = 3`, refused with
+   `RotationCycle.NoFeasibleArrangement`. That is a proof, not a timeout: a two-column run must cover
+   column 2 wherever it starts, so no arrangement exists at any partition count.
+
+❌ **Fail if** a partition appears twice in one column, or a stage's occupancy in some column differs from
+its reported `concurrency`.
+
+⚠ A period is **one service**, not one stage: a 2-period stage gives its partition *two consecutive
+services*, so its `periodNumbers` has two entries.
 
 ---
 

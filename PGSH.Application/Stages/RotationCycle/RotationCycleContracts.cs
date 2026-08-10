@@ -2,33 +2,40 @@ using PGSH.Application.Stages.MacroPlan;
 
 namespace PGSH.Application.Stages.RotationCycle;
 
-/// <summary>
-/// One column of the block's shared axis. Every stage of the block declares a slot on <em>this</em>
-/// window, which is what makes the columns line up by construction instead of by everyone typing the
-/// same dates.
-/// </summary>
-/// <param name="Turn">
-/// Which stage-turn the column belongs to: with <c>periodsPerStage = 2</c>, columns 1–2 are turn 0 and
-/// columns 3–4 are turn 1. A partition stays in one stage for a whole turn.
-/// </param>
-public sealed record RotationColumn(int PeriodNumber, int Turn, DateOnly StartDate, DateOnly EndDate);
+/// <summary>One stage of a block and how long a partition stays in it, in columns of the shared axis.</summary>
+public sealed record RotationStage(int StageId, int Periods);
 
 /// <summary>
-/// Which partitions share a place in the rotation. With as many partitions as stages every lane holds
-/// one; with twice as many, each lane holds two and they move through the stages together.
+/// One column of the block's shared axis — the finest window the block distinguishes. Every stage's
+/// slots are whole runs of these, which is what makes the dates line up by construction instead of by
+/// everyone typing them twice.
 /// </summary>
-public sealed record RotationLane(int Index, IReadOnlyList<string> Partitions);
+public sealed record RotationColumn(int Number, DateOnly StartDate, DateOnly EndDate);
+
+/// <summary>
+/// One <c>StageSlot</c> the apply will write: stage <paramref name="StageId"/>'s period
+/// <paramref name="PeriodNumber"/>, spanning columns <paramref name="FirstColumn"/>…<paramref name="LastColumn"/>.
+/// </summary>
+public sealed record RotationSlot(
+    int StageId,
+    int PeriodNumber,
+    int FirstColumn,
+    int LastColumn,
+    DateOnly StartDate,
+    DateOnly EndDate);
 
 /// <summary>
 /// The whole cycle, worked out but not yet written. <see cref="Matrix"/> is deliberately the type
-/// <c>GenerateMacroPlanCommand</c> already consumes: this feature generates the matrix that was
-/// previously ticked by hand, and changes nothing downstream of it.
+/// <c>GenerateMacroPlanCommand</c> already consumes: this generates the matrix that used to be ticked by
+/// hand, and changes nothing downstream of it.
 /// </summary>
 public sealed record RotationCycleLayout(
-    int StagesInBlock,
-    int PeriodsPerStage,
+    // Total columns — the sum of the stages' periods, i.e. how long one partition needs to visit every
+    // stage of the block.
+    int Timeline,
     IReadOnlyList<RotationColumn> Columns,
-    IReadOnlyList<RotationLane> Lanes,
+    IReadOnlyList<StageTiling> Stages,
+    IReadOnlyList<RotationSlot> Slots,
     IReadOnlyList<PartitionStagePlan> Matrix,
-    // Things that are legal but probably not intended — uneven lanes, mostly. Never blocking.
+    // Legal but probably unintended — never blocking.
     IReadOnlyList<string> Warnings);

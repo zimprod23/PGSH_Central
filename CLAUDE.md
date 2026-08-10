@@ -207,27 +207,46 @@ registered *before* that year under arrêté 2174.18 in its pre-2175.22 form. Fr
   (10 per semester S5–S8, 20 for S9–S10, 30 for S11–S12). PGSH models year-levels and a free
   coefficient. Recording 1650.25's requirements is an approximation until that gap is closed.
 
-### A block of stages runs on one axis, and the crossover is generated
-`Stages/RotationCycle/` turns "these stages run concurrently, each for k periods" into the matrix
+### A block of stages runs on one axis, and the crossover is solved, not formula'd
+`Stages/RotationCycle/` turns "these stages run concurrently, stage *s* for *kₛ* periods" into the matrix
 `GenerateMacroPlanCommand` already consumes. It generates what used to be ticked by hand; nothing
 downstream of the matrix changed.
 
-- ⚠ **A block of S stages at k periods each occupies `S × k` columns — not `partitions × k`.** The
-  timeline must be long enough for one partition to visit every stage; partitions do not lengthen it,
-  they subdivide who is where. The two coincide only when S = P, which is why the 2-stage/2-partition
-  case hid the distinction. Three stages, k=1, six partitions ⇒ **3** columns, two partitions per stage.
-- **The rule:** partition *p* takes lane `p mod S`, and in turn *t* sits in stage `(lane + t) mod S`.
-  With S = 2 that is exactly the mirror — A does Médecine then Chirurgie, B the reverse.
-- **`RotationCyclePlanner` is pure** (no DB, no clock), which is what lets the crossover be tested
-  exhaustively — every partition visits every stage exactly once, and is never in two at a time — rather
-  than through a planning fixture.
+**The arithmetic.** A partition needs `T = Σkₛ` columns to visit every stage. If `Lₛ` partitions sit in
+stage *s* at once then, counting partition-columns two ways, `Lₛ·T = P·kₛ`, so:
+
+```
+T  = Σ kₛ            columns  (the shared axis, entered once)
+Lₛ = P · kₛ / T      partitions concurrently in stage s — must be a whole number
+```
+
+- ⚠ **`T` is `Σkₛ`, never `partitions × k`.** Partitions do not lengthen the timeline, they subdivide who
+  is where. Three stages at k=1 with six partitions is **3** columns with 2 partitions per stage — not 6.
+- ⚠ **`Lₛ` integral pins `P` to a multiple of `T / gcd(kₛ)`.** Refusals name that multiple
+  (`PartitionCountIncompatible`), because "wrong number" without "here is what works" is useless.
+- ⚠ **A period is one *service*, not one stage.** "Chirurgie has 2 periods" means the group passes through
+  **two different services**, so every stage carries a slot per axis column and a partition takes a run of
+  `kₛ` consecutive ones. Modelling a 2-period stage as one 2-column slot keeps the group in one service
+  for two months — the opposite of what it means. (I got this wrong first; the tests caught it.)
+- ⚠ **Some duration mixes are impossible, not unsupported.** Stages of 2 and 1 give `T = 3`, and a
+  two-column run must cover column 2 wherever it starts — so every partition is there and the other stage
+  stands empty. No `P` fixes it. `RotationTiling`'s search is exhaustive, so `NoFeasibleArrangement` is a
+  proof, not a timeout.
+- **The arrangement is an exact cover** (`RotationTiling`), backtracking across partitions *and* columns.
+  With equal `kₛ` it reproduces the cyclic Latin square the closed form used to give; unequal `kₛ` break
+  that form outright, because stage boundaries of different lengths no longer line up.
+- **`RotationCyclePlanner` is pure** (no DB, no clock), which is what lets the invariants be tested
+  exhaustively — every partition visits every stage once, for exactly `kₛ` periods, tiling the year, with
+  every stage at exactly `Lₛ` in every column.
 - **Authoring the axis and running the plan are two acts.** The apply writes the `StageSlot`s and
   *returns* the matrix; the caller hands it to the macro plan. Same separation as déliberation /
   réinscription, and it keeps cohort provisioning, arranging and publishing on their existing path.
 - **The axis is replaced wholesale, never merged** — half-old, half-new columns are the exact
   misalignment the feature removes — and is **refused outright while any cell is published**.
-- The new CNPN's 3rd year is **two blocks** (three stages per semester), not one block of six. Blocks of
-  one level coexist; replacement is scoped to the stages named in the command.
+- The new CNPN's 3rd year is **two blocks** (three stages per semester), not one block of six. The 6th
+  year is **one** block of six with mixed durations: `k = [2,2,2,2,1,1]`, `T = 10`, `P = 10`,
+  `L = [2,2,2,2,1,1]` — which is exactly the ten monthly columns of `Med6.png`. Blocks of one level
+  coexist; replacement is scoped to the stages named in the command.
 
 ### ⚠ Nothing declares that two stages share a period — the axis is derived
 `StageSlot` is keyed `(StageId, AcademicYearId, PeriodNumber)`, so Médecine P1 and Chirurgie P1 are

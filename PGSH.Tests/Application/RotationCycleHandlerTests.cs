@@ -48,7 +48,7 @@ public class RotationCycleHandlerTests
 
         var result = await ApplyHandler(db).Handle(
             new ApplyRotationCycleCommand(
-                TestHarness.LevelId, [TestHarness.StageId, ChirurgieId], 2, Months(4)),
+                TestHarness.LevelId, [new RotationStage(TestHarness.StageId, 2), new RotationStage(ChirurgieId, 2)], Months(4)),
             default);
 
         result.IsSuccess.Should().BeTrue();
@@ -78,7 +78,7 @@ public class RotationCycleHandlerTests
 
         var result = await ApplyHandler(db).Handle(
             new ApplyRotationCycleCommand(
-                TestHarness.LevelId, [TestHarness.StageId, ChirurgieId], 2, Months(4)),
+                TestHarness.LevelId, [new RotationStage(TestHarness.StageId, 2), new RotationStage(ChirurgieId, 2)], Months(4)),
             default);
 
         var matrix = result.Value.Matrix;
@@ -100,7 +100,7 @@ public class RotationCycleHandlerTests
 
         var preview = await PreviewHandler(db).Handle(
             new PreviewRotationCycleQuery(
-                TestHarness.LevelId, [TestHarness.StageId, ChirurgieId], 2, Months(4)),
+                TestHarness.LevelId, [new RotationStage(TestHarness.StageId, 2), new RotationStage(ChirurgieId, 2)], Months(4)),
             default);
 
         preview.IsSuccess.Should().BeTrue();
@@ -109,7 +109,7 @@ public class RotationCycleHandlerTests
 
         var applied = await ApplyHandler(db).Handle(
             new ApplyRotationCycleCommand(
-                TestHarness.LevelId, [TestHarness.StageId, ChirurgieId], 2, Months(4)),
+                TestHarness.LevelId, [new RotationStage(TestHarness.StageId, 2), new RotationStage(ChirurgieId, 2)], Months(4)),
             default);
 
         applied.Value.Layout.Matrix.Should().BeEquivalentTo(preview.Value.Layout.Matrix);
@@ -126,7 +126,7 @@ public class RotationCycleHandlerTests
 
         var result = await ApplyHandler(db).Handle(
             new ApplyRotationCycleCommand(
-                TestHarness.LevelId, [TestHarness.StageId, 50], 2, Months(4)),
+                TestHarness.LevelId, [new RotationStage(TestHarness.StageId, 2), new RotationStage(50, 2)], Months(4)),
             default);
 
         result.IsFailure.Should().BeTrue();
@@ -141,7 +141,7 @@ public class RotationCycleHandlerTests
         await db.SaveChangesAsync();
 
         var command = new ApplyRotationCycleCommand(
-            TestHarness.LevelId, [TestHarness.StageId, ChirurgieId], 2, Months(4));
+            TestHarness.LevelId, [new RotationStage(TestHarness.StageId, 2), new RotationStage(ChirurgieId, 2)], Months(4));
 
         await ApplyHandler(db).Handle(command, default);
         var second = await ApplyHandler(db).Handle(command, default);
@@ -177,7 +177,7 @@ public class RotationCycleHandlerTests
 
         var result = await ApplyHandler(db).Handle(
             new ApplyRotationCycleCommand(
-                TestHarness.LevelId, [TestHarness.StageId, ChirurgieId], 2, Months(4)),
+                TestHarness.LevelId, [new RotationStage(TestHarness.StageId, 2), new RotationStage(ChirurgieId, 2)], Months(4)),
             default);
 
         result.IsFailure.Should().BeTrue();
@@ -210,7 +210,7 @@ public class RotationCycleHandlerTests
 
         var preview = await PreviewHandler(db).Handle(
             new PreviewRotationCycleQuery(
-                TestHarness.LevelId, [TestHarness.StageId, ChirurgieId], 2, Months(4)),
+                TestHarness.LevelId, [new RotationStage(TestHarness.StageId, 2), new RotationStage(ChirurgieId, 2)], Months(4)),
             default);
 
         // Finding out at apply time that the block is frozen is worse than being told before filling
@@ -231,7 +231,7 @@ public class RotationCycleHandlerTests
         // out of ToDictionary as a 500. Testing the planner in isolation could not catch this.
         var result = await ApplyHandler(db).Handle(
             new ApplyRotationCycleCommand(
-                TestHarness.LevelId, [TestHarness.StageId, TestHarness.StageId], 2, Months(4)),
+                TestHarness.LevelId, [new RotationStage(TestHarness.StageId, 2), new RotationStage(TestHarness.StageId, 2)], Months(4)),
             default);
 
         result.IsFailure.Should().BeTrue();
@@ -249,7 +249,7 @@ public class RotationCycleHandlerTests
 
         var result = await ApplyHandler(db).Handle(
             new ApplyRotationCycleCommand(
-                TestHarness.LevelId, [TestHarness.StageId, ChirurgieId], 2, Months(4)),
+                TestHarness.LevelId, [new RotationStage(TestHarness.StageId, 2), new RotationStage(ChirurgieId, 2)], Months(4)),
             default);
 
         result.IsFailure.Should().BeTrue();
@@ -277,9 +277,9 @@ public class RotationCycleHandlerTests
 
         var first = await ApplyHandler(db).Handle(
             new ApplyRotationCycleCommand(
-                TestHarness.LevelId, [TestHarness.StageId, ChirurgieId], 1, semester1), default);
+                TestHarness.LevelId, [new RotationStage(TestHarness.StageId, 1), new RotationStage(ChirurgieId, 1)], semester1), default);
         var second = await ApplyHandler(db).Handle(
-            new ApplyRotationCycleCommand(TestHarness.LevelId, [3, 4], 1, semester2), default);
+            new ApplyRotationCycleCommand(TestHarness.LevelId, [new RotationStage(3, 1), new RotationStage(4, 1)], semester2), default);
 
         first.IsSuccess.Should().BeTrue();
         second.IsSuccess.Should().BeTrue();

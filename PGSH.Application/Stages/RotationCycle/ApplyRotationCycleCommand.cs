@@ -24,8 +24,7 @@ namespace PGSH.Application.Stages.RotationCycle;
 /// </remarks>
 public sealed record ApplyRotationCycleCommand(
     int LevelId,
-    IReadOnlyList<int> StageIds,
-    int PeriodsPerStage,
+    IReadOnlyList<RotationStage> Stages,
     IReadOnlyList<DateWindow> Windows,
     int? AcademicYearId = null) : ICommand<RotationCycleResult>, IAuditableCommand
 {
@@ -37,8 +36,7 @@ public sealed record ApplyRotationCycleCommand(
     {
         levelId = LevelId,
         academicYearId = AcademicYearId,
-        stageIds = StageIds,
-        periodsPerStage = PeriodsPerStage,
+        stages = Stages,
         columns = Windows.Count,
     });
 }
@@ -55,8 +53,9 @@ internal sealed class ApplyRotationCycleCommandValidator : AbstractValidator<App
     public ApplyRotationCycleCommandValidator()
     {
         RuleFor(x => x.LevelId).GreaterThan(0);
-        RuleFor(x => x.StageIds).NotEmpty();
-        RuleFor(x => x.PeriodsPerStage).GreaterThan(0);
+        RuleFor(x => x.Stages).NotEmpty();
+        RuleForEach(x => x.Stages).Must(st => st.Periods >= 1)
+            .WithMessage("Chaque stage occupe au moins une période.");
         RuleFor(x => x.Windows).NotEmpty();
         RuleForEach(x => x.Windows)
             .Must(w => w.EndDate >= w.StartDate)
@@ -79,7 +78,8 @@ internal sealed class ApplyRotationCycleCommandHandler(
 
         int yearId = year.Value;
 
-        var resolved = await context.ResolveAsync(request.LevelId, request.StageIds, yearId, cancellationToken);
+        var stageIds = request.Stages.Select(st => st.StageId).ToList();
+        var resolved = await context.ResolveAsync(request.LevelId, stageIds, yearId, cancellationToken);
         if (resolved.IsFailure)
             return Result.Failure<RotationCycleResult>(resolved.Error);
 
@@ -91,8 +91,7 @@ internal sealed class ApplyRotationCycleCommandHandler(
                 RotationCycleErrors.CannotReplacePublished(resolved.Value.PublishedCells));
 
         var layout = RotationCyclePlanner.Build(
-            request.StageIds,
-            request.PeriodsPerStage,
+            request.Stages,
             resolved.Value.PartitionLabels,
             request.Windows.Select(w => (w.StartDate, w.EndDate)).ToList());
 
@@ -103,29 +102,25 @@ internal sealed class ApplyRotationCycleCommandHandler(
         // are exactly the misalignment this feature exists to remove. Cells hanging off the old slots
         // go with them — unpublished, so an arrange rebuilds them from the returned matrix.
         var obsolete = await dbContext.StageSlots
-            .Where(s => request.StageIds.Contains(s.StageId) && s.AcademicYearId == yearId)
+            .Where(s => stageIds.Contains(s.StageId) && s.AcademicYearId == yearId)
             .ToListAsync(cancellationToken);
 
         if (obsolete.Count > 0)
             dbContext.StageSlots.RemoveRange(obsolete);
 
-        var created = new List<StageSlot>(request.StageIds.Count * layout.Value.Columns.Count);
-
-        foreach (int stageId in request.StageIds)
-        {
-            foreach (var column in layout.Value.Columns)
+        // One StageSlot per (stage, slot) the layout worked out. A 2-column stage on a 10-column axis
+        // gets 5 slots, a 1-column stage gets 10 — all dated from the same list of windows, entered once.
+        var created = layout.Value.Slots
+            .Select(slot => new StageSlot
             {
-                created.Add(new StageSlot
-                {
-                    StageId = stageId,
-                    AcademicYearId = yearId,
-                    PeriodNumber = column.PeriodNumber,
-                    Label = $"P{column.PeriodNumber}",
-                    StartDate = column.StartDate,
-                    EndDate = column.EndDate,
-                });
-            }
-        }
+                StageId = slot.StageId,
+                AcademicYearId = yearId,
+                PeriodNumber = slot.PeriodNumber,
+                Label = $"P{slot.PeriodNumber}",
+                StartDate = slot.StartDate,
+                EndDate = slot.EndDate,
+            })
+            .ToList();
 
         await dbContext.StageSlots.AddRangeAsync(created, cancellationToken);
         await dbContext.SaveChangesAsync(cancellationToken);

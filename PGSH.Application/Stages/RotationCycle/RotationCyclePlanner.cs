@@ -4,53 +4,72 @@ using PGSH.SharedKernel;
 namespace PGSH.Application.Stages.RotationCycle;
 
 /// <summary>
-/// Works out the crossover for a block of stages that run concurrently: which partition is in which
-/// stage, in which periods, so that every partition passes through every stage of the block exactly
-/// once and no two partitions crowd the same services at the same time.
+/// Works out the crossover for a block of stages that run concurrently on one shared axis: which
+/// partition sits in which stage, in which of that stage's periods, so that every partition passes
+/// through every stage of the block exactly once and no stage is ever over- or under-filled.
 ///
-/// <para>Pure — no database, no clock. Everything it needs is in the arguments, which is what lets the
-/// rule be tested exhaustively rather than through a planning fixture.</para>
+/// <para>Pure — no database, no clock — which is what lets the arithmetic be tested exhaustively rather
+/// than through a planning fixture.</para>
 ///
-/// <para><b>The rule.</b> A block of <c>S</c> stages, each taking <c>k</c> periods, occupies
-/// <c>S × k</c> columns: the timeline must be long enough for one partition to visit all <c>S</c>
-/// stages. ⚠ It is <b>not</b> partitions × k — partitions do not lengthen the timeline, they subdivide
-/// who is where. Partition <c>p</c> takes lane <c>p mod S</c> and, in turn <c>t</c>, sits in stage
-/// <c>(lane + t) mod S</c>. With S = 2 that is exactly the mirror: A does stage 1 then stage 2, B does
-/// stage 2 then stage 1.</para>
+/// <para><b>The model.</b> Stage <c>s</c> holds a partition for <c>kₛ</c> columns, so a partition needs
+/// <c>T = Σkₛ</c> columns to visit them all. If <c>Lₛ</c> partitions sit in stage <c>s</c> at any moment
+/// then, counting partition-columns two ways, <c>Lₛ·T = P·kₛ</c>. Hence:</para>
+/// <para><c>Lₛ = P·kₛ/T</c> must be a whole number, which pins <c>P</c> to a multiple of
+/// <c>T / gcd(kₛ)</c>. That is the only arithmetic condition; the rest is arrangement.</para>
+///
+/// <para>⚠ <b>A period is one service, not one stage.</b> "Chirurgie has 2 periods" means a partition
+/// spends two columns there and passes through <em>two different services</em> — so every stage carries a
+/// slot per column of the axis, and a partition takes a run of <c>kₛ</c> consecutive ones. Modelling a
+/// two-period stage as a single two-column slot would keep the group in one service for two months, which
+/// is the opposite of what it means.</para>
+///
+/// <para><b>Why the old formula had to go.</b> With every <c>kₛ</c> equal this collapses to the cyclic
+/// Latin square — partition <c>p</c> in stage <c>(p + t) mod S</c> — which is all the first version could
+/// express. Unequal durations break it outright: stage boundaries of different lengths no longer line up,
+/// so shifting a partition by one stage does not carry a valid schedule to another valid one. The
+/// arrangement is now solved as an exact cover (<see cref="RotationTiling"/>).</para>
+///
+/// <para>⚠ <b>Some duration mixes are impossible, not merely unsupported.</b> Stages of 2 and 1 columns
+/// give <c>T = 3</c>, and a two-column run in a three-column timeline must cover column 2 wherever it
+/// starts — so every partition is in that stage at column 2 and the other stands empty. No <c>P</c> fixes
+/// it, and the search says so exhaustively rather than guessing.</para>
 /// </summary>
 internal static class RotationCyclePlanner
 {
     public static Result<RotationCycleLayout> Build(
-        IReadOnlyList<int> stageIds,
-        int periodsPerStage,
+        IReadOnlyList<RotationStage> stages,
         IReadOnlyList<string> partitionLabels,
         IReadOnlyList<(DateOnly Start, DateOnly End)> windows)
     {
-        if (stageIds.Count == 0)
+        if (stages.Count == 0)
             return Result.Failure<RotationCycleLayout>(RotationCycleErrors.NoStages);
 
-        if (stageIds.Distinct().Count() != stageIds.Count)
+        if (stages.Select(s => s.StageId).Distinct().Count() != stages.Count)
             return Result.Failure<RotationCycleLayout>(RotationCycleErrors.DuplicateStage);
 
-        if (partitionLabels.Count == 0)
+        if (stages.Any(s => s.Periods < 1))
+            return Result.Failure<RotationCycleLayout>(RotationCycleErrors.InvalidPeriods);
+
+        var labels = partitionLabels.Distinct().OrderBy(l => l).ToList();
+        if (labels.Count == 0)
             return Result.Failure<RotationCycleLayout>(RotationCycleErrors.NoPartitions);
 
-        if (periodsPerStage < 1)
-            return Result.Failure<RotationCycleLayout>(
-                Error.Validation("RotationCycle.InvalidPeriodsPerStage",
-                    "Un stage occupe au moins une période."));
+        int timeline = stages.Sum(s => s.Periods);
 
-        int stages = stageIds.Count;
-        int expectedColumns = stages * periodsPerStage;
-
-        if (windows.Count != expectedColumns)
+        if (windows.Count != timeline)
             return Result.Failure<RotationCycleLayout>(
-                RotationCycleErrors.WrongWindowCount(expectedColumns, windows.Count));
+                RotationCycleErrors.WrongWindowCount(timeline, windows.Count, stages));
+
+        // Concurrency must come out whole, which pins P to a multiple of T / gcd(kₛ).
+        int divisor = stages.Select(s => s.Periods).Aggregate(Gcd);
+        int step = timeline / divisor;
+
+        if (labels.Count % step != 0)
+            return Result.Failure<RotationCycleLayout>(
+                RotationCycleErrors.PartitionCountIncompatible(labels.Count, step, timeline));
 
         var ordered = windows.OrderBy(w => w.Start).ThenBy(w => w.End).ToList();
 
-        // Windows are inclusive of both ends, the same convention SlotOverlapGuard enforces: a period
-        // ending 31/03 and one starting 31/03 collide, and the next must start 01/04.
         for (int i = 1; i < ordered.Count; i++)
         {
             if (ordered[i].Start <= ordered[i - 1].End)
@@ -59,69 +78,76 @@ internal static class RotationCyclePlanner
         }
 
         var columns = ordered
-            .Select((w, i) => new RotationColumn(i + 1, i / periodsPerStage, w.Start, w.End))
+            .Select((w, i) => new RotationColumn(i + 1, w.Start, w.End))
             .ToList();
 
-        var labels = partitionLabels.Distinct().OrderBy(l => l).ToList();
-
-        var lanes = Enumerable.Range(0, stages)
-            .Select(lane => new RotationLane(
-                lane,
-                labels.Where((_, pi) => pi % stages == lane).ToList()))
+        // Every stage is occupied in every column, so every stage carries the whole axis as slots.
+        var tilings = stages
+            .Select(s => new StageTiling(
+                s.StageId,
+                s.Periods,
+                SlotCount: timeline,
+                Concurrency: labels.Count * s.Periods / timeline))
             .ToList();
 
-        var matrix = new List<PartitionStagePlan>(labels.Count * stages);
+        var arrangement = RotationTiling.Solve(tilings, labels.Count, timeline);
+        if (arrangement is null)
+            return Result.Failure<RotationCycleLayout>(
+                RotationCycleErrors.NoFeasibleArrangement(labels.Count, timeline));
 
-        foreach (var lane in lanes)
-        {
-            foreach (string label in lane.Partitions)
-            {
-                for (int turn = 0; turn < stages; turn++)
-                {
-                    int stageIndex = (lane.Index + turn) % stages;
+        // One StageSlot per (stage, column). Dated from the single list of windows, so Médecine's P1 and
+        // Chirurgie's P1 cannot drift apart by a typo — they are the same dates, written once.
+        var slots = tilings
+            .SelectMany(t => columns.Select(c => new RotationSlot(
+                t.StageId, c.Number, c.Number, c.Number, c.StartDate, c.EndDate)))
+            .ToList();
 
-                    var periodNumbers = columns
-                        .Where(c => c.Turn == turn)
-                        .Select(c => c.PeriodNumber)
-                        .ToList();
-
-                    matrix.Add(new PartitionStagePlan(label, stageIds[stageIndex], periodNumbers));
-                }
-            }
-        }
+        // A partition takes a run of kₛ consecutive periods of each stage — one service per period.
+        var matrix = labels
+            .SelectMany((label, p) => arrangement[p]
+                .OrderBy(x => x.FirstColumn)
+                .Select(x => new PartitionStagePlan(
+                    label,
+                    x.StageId,
+                    Enumerable.Range(x.FirstColumn, x.LastColumn - x.FirstColumn + 1).ToList())))
+            .ToList();
 
         return new RotationCycleLayout(
-            stages, periodsPerStage, columns, lanes,
-            matrix.OrderBy(m => m.RotationGroup).ThenBy(m => m.PeriodNumbers[0]).ToList(),
-            Warnings(lanes, labels.Count, stages));
+            timeline, columns, tilings, slots, matrix, Warnings(tilings, labels.Count, step));
     }
 
+    /// <summary>Uniform durations — the common case, and what the two-stage mirror is.</summary>
+    public static Result<RotationCycleLayout> Build(
+        IReadOnlyList<int> stageIds,
+        int periodsPerStage,
+        IReadOnlyList<string> partitionLabels,
+        IReadOnlyList<(DateOnly Start, DateOnly End)> windows) =>
+        Build(stageIds.Select(id => new RotationStage(id, periodsPerStage)).ToList(), partitionLabels, windows);
+
     private static List<string> Warnings(
-        IReadOnlyList<RotationLane> lanes, int partitionCount, int stages)
+        IReadOnlyList<StageTiling> tilings, int partitionCount, int step)
     {
         var warnings = new List<string>();
 
-        // Legal, and the plan is still correct — every partition visits every stage. But the stages of a
-        // turn then carry unequal shares of the promotion, which is a capacity surprise if unintended.
-        //
-        // Only worth saying when there are enough partitions to go round: below that, every non-empty
-        // lane is trivially "heavier" than the empty ones, and the shortage warning says it properly.
-        if (partitionCount > stages && partitionCount % stages != 0)
-        {
-            var heavy = lanes.Where(l => l.Partitions.Count > partitionCount / stages).ToList();
+        // Legal and correct, but it multiplies how many groups one stage holds at once, which is a
+        // capacity question rather than a planning one.
+        var shared = tilings.Where(t => t.Concurrency > 1).ToList();
+        if (shared.Count > 0)
             warnings.Add(
-                $"{partitionCount} partitions pour {stages} stages : les couloirs "
-                + $"{string.Join(", ", heavy.Select(l => l.Index + 1))} portent une partition de plus. "
-                + "Chaque partition passe bien par chaque stage, mais les stages d'un même tour "
-                + "n'accueillent pas le même effectif.");
-        }
+                string.Join(" · ", shared.Select(t => $"{t.Concurrency} partitions à la fois en stage {t.StageId}"))
+                + ". Vérifiez la capacité des services concernés.");
 
-        var empty = lanes.Where(l => l.Partitions.Count == 0).ToList();
-        if (empty.Count > 0)
+        if (partitionCount > step)
             warnings.Add(
-                $"{empty.Count} couloir(s) sans partition : il y a moins de partitions que de stages, "
-                + "donc certains stages n'accueillent personne pendant un tour entier.");
+                $"Le minimum de partitions pour ce bloc est {step}. Avec {partitionCount}, chaque créneau "
+                + "accueille plusieurs partitions simultanément.");
 
         return warnings;
+    }
+
+    private static int Gcd(int a, int b)
+    {
+        while (b != 0) (a, b) = (b, a % b);
+        return a;
     }
 }

@@ -794,6 +794,51 @@ last bullet above is answered: `Registration.OutcomeSource` is the provenance fl
 year* below. What is **still open** is the inference itself, for the six imported years nobody will
 ever upload a canvas for — the first three bullets need rulings before that is written (Phase 14.3c).
 
+## Stages of unequal length on one axis — the general solution (2026-08-09, session 15)
+
+The first version of the rotation cycle took **one** `periodsPerStage` for a whole block, which is fine
+for the new 3rd year (two semesters × three stages × one period) and useless for the 6th, where four
+stages take two periods and two take one. Generalised properly rather than worked around, because the
+user's framing was right: it is a pure mathematical problem.
+
+**The counting identity.** A partition needs `T = Σkₛ` columns to visit every stage of the block. If `Lₛ`
+partitions sit in stage *s* at once, counting partition-columns two ways gives `Lₛ·T = P·kₛ`, hence
+`Lₛ = P·kₛ/T`. Integrality pins **`P` to a multiple of `T / gcd(kₛ)`** — the only arithmetic condition.
+
+Run the real 6th year through it: `k = [2,2,2,2,1,1]` → `T = 10`, `gcd = 1`, so `P = 10`, and
+`L = [2,2,2,2,1,1]` summing to 10. **That is the ten monthly columns of `Med6.png`**, with the two-period
+stages holding two partitions at a time. The reference document *is* the formula.
+
+⚠ **A period is one service, not one stage — and I modelled it backwards first.** "Chirurgie has 2
+periods" means the group passes through **two different services**. I initially gave a 2-period stage a
+single two-column slot, which keeps a group in one service for two months. The ported tests failed
+immediately and correctly. The right model: every stage carries a slot **per axis column** (so `SlotCount`
+is `T` for all stages, as before), and a partition takes a **run of `kₛ` consecutive** ones. This also
+removed a `kₛ | T` condition I had briefly imposed — a run need not start on a multiple of its length.
+
+⚠ **The closed form had to go.** `(lane + t) mod S` is a cyclic Latin square and only exists when the
+durations are equal; with unequal `kₛ` the stage boundaries stop lining up, so shifting a partition by one
+stage no longer maps a valid schedule to another. `RotationTiling` solves an exact cover instead,
+backtracking across **partitions and columns together** — filling each partition greedily would report
+"impossible" whenever an early partition took a column a later one needed, which is a wrong answer rather
+than a slow one. The search space is tiny (a level has ≤ ~12 columns, ≤ ~8 stages).
+
+⚠ **Some mixes are genuinely impossible.** Stages of 2 and 1 give `T = 3`; a two-column run must cover
+column 2 wherever it starts, so every partition is in that stage there and the other stands empty. No `P`
+rescues it. Because the search is exhaustive, `NoFeasibleArrangement` is a proof rather than a giving-up —
+worth keeping that property if it is ever optimised.
+
+**Authoring the dates once** was the other half of the request, and it falls out for free: the caller
+supplies the axis at its **finest** granularity (10 monthly windows), and every stage's slots are cut from
+that one list. A 2-period stage and a 1-period stage on the same block therefore cannot drift, because
+there is only one set of dates. `PeriodAxis` on the read side already handled multi-column stages by
+repeating their cell across the columns they span, so the répartition needed no change.
+
+**Chosen for the partition-count question:** the command **takes** `P` (from the promotion's real
+partitioning) and validates it, rather than deriving one. Deriving would silently re-cut partitions to
+suit one block, which fights the `Reassign` guard, and a level's partitioning is shared across its blocks.
+The refusal names the multiples that would work, so it is as helpful as deriving would have been.
+
 ## The crossover is generated now, and the shared axis is authored once (2026-08-09)
 
 Asked for as a "mirror effect": configure one stage, get the opposite for the other. Generalised,

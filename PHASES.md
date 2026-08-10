@@ -805,6 +805,28 @@ row — a superseded arrêté stays, because the students who followed it stay.
 in a six-year text). That turns setting up a text from six clone actions into one, then editing only
 the years the arrêté actually changes — which is how an arrêté reads.
 
+### ✅ Phase 15.07 — unequal stage durations on one rotation axis
+
+**Done 2026-08-09.** `Stages/RotationCycle/` generalised from one `periodsPerStage` per block to a period
+count **per stage**, which is what the 6th year needs: four stages of two periods and two of one.
+
+The counting identity does the work. A partition needs `T = Σkₛ` columns to visit every stage, and if `Lₛ`
+partitions sit in stage *s* at once then `Lₛ·T = P·kₛ`. So `Lₛ = P·kₛ/T`, and `P` must be a multiple of
+`T / gcd(kₛ)`. The real 6th year: `k = [2,2,2,2,1,1]` → `T = 10`, `P = 10`, `L = [2,2,2,2,1,1]` — the ten
+monthly columns of `Med6.png`.
+
+- ⚠ **A period is one service, not one stage.** Every stage carries a slot per axis column; a partition
+  takes a run of `kₛ` consecutive ones, i.e. `kₛ` different services.
+- ⚠ **The closed-form Latin square is gone** — it only exists for equal durations. `RotationTiling` solves
+  an exact cover, backtracking across partitions and columns together.
+- ⚠ **Some mixes are impossible, and the refusal is a proof.** Stages of 2 and 1 give `T = 3`, where a
+  two-column run always covers column 2. The search is exhaustive, so `NoFeasibleArrangement` means no
+  arrangement exists at any `P`.
+- **Dates are entered once** for the block, at its finest granularity; every stage's slots are cut from
+  that single list, so stages of different lengths cannot drift apart.
+- `P` is **taken and validated**, not derived — a level's partitioning is shared across its blocks, and
+  deriving would silently re-cut it. The refusal names the multiples that would work.
+
 ### 🔲 Phase 15.1 — the semester model (the deferred half)
 
 The new CNPN organises **12 semesters**, not 6 years, and types its placements:

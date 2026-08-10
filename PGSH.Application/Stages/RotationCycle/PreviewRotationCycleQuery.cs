@@ -13,18 +13,20 @@ namespace PGSH.Application.Stages.RotationCycle;
 /// What the crossover would look like. Writes nothing, and the layout it returns is the one the apply
 /// executes — same planner, so the dry run is the plan.
 /// </summary>
-/// <param name="StageIds">
-/// The stages that run <em>concurrently</em> on one shared axis. The new CNPN's 3rd year is two such
-/// blocks — three stages in the first semester, three in the second — not one block of six.
+/// <param name="Stages">
+/// The stages that run <em>concurrently</em> on one shared axis, each with how many columns a partition
+/// spends in it. They need not agree: the 6th year is four stages of two periods and two of one. The new
+/// CNPN's 3rd year is instead two blocks of three — a semester each — not one block of six.
 /// </param>
 /// <param name="Windows">
-/// The block's columns, in order. Supplied rather than computed: an academic calendar has holidays and
-/// irregular boundaries, and inventing dates from a start and a length would get them wrong.
+/// The block's columns, in order, at the <em>finest</em> granularity any of its stages uses — entered
+/// once for the whole block. Each stage's own slots are then whole runs of these, so a two-period stage
+/// on a monthly axis gets five two-month slots and a one-period stage gets ten. Supplied rather than
+/// computed: an academic calendar has holidays and irregular boundaries.
 /// </param>
 public sealed record PreviewRotationCycleQuery(
     int LevelId,
-    IReadOnlyList<int> StageIds,
-    int PeriodsPerStage,
+    IReadOnlyList<RotationStage> Stages,
     IReadOnlyList<DateWindow> Windows,
     int? AcademicYearId = null) : IQuery<RotationCyclePreview>;
 
@@ -47,8 +49,9 @@ internal sealed class PreviewRotationCycleQueryValidator : AbstractValidator<Pre
     public PreviewRotationCycleQueryValidator()
     {
         RuleFor(x => x.LevelId).GreaterThan(0);
-        RuleFor(x => x.StageIds).NotEmpty();
-        RuleFor(x => x.PeriodsPerStage).GreaterThan(0);
+        RuleFor(x => x.Stages).NotEmpty();
+        RuleForEach(x => x.Stages).Must(st => st.Periods >= 1)
+            .WithMessage("Chaque stage occupe au moins une période.");
         RuleFor(x => x.Windows).NotEmpty();
     }
 }
@@ -68,13 +71,13 @@ internal sealed class PreviewRotationCycleQueryHandler(
 
         (int yearId, string yearLabel) = year.Value;
 
-        var resolved = await context.ResolveAsync(request.LevelId, request.StageIds, yearId, cancellationToken);
+        var stageIds = request.Stages.Select(st => st.StageId).ToList();
+        var resolved = await context.ResolveAsync(request.LevelId, stageIds, yearId, cancellationToken);
         if (resolved.IsFailure)
             return Result.Failure<RotationCyclePreview>(resolved.Error);
 
         var layout = RotationCyclePlanner.Build(
-            request.StageIds,
-            request.PeriodsPerStage,
+            request.Stages,
             resolved.Value.PartitionLabels,
             request.Windows.Select(w => (w.StartDate, w.EndDate)).ToList());
 

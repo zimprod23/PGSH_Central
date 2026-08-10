@@ -1,5 +1,49 @@
 # HANDOFF.md
 
+> **▶ SESSION 15 — stages of unequal length now rotate on one axis, and the dates are entered once.**
+>
+> The rotation cycle took a single `periodsPerStage` for a whole block. Fine for the new 3rd year (two
+> semesters × three stages × one period), useless for the 6th, where four stages take two periods and two
+> take one. Generalised, not worked around.
+>
+> **The identity that drives everything.** A partition needs `T = Σkₛ` columns to visit every stage; if
+> `Lₛ` partitions sit in stage *s* at once then `Lₛ·T = P·kₛ`, so **`Lₛ = P·kₛ/T`** and `P` must be a
+> multiple of `T / gcd(kₛ)`. Refusals name that multiple.
+>
+> Run the real 6th year through it — `k = [2,2,2,2,1,1]` → `T = 10`, `P = 10`, `L = [2,2,2,2,1,1]`. **That
+> is the ten monthly columns of `Med6.png`.** The reference document is the formula.
+>
+> ⚠ **A period is one *service*, not one stage — I modelled it backwards first.** "Chirurgie has 2
+> periods" means two *different services*. My first attempt gave a 2-period stage one two-column slot,
+> which parks a group in one service for two months. The ported tests failed immediately and were right.
+> Correct model: every stage carries a slot **per axis column**, and a partition takes a **run of `kₛ`
+> consecutive** ones — which also removed a `kₛ | T` condition I had briefly imposed.
+>
+> ⚠ **The closed form is gone.** `(lane + t) mod S` is a cyclic Latin square that only exists for equal
+> durations. `RotationTiling` solves an exact cover, backtracking across **partitions and columns
+> together** — filling each partition greedily would report "impossible" whenever an early one took a
+> column a later one needed, a wrong answer rather than a slow one.
+>
+> ⚠ **Some mixes are genuinely impossible.** Stages of 2 and 1 give `T = 3`; a two-column run must cover
+> column 2 wherever it starts, so one stage is always full and the other always empty. No `P` fixes it.
+> The search is exhaustive, so `NoFeasibleArrangement` is a **proof**. Keep that property if it is ever
+> optimised.
+>
+> **Dates entered once** — the other half of the ask, and it falls out: supply the axis at its finest
+> granularity (10 monthly windows) and every stage's slots are cut from that one list, so a 2-period and a
+> 1-period stage on the same block cannot drift. `PeriodAxis` already handled multi-column stages on the
+> read side, so the répartition needed no change.
+>
+> **Decision taken on the partition count** (you left it to me): the command **takes** `P` from the
+> promotion's real partitioning and validates it, rather than deriving one. Deriving would silently re-cut
+> partitions to suit a single block, fighting the `Reassign` guard, and a level's partitioning is shared
+> across its blocks. The refusal names the multiples that work, so it is as helpful as deriving.
+>
+> Request shape changed: `stages: [{ stageId, periods }]` replaces `stageIds` + `periodsPerStage`.
+> Recipe: [`SMOKE-TEST.md`](SMOKE-TEST.md) step **12c**. Suite: **721 green**.
+>
+> ---
+>
 > **▶ SESSION 14 — the crossover is generated now (« mirror effect », generalised).**
 >
 > Asked for as: configure one stage, get the opposite for the other. Built as the general rotation,

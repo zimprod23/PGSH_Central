@@ -15,9 +15,12 @@ namespace PGSH.API.Endpoints.Stages;
 /// </summary>
 public sealed class RotationCycleEndpoint : IEndpoint
 {
+    /// <summary>
+    /// <paramref name="Stages"/> carries each stage's own period count — they need not be equal.
+    /// <paramref name="Windows"/> is the block's axis at its finest granularity, entered once.
+    /// </summary>
     public sealed record Request(
-        IReadOnlyList<int> StageIds,
-        int PeriodsPerStage,
+        IReadOnlyList<RotationStage> Stages,
         IReadOnlyList<DateWindow> Windows,
         int? AcademicYearId);
 
@@ -30,8 +33,7 @@ public sealed class RotationCycleEndpoint : IEndpoint
             CancellationToken ct) =>
         {
             var result = await sender.Send(new PreviewRotationCycleQuery(
-                levelId, request.StageIds, request.PeriodsPerStage, request.Windows,
-                request.AcademicYearId), ct);
+                levelId, request.Stages, request.Windows, request.AcademicYearId), ct);
 
             return result.Match(Results.Ok, CustomResults.Problem);
         })
@@ -46,8 +48,7 @@ public sealed class RotationCycleEndpoint : IEndpoint
             CancellationToken ct) =>
         {
             var result = await sender.Send(new ApplyRotationCycleCommand(
-                levelId, request.StageIds, request.PeriodsPerStage, request.Windows,
-                request.AcademicYearId), ct);
+                levelId, request.Stages, request.Windows, request.AcademicYearId), ct);
 
             return result.Match(Results.Ok, CustomResults.Problem);
         })
