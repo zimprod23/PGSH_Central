@@ -91,7 +91,12 @@ internal static class RotationCyclePlanner
             .ToList();
 
         var arrangement = RotationTiling.Solve(tilings, labels.Count, timeline);
-        if (arrangement is null)
+
+        if (arrangement.Outcome == TilingOutcome.Undetermined)
+            return Result.Failure<RotationCycleLayout>(
+                RotationCycleErrors.ArrangementUndetermined(labels.Count, timeline));
+
+        if (arrangement.Outcome == TilingOutcome.ProvenImpossible)
             return Result.Failure<RotationCycleLayout>(
                 RotationCycleErrors.NoFeasibleArrangement(labels.Count, timeline));
 
@@ -104,7 +109,7 @@ internal static class RotationCyclePlanner
 
         // A partition takes a run of kₛ consecutive periods of each stage — one service per period.
         var matrix = labels
-            .SelectMany((label, p) => arrangement[p]
+            .SelectMany((label, p) => arrangement.Plan[p]
                 .OrderBy(x => x.FirstColumn)
                 .Select(x => new PartitionStagePlan(
                     label,
@@ -113,7 +118,7 @@ internal static class RotationCyclePlanner
             .ToList();
 
         return new RotationCycleLayout(
-            timeline, columns, tilings, slots, matrix, Warnings(tilings, labels.Count, step));
+            timeline, step, columns, tilings, slots, matrix, Warnings(tilings, labels.Count, step));
     }
 
     /// <summary>Uniform durations — the common case, and what the two-stage mirror is.</summary>

@@ -47,6 +47,16 @@ public static class RotationCycleErrors
         + "colonnes, bien que les comptes soient cohérents. La recherche est exhaustive : il n'en existe "
         + "pas. Essayez un multiple supérieur de partitions, ou scindez le bloc en semestres.");
 
+    /// <summary>
+    /// The search hit its budget before deciding. Kept distinct from <see cref="NoFeasibleArrangement"/>
+    /// because that one asserts a proof, and asserting one we did not finish would be a lie.
+    /// </summary>
+    public static Error ArrangementUndetermined(int partitionCount, int timeline) => Error.Validation(
+        "RotationCycle.ArrangementUndetermined",
+        $"La recherche d'une répartition pour {partitionCount} partitions sur {timeline} colonnes n'a pas "
+        + "abouti dans les limites allouées — sans conclure qu'elle est impossible. Réduisez le nombre de "
+        + "partitions, ou scindez le bloc.");
+
     public static Error WindowsOverlap(int first, int second) => Error.Validation(
         "RotationCycle.WindowsOverlap",
         $"Les fenêtres {first} et {second} se chevauchent — les colonnes d'un même bloc se suivent.");

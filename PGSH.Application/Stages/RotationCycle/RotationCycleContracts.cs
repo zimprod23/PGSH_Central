@@ -33,6 +33,10 @@ public sealed record RotationCycleLayout(
     // Total columns — the sum of the stages' periods, i.e. how long one partition needs to visit every
     // stage of the block.
     int Timeline,
+    // The partition count this block requires a multiple of: T / gcd(kₛ). A year holding several blocks
+    // needs a P that is a common multiple of all of theirs, since a group carries one partition label for
+    // the whole year.
+    int PartitionStep,
     IReadOnlyList<RotationColumn> Columns,
     IReadOnlyList<StageTiling> Stages,
     IReadOnlyList<RotationSlot> Slots,

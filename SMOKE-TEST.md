@@ -19,8 +19,15 @@ Timings below are the real figures from your data — if you see a different num
 ## 0 · Sanity (2 min)
 
 ```bash
-dotnet test PGSH.Tests/PGSH.Tests.csproj      # expect: 721 passed, 0 failed
+rm -rf PGSH.Tests/bin PGSH.Tests/obj          # ⚠ see below
+dotnet test PGSH.Tests/PGSH.Tests.csproj      # expect: 739 passed, 0 failed, ~40 s
 ```
+
+⚠ **Incremental `dotnet test` runs in this repo have been reporting phantom counts** — the same suite came
+back as 696, then 47, then 14, in consecutive runs. A stale/partial test assembly is being picked up, and a
+crashed host leaves one behind. Only a run after clearing `PGSH.Tests/bin` and `obj` is trustworthy, and a
+line reading `Série de tests abandonnée` means a host crash swallowed part of the run however green the
+count above it looks.
 
 Then, with the app up, `GET /cnpn-versions` (Scalar at `/scalar/v1`, or the browser). Expect **four**:
 
