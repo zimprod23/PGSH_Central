@@ -1,7 +1,8 @@
-# Smoke test — sessions 11 → 15
+# Smoke test — sessions 11 → 16
 
 Covers the year-scoping lockdown (11), CNPN versioning + targeting + text editing (12–13), per-level
-service quotas and the répartition annuelle (14), and the déliberation / réinscription flow (14).
+service quotas and the répartition annuelle (14), the déliberation / réinscription flow (14), and the
+working-day calendar + un-partitioning (16 — steps **12e** and **12f**, both already executed).
 **Rollback is at the bottom** — read it before you start, not after.
 
 Prerequisites: `dotnet run --project PGSH.AppHost`, log in as an admin (Scolarité).
@@ -10,7 +11,8 @@ Prerequisites: `dotnet run --project PGSH.AppHost`, log in as an admin (Scolarit
 |---|---|
 | `StageSlotAcademicYear`, `CnpnVersioning` | ✅ already in your dev database |
 | `AddServiceLevelCapacityAndLocalization` | ✅ already in your dev database |
-| `RegistrationYearOutcome` | ⚠ generated, **not yet applied** — restart `PGSH.AppHost` and `MigrationService` applies it |
+| `RegistrationYearOutcome` | ✅ applied |
+| `HolidayCalendar` | ✅ applied (session 16) |
 
 Timings below are the real figures from your data — if you see a different number, that is the bug.
 
@@ -20,7 +22,7 @@ Timings below are the real figures from your data — if you see a different num
 
 ```bash
 rm -rf PGSH.Tests/bin PGSH.Tests/obj          # ⚠ see below
-dotnet test PGSH.Tests/PGSH.Tests.csproj      # expect: 739 passed, 0 failed, ~40 s
+dotnet test PGSH.Tests/PGSH.Tests.csproj      # expect: 773 passed, 0 failed, ~35 s
 ```
 
 ⚠ **Incremental `dotnet test` runs in this repo have been reporting phantom counts** — the same suite came
