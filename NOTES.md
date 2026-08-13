@@ -1058,3 +1058,23 @@ pagination, the execution-authorization path, or `SyncUserMiddleware`.
    should be snappy (only the edited cell mounts the heavy Combobox). Click-to-edit still assigns/clears.
 5. **Optimistic allowed-services (manual/GUI)** — add/remove a service on a stage: chip toggles instantly
    and persists after reload.
+
+## Jours ouvrables — measured, not assumed (2026-08-13)
+
+`Stage.DurationInDays` is **already in worked days** for 25 of 27 stages: 14×7, 22×7, 30×2, 42×3, 44×6,
+66×2. 22 is a month of worked days, 44 two, 66 three, 14 about three weeks. Only the two 30s (pharmacie
+officine, stage hospitalier d'initiation) are ambiguous — 30 worked days is six weeks, so they are most
+likely calendar days the import left behind.
+
+**Consequence for planning: author the axis in `jours ouvrables`.** Med6 at 22 j.o. per column meets every
+stated duration exactly (CHIRURGIE k=2 → 44) while its calendar span swings 60–67 days. A monthly axis
+cannot make that guarantee — the same six months give columns of 18 to 22 worked days.
+
+The academic year 2025-2026 (01/09/2025 → 31/08/2026) holds **365 calendar days, 261 weekdays, 252 worked
+days** with the ten fixed national fériés, **247** once the four lunar ones are entered. Two of the fixed
+days fall on a weekend and cost nothing.
+
+⚠ The lunar dates are not computable — Aïd al-Fitr, Aïd al-Adha, 1ᵉʳ Moharram, Aïd al-Mawlid turn on
+observation of the crescent and are fixed by decree. Enter the estimate unconfirmed (a Hijri date drifts
+~11 days earlier per Gregorian year) and confirm when the decree lands. Under `mois`/`semaines` correcting
+it moves no dates; under `jours ouvrables` it shifts that column and every one after it.

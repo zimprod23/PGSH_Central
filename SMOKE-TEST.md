@@ -383,6 +383,10 @@ numbers run contiguously *per text*, so a block can land entirely inside one CNP
 
 ## 12e · Jours fériés, and a column measured in worked days (7 min)
 
+> ✅ **Executed 2026-08-13 against the real base.** 252 → 247 jours ouvrables after the four lunar
+> holidays; Aïd al-Fitr 20–21/03 costs **1** day (the 21st is a Saturday) and Manifeste 11/01 costs **0**
+> (a Sunday). `mois` swings 18–22 and warns; `jours ouvrables ×20` gives exactly 20 every column.
+
 **Formation → Jours fériés.** The calendar every duration is counted against.
 
 1. **Générer les fêtes nationales** → ~6 rows for 2025-2026 (the fixed dates falling between September
@@ -420,6 +424,10 @@ them no longer reproduces.
 ---
 
 ## 12f · Taking back a partitioning (4 min)
+
+> ✅ **Executed 2026-08-13.** Level 6 re-cut 2 → 10 (A–J × 10 groups, incl. 20 previously unlabelled).
+> A clear on level 3 (accidental) left all 320 cells, 1872 assignments and 9283 periods intact and the
+> original A/B fully reconstructible from the cells — restored and verified identical.
 
 **Groupes → Plan macro**, pick a level. The *Corriger le découpage* card only appears once labels exist.
 
