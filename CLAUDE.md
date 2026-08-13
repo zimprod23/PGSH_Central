@@ -247,6 +247,48 @@ Lₛ = P · kₛ / T      partitions concurrently in stage s — must be a whole
   year is **one** block of six with mixed durations: `k = [2,2,2,2,1,1]`, `T = 10`, `P = 10`,
   `L = [2,2,2,2,1,1]` — which is exactly the ten monthly columns of `Med6.png`. Blocks of one level
   coexist; replacement is scoped to the stages named in the command.
+- **A column is stated in months, weeks or *jours ouvrables*** — `GenerateAxisWindowsQuery`, and it is
+  a **server** call. Laying the axis in the browser with `setUTCMonth` was right for calendar months and
+  silently wrong the moment a duration means worked days: no client has the holiday table. Months and
+  weeks stay calendar-exact (a monthly axis must land on the 1st); only `WorkingDays` lays each column
+  to a fixed count of worked days, and it is the **only** unit under which two columns are the same
+  amount of stage — février and mars are not.
+
+### Jours ouvrables — the calendar is entered, and half of it cannot be computed
+`WorkingDayCalendar` in `Domain/Calendar/` is the single answer to "how long is this really": calendar
+days minus the weekly rest days (`WorkingWeek.Moroccan` = Sat + Sun) minus every declared `Holiday`.
+Pure and immutable, built once by `WorkingDayProvider`, which loads the **whole** table (~15 rows a
+year — a date range would need an unknowable forward margin anyway).
+
+- ⚠ **This does not reinterpret `Stage.DurationInDays`.** That column holds 30 for nearly every stage,
+  which is a *calendar* month, not 30 worked days (≈ six weeks). Treating the stored numbers as working
+  days would silently lengthen every stage in the catalogue by half. The calendar is used where a
+  duration is stated in working days **at the point of use**, and everywhere else it *reports*:
+  `RotationCyclePreview.DurationChecks` gives each stage's worked and calendar days against its stated
+  number, as a **range** (partitions take different runs of the axis) and never as a guard.
+- ⚠ **National dates are law; religious dates are observation.** `MoroccanPublicHolidays.FixedFor`
+  generates the ten fixed Gregorian days (and Nouvel An Amazigh only from 2024, when the décret first
+  took effect). Aïd al-Fitr, Aïd al-Adha, 1ᵉʳ Moharram and Mawlid follow the Hijri calendar, turn on
+  observation of the crescent, and are announced by decree — **they cannot be generated, only entered**.
+  Their absence is reported (`MissingReligious`) rather than left to surface as a stage that ran long.
+- ⚠ **An empty calendar is not a neutral one.** With no holidays recorded, « jours ouvrables » quietly
+  means "minus weekends" — narrower than it says, and the normal state of a fresh base. Hence
+  `CalendarIsEmpty` on both the axis and the preview: a silent best effort here is a wrong end date.
+- **`Holiday.IsConfirmed` is load-bearing.** A provisional lunar date still blocks its days — you plan
+  on the best estimate — but every window laid over one is flagged, so the répartition can be reprinted
+  when the decree lands instead of being quietly a day out. Same shape as `OutcomeSource`.
+- **A holiday spans days** (`StartDate`…`EndDate`, inclusive) because the ones that matter are
+  multi-day: Aïd is two, vacances are two weeks. `WorkingDaysLost` is counted against the
+  *weekend-only* calendar — measured against a calendar that already contains the holiday, every
+  holiday costs zero — so a férié falling on a Sunday correctly reads 0.
+- **A window opens and closes on a worked day.** Asked to start on a Saturday it starts Monday, and it
+  never swallows a trailing weekend, so consecutive columns cannot overlap the rest day between them.
+- ⚠ **A per-service working week is deliberately not modelled.** Many services run Saturday mornings
+  and a garde runs every day. This calendar answers a *planning* question about a promotion; attendance
+  is recorded per day against `AttendanceRecord` and is never derived from it.
+- Deleting a holiday breaks no link, but any `StageSlot` laid over it keeps dates that no longer
+  reproduce from the count that produced them — `SlotsSpanning` says how many, so the confirmation can
+  name the number.
 
 ### ⚠ Nothing declares that two stages share a period — the axis is derived
 `StageSlot` is keyed `(StageId, AcademicYearId, PeriodNumber)`, so Médecine P1 and Chirurgie P1 are
@@ -291,6 +333,15 @@ strategies, both producing equal-sized partitions, and the arranger cannot tell 
   built on the current partitioning. Changing the cut is `Reassign: true` (`ReassignAll`), which is
   **refused outright while any cell of the promotion is published**: students have been sent there.
   Merely-planned cells are counted (`PlannedCellsAffected`) so the caller knows an arrange is owed.
+- ⚠ **A wrong count can only be undone by clearing** — `ClearRotationGroupsCommand`. That
+  `BuildLabels` rule means a promotion mistakenly cut into two stays two-way for every later assign
+  whatever count is asked for, so "unset the partitions" is a distinct act, not a flag on assign. It
+  is refused while published (`CannotClearPublished`) for the same reason a re-cut is: the printed
+  répartition names the partition students were sent as, and a label nobody holds cannot reproduce it.
+- **Clearing destroys nothing else, and that is provable rather than hopeful.** Nothing points at a
+  label — cohorts hang off groups, cells off cohorts and slots, periods off cells — so the command
+  removes no row and breaks no FK. What it costs is that the planned cells no longer describe any
+  partition, which is `PlannedCellsAffected` (an arrange is owed), not data loss.
 
 ### PGSH cannot know who passed the year — the faculty declares it
 There is no exam, no TP, no note de module and no jury in this system; it covers stages. So

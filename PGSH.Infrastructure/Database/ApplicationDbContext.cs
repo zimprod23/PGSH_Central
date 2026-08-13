@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Domain.Audit;
+using PGSH.Domain.Calendar;
 using PGSH.Domain.Common.Utils;
 using PGSH.Domain.Employees;
 using PGSH.Domain.Hospitals;
@@ -65,6 +66,7 @@ public sealed class ApplicationDbContext : DbContext, IApplicationDbContext
     public DbSet<CohortMembership> CohortMembership { get; set; }
     public DbSet<ServiceEvaluation> ServiceEvaluation { get; set; }
     public DbSet<ServicePeriod> ServicePeriods { get; set; }
+    public DbSet<Holiday> Holidays { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

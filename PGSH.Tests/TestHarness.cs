@@ -2,6 +2,7 @@
 using NSubstitute;
 using PGSH.Application.Abstractions.Authentication;
 using PGSH.Application.Employees.MyServices;
+using PGSH.Domain.Calendar;
 using PGSH.Domain.Employees;
 using PGSH.Domain.Hospitals;
 using PGSH.Domain.Registrations;
@@ -375,5 +376,25 @@ public static class TestHarness
         };
         db.StageObjectives.Add(objective);
         return objective;
+    }
+
+    /// <summary>
+    /// A non-working stretch. <paramref name="days"/> defaults to one, so the common single-day férié stays
+    /// a one-liner while Aïd (two days) and vacances (a fortnight) pass a count.
+    /// </summary>
+    public static Holiday SeedHoliday(
+        this ApplicationDbContext db, DateOnly start, string name, int days = 1,
+        HolidayKind kind = HolidayKind.National, bool confirmed = true)
+    {
+        var holiday = new Holiday
+        {
+            StartDate = start,
+            EndDate = start.AddDays(days - 1),
+            Name = name,
+            Kind = kind,
+            IsConfirmed = confirmed,
+        };
+        db.Holidays.Add(holiday);
+        return holiday;
     }
 }

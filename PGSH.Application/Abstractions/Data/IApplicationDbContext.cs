@@ -1,4 +1,5 @@
 ﻿using PGSH.Domain.Audit;
+using PGSH.Domain.Calendar;
 using PGSH.Domain.Common.Utils;
 using PGSH.Domain.Employees;
 using PGSH.Domain.Hospitals;
@@ -39,6 +40,7 @@ public interface IApplicationDbContext
     DbSet<ServiceEvaluation> ServiceEvaluation { get; set; }
     DbSet<ServicePeriod> ServicePeriods { get; set; }
     DbSet<AuditLog> AuditLogs { get; set; }
+    DbSet<Holiday> Holidays { get; set; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }

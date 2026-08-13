@@ -3,6 +3,8 @@ using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
 using PGSH.Application.AcademicYears;
+using PGSH.Application.Calendar;
+using PGSH.Domain.Calendar;
 using PGSH.Domain.Registrations;
 using PGSH.Domain.Stages;
 using PGSH.SharedKernel;
@@ -40,9 +42,41 @@ public sealed record RotationCyclePreview(
     // Slots these stages already hold for the year, which applying would replace.
     int ExistingSlots,
     int PublishedCells,
-    bool CanApply);
+    bool CanApply,
+    // What the windows actually give each stage, in jours ouvrables, against what it says it needs.
+    IReadOnlyList<StageDurationCheck> DurationChecks,
+    // No holiday recorded across the axis at all, so the counts below are calendar days minus weekends.
+    bool CalendarIsEmpty);
 
-public sealed record RotationCycleStage(int StageId, string Name);
+public sealed record RotationCycleStage(int StageId, string Name, int DurationInDays);
+
+/// <summary>
+/// What one stage of the block actually gets, measured on the calendar, against the duration its catalogue
+/// row states.
+///
+/// <para>Reported per stage rather than per partition, as a range: partitions take <em>different</em> runs
+/// of the axis, and a run over février is genuinely shorter than one over mars. The spread is a fact about
+/// calendars, not a defect — which is why this is a report and not a guard.</para>
+/// </summary>
+/// <param name="StatedDurationInDays">
+/// ⚠ <c>Stage.DurationInDays</c>, the catalogue's own number — which duplicates the one every
+/// <c>CurriculumStage</c> carries and is not necessarily what any CNPN states. They agree today only
+/// because the history reconstruction seeded one from the other. See <c>PHASES.md</c> 15.1.
+/// </param>
+/// <param name="Note">
+/// Set only when the gap is worth a human look. Never blocking: with 30 stored for almost every stage
+/// (a calendar month, not thirty worked days) a mismatch is the norm rather than the exception.
+/// </param>
+public sealed record StageDurationCheck(
+    int StageId,
+    string Name,
+    int Periods,
+    int StatedDurationInDays,
+    int MinWorkingDays,
+    int MaxWorkingDays,
+    int MinCalendarDays,
+    int MaxCalendarDays,
+    string? Note);
 
 internal sealed class PreviewRotationCycleQueryValidator : AbstractValidator<PreviewRotationCycleQuery>
 {
@@ -57,9 +91,9 @@ internal sealed class PreviewRotationCycleQueryValidator : AbstractValidator<Pre
 }
 
 internal sealed class PreviewRotationCycleQueryHandler(
-    IApplicationDbContext dbContext,
     AcademicYearResolver yearResolver,
-    RotationCycleContext context)
+    RotationCycleContext context,
+    WorkingDayProvider workingDays)
     : IQueryHandler<PreviewRotationCycleQuery, RotationCyclePreview>
 {
     public async Task<Result<RotationCyclePreview>> Handle(
@@ -84,6 +118,12 @@ internal sealed class PreviewRotationCycleQueryHandler(
         if (layout.IsFailure)
             return Result.Failure<RotationCyclePreview>(layout.Error);
 
+        var calendar = await workingDays.BuildAsync(cancellationToken);
+
+        var span = (
+            From: request.Windows.Min(w => w.StartDate),
+            To: request.Windows.Max(w => w.EndDate));
+
         return new RotationCyclePreview(
             yearLabel,
             resolved.Value.LevelLabel,
@@ -91,7 +131,75 @@ internal sealed class PreviewRotationCycleQueryHandler(
             layout.Value,
             resolved.Value.ExistingSlots,
             resolved.Value.PublishedCells,
-            CanApply: resolved.Value.PublishedCells == 0);
+            CanApply: resolved.Value.PublishedCells == 0,
+            DurationChecks: Check(request.Stages, resolved.Value.Stages, layout.Value, calendar),
+            CalendarIsEmpty: calendar.HolidaysBetween(span.From, span.To).Count == 0);
+    }
+
+    /// <summary>
+    /// Measures each stage's placements on the calendar. A partition's time in a stage is the run of slots
+    /// carrying the period numbers the matrix gave it, so its span is those slots' first start to last end —
+    /// read off the layout rather than recomputed, which is what keeps this agreeing with what gets written.
+    /// </summary>
+    private static List<StageDurationCheck> Check(
+        IReadOnlyList<RotationStage> requested,
+        IReadOnlyList<RotationCycleStage> stages,
+        RotationCycleLayout layout,
+        WorkingDayCalendar calendar)
+    {
+        var checks = new List<StageDurationCheck>(stages.Count);
+
+        foreach (var stage in stages)
+        {
+            int periods = requested.First(r => r.StageId == stage.StageId).Periods;
+            var slots = layout.Slots.Where(s => s.StageId == stage.StageId).ToList();
+
+            var spans = layout.Matrix
+                .Where(m => m.StageId == stage.StageId)
+                .Select(m => slots.Where(s => m.PeriodNumbers.Contains(s.PeriodNumber)).ToList())
+                .Where(run => run.Count > 0)
+                .Select(run => (
+                    Working: calendar.Count(run.Min(s => s.StartDate), run.Max(s => s.EndDate)),
+                    Calendar: run.Max(s => s.EndDate).DayNumber - run.Min(s => s.StartDate).DayNumber + 1))
+                .ToList();
+
+            if (spans.Count == 0)
+                continue;
+
+            int minWorking = spans.Min(s => s.Working);
+            int maxWorking = spans.Max(s => s.Working);
+
+            checks.Add(new StageDurationCheck(
+                stage.StageId,
+                stage.Name,
+                periods,
+                stage.DurationInDays,
+                minWorking,
+                maxWorking,
+                spans.Min(s => s.Calendar),
+                spans.Max(s => s.Calendar),
+                Note(stage, minWorking, maxWorking, spans.Min(s => s.Calendar))));
+        }
+
+        return checks;
+    }
+
+    private static string? Note(RotationCycleStage stage, int minWorking, int maxWorking, int minCalendar)
+    {
+        // A stated 30 that the placement meets in calendar days but not in worked days is the ambiguity in
+        // the column itself, not a badly cut axis — say which reading was met rather than just "short".
+        if (minWorking < stage.DurationInDays && minCalendar >= stage.DurationInDays)
+            return $"{stage.DurationInDays} jours annoncés : atteints en jours calendaires "
+                 + $"({minCalendar}), pas en jours ouvrables ({minWorking}).";
+
+        if (maxWorking < stage.DurationInDays)
+            return $"{maxWorking} jours ouvrables au mieux pour {stage.DurationInDays} annoncés.";
+
+        if (maxWorking - minWorking >= 5)
+            return $"De {minWorking} à {maxWorking} jours ouvrables selon la partition — "
+                 + $"{maxWorking - minWorking} jours d'écart.";
+
+        return null;
     }
 }
 
@@ -132,7 +240,7 @@ internal sealed class RotationCycleContext(IApplicationDbContext dbContext)
         var stages = await dbContext.Stages
             .AsNoTracking()
             .Where(s => stageIds.Contains(s.Id))
-            .Select(s => new { s.Id, s.Name, s.LevelId })
+            .Select(s => new { s.Id, s.Name, s.LevelId, s.DurationInDays })
             .ToListAsync(ct);
 
         foreach (int stageId in stageIds)
@@ -172,7 +280,7 @@ internal sealed class RotationCycleContext(IApplicationDbContext dbContext)
         return new Resolution(
             levelLabel,
             stages.OrderBy(s => order[s.Id])
-                  .Select(s => new RotationCycleStage(s.Id, s.Name))
+                  .Select(s => new RotationCycleStage(s.Id, s.Name, s.DurationInDays))
                   .ToList(),
             partitionLabels.OrderBy(l => l).ToList(),
             existingSlots,

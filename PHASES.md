@@ -827,6 +827,39 @@ monthly columns of `Med6.png`.
 - `P` is **taken and validated**, not derived — a level's partitioning is shared across its blocks, and
   deriving would silently re-cut it. The refusal names the multiples that would work.
 
+### ✅ Phase 15.08 — jours ouvrables, and undoing a partitioning
+
+**Done 2026-08-13.** Three things the planning screens could not do: state a column in worked days,
+state it in *n* weeks, and take back a partitioning entered by mistake.
+
+**`Domain/Calendar/`** — `Holiday` (a dated span, `Kind` = National | Religious | Academic,
+`IsConfirmed`) and `WorkingDayCalendar`, pure and immutable: calendar days minus `WorkingWeek.Moroccan`
+(Sat + Sun) minus every declared holiday. `MoroccanPublicHolidays.FixedFor(year)` generates the ten
+fixed Gregorian days — and Nouvel An Amazigh only from 2024, when the décret first took effect.
+
+- ⚠ **Half the calendar cannot be generated.** Aïd al-Fitr, Aïd al-Adha, 1ᵉʳ Moharram and Mawlid follow
+  the Hijri calendar, turn on observation of the crescent, and are announced by decree. They are entered
+  or they are absent, and absence is *reported* (`MissingReligious`) — a stage that spans an unrecorded
+  Aïd is counted four days too long, which is exactly the kind of error nobody looks for.
+- ⚠ **`Stage.DurationInDays` was not reinterpreted, deliberately.** It holds 30 for nearly every stage,
+  which is a calendar month — 30 *worked* days is six weeks. Reading the stored numbers as working days
+  would silently lengthen the whole catalogue by half. So the calendar generates where the unit is
+  stated at the point of use, and elsewhere it reports: `RotationCyclePreview.DurationChecks` gives each
+  stage's worked and calendar days against its stated number, as a range, never as a guard. Resolving
+  which number is authoritative is 15.1's `Stage.Coefficient` / `DurationInDays` item below.
+- **`GenerateAxisWindowsQuery` moved the axis layout server-side.** It was `setUTCMonth` in the page,
+  which is correct for calendar months and wrong the moment a duration means worked days — no browser
+  has the holiday table. Months and weeks stay calendar-exact (a monthly axis must land on the 1st);
+  `WorkingDays` is the only unit under which two columns hold the same amount of stage.
+- **`ClearRotationGroupsCommand`** un-partitions a promotion. Needed because `BuildLabels` lets the
+  *existing* partition count win over the requested one — so a promotion mistakenly cut into two stays
+  two-way for every later assign, whatever is asked for. Refused while any cell is published
+  (`CannotClearPublished`); otherwise it removes no row and breaks no FK, since nothing points at a
+  label — it only reports the planned cells that now describe no partition.
+- **UI**: *Formation → Jours fériés* (CRUD + coverage + "générer les fêtes nationales"), the working-day
+  unit and per-column counts on *Bloc de rotation*, and the strategy / redécouper / supprimer controls
+  on *Groupes* — `Contiguous` and re-cutting previously needed Scalar.
+
 ### 🔲 Phase 15.1 — the semester model (the deferred half)
 
 The new CNPN organises **12 semesters**, not 6 years, and types its placements:

@@ -81,6 +81,43 @@ namespace PGSH.Infrastructure.Migrations
                     b.ToTable("AuditLogs", "public");
                 });
 
+            modelBuilder.Entity("PGSH.Domain.Calendar.Holiday", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateOnly>("EndDate")
+                        .HasColumnType("date");
+
+                    b.Property<bool>("IsConfirmed")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.Property<DateOnly>("StartDate")
+                        .HasColumnType("date");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EndDate");
+
+                    b.HasIndex("StartDate", "Name")
+                        .IsUnique();
+
+                    b.ToTable("Holidays", "public");
+                });
+
             modelBuilder.Entity("PGSH.Domain.Common.Utils.Level", b =>
                 {
                     b.Property<int>("Id")

@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.AcademicYears;
+using PGSH.Application.Calendar;
 using PGSH.Application.Stages.RotationCycle;
 using PGSH.Infrastructure.Database;
 using Xunit;
@@ -19,7 +20,7 @@ public class RotationCycleHandlerTests
         new(db, new AcademicYearResolver(db), new RotationCycleContext(db));
 
     private static PreviewRotationCycleQueryHandler PreviewHandler(ApplicationDbContext db) =>
-        new(db, new AcademicYearResolver(db), new RotationCycleContext(db));
+        new(new AcademicYearResolver(db), new RotationCycleContext(db), new WorkingDayProvider(db));
 
     private static List<DateWindow> Months(int count) =>
         Enumerable.Range(0, count)

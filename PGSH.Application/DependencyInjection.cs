@@ -1,6 +1,7 @@
 ﻿using PGSH.Application.Abstractions.Behaviors;
 using PGSH.Application.AcademicYears;
 using PGSH.Application.Behaviors;
+using PGSH.Application.Calendar;
 using PGSH.Application.Employees.MyServices;
 using PGSH.Application.Hospitals.Services;
 using PGSH.Application.Stages.Cnpn;
@@ -53,6 +54,7 @@ public static class DependencyInjection
         services.AddScoped<DeliberationPlanner>();
         services.AddScoped<ReinscriptionPlanner>();
         services.AddScoped<RotationCycleContext>();
+        services.AddScoped<WorkingDayProvider>();
 
         return services;
     }

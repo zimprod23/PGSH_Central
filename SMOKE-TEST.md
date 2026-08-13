@@ -381,6 +381,64 @@ numbers run contiguously *per text*, so a block can land entirely inside one CNP
 
 ---
 
+## 12e · Jours fériés, and a column measured in worked days (7 min)
+
+**Formation → Jours fériés.** The calendar every duration is counted against.
+
+1. **Générer les fêtes nationales** → ~6 rows for 2025-2026 (the fixed dates falling between September
+   and July). Re-click it: `created: 0`, everything `déjà présente` — idempotent on (date, name).
+2. Check the **Ouvrables perdus** column. A férié landing on a Saturday or Sunday must read **0** — it
+   costs nothing, and the count is deliberately measured against a weekend-only calendar so it can say so.
+3. The banner must list what is **missing**: *Aïd al-Fitr, Aïd al-Adha, 1ᵉʳ Moharram, Aïd al-Mawlid*.
+   These are lunar, fixed by decree, and PGSH cannot compute them.
+4. **Ajouter** → Aïd al-Adha, two days, type *Religieuse*, **uncheck « Date confirmée »**. It appears with
+   a `provisoire` badge, and the *Provisoires* tile goes to 1.
+5. Add an *Facultaire* span of two weeks (vacances) — same table, different colour.
+
+**Formation → Bloc de rotation** — level 3, two stages at 2 periods each (T = 4):
+
+6. Unit **mois**, length 1, start 1 October → the four columns land on the 1st of each month, and each
+   shows *n j. ouvr. / n j.* Any column containing a férié you entered shows a *n férié(s)* dot; hover
+   for the names. A column over a provisional date is orange and a warning appears above.
+7. Switch to **jours ouvrables**, length 20 → **every** column now reads `20 j. ouvr.` while the
+   calendar-day figures differ. That is the whole point of the unit: février and mars are not the same
+   amount of stage.
+8. Switch to **semaines**, length 1…4 → columns of 7 / 14 / 21 / 28 calendar days. Starting on a Monday,
+   each holds exactly `weeks × 5` worked days.
+9. On a fresh base with nothing entered, the response is flagged **« Calendrier vide — week-ends seuls »**
+   and a toast says so. Silence there would mean « jours ouvrables » quietly meant something narrower.
+10. **Simuler** → a new *Durée réelle par stage* table: worked and calendar days per stage against its
+    stated `DurationInDays`, as a **range** (partitions take different runs of the axis). With 30 stored
+    for every stage, expect the note *« 30 jours annoncés : atteints en jours calendaires, pas en jours
+    ouvrables »* — that is the ambiguity in the column, not a badly cut axis.
+
+❌ **Fail if** a working-day column's count varies between columns, if a Sunday férié reports a loss, or
+if editing a generated window by hand leaves the old counts displayed next to the new dates.
+⚠ Deleting a férié reports `slotsSpanning`: those slots keep their dates, but the count that produced
+them no longer reproduces.
+
+---
+
+## 12f · Taking back a partitioning (4 min)
+
+**Groupes → Plan macro**, pick a level. The *Corriger le découpage* card only appears once labels exist.
+
+1. Cut a promotion into **2**. Then set *Nouveau nombre* to 10 and press **Redécouper** → 10 partitions,
+   `reassigned` reported.
+2. Now the trap this exists for: with labels in place, plain **Assigner** at 10 changes **nothing** — the
+   existing count wins, by design, so a re-run cannot reshuffle a live plan. The card says so.
+3. **Supprimer les partitions** → every label cleared, and a second toast naming the planned cells that
+   now describe no partition. **Re-run auto-arrange.**
+4. Verify nothing else went: cohort, cell and period counts must be unchanged. Nothing points at a label,
+   so clearing removes no row.
+5. On a promotion with a **published** cell it must be **refused** (`Partitions.CannotClearPublished`) —
+   the printed répartition names the partition students were sent as.
+6. After clearing, **Contigu** now takes: `A: 1-40`, `B: 41-80`. Before clearing it could not.
+
+❌ **Fail if** clearing deletes a cohort, a cell or a period, or if it succeeds on a published promotion.
+
+---
+
 ## 13 · Closing a year: the déliberation canvas (8 min)
 
 *Admin → Étudiants → une promotion → « Clôturer l'année »*

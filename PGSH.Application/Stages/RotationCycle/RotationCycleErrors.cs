@@ -65,6 +65,16 @@ public static class RotationCycleErrors
         "RotationCycle.StageNotOfLevel",
         $"Le stage {stageId} n'appartient pas à « {levelLabel} ».");
 
+    /// <summary>
+    /// Only reachable with a calendar so full of holidays that ten years of scanning cannot find the
+    /// requested worked days — a data-entry accident (a « vacances » span typed with the wrong year), not a
+    /// planning mistake, so the message points at the calendar rather than at the block.
+    /// </summary>
+    public static Error AxisDoesNotFit(int requested, int laid) => Error.Validation(
+        "RotationCycle.AxisDoesNotFit",
+        $"Seules {laid} colonne(s) sur {requested} ont pu être placées : le calendrier ne contient pas "
+        + "assez de jours ouvrables. Vérifiez les jours fériés et les vacances enregistrés.");
+
     public static Error CannotReplacePublished(int publishedCells) => Error.Conflict(
         "RotationCycle.CannotReplacePublished",
         $"{publishedCells} créneau(x) de ce bloc sont déjà publiés — des étudiants y ont été envoyés. "

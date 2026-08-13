@@ -55,5 +55,19 @@ public sealed class RotationCycleEndpoint : IEndpoint
         .WithName("ApplyRotationCycle")
         .WithTags(Tags.Stages)
         .RequireAuthorization();
+
+        // Lays the axis out from one start date. Server-side because the working-day count needs the
+        // holiday table, which no browser has.
+        app.MapGet("stages/axis-windows", async (
+            [AsParameters] GenerateAxisWindowsQuery query,
+            ISender sender,
+            CancellationToken ct) =>
+        {
+            var result = await sender.Send(query, ct);
+            return result.Match(Results.Ok, CustomResults.Problem);
+        })
+        .WithName("GenerateAxisWindows")
+        .WithTags(Tags.Stages)
+        .RequireAuthorization();
     }
 }
