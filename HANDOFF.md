@@ -1,5 +1,76 @@
 # HANDOFF.md
 
+> **▶ SESSION 16 — jours ouvrables, un découpage qu'on peut défaire, et la colonne en semaines.**
+>
+> Three asks, all built, all verified live against the real base (admin session, 2026-08-13).
+> Commits `8a95fba` · `ca4a41b` · `24ea48e`. Suite **773 green**.
+>
+> **1 · Un-partitioning** — `ClearRotationGroupsCommand`, `DELETE groups/partitions`. Needed because
+> `BuildLabels` lets the *existing* partition count win over the requested one, so a promotion cut into
+> two stays two-way for every later assign whatever is asked for. Refused while any cell is published.
+> **It destroys nothing** — nothing points at a label, so no row goes and no FK breaks; only the planned
+> cells stop describing a partition (`PlannedCellsAffected`, an arrange is owed).
+> ⚠ **Proven the hard way**: I cleared level 3 by accident mid-session (stray click, audit caught it as
+> `PARTITIONS_CLEARED {"levelId":3}`). All 320 cells, 1872 assignments and 9283 periods survived, and the
+> original A/B was reconstructible *from the cells* — restored and verified identical. The guarantee is
+> real, but see "Open findings" for the UI gap that made the mis-click possible.
+>
+> **2 · Column stated in months, weeks (1–4…) or jours ouvrables** — `GenerateAxisWindowsQuery`,
+> `GET stages/axis-windows`. **Moved server-side**: it was `setUTCMonth` in the page, right for calendar
+> months and wrong the moment a duration means worked days, since no browser has the holiday table.
+> Months/weeks stay calendar-exact so a monthly axis still lands on the 1st; `WorkingDays` is the only
+> unit under which two columns hold the same amount of stage. Measured live on one span: `mois` swings
+> **18–22** worked days (warning fires), `jours ouvrables ×20` gives **exactly 20 every column**.
+>
+> **3 · The calendar** — `Domain/Calendar/`: `Holiday` (dated span, National | Religious | Academic,
+> `IsConfirmed`) + pure `WorkingDayCalendar`; page *Formation → Jours fériés*.
+> ⚠ **Half of it cannot be computed.** The ten fixed Gregorian days are generated (Nouvel An Amazigh only
+> from 2024, when the décret took effect). Aïd al-Fitr, Aïd al-Adha, 1ᵉʳ Moharram, Mawlid are lunar,
+> fixed by decree — entered or absent, and absence is *reported*. Workflow: enter the estimate in
+> September **unconfirmed** (a Hijri date drifts ~11 days earlier each year), tick « Date confirmée » when
+> the decree lands. Under `mois`/`semaines` the dates never move when you correct it; under
+> `jours ouvrables` the end date is derived, so the column and everything after it shift. **Months for
+> stable dates, worked days for stable amounts of stage.**
+> ⚠ `MissingReligious` asks the **whole Gregorian year**, never the queried span (`ca4a41b`) — a lunar
+> date lands anywhere, so an autumn axis was reporting every spring holiday missing.
+>
+> **⚠ I had `Stage.DurationInDays` backwards, corrected in `24ea48e`.** It is **already in worked days**
+> for 25 of 27 stages (14×7, 22×7, 30×2, 42×3, 44×6, 66×2). Only two rows hold 30. So *author axes in
+> jours ouvrables*: Med6 at 22 j.o./column meets every stated duration **exactly** (CHIRURGIE k=2 → 44)
+> while its calendar span swings 60–67 days. Nothing is converted — which of `Stage` and `CurriculumStage`
+> is authoritative is still PHASES 15.1.
+>
+> **Verified live, end to end.** Med6 six stages `k=[2,2,2,2,1,1]` → `T=10`; refused at 2 partitions
+> naming the multiple, re-cut to A–J × 10, applied 60 slots. Every invariant holds (each partition visits
+> all six stages covering columns 1–10; each stage holds exactly `Lₛ` partitions in all ten columns), and
+> the windows are live on Affectations as `P1 01/09→30/09 … P3 31/10→03/12 … P10 17/06→16/07` — P3 is 34
+> days because it swallowed two fériés, P10 starts the 17th because Moharram is the 16th.
+>
+> **Stopping a stage harms nothing** (the explicit question). Paused 80 cohorts / 1872 assignments: the
+> database is **byte-identical** before and after — capacities 2960/148, quotas 0, allowed services 28,
+> curricula 9 / 27 stages, CNPN 4, registrations 8076 Active. `StagePauseRunner` scopes to `Ongoing`; all
+> of these are `Completed`, so it is a correct no-op. On Med6 the buttons are *disabled* with the reason
+> inline (« aucune rotation dans la période choisie »).
+>
+> Recipes: [`SMOKE-TEST.md`](SMOKE-TEST.md) steps **12e** (jours fériés + the working-day unit) and
+> **12f** (taking back a partitioning) — both now executed, not just written.
+>
+> ### Open findings from this session (not fixed, ranked)
+>
+> 1. ⚠ **No gap-fill in the UI, and *Supprimer les partitions* sits next to *Redécouper*.** Level 6 had
+>    20 groups with no label and no button fills only those — `AssignUnlabelled` is unreachable once any
+>    label exists (pre-existing, not a regression). Combined with a destructive button one click away,
+>    that is what let me wipe level 3. Suggest: a « Compléter les groupes sans partition » action, and put
+>    the delete behind a confirm naming the level.
+> 2. **Répartition annuelle says « Aucune période n'est planifiée » when slots exist but nothing is
+>    arranged.** After applying an axis that reads like the apply failed. Distinguish "no slots" from
+>    "slots, no cells".
+> 3. **Editing a holiday reports nothing.** Delete reports `SlotsSpanning`; the *edit* path — which is
+>    exactly the "confirm Aïd the day before" moment — says nothing about which windows were laid over the
+>    old date. Same report belongs on update.
+>
+> ---
+
 > **▶ SESSION 15 — stages of unequal length now rotate on one axis, and the dates are entered once.**
 >
 > The rotation cycle took a single `periodsPerStage` for a whole block. Fine for the new 3rd year (two
