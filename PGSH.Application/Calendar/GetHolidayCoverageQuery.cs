@@ -49,12 +49,9 @@ internal sealed class GetHolidayCoverageQueryHandler(
         // will do.
         var calendar = await new WorkingDayProvider(dbContext).BuildAsync(cancellationToken);
 
-        var recorded = holidays.Select(h => h.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-        var missingReligious = MoroccanPublicHolidays.ExpectedReligious
-            .Where(e => !recorded.Contains(e.Name))
-            .Select(e => e.Name)
-            .ToList();
+        // Not `holidays`, which is clipped to the year's own span: Mawlid can fall in August, outside a
+        // 1 September – 31 July year, and would then read "missing" every year while sitting on file.
+        var missingReligious = calendar.MissingReligious(year.StartDate, year.EndDate);
 
         return new HolidayCoverageResponse(
             year.Id,

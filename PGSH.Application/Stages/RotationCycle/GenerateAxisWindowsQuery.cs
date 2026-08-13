@@ -118,23 +118,15 @@ internal sealed class GenerateAxisWindowsQueryHandler(
 
         var span = (From: columns[0].StartDate, To: columns[^1].EndDate);
 
-        int holidaysInSpan = calendar.HolidaysBetween(span.From, span.To).Count;
-
-        var recorded = calendar.HolidaysBetween(span.From, span.To)
-            .Select(h => h.Name)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-        var missingReligious = MoroccanPublicHolidays.ExpectedReligious
-            .Where(e => !recorded.Contains(e.Name))
-            .Select(e => e.Name)
-            .ToList();
-
         return new GeneratedAxisResponse(
             columns,
             columns.Sum(c => c.WorkingDays),
             columns.Sum(c => c.CalendarDays),
-            holidaysInSpan == 0,
-            missingReligious,
+            calendar.HolidaysBetween(span.From, span.To).Count == 0,
+            // Asked of the whole Gregorian years the axis touches, never of the axis span: a lunar date
+            // drifts ~11 days a year, so an autumn axis would otherwise report every spring holiday
+            // "missing" and send the user hunting for rows that are already on file.
+            calendar.MissingReligious(span.From, span.To),
             Warnings(columns, request, await SpansYear(span, cancellationToken)));
     }
 

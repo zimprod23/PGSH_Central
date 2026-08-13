@@ -174,6 +174,28 @@ public class WorkingDayCalendarTests
         after.Select(h => h.StartDate).Should().BeInAscendingOrder();
     }
 
+    /// <summary>
+    /// The whole span matters, not the queried one. A lunar date moves ~11 days a year, so "is it
+    /// recorded?" only has a stable answer over the whole Gregorian year — a narrow window would report
+    /// holidays missing that are sitting on file a few months away.
+    /// </summary>
+    [Fact]
+    public void Missing_religious_is_answered_over_the_whole_gregorian_year()
+    {
+        var calendar = WorkingDayCalendar.Build(
+        [
+            Span(new DateOnly(2026, 3, 20), new DateOnly(2026, 3, 21), "Aïd al-Fitr"),
+            // August, so outside a 1 September – 31 July academic year — and still not "missing".
+            Span(new DateOnly(2026, 8, 26), new DateOnly(2026, 8, 26), "Aïd al-Mawlid"),
+        ]);
+
+        var missing = calendar.MissingReligious(new DateOnly(2025, 9, 1), new DateOnly(2026, 7, 31));
+
+        missing.Should().NotContain("Aïd al-Fitr");
+        missing.Should().NotContain("Aïd al-Mawlid");
+        missing.Should().BeEquivalentTo(["Aïd al-Adha", "1ᵉʳ Moharram"]);
+    }
+
     [Fact]
     public void The_religious_holidays_are_named_but_never_dated()
     {

@@ -126,6 +126,32 @@ public class AxisWindowGenerationTests
         result.Value.MissingReligious.Should().Contain("Aïd al-Fitr");
     }
 
+    /// <summary>
+    /// A Hijri date drifts about eleven days earlier each year, so a lunar holiday lands anywhere in the
+    /// Gregorian calendar. Asking "is Aïd recorded?" of the axis span answers a different question: an
+    /// autumn block would report every spring holiday missing and send the user hunting for rows already
+    /// on file. The check is deliberately widened to the whole Gregorian years the axis touches.
+    /// </summary>
+    [Fact]
+    public async Task A_spring_holiday_is_not_reported_missing_by_an_autumn_axis()
+    {
+        await using var db = TestHarness.NewContext(nameof(A_spring_holiday_is_not_reported_missing_by_an_autumn_axis));
+        db.SeedCatalog();
+        db.SeedHoliday(new DateOnly(2026, 3, 19), "Aïd al-Fitr", days: 2, kind: HolidayKind.Religious);
+        db.SeedHoliday(new DateOnly(2026, 5, 27), "Aïd al-Adha", days: 2, kind: HolidayKind.Religious);
+        await db.SaveChangesAsync();
+
+        // Four monthly columns over October 2025 – January 2026: nowhere near either Aïd.
+        var result = await Handler(db).Handle(
+            new GenerateAxisWindowsQuery(4, new DateOnly(2025, 10, 1), AxisColumnUnit.Months), default);
+
+        result.Value.MissingReligious.Should().NotContain("Aïd al-Fitr");
+        result.Value.MissingReligious.Should().NotContain("Aïd al-Adha");
+
+        // Still catches what genuinely is not on file.
+        result.Value.MissingReligious.Should().Contain("Aïd al-Mawlid");
+    }
+
     [Fact]
     public async Task A_provisional_lunar_date_inside_a_column_is_warned_about()
     {

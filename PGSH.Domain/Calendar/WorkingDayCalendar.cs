@@ -128,6 +128,30 @@ public sealed class WorkingDayCalendar
         _holidays.Where(h => h.EndDate >= from && h.StartDate <= toInclusive).ToList();
 
     /// <summary>
+    /// Which of the lunar holidays a complete calendar needs have no row recorded near
+    /// <paramref name="from"/>…<paramref name="toInclusive"/>.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ **Widened to whole Gregorian years on purpose.** A Hijri date drifts about eleven days earlier
+    /// each year, so a lunar holiday lands anywhere in the Gregorian calendar, and asking "is Aïd
+    /// recorded?" of a narrow span answers a different question than intended: a four-column axis over
+    /// October–January would report *every* spring holiday as missing, and a 1 September – 31 July
+    /// academic year would report an August Mawlid missing forever even though it is on file. The only
+    /// span in which the answer is stable is the whole year.
+    /// </remarks>
+    public IReadOnlyList<string> MissingReligious(DateOnly from, DateOnly toInclusive)
+    {
+        var recorded = HolidaysBetween(new DateOnly(from.Year, 1, 1), new DateOnly(toInclusive.Year, 12, 31))
+            .Select(h => h.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        return MoroccanPublicHolidays.ExpectedReligious
+            .Where(e => !recorded.Contains(e.Name))
+            .Select(e => e.Name)
+            .ToList();
+    }
+
+    /// <summary>
     /// Lays <paramref name="workingDays"/> worked days out from <paramref name="start"/>, skipping rest
     /// days and holidays. Returns null when <paramref name="workingDays"/> is not positive or the horizon
     /// is exhausted.
