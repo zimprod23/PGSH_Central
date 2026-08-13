@@ -260,10 +260,14 @@ days minus the weekly rest days (`WorkingWeek.Moroccan` = Sat + Sun) minus every
 Pure and immutable, built once by `WorkingDayProvider`, which loads the **whole** table (~15 rows a
 year — a date range would need an unknowable forward margin anyway).
 
-- ⚠ **This does not reinterpret `Stage.DurationInDays`.** That column holds 30 for nearly every stage,
-  which is a *calendar* month, not 30 worked days (≈ six weeks). Treating the stored numbers as working
-  days would silently lengthen every stage in the catalogue by half. The calendar is used where a
-  duration is stated in working days **at the point of use**, and everywhere else it *reports*:
+- ⚠ **`Stage.DurationInDays` is already in worked days for 25 of 27 stages — measured 2026-08-13.**
+  The distribution is 14×7, 22×7, 30×2, 42×3, 44×6, 66×2: 22 is a month of worked days, 44 two, 66
+  three, 14 about three weeks. Only the two 30s (pharmacie officine, stage hospitalier d'initiation)
+  are ambiguous — 30 worked days is six weeks, so they are most likely calendar days left over from the
+  import. **Consequence: author the axis in `WorkingDays` and the catalogue durations are met exactly**
+  (Med6 at 22 j.o./column gives CHIRURGIE k=2 → 44, its stated figure, while its calendar span swings
+  60–67 days). Nothing is converted regardless: the calendar generates where the unit is stated **at the
+  point of use**, and everywhere else it *reports*:
   `RotationCyclePreview.DurationChecks` gives each stage's worked and calendar days against its stated
   number, as a **range** (partitions take different runs of the axis) and never as a guard.
 - ⚠ **National dates are law; religious dates are observation.** `MoroccanPublicHolidays.FixedFor`

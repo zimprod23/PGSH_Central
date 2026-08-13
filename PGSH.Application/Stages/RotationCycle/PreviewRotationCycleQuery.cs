@@ -64,8 +64,9 @@ public sealed record RotationCycleStage(int StageId, string Name, int DurationIn
 /// because the history reconstruction seeded one from the other. See <c>PHASES.md</c> 15.1.
 /// </param>
 /// <param name="Note">
-/// Set only when the gap is worth a human look. Never blocking: with 30 stored for almost every stage
-/// (a calendar month, not thirty worked days) a mismatch is the norm rather than the exception.
+/// Set only when the gap is worth a human look, and never blocking — the faculty decides. An axis
+/// authored in worked days typically leaves every note null, since the stored durations are themselves
+/// in worked days; a mismatch means the axis and the catalogue genuinely disagree.
 /// </param>
 public sealed record StageDurationCheck(
     int StageId,

@@ -841,10 +841,11 @@ fixed Gregorian days — and Nouvel An Amazigh only from 2024, when the décret 
   the Hijri calendar, turn on observation of the crescent, and are announced by decree. They are entered
   or they are absent, and absence is *reported* (`MissingReligious`) — a stage that spans an unrecorded
   Aïd is counted four days too long, which is exactly the kind of error nobody looks for.
-- ⚠ **`Stage.DurationInDays` was not reinterpreted, deliberately.** It holds 30 for nearly every stage,
-  which is a calendar month — 30 *worked* days is six weeks. Reading the stored numbers as working days
-  would silently lengthen the whole catalogue by half. So the calendar generates where the unit is
-  stated at the point of use, and elsewhere it reports: `RotationCyclePreview.DurationChecks` gives each
+- ⚠ **`Stage.DurationInDays` is nothing to convert — it is already in worked days.** Measured
+  2026-08-13: 14×7, 22×7, 30×2, 42×3, 44×6, 66×2. Only two rows hold 30. Verified live on Med6: an axis
+  of ten 22-worked-day columns meets every stated duration **exactly** (44 for the k=2 stages, 22 for
+  the k=1 ones) while calendar spans vary 60–67 / 30–34 days. So the calendar generates where the unit
+  is stated at the point of use, and elsewhere it reports: `RotationCyclePreview.DurationChecks` gives each
   stage's worked and calendar days against its stated number, as a range, never as a guard. Resolving
   which number is authoritative is 15.1's `Stage.Coefficient` / `DurationInDays` item below.
 - **`GenerateAxisWindowsQuery` moved the axis layout server-side.** It was `setUTCMonth` in the page,

@@ -58,11 +58,12 @@ public sealed record WorkingDayWindow(
 /// holiday, a stage spanning Aïd) be tested exhaustively rather than argued about.</para>
 /// </summary>
 /// <remarks>
-/// ⚠ <b>This does not reinterpret <c>Stage.DurationInDays</c>.</b> That column holds 30 for most stages,
-/// which is a calendar month, not 30 worked days (≈ six weeks). Treating the stored numbers as working
-/// days would silently lengthen every stage in the catalogue by half. The calendar is used where a
-/// duration is <em>stated in working days at the point of use</em> — generating an axis — and everywhere
-/// else it reports rather than converts. See <c>PHASES.md</c> 15.1.
+/// ⚠ <b>This never converts <c>Stage.DurationInDays</c>.</b> Measured 2026-08-13, that column is already
+/// in worked days for 25 of 27 stages (14×7, 22×7, 30×2, 42×3, 44×6, 66×2 — 22 being a month of worked
+/// days). The two 30s are the ambiguous ones. Either way the calendar is used only where a duration is
+/// <em>stated in working days at the point of use</em> — generating an axis — and everywhere else it
+/// reports rather than converts, because which column is authoritative is still open. See
+/// <c>PHASES.md</c> 15.1.
 /// </remarks>
 public sealed class WorkingDayCalendar
 {
