@@ -35,7 +35,7 @@ public sealed record UpdateHolidayCommand(
     DateOnly EndDate,
     string Name,
     HolidayKind Kind,
-    bool IsConfirmed) : ICommand, IAuditableCommand
+    bool IsConfirmed) : ICommand<UpdateHolidayResult>, IAuditableCommand
 {
     public string AuditAction => "HOLIDAY_UPDATED";
     public string AuditEntityType => "Holiday";
@@ -43,6 +43,27 @@ public sealed record UpdateHolidayCommand(
     public string? AuditMetadata =>
         $$"""{"name":"{{Name}}","from":"{{StartDate:yyyy-MM-dd}}","to":"{{EndDate:yyyy-MM-dd}}","confirmed":{{(IsConfirmed ? "true" : "false")}}}""";
 }
+
+/// <summary>
+/// What the correction cost, in the same terms as <see cref="DeleteHolidayResult"/> — moving a holiday
+/// off a date is the same event as removing it from there, and this is the path that actually happens:
+/// the estimate entered in September is corrected the day the decree names Aïd.
+/// </summary>
+/// <param name="DatesMoved">
+/// False when only the name, kind or <c>IsConfirmed</c> flag changed. Ticking « Date confirmée » on a
+/// span that was already right costs nothing — no window's day count changes — and reporting slots then
+/// would train the user to dismiss the one report that matters.
+/// </param>
+/// <param name="SlotsSpanning">
+/// Slots overlapping the span it <b>left</b> or the span it <b>arrived at</b>, counted once. Both halves
+/// are affected and for opposite reasons: the first was laid around a holiday that is no longer there,
+/// the second now contains one it never counted. Zero when <paramref name="DatesMoved"/> is false.
+/// </param>
+public sealed record UpdateHolidayResult(
+    string Name,
+    DateOnly StartDate,
+    bool DatesMoved,
+    int SlotsSpanning);
 
 /// <summary>
 /// Removes a holiday. Nothing references the row, so this breaks no link — but any <c>StageSlot</c> whose
@@ -111,22 +132,37 @@ internal sealed class CreateHolidayCommandHandler(IApplicationDbContext dbContex
 }
 
 internal sealed class UpdateHolidayCommandHandler(IApplicationDbContext dbContext)
-    : ICommandHandler<UpdateHolidayCommand>
+    : ICommandHandler<UpdateHolidayCommand, UpdateHolidayResult>
 {
-    public async Task<Result> Handle(UpdateHolidayCommand request, CancellationToken cancellationToken)
+    public async Task<Result<UpdateHolidayResult>> Handle(
+        UpdateHolidayCommand request, CancellationToken cancellationToken)
     {
         var holiday = await dbContext.Holidays
             .FirstOrDefaultAsync(h => h.Id == request.Id, cancellationToken);
 
         if (holiday is null)
-            return Result.Failure(HolidayErrors.NotFound(request.Id));
+            return Result.Failure<UpdateHolidayResult>(HolidayErrors.NotFound(request.Id));
 
         bool clash = await dbContext.Holidays.AnyAsync(
             h => h.Id != request.Id && h.StartDate == request.StartDate && h.Name == request.Name,
             cancellationToken);
 
         if (clash)
-            return Result.Failure(HolidayErrors.Duplicate(request.StartDate, request.Name));
+            return Result.Failure<UpdateHolidayResult>(
+                HolidayErrors.Duplicate(request.StartDate, request.Name));
+
+        bool datesMoved = holiday.StartDate != request.StartDate || holiday.EndDate != request.EndDate;
+
+        // Counted before the write, and over the union of the old and the new span: a slot laid around
+        // the old date no longer reproduces from the count that produced it, and one covering the new
+        // date has just gained a non-working stretch it never counted. Overlapping spans — the usual
+        // case, a date corrected by a day — are counted once, which is what the confirmation says.
+        int slotsSpanning = datesMoved
+            ? await dbContext.StageSlots.CountAsync(
+                s => (s.StartDate <= holiday.EndDate && s.EndDate >= holiday.StartDate)
+                  || (s.StartDate <= request.EndDate && s.EndDate >= request.StartDate),
+                cancellationToken)
+            : 0;
 
         holiday.StartDate = request.StartDate;
         holiday.EndDate = request.EndDate;
@@ -135,7 +171,8 @@ internal sealed class UpdateHolidayCommandHandler(IApplicationDbContext dbContex
         holiday.IsConfirmed = request.IsConfirmed;
 
         await dbContext.SaveChangesAsync(cancellationToken);
-        return Result.Success();
+
+        return new UpdateHolidayResult(holiday.Name, holiday.StartDate, datesMoved, slotsSpanning);
     }
 }
 

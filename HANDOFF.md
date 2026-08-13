@@ -1,5 +1,94 @@
 # HANDOFF.md
 
+> **▶ SESSION 17 — the three open findings of session 16, closed.**
+>
+> All four were "the system knows, and does not say". Suite **783 green** (773 + 10).
+> **Verified live against the real base** (admin session, 2026-08-13, after an API restart) — smoke
+> steps **12g**, **12h**, **12i**. Two gaps are named in those step headers and in "Open findings".
+>
+> **1 · The répartition told you nothing had been planned when the periods existed.**
+> `PeriodAxis` was fed the *cells*, so a level whose axis had just been applied — 60 slots, nothing
+> arranged — produced zero columns and printed « Aucune période n'est planifiée ». Indistinguishable
+> from an apply that had failed, which is what it looked like.
+> Now the axis is built from `declaredSlots ∪ cells`: a period authored but not yet arranged keeps its
+> column and shows its hatched holes. `RepartitionSummary.DeclaredSlotCount` separates the two empty
+> states, which call for **opposite acts** — lay an axis, or arrange into the one that exists.
+> ⚠ Knock-on, deliberate: a *partially* arranged level now prints the unarranged periods too, so
+> `EmptyCells` (and its orange alert) rises. Those cells were always holes; the table was hiding them.
+> The cells' own windows are unioned in rather than assumed to be a subset — a cell reaches the level
+> through its *cohort*, so a slot belonging to some other stage would otherwise drop out of the table.
+>
+> **2 · Gap-fill had no button.** `AssignUnlabelled` has always existed and has always been the safe
+> act — it touches only `null` labels, so it cannot move a group an existing plan placed. But the UI
+> showed the assign form *only while no label existed*, so level 6's 20 unlabelled groups were
+> repairable only through « Redécouper » (a full re-cut) sitting beside « Supprimer les partitions ».
+> That adjacency is what cleared level 3 last session. Now: a teal « Compléter les groupes sans
+> partition » card, naming the group numbers, above and apart from the two acts that move groups —
+> and the delete is behind a `ConfirmModal` naming the level and what survives. **Backend unchanged.**
+>
+> **3 · Editing a holiday reported nothing.** Delete reported `SlotsSpanning`; the edit — the
+> *September estimate corrected the day the décret lands* — said nothing. It now reports the same
+> number over the **union of the span it left and the span it arrived at**: the first was laid around
+> a holiday that is no longer there, the second has just gained one it never counted. Counted once
+> where they overlap (the usual one-day correction) and **before** the write. `DatesMoved` gates it —
+> ticking « Date confirmée » on a span already right moves no day count, and reporting slots there
+> would teach the user to dismiss the one report that matters.
+> `UpdateHolidayCommand` is now `ICommand<UpdateHolidayResult>` and the endpoint returns `200`, not `204`.
+>
+> **4 · The répartition's colour key said "partition" and drew "stage".** Reported from the running
+> base: 3Med with 2 partitions printed Chirurgie orange and Médecine green. `RotationGroup` sat on
+> `RepartitionRow`, meaning « the partition its first period belongs to » — which is not a fact about
+> the row: over the year the row visits **every** partition, because that is what the crossover is.
+> With two partitions every Médecine row opens on A and every Chirurgie row on B, so a per-row band
+> is *arithmetically identical* to colouring by stage — plausible, self-consistent and wrong.
+> `RotationGroup` now lives on `RepartitionCell` (the handler already computed it per cell and threw
+> it away), the tint is on the `<td>`, and the legend finally names what the colours are. A cell whose
+> cohorts disagree stays untinted, with a « Partitions mêlées » key rather than an invented colour.
+> The old test asserted `Rows.Select(r => r.RotationGroup) == "A","A","B","B"` — the bug, encoded.
+> Its replacement uses a fixture that actually mirrors, which is what the old one never did.
+> ⚠ While in there: the zebra striping is a `background-image` and so was erasing the "no service"
+> hatching on even rows. Harmless when unplanned cells were rare — but change 1 makes whole hatched
+> columns normal, so the hatch now out-specifies it.
+>
+> **Contract changes to know about:** `RepartitionSummary` gained `DeclaredSlotCount` (6th positional
+> member); `RepartitionRow.RotationGroup` **moved to** `RepartitionCell.RotationGroup`;
+> `PUT calendar/holidays/{id}` returns a body. **The API must be restarted** before any of this shows.
+>
+> Recipes: [`SMOKE-TEST.md`](SMOKE-TEST.md) steps **12g** and **12h**.
+>
+> ### What the live run proved, in numbers
+>
+> - **3Med banding**: 104 / 104 cells carry a band class, **0** rows carry the old one. Every Chirurgie
+>   row `AABB`, every Médecine row `BBAA` — two distinct sequences across 26 rows. A = `rgb(253,238,228)`,
+>   B = `rgb(230,240,226)`, identity columns white, and `chirP1 === medP3 && chirP3 === medP1`.
+> - **Med6**: 60 créneaux / 10 colonnes, 0 rows → the new second message. **Med1**: 0 / 0 → the first.
+> - **Aïd al-Fitr** moved onto a weekend and back: 247 → 248 → 247 jours ouvrables, row cost 1 → 0 → 1.
+>   Calendar restored byte-identical (14 entrées, 20/03→21/03, provisoire).
+>
+> ### Open findings from this session (ranked)
+>
+> 1. ⚠ **One unexplained error-boundary trip, not reproduced.** The first Aïd date-move save failed and
+>    did not persist; three identical saves afterwards all succeeded, console clean, no data harmed.
+>    Cause not established. If it recurs, read the console *before* reloading.
+> 2. ⚠ **Med6's partitions are lopsided: A = 42, B = 42, C–J = 2 each.** Session 16 recorded a clean
+>    re-cut to A–J × 10. `ReassignAll` fills the smallest partition each time and cannot produce this,
+>    so ~80 groups were labelled *afterwards* by a path that used its own partition count (2) instead of
+>    the level's existing ten — `AutoArrangeGroups` is the obvious suspect. Harmless today because Med6
+>    has no arranged cells, and it would make the crossover nonsense the moment it does. **Not
+>    investigated.**
+> 3. **The gap-fill card could not be shown**: no level currently has an unlabelled group. Only its
+>    *absence* is verified (Med6, Med5). The `AssignUnlabelled` path itself is unchanged backend code.
+> 4. ⚠ **The Plan macro tab reads groups at `pageSize: 200`** (`getAcademicGroupOptions`), and a
+>    promotion adds ~100 groups a year. The new « N groupes sans partition » count inherits that cap,
+>    as do `partitions` and `groupCountByPartition` — pre-existing, but the count is now shown
+>    prominently, so past 200 groups on one level it would read low. Fixing it means giving the tab a
+>    real paged/aggregate source, not raising the number.
+> 5. The frontend repo carried sessions 14–16 **uncommitted** (`HolidaysPage`, `RepartitionPage`,
+>    `repartition/`, `ServiceFormModal` … untracked since `5e47caa`). Committed together with this
+>    session's work, because the two are interleaved in the same files and cannot be separated.
+>
+> ---
+
 > **▶ SESSION 16 — jours ouvrables, un découpage qu'on peut défaire, et la colonne en semaines.**
 >
 > Three asks, all built, all verified live against the real base (admin session, 2026-08-13).

@@ -98,7 +98,8 @@ public class LevelRepartitionTests
                 ("Chirurgie",   "Traumatologie", "7-8", "5-6"));
 
         report.Summary.Should().Be(new RepartitionSummary(
-            RowCount: 4, ColumnCount: 2, PlannedCells: 8, EmptyCells: 0, GroupCount: 8));
+            RowCount: 4, ColumnCount: 2, PlannedCells: 8, EmptyCells: 0, GroupCount: 8,
+            DeclaredSlotCount: 4));
     }
 
     [Fact]
@@ -119,7 +120,7 @@ public class LevelRepartitionTests
     }
 
     [Fact]
-    public async Task A_row_carries_the_partition_of_the_period_it_opens_on()
+    public async Task A_cell_carries_the_partition_that_is_in_it()
     {
         await using var db = TestHarness.NewContext("repartition-band");
         await SeedAsync(db);
@@ -127,7 +128,78 @@ public class LevelRepartitionTests
         var report = (await Handler(db).Handle(
             new GetLevelRepartitionQuery(TestHarness.LevelId), default)).Value;
 
-        report.Rows.Select(r => r.RotationGroup).Should().Equal("A", "A", "B", "B");
+        report.Rows.Select(r => r.Cells[0]!.RotationGroup).Should().Equal("A", "A", "B", "B");
+    }
+
+    [Fact]
+    public async Task A_row_holds_a_different_partition_in_each_period_of_a_crossover()
+    {
+        // The crossover, which is the whole point of the published document: A takes Médecine while B
+        // takes Chirurgie, then they swap. A Médecine row therefore holds A in P1 and B in P2, so there
+        // is no such thing as "this row's partition".
+        //
+        // ⚠ This is the case the old row-level band could not express, and it failed in the worst way:
+        // with two partitions every Médecine row opens on A and every Chirurgie row on B, so the
+        // document rendered a colour-per-stage under a legend reading « Partition A / Partition B ».
+        // Plausible, consistent, and wrong — which is why the fixture here mirrors and SeedAsync's
+        // does not.
+        await using var db = TestHarness.NewContext("repartition-crossover");
+        var medecine  = db.SeedCatalog();
+        var chirurgie = db.SeedStage(ChirurgieId, "Chirurgie");
+
+        var medA  = db.SeedService(MedecineA, "Médecine A");
+        var chirA = db.SeedService(ChirurgieA, "Chirurgie A");
+
+        var medP1  = db.SeedSlot(medecine, 1, 1, P1Start, P1End);
+        var medP2  = db.SeedSlot(medecine, 2, 2, P2Start, P2End);
+        var chirP1 = db.SeedSlot(chirurgie, 3, 1, P1Start, P1End);
+        var chirP2 = db.SeedSlot(chirurgie, 4, 2, P2Start, P2End);
+
+        int cellId = 1;
+
+        var a = db.SeedGroup(1, 1, rotationGroup: "A");
+        db.SeedSlotAssignment(cellId++, db.SeedCohortFor(medecine, a, 101), medP1, medA);
+        db.SeedSlotAssignment(cellId++, db.SeedCohortFor(chirurgie, a, 102), chirP2, chirA);
+
+        var b = db.SeedGroup(2, 2, rotationGroup: "B");
+        db.SeedSlotAssignment(cellId++, db.SeedCohortFor(chirurgie, b, 103), chirP1, chirA);
+        db.SeedSlotAssignment(cellId++, db.SeedCohortFor(medecine, b, 104), medP2, medA);
+
+        await db.SaveChangesAsync();
+
+        var report = (await Handler(db).Handle(
+            new GetLevelRepartitionQuery(TestHarness.LevelId), default)).Value;
+
+        var medecineRow = report.Rows.Single(r => r.StageId == TestHarness.StageId);
+        medecineRow.Cells.Select(c => c!.RotationGroup).Should().Equal("A", "B");
+
+        var chirurgieRow = report.Rows.Single(r => r.StageId == ChirurgieId);
+        chirurgieRow.Cells.Select(c => c!.RotationGroup).Should().Equal("B", "A");
+    }
+
+    [Fact]
+    public async Task A_cell_holding_two_partitions_at_once_carries_neither()
+    {
+        // Nothing forbids it: a gap-filled promotion can put groups of both partitions into one service
+        // for one period. There is no honest colour for that cell, so it gets none rather than the
+        // first one found.
+        await using var db = TestHarness.NewContext("repartition-mixed-band");
+        var medecine = db.SeedCatalog();
+        var medA     = db.SeedService(MedecineA, "Médecine A");
+        var p1       = db.SeedSlot(medecine, 1, 1, P1Start, P1End);
+
+        var a = db.SeedGroup(1, 1, rotationGroup: "A");
+        var b = db.SeedGroup(2, 2, rotationGroup: "B");
+        db.SeedSlotAssignment(1, db.SeedCohortFor(medecine, a, 101), p1, medA);
+        db.SeedSlotAssignment(2, db.SeedCohortFor(medecine, b, 102), p1, medA);
+        await db.SaveChangesAsync();
+
+        var report = (await Handler(db).Handle(
+            new GetLevelRepartitionQuery(TestHarness.LevelId), default)).Value;
+
+        var cell = report.Rows.Single().Cells[0]!;
+        cell.Groups.Should().Be("1-2");
+        cell.RotationGroup.Should().BeNull();
     }
 
     [Fact]
@@ -372,7 +444,60 @@ public class LevelRepartitionTests
         result.IsSuccess.Should().BeTrue();
         result.Value.Rows.Should().BeEmpty();
         result.Value.Columns.Should().BeEmpty();
-        result.Value.Summary.Should().Be(new RepartitionSummary(0, 0, 0, 0, 0));
+        result.Value.Summary.Should().Be(new RepartitionSummary(0, 0, 0, 0, 0, 0));
+    }
+
+    [Fact]
+    public async Task Slots_with_nothing_arranged_still_print_their_columns()
+    {
+        // The two empty tables are different states calling for opposite actions — author an axis, or
+        // arrange into the one that exists. Building the axis from the cells collapsed them, so applying
+        // a rotation cycle and then opening the répartition read exactly like an apply that had failed.
+        await using var db = TestHarness.NewContext("repartition-slots-unarranged");
+        var medecine = db.SeedCatalog();
+
+        db.SeedSlot(medecine, 1, 1, P1Start, P1End);
+        db.SeedSlot(medecine, 2, 2, P2Start, P2End);
+        await db.SaveChangesAsync();
+
+        var report = (await Handler(db).Handle(
+            new GetLevelRepartitionQuery(TestHarness.LevelId), default)).Value;
+
+        report.Columns.Should().HaveCount(2);
+        report.Columns[0].StartDate.Should().Be(P1Start);
+        report.Rows.Should().BeEmpty();
+
+        // What tells the two states apart: periods exist, nobody is in them.
+        report.Summary.DeclaredSlotCount.Should().Be(2);
+        report.Summary.RowCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task A_period_nobody_has_been_placed_in_keeps_its_column_beside_the_arranged_ones()
+    {
+        // A partially arranged level is the normal state mid-planning. The unarranged period is a hole
+        // to review before publishing, not a column to hide — hiding it silently reshapes the printed
+        // table and hides the hole with it.
+        await using var db = TestHarness.NewContext("repartition-partial-axis");
+        var medecine = db.SeedCatalog();
+        var service  = db.SeedService(MedecineA, "Médecine A");
+
+        var p1 = db.SeedSlot(medecine, 1, 1, P1Start, P1End);
+        db.SeedSlot(medecine, 2, 2, P2Start, P2End);
+
+        var group = db.SeedGroup(1, 1, rotationGroup: "A");
+        db.SeedSlotAssignment(1, db.SeedCohortFor(medecine, group, 101), p1, service);
+        await db.SaveChangesAsync();
+
+        var report = (await Handler(db).Handle(
+            new GetLevelRepartitionQuery(TestHarness.LevelId), default)).Value;
+
+        report.Columns.Should().HaveCount(2);
+        report.Rows.Should().ContainSingle();
+        report.Rows[0].Cells[0].Should().NotBeNull();
+        report.Rows[0].Cells[1].Should().BeNull();
+        report.Summary.EmptyCells.Should().Be(1);
+        report.Summary.DeclaredSlotCount.Should().Be(2);
     }
 
     [Fact]

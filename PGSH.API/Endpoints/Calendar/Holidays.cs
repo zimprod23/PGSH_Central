@@ -58,7 +58,7 @@ public sealed class UpdateHolidayEndpoint : IEndpoint
                     request.IsConfirmed);
 
                 var result = await sender.Send(command, ct);
-                return result.Match(Results.NoContent, CustomResults.Problem);
+                return result.Match(Results.Ok, CustomResults.Problem);
             })
             .WithName("UpdateHoliday")
             .WithTags(Tags.Calendar)

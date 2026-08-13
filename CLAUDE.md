@@ -293,6 +293,13 @@ year — a date range would need an unknowable forward margin anyway).
 - Deleting a holiday breaks no link, but any `StageSlot` laid over it keeps dates that no longer
   reproduce from the count that produced them — `SlotsSpanning` says how many, so the confirmation can
   name the number.
+- ⚠ **Moving a date is the same event as deleting it, and it is the path that actually happens** —
+  the September estimate corrected the day the décret names Aïd. So `UpdateHolidayCommand` reports
+  `SlotsSpanning` too, over the union of the span it **left** and the span it **arrived at**: the
+  first was laid around a holiday no longer there, the second has just gained one it never counted.
+  Counted once where they overlap (the usual one-day correction), and counted **before** the write.
+  - `DatesMoved` gates it. Ticking « Date confirmée » on a span already right moves no day count, and
+    reporting slots there teaches the user to dismiss the one report that matters.
 
 ### ⚠ Nothing declares that two stages share a period — the axis is derived
 `StageSlot` is keyed `(StageId, AcademicYearId, PeriodNumber)`, so Médecine P1 and Chirurgie P1 are
@@ -308,6 +315,17 @@ independent rows with independent dates. No constraint ties them, and neither gu
   at one. Telling those apart is the human's job; showing them is ours.
 - Using `RotationCycle` avoids the class entirely — the block's stages get one set of windows written
   once, so they cannot drift.
+- **The axis is built from the windows the level *declares*, not from the ones something sits in** —
+  `declaredSlots ∪ cells`, so a period authored but not yet arranged still gets its column and its
+  hatched holes. Built from the cells alone it vanished, and an empty table was the only thing an
+  admin saw after applying a rotation cycle: indistinguishable from an apply that failed.
+  - ⚠ **An empty répartition has two causes and they call for opposite acts** — no periods (author an
+    axis) or periods nobody is in (arrange). `RepartitionSummary.DeclaredSlotCount` is what separates
+    them; `RowCount` alone collapses them. Same shape of mistake as widening on an omitted year: one
+    state standing in for two.
+  - The cells' own windows are unioned in rather than assumed to be a subset — a cell is tied to the
+    level through its *cohort*, so a slot reached via another stage would otherwise take its column,
+    and its cells, out of the table entirely.
 
 ### A partition's shape is a choice, and it shows up in the published table
 `PartitionAllocator` cuts a promotion into rotation partitions (`AcademicGroup.RotationGroup`). Two
@@ -317,6 +335,16 @@ strategies, both producing equal-sized partitions, and the arranger cannot tell 
 |---|---|---|
 | `Interleaved` (default) | A = 1,3,5,7 · B = 2,4,6,8 | `1, 3, 5, 7, 9…` |
 | `Contiguous` | A = 1-4 · B = 5-8 | `1-40` |
+
+- ⚠ **A partition is a fact about a *cell*, never about a row of the répartition.** `RotationGroup`
+  lives on `RepartitionCell`. It sat on `RepartitionRow` — meaning "the partition its first period
+  belongs to" — which is not a property of the row at all: over the year the row visits every
+  partition, because that is exactly what the crossover is. The failure mode is the dangerous kind,
+  plausible and self-consistent: with two partitions every Médecine row opens on A and every
+  Chirurgie row on B, so the document printed **one colour per stage** under a legend reading
+  « Partition A / Partition B ». Tint the cells and the mirror is what you see.
+- A cell whose cohorts disagree carries `null`, not the first label found — and the renderer must
+  leave it untinted rather than invent one, which is what the « Partitions mêlées » key is for.
 
 - ⚠ **The stripe was never designed — it falls out of balancing.** "Fill the smallest partition,
   walking groups in number order" alternates on every group, so each partition steps by the partition
@@ -334,7 +362,12 @@ strategies, both producing equal-sized partitions, and the arranger cannot tell 
   changes which rows exist in each partition's half of the matrix.
 - **A gap-fill never re-cuts.** `AssignUnlabelled` only fills `null` labels, and `BuildLabels` lets the
   *existing* partition count win over the requested one — so a re-run cannot reshuffle a plan already
-  built on the current partitioning. Changing the cut is `Reassign: true` (`ReassignAll`), which is
+  built on the current partitioning.
+  - ⚠ **It needs its own control, or the only reachable path is the destructive one.** The UI showed
+    the assign form *only while no label existed*, so a promotion that later grew 20 unlabelled groups
+    could be repaired only by « Redécouper » — a full re-cut — with « Supprimer les partitions » next
+    to it. That is how a level got cleared by a stray click. A safe act hidden behind a destructive
+    one is a defect in the same way an unguarded destructive act is. Changing the cut is `Reassign: true` (`ReassignAll`), which is
   **refused outright while any cell of the promotion is published**: students have been sent there.
   Merely-planned cells are counted (`PlannedCellsAffected`) so the caller knows an arrange is owed.
 - ⚠ **A wrong count can only be undone by clearing** — `ClearRotationGroupsCommand`. That

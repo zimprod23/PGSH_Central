@@ -50,7 +50,6 @@ public sealed record RepartitionRow(
     string HospitalName,
     string? ChefName,
     bool ChefIsFromSourceNote,
-    string? RotationGroup,
     IReadOnlyList<RepartitionCell?> Cells);
 
 /// <summary>
@@ -58,19 +57,38 @@ public sealed record RepartitionRow(
 /// spans several columns repeats its cell in each of them — exactly as the published table does —
 /// carrying the same <see cref="SlotId"/> throughout, so a renderer that prefers to merge them can.
 /// </summary>
+/// <param name="RotationGroup">
+/// The partition sitting in this cell, or null when its cohorts disagree.
+///
+/// ⚠ **A partition is a property of the cell and of nothing larger.** This used to hang off the row —
+/// "the partition its first period belongs to" — which is not a fact about the row at all: over the
+/// year the row visits every partition, because that is what a crossover *is*. Worse, it is silently
+/// wrong in a way that looks deliberate: in a two-partition promotion every Médecine row opens on A
+/// and every Chirurgie row on B, so a per-row band renders as a colour-by-stage key labelled
+/// "Partition A / Partition B". Colour the cells and the mirror is what you see.
+/// </param>
 public sealed record RepartitionCell(
     int SlotId,
     int PeriodNumber,
     string Groups,
-    IReadOnlyList<int> GroupNumbers);
+    IReadOnlyList<int> GroupNumbers,
+    string? RotationGroup);
 
 /// <summary>
 /// The shape of the table, so a caller can assert it rather than assume it, plus the holes worth
 /// reviewing before publication.
 /// </summary>
+/// <param name="DeclaredSlotCount">
+/// Periods authored for this level and year, whether or not anything has been arranged into them.
+/// ⚠ An empty table has <b>two</b> causes and they call for opposite actions: nobody has authored the
+/// periods yet (0 here — go and lay an axis), or the periods exist and no group has been placed in them
+/// (&gt; 0 — go and arrange). Reading only <see cref="RowCount"/> collapses them, which is why applying
+/// an axis used to look like the apply had failed.
+/// </param>
 public sealed record RepartitionSummary(
     int RowCount,
     int ColumnCount,
     int PlannedCells,
     int EmptyCells,
-    int GroupCount);
+    int GroupCount,
+    int DeclaredSlotCount);

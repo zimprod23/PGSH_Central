@@ -53,8 +53,6 @@ internal sealed class GetLevelRepartitionQueryHandler(
                 a.Cohort.AcademicGroup.RotationGroup))
             .ToListAsync(cancellationToken);
 
-        var axis = PeriodAxis.Build(cells.Select(c => (c.SlotStart, c.SlotEnd)));
-
         // Read from the slots themselves rather than from the cells: a period nobody has been placed in
         // yet still has dates, and a drift there is exactly what the admin wants to hear about before
         // arranging on top of it.
@@ -67,11 +65,22 @@ internal sealed class GetLevelRepartitionQueryHandler(
         var disagreements = PeriodAxisDiagnostics.Find(
             declaredSlots.Select(s => (s.PeriodNumber, s.StageName, s.StartDate, s.EndDate)));
 
+        // The axis is every window the level *declares*, not only the windows something has been placed
+        // in. A period authored but not yet arranged is still a period, and printing the table without
+        // its column is what made a freshly applied axis read as though the apply had failed.
+        // The cells' own windows are unioned in rather than assumed to be a subset: a cell's cohort is
+        // what ties it to this level, so a slot reached through some other stage would otherwise take
+        // its column — and its cells — out of the table entirely.
+        var axis = PeriodAxis.Build(
+            declaredSlots.Select(s => (s.StartDate, s.EndDate))
+                .Concat(cells.Select(c => (c.SlotStart, c.SlotEnd))));
+
         if (cells.Count == 0 || axis.Count == 0)
         {
             return new LevelRepartitionResponse(
                 level.Id, level.Label, level.Year, level.AcademicProgram, academicYearId, yearLabel,
-                axis, [], new RepartitionSummary(0, axis.Count, 0, 0, 0), disagreements);
+                axis, [], new RepartitionSummary(0, axis.Count, 0, 0, 0, declaredSlots.Count),
+                disagreements);
         }
 
         var chefs = await ResolveChefsAsync(
@@ -88,7 +97,8 @@ internal sealed class GetLevelRepartitionQueryHandler(
             ColumnCount:  axis.Count,
             PlannedCells: planned,
             EmptyCells:   (rows.Count * axis.Count) - planned,
-            GroupCount:   cells.Select(c => c.GroupNumber).Distinct().Count());
+            GroupCount:   cells.Select(c => c.GroupNumber).Distinct().Count(),
+            DeclaredSlotCount: declaredSlots.Count);
 
         return new LevelRepartitionResponse(
             level.Id, level.Label, level.Year, level.AcademicProgram, academicYearId, yearLabel,
@@ -166,27 +176,24 @@ internal sealed class GetLevelRepartitionQueryHandler(
         {
             var first = group.First();
             var slots = new RepartitionCell?[axis.Count];
-            var bandByColumn = new string?[axis.Count];
 
             foreach (var cell in group.GroupBy(c => c.SlotId))
             {
                 var numbers = cell.Select(c => c.GroupNumber).Distinct().Order().ToList();
-                var rendered = new RepartitionCell(
-                    cell.Key, cell.First().PeriodNumber, GroupNumberRanges.Format(numbers), numbers);
 
-                // The partition band a row prints in is the one its *first* period belongs to: a row
-                // visits groups from every partition over the year, so only the opening cell says
-                // which block of the rotation this line is.
-                string? band = cell
-                    .Select(c => c.RotationGroup)
-                    .Distinct()
-                    .SingleOrDefaultIfMany();
+                // The partition rides on the cell, because that is the only thing it is a fact about.
+                // A row visits every partition over the year — that is what the crossover is — so a
+                // row-level band could only ever mean "the one it opens on", which in a two-partition
+                // promotion coincides exactly with the stage and reads as a colour-by-stage key.
+                var rendered = new RepartitionCell(
+                    cell.Key,
+                    cell.First().PeriodNumber,
+                    GroupNumberRanges.Format(numbers),
+                    numbers,
+                    cell.Select(c => c.RotationGroup).Distinct().SingleOrDefaultIfMany());
 
                 foreach (int column in columnsBySlot[cell.Key])
-                {
                     slots[column - 1] = rendered;
-                    bandByColumn[column - 1] = band;
-                }
             }
 
             int firstOccupied = Array.FindIndex(slots, c => c is not null);
@@ -197,7 +204,6 @@ internal sealed class GetLevelRepartitionQueryHandler(
                 new RepartitionRow(
                     first.StageId, first.StageName, first.ServiceId, first.ServiceName,
                     first.HospitalName, chef.Name, chef.FromSourceNote,
-                    firstOccupied < 0 ? null : bandByColumn[firstOccupied],
                     slots),
                 SortKey: firstOccupied < 0
                     ? (int.MaxValue, int.MaxValue)

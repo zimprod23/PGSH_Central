@@ -1078,3 +1078,95 @@ days fall on a weekend and cost nothing.
 observation of the crescent and are fixed by decree. Enter the estimate unconfirmed (a Hijri date drifts
 ~11 days earlier per Gregorian year) and confirm when the decree lands. Under `mois`/`semaines` correcting
 it moves no dates; under `jours ouvrables` it shifts that column and every one after it.
+
+---
+
+## "The system knows and does not say" — three of them, closed (2026-08-13, session 17)
+
+Session 16 ended with three open findings. They looked unrelated; they are one shape. In each case the
+backend held the distinguishing fact and the surface collapsed it into a state that read as something
+else — and in each case the wrong reading pointed the user at the *opposite* action.
+
+### 1 · An empty répartition has two causes
+
+`PeriodAxis` was fed the **cells**, so a level whose axis had just been applied — slots written, nothing
+arranged — produced **zero columns**, and the document printed « Aucune période n'est planifiée ». The
+apply had worked perfectly and looked like it had failed.
+
+The axis is now built from `declaredSlots ∪ cells`, which is what `PeriodAxis`'s own doc comment always
+claimed ("out of the windows its stages actually declare"). `RepartitionSummary.DeclaredSlotCount` names
+the fact that separates the two states:
+
+| `declaredSlotCount` | `rowCount` | what it means | what to do |
+|---|---|---|---|
+| 0 | 0 | no period exists for this (level, year) | author an axis |
+| > 0 | 0 | the periods exist, nobody is in them | arrange |
+| > 0 | > 0 | a table | read it |
+
+⚠ **The union, not the declared slots alone.** A cell is tied to the level through its *cohort*
+(`a.Cohort.Stage.LevelId`), while a declared slot is tied through its *stage*. They are the same set in
+practice, but assuming it means a slot reached by some other route silently drops its column — and the
+cells in it — out of the printed table. Unioning costs a `Distinct()` and cannot lose a cell.
+
+⚠ **Deliberate knock-on: `EmptyCells` rises on partially arranged levels.** Unarranged periods now print
+as columns of hatched cells and the orange alert counts them. Those holes were always there; hiding the
+column hid the hole with it, which is the opposite of what a pre-publication review is for.
+
+### 2 · A safe act with no control is not a safe act
+
+`AssignUnlabelled` has always existed and has always been the harmless half of partitioning — it fills
+only `null` labels, so it cannot move a group that an existing plan placed. But the UI showed the assign
+form **only while no label existed** (`showSetup = partitions.length === 0`). A promotion that later grew
+groups could therefore be repaired only through « Redécouper », a full re-cut, sitting one button away
+from « Supprimer les partitions » with no confirmation on it. That adjacency is what cleared level 3.
+
+The rule worth keeping: **an unreachable safe path makes the destructive one the default**, and that is a
+defect of the same size as an unguarded destructive action. Backend needed no change at all — the command
+had taken `Reassign: false` since it was written.
+
+### 3 · Moving a date is deleting it, for every window laid over it
+
+Delete reported `SlotsSpanning`. Edit reported nothing — and edit is the path that actually runs, because
+the whole lunar-date workflow *is* "enter the estimate in September, correct it when the décret lands".
+
+`UpdateHolidayCommand` now reports the same number over the **union of the span it left and the span it
+arrived at**. Both halves are affected, for opposite reasons: the old span's windows were laid around a
+holiday that is no longer there; the new span's have just gained one they never counted. Counted **once**
+where the spans overlap — the usual correction is a day, so both fall inside one window and counting twice
+would name a number the confirmation cannot justify — and counted **before** the write, or the old span is
+already gone.
+
+`DatesMoved` gates the whole thing. Ticking « Date confirmée » on a span that was already right moves no
+day count; reporting slots there is how a real report becomes one users dismiss. Same reasoning as
+`IsConfirmed` itself: the flag is load-bearing precisely because it is *not* what changes the arithmetic.
+
+### 4 · A partition is a fact about a cell (2026-08-13, reported from the running base)
+
+3Med with two partitions printed **Chirurgie orange and Médecine green** under a legend reading
+« Partition A / Partition B ». Both partitions pass through both stages — they mirror — so a colour
+that tracks the stage cannot be a colour that tracks the partition.
+
+`RepartitionRow.RotationGroup` was "the partition its first period belongs to". The row is a *service*,
+and over the year a service holds groups from every partition; the crossover **is** that. So the row
+band was never a fact about the row, and with `P = 2` it degenerates exactly onto the stage:
+
+```
+P1: A → Médecine,  B → Chirurgie        every Médecine row opens on A
+P2: A → Chirurgie, B → Médecine         every Chirurgie row opens on B
+```
+
+⚠ **The dangerous shape of this bug is that it is self-consistent.** The colours were stable, the
+legend matched the data it was given, and every row really did open on the partition named. Nothing
+was inconsistent — the model was just answering a question nobody had asked. The tell was that the
+answer never varied along a row, which is the one thing a crossover guarantees it must.
+
+The handler already computed the band per cell and then discarded all but the first
+(`bandByColumn[firstOccupied]`); the fix moves `RotationGroup` onto `RepartitionCell` and tints the
+`<td>`. Med3 now reads A,B along the Médecine row and B,A along the Chirurgie row — the mirror, which
+is the single most important thing the published document communicates.
+
+⚠ **The old test encoded the bug**: `Rows.Select(r => r.RotationGroup).Should().Equal("A","A","B","B")`
+passed, described the wrong model, and would have kept passing after any "fix" that preserved it. It
+survived because `SeedAsync`'s fixture puts partition A only in Médecine and B only in Chirurgie —
+a static split, not a crossover. A fixture that cannot exhibit the phenomenon cannot catch the bug in
+it, and this one had been green through every session. Its replacement mirrors.

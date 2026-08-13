@@ -1,8 +1,10 @@
-# Smoke test — sessions 11 → 16
+# Smoke test — sessions 11 → 17
 
 Covers the year-scoping lockdown (11), CNPN versioning + targeting + text editing (12–13), per-level
-service quotas and the répartition annuelle (14), the déliberation / réinscription flow (14), and the
-working-day calendar + un-partitioning (16 — steps **12e** and **12f**, both already executed).
+service quotas and the répartition annuelle (14), the déliberation / réinscription flow (14), the
+working-day calendar + un-partitioning (16 — steps **12e** and **12f**, both already executed), and the
+four reporting gaps closed in 17 (steps **12g**, **12h** and **12i** — executed, with the two gaps
+noted in their headers).
 **Rollback is at the bottom** — read it before you start, not after.
 
 Prerequisites: `dotnet run --project PGSH.AppHost`, log in as an admin (Scolarité).
@@ -22,7 +24,7 @@ Timings below are the real figures from your data — if you see a different num
 
 ```bash
 rm -rf PGSH.Tests/bin PGSH.Tests/obj          # ⚠ see below
-dotnet test PGSH.Tests/PGSH.Tests.csproj      # expect: 773 passed, 0 failed, ~35 s
+dotnet test PGSH.Tests/PGSH.Tests.csproj      # expect: 781 passed, 0 failed, ~35 s
 ```
 
 ⚠ **Incremental `dotnet test` runs in this repo have been reporting phantom counts** — the same suite came
@@ -446,6 +448,124 @@ them no longer reproduces.
 6. After clearing, **Contigu** now takes: `A: 1-40`, `B: 41-80`. Before clearing it could not.
 
 ❌ **Fail if** clearing deletes a cohort, a cell or a period, or if it succeeds on a published promotion.
+
+---
+
+## 12g · The two empty répartitions, and the gap-fill button (6 min)
+
+> ✅ **Part A executed 2026-08-13** against the real base, admin session, after an API restart (required:
+> `GET levels/{id}/repartition` gained `summary.declaredSlotCount`). **1ère année Médecine** → « Aucune
+> période n'est planifiée » (`declaredSlotCount = 0`); **6ème année Médecine** → « Les périodes de ce
+> niveau sont définies (10 colonnes, 60 créneaux) mais aucun groupe n'y est encore réparti », plus the
+> blue *Périodes définies, aucune répartition* alert. Before the change Med6 showed the *first* message —
+> the reported bug, reproduced and fixed.
+>
+> ⚠ **Part B step 6-7 NOT executed**: no level currently has an unlabelled group, so the teal card could
+> not be made to appear. Its *absence* was verified on Med6 (10 partitions) and Med5 (2). Step 9's
+> confirmation was verified and cancelled.
+
+**Part A — an axis that has been applied must not read as one that failed.**
+
+1. Pick a level with **no** `StageSlot` for the current year. **Formation → Répartition annuelle** →
+   « Aucune période n'est planifiée pour ce niveau en … ». `declaredSlotCount` is `0`.
+2. Now **Formation → Cycle de rotation**: author and **apply** a block for that level (Med6:
+   `k = [2,2,2,2,1,1]`, `T = 10`, 10 partitions, unit *jours ouvrables* × 22). Slots are written;
+   nothing is arranged yet.
+3. Re-open the répartition **without arranging**. It must now say the periods are **defined** and name
+   them — « … (10 colonnes, 60 créneaux) mais aucun groupe n'y est encore réparti » — plus a blue
+   *Périodes définies, aucune répartition* alert on the page telling you where to go next.
+   ❌ **Fail if** it still says « Aucune période n'est planifiée ». That was the bug.
+4. Run the auto-arrange / macro plan. The table fills; the blue alert goes.
+5. **The deliberate knock-on:** on a *partially* arranged level the unarranged periods now print as
+   columns of hatched cells, so `emptyCells` and its orange alert are **higher than before this
+   change**. That is correct — those holes were always there and the table was hiding them.
+
+**Part B — filling groups that have no partition, without re-cutting.**
+
+6. **Groupes → Plan macro**, a level that already has labels. Create a new group (or find a level with
+   unlabelled ones). A **teal** card appears: « N groupe(s) de ce niveau n'ont aucune partition
+   (n° …) », listing the numbers (truncated past 12).
+7. Press **Compléter les groupes sans partition**. Only those groups are labelled — every existing
+   label is untouched, and the toast names each partition's new membership.
+   ❌ **Fail if** an already-labelled group moves. That is a re-cut, and this path must never be one.
+8. Press it again with nothing unlabelled: the card is gone entirely, so the act is unreachable when
+   it would be a no-op.
+9. **Supprimer les partitions** now opens a confirmation **naming the level** and saying what survives.
+   Cancel it. ❌ **Fail if** the click clears anything before you confirm — that adjacency is what
+   wiped level 3 in session 16.
+
+---
+
+## 12i · The colour key must name partitions, not stages (3 min)
+
+> ✅ **Executed 2026-08-13** on 3Med, 2025-2026. Machine-read from the DOM: **104 of 104** cells carry a
+> band class, **0** rows carry the old row band, legend = « Partition A · Partition B ». Every Chirurgie
+> row bands `AABB` and every Médecine row `BBAA` — 2 distinct sequences across all 26 rows. Computed
+> colours: A = `rgb(253,238,228)`, B = `rgb(230,240,226)`, identity columns `rgb(255,255,255)`, and the
+> mirror assertion (`chirP1 === medP3 && chirP3 === medP1`) holds. The bug was reproduced first: before
+> the restart the same page rendered `cellsWithBandClass: 0`.
+>
+> ⚠ Step 4 (.html export) **not executed** — verified by construction instead: `buildRepartitionFile`
+> serializes the live DOM and inlines the same `repartitionDocument.css`, both of which were confirmed
+> to carry the new classes.
+
+**Formation → Répartition annuelle → Troisième Année Médecine.** Two partitions, interleaved, so odd
+group numbers are A and even are B. The published crossover reads:
+
+| row | P1 | P2 | P3 | P4 | partitions |
+|---|---|---|---|---|---|
+| Chirurgie / Chirurgie A | `1, 3, 5, 7` | `41, 43, 45, 47` | `2, 4, 6, 8` | `42, 44, 46, 48` | **A A B B** |
+| Médecine / Médecine A | `2, 4, 6` | `42, 44, 46` | `1, 3, 5` | `41, 43, 45` | **B B A A** |
+
+1. Every Chirurgie row must change tint **halfway across the page**, and every Médecine row must change
+   the opposite way. That alternation *is* the crossover, and it is the single most important thing
+   the document says.
+   ❌ **Fail if** a row is one flat colour end to end and Chirurgie and Médecine are two different
+   colours. That is the old per-row band, which drew one colour per **stage** under a legend reading
+   « Partition A / Partition B » — consistent, plausible and wrong.
+2. Hover any cell: the native title reads « Partition A » / « Partition B », so the fact is not
+   carried by colour alone.
+3. The identity columns (Stage, Service) stay on paper white — nothing about a *service* is a partition.
+4. **Télécharger (.html)** and open the file. The banding must survive: the export serializes the live
+   DOM and inlines the same stylesheet, so this is a check that the CSS class rename reached both.
+5. If any cell mixes partitions, it stays untinted and a « Partitions mêlées » key appears. Don't
+   manufacture one to test this — it is rare by construction.
+
+---
+
+## 12h · Correcting Aïd after the décret (4 min)
+
+> ✅ **Executed 2026-08-13** on the real *Aïd al-Fitr* row, and **fully restored afterwards** —
+> 20/03→21/03, provisoire, 247 jours ouvrables, 14 entrées, identical to the starting state.
+> Three saves: a no-op re-save (`datesMoved: false`), a move to 21→22, and the move back. All persisted
+> correctly, so the new `200`+body contract parses. Moving it onto a weekend took *jours ouvrables*
+> 247 → **248** and that row's « ouvrables perdus » 1 → **0**, which is `WorkingDaysLost` behaving as
+> designed.
+>
+> ⚠ **The info toast itself was never caught on camera** — toasts expire faster than the screenshot
+> round-trip, so the `slotsSpanning` figure rests on unit tests, not on this run.
+>
+> ⚠ **One unexplained failure, not reproduced.** The *first* date-move save tripped the error boundary
+> («&nbsp;Une erreur inattendue&nbsp;») and did **not** persist. Three subsequent identical saves all
+> succeeded, the console held no error, and no data was corrupted. Cause not established — if it
+> recurs, read the console before reloading.
+
+The workflow this exists for: the lunar date is entered in September as an estimate, and corrected when
+the decree lands. Deleting a holiday always said how many windows were laid over it; editing said nothing.
+
+1. **Formation → Jours fériés**. Record *Aïd al-Fitr* on an estimated date, **unconfirmed**, 2 days.
+2. Author an axis in **jours ouvrables** over a span containing it (12g step 2 will do).
+3. Edit the holiday: **move it by one day** and tick « Date confirmée ». Expect the success toast **plus**
+   an info toast: « La date a changé : N créneau(x) couvrent l'ancienne ou la nouvelle période … ».
+   - N counts the union of the two spans **once** — a one-day correction sits inside one window, so a
+     single slot must be reported as **1**, never 2.
+4. Edit it again changing **only the name** (or only the confirmation flag): success toast, and **no**
+   second toast. ❌ **Fail if** a slot count is reported here — a span that did not move costs no day,
+   and crying wolf on it is what makes the real report ignorable.
+5. Delete a holiday: the existing `SlotsSpanning` toast must still appear, unchanged.
+
+❌ **Fail if** the edit succeeds but the dates it reports are the *new* ones on a count taken *after*
+the write — the number must be computed against the span it left as well.
 
 ---
 
