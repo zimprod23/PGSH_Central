@@ -1,10 +1,22 @@
-# Smoke test — sessions 11 → 17
+# Smoke test — sessions 11 → 21
 
 Covers the year-scoping lockdown (11), CNPN versioning + targeting + text editing (12–13), per-level
 service quotas and the répartition annuelle (14), the déliberation / réinscription flow (14), the
-working-day calendar + un-partitioning (16 — steps **12e** and **12f**, both already executed), and the
+working-day calendar + un-partitioning (16 — steps **12e** and **12f**, both already executed), the
 four reporting gaps closed in 17 (steps **12g**, **12h** and **12i** — executed, with the two gaps
-noted in their headers).
+noted in their headers), and the roster/promotion split plus concurrent-partition balancing in 18
+(step **12j** — **not yet executed**, and the one that needs a migration), and in 19 the dense-cell
+rendering of the published document (step **12k** — executed), its switch from partition colours to
+stage colours (step **12i**, **rewritten** — the session-17 version checked the opposite thing and is
+no longer the spec), and the promotion-isolation guards on transfer, cohorte creation and group
+naming (step **12l** — **not yet executed**) plus the service occupancy view (step **15** — executed
+against live data on two services, with two sub-steps left manual). Session 20 adds
+`Stage.RotationMode` — one service for a whole multi-période run, with one evaluation — plus the
+guard that stops unpublishing from silently deleting evaluations and attendance, and the rule that
+publishing never lands on top of a stage a student has already served (step **16** — **not yet
+executed**). Session 21 fixes the partition count itself: read from the promotion instead of from one
+stage's cohorts, required to name its promotion, and counted server-side instead of off a 200-row page
+(step **17** — **not yet executed**, and it carries the Med6 repair).
 **Rollback is at the bottom** — read it before you start, not after.
 
 Prerequisites: `dotnet run --project PGSH.AppHost`, log in as an admin (Scolarité).
@@ -15,6 +27,10 @@ Prerequisites: `dotnet run --project PGSH.AppHost`, log in as an admin (Scolarit
 | `AddServiceLevelCapacityAndLocalization` | ✅ already in your dev database |
 | `RegistrationYearOutcome` | ✅ applied |
 | `HolidayCalendar` | ✅ applied (session 16) |
+| `SplitAcademicGroupsPerLevel` | ✅ applied — verified 2026-08-14: 3,696 of 3,707 rosters carry a promotion, the other 11 are the one « Non réparti » bucket per year; 0 rosters span two promotions, 0 registrations disagree with their roster's year or level |
+| `StageRotationModeAndSlotCoverage` | ✅ applied — verified 2026-08-14: all 27 stages default to `PerPeriod` (no behaviour change), and `ServicePeriodSlotCoverage` holds 0 rows against 0 grid-linked periods, so the backfill is consistent. Additive only: a new column with a default and a new table |
+| `PartitionScopeAndIndexGaps` | 🔲 **pending** — apply before step **17**. Adds `IX_AcademicYear_IsCurrent` (unique, filtered on `"IsCurrent"`) and demotes any extra current year first, keeping the highest `Id`. It should touch 0 rows: `CreateAcademicYear` already demotes the others. No table or column is added |
+| `GroupLabelPerPromotion` | ✅ applied — verified 2026-08-14: `IX_AcademicGroup_Year_Level_Label` and `IX_AcademicGroup_Year_Level_Number` both present, the two year-only indexes gone. A pure relaxation: `IX_AcademicGroup_Year_Label` → `IX_AcademicGroup_Year_Level_Label` (`NULLS NOT DISTINCT`). The old key is a superset of the new one, so no existing row can collide; see step **12l** |
 
 Timings below are the real figures from your data — if you see a different number, that is the bug.
 
@@ -24,7 +40,7 @@ Timings below are the real figures from your data — if you see a different num
 
 ```bash
 rm -rf PGSH.Tests/bin PGSH.Tests/obj          # ⚠ see below
-dotnet test PGSH.Tests/PGSH.Tests.csproj      # expect: 781 passed, 0 failed, ~35 s
+dotnet test PGSH.Tests/PGSH.Tests.csproj      # expect: 852 passed, 0 failed, ~30 s
 ```
 
 ⚠ **Incremental `dotnet test` runs in this repo have been reporting phantom counts** — the same suite came
@@ -343,6 +359,81 @@ services*, so its `periodNumbers` has two entries.
 
 ---
 
+## 12j · The 5th year plans all nine of its columns (10 min) — session 18
+
+The bug this session started from: a full 9-column rotation cycle for the 5ème année médecine produced a
+répartition with **périodes 8 and 9 filled and 1–7 empty**, and the UI called it a success. Two causes,
+both fixed; this step checks both, and it is the one that needs `SplitAcademicGroupsPerLevel` applied.
+
+**Before you start** — with the stack up, confirm the migration ran:
+
+```sql
+SELECT count(*) AS groups, count("LevelId") AS with_level FROM "AcademicGroups";
+-- expect 3707 / 3696   (was 1003 / 0)
+SELECT count(*) FROM (SELECT r."AcademicGroupId" FROM "Registrations" r
+  JOIN "AcademicGroups" g ON g."Id"=r."AcademicGroupId" WHERE g."GroupNumber">0
+  GROUP BY 1 HAVING count(DISTINCT r."LevelId")>1) x;   -- expect 0
+```
+
+Registrations (43 605), cohorts (13 604) and cells (440) must be **unchanged** — the split re-points rows,
+it never creates or drops one.
+
+1. **Rosters are per promotion now.** Groupe 1 of 2025-2026 is five rows, one per promotion:
+   `Groupe 1 — Troisième Année Médecine`, `… Quatrième`, `… Cinquième`, `… Sixième`,
+   `… Cinquième Année Pharmacie`. On the Groups page, filter by level: the 3rd year shows 1-80, the 5th
+   1-60, the 6th 1-100 — three independent numberings.
+2. ⚠ **Re-cut every promotion's partitions before planning.** The split carried each roster's old label
+   over, and the base held **one global cut** (A=19, B=19, C-I=8-9, J=2 across 100 rosters) that was a
+   mixture of the 5th year's 9-way and the 6th year's 10-way. It is not a partitioning of anything now.
+   Per level: « Supprimer les partitions » → « Redécouper ». Refused while published, which is correct.
+3. **Plan the 5th year.** Rotation cycle, level 5, stages Gynécologie `k=3` + the six others at `k=1`
+   → `T = 9`, `P = 9`. Apply, then « Planifier ».
+4. ❌ **Fail if** the toast reports any `conflit(s)` — that is the cross-promotion collision, and it should
+   now be zero. Before the split it was **420** (60 rosters × 7 refused columns) and was not displayed at
+   all; the toast now names it.
+5. **Open the répartition.** All **nine** columns filled, 60 groups in each, `540` planned cells.
+6. **The balance.** Gynécologie holds 3 partitions at once (`L = 3` — twenty groups over five services).
+   Every column must read **4 / 4 / 4 / 4 / 4**, which is what `demo/MED05.png` prints.
+   ❌ **Fail if** it reads 6/5/3/3/3 — that is each partition being arranged in its own call again.
+
+```sql
+SELECT sl."PeriodNumber", sv."Name", count(*) FROM "CohortSlotAssignments" a
+JOIN "StageSlots" sl ON sl."Id"=a."StageSlotId" JOIN "Services" sv ON sv."Id"=a."ServiceId"
+JOIN "Stages" st ON st."Id"=sl."StageId"
+WHERE st."Name" LIKE 'Gyn%' AND sl."AcademicYearId"=21 GROUP BY 1,2 ORDER BY 1,2;
+```
+
+7. **The refusal now names the promotion.** Plan the 3rd year over dates that overlap the 5th year's, on
+   purpose, then place one roster by hand into a second stage on the same window: the error reads
+   « Le groupe N est déjà affecté au stage « X » (**Troisième Année Médecine**) période P… ». Without the
+   promotion, that message sent you hunting through a level that has no such stage.
+8. **« Non réparti » is never partitioned.** After a re-cut, its `RotationGroup` is still null — it holds
+   4 725 students of every promotion and is not a rotation partition. It must still be **visible** on the
+   Groups page under a level filter, because that is where those students get assigned from.
+9. **A promotion nobody cut refuses a partitioned arrange.** On a level with no labels, « Répartition
+   auto. » targeting a partition now answers `Schedule.PromotionNotPartitioned` and names the promotion.
+   ❌ **Fail if** it reports 0 cells and looks like a success, or if it invents a cut of its own — the
+   old fallback took the *stage's* service count, so running it on Santé Publique (one service) cut the
+   whole promotion one-way and every later stage inherited it.
+
+**Executed 2026-08-13** (session 18). Med5 replanned from an empty axis: 9 columns × 15 j. ouvrables from
+03/11/2025, **540 cellules, 0 conflits**, Gynécologie 4/4/4/4/4 per column (21/19/20 groups per column
+gives 5/4/4/4/4 and 3/4/4/4/4 — spread 1, which is optimal since 60 ∤ 9), 0 double-bookings, 3 hatched
+cells on *Réa.Oto.Neuro.Oph* (7 services, partitions of 6). The `GroupAlreadyPlaced` refusal was verified
+live as **HTTP 409** with the cell left unwritten; its **wording is covered by unit test only** — the
+toast expires faster than a screenshot round-trip.
+
+**Data repaired in the same pass** (both provable, both on promotions with 0 published cells):
+- **Med3** carried Med5's 9-way labels over a plan that is a 2-way mirror (40 groups per stage per
+  column, odd → Chirurgie P1-2, even → Médecine P1-2). Re-cut 2-way *Alterné* restores exactly the
+  labels the plan was built on: A = the 40 odd rosters, B = the 40 even, **0 mixed cells**.
+- **Med6** had 10 partitions — the right count for its authored 10-column axis — but sizes 2 to 19.
+  Re-cut to a clean 10 × 10 before anything is planned on it.
+- ⚠ **Med4 and Pharma5 are still lopsided** (9 partitions, 6–13 rosters). Harmless today: no axis, no
+  cells. Cut them to whatever their block needs *before* planning, not after.
+
+---
+
 ## 12d · Period drift between stages (2 min)
 
 The gap 12c works around: nothing in the schema says Médecine P1 and Chirurgie P1 are the same window.
@@ -496,40 +587,252 @@ them no longer reproduces.
 
 ---
 
-## 12i · The colour key must name partitions, not stages (3 min)
+## 12i · The document colours by stage, and never mentions partitions (3 min) — rewritten in session 19
 
-> ✅ **Executed 2026-08-13** on 3Med, 2025-2026. Machine-read from the DOM: **104 of 104** cells carry a
-> band class, **0** rows carry the old row band, legend = « Partition A · Partition B ». Every Chirurgie
-> row bands `AABB` and every Médecine row `BBAA` — 2 distinct sequences across all 26 rows. Computed
-> colours: A = `rgb(253,238,228)`, B = `rgb(230,240,226)`, identity columns `rgb(255,255,255)`, and the
-> mirror assertion (`chirP1 === medP3 && chirP3 === medP1`) holds. The bug was reproduced first: before
-> the restart the same page rendered `cellsWithBandClass: 0`.
+> ✅ **Executed 2026-08-14** on 5Med, 2025-2026, machine-read from the DOM: 7 stage blocks tinted
+> 0,1,2,3,4,0,1 with **zero adjacent clashes**, **0** rows untinted, identity cells painted with their
+> row's tint (`rgb(227,237,247)` on the first), legend = « Période non planifiée » alone, no `band-`
+> class and no « Partitions mêlées » anywhere, and the word *partition* absent from the document's
+> visible text (the only surviving `title` is the chef-source note).
 >
-> ⚠ Step 4 (.html export) **not executed** — verified by construction instead: `buildRepartitionFile`
-> serializes the live DOM and inlines the same `repartitionDocument.css`, both of which were confirmed
-> to carry the new classes.
+> ⚠ **This step replaces the session-17 version**, which checked the opposite thing: that every cell
+> carried a *partition* band and that the tint alternated halfway across each row. It did — that
+> mirror was real and the check was right about the model. It was the wrong thing to print. See the
+> note below before assuming this is a regression.
 
-**Formation → Répartition annuelle → Troisième Année Médecine.** Two partitions, interleaved, so odd
-group numbers are A and even are B. The published crossover reads:
+**Formation → Répartition annuelle → Cinquième Année Médecine.**
 
-| row | P1 | P2 | P3 | P4 | partitions |
-|---|---|---|---|---|---|
-| Chirurgie / Chirurgie A | `1, 3, 5, 7` | `41, 43, 45, 47` | `2, 4, 6, 8` | `42, 44, 46, 48` | **A A B B** |
-| Médecine / Médecine A | `2, 4, 6` | `42, 44, 46` | `1, 3, 5` | `41, 43, 45` | **B B A A** |
+1. Each stage is a **contiguous block in one tint**, across the whole row — stage, service and every
+   période cell alike. Blocks read blue, green, cream, violet, peach, then round again.
+2. **No two consecutive blocks share a tint.** Five tints cycling guarantees it; a promotion with more
+   than five stages simply reuses a colour far down the page, where a heavy rule and the stage's own
+   name separate them.
+3. The word « partition » appears **nowhere** — no legend item, no swatch, no tooltip. The reader is a
+   student looking for his own group; a partition is scolarité's internal division for building the
+   rotation and explains nothing he can act on.
+   ❌ **Fail if** a « Partition A / Partition B » key is back, or cells change colour along a row.
+4. The legend has exactly one entry, « Période non planifiée » — the hatch is the only mark the
+   document makes that is not also written out in words.
+5. **Formation → Bloc de rotation** (or a stage's planning grid): the partition is still there, named
+   per cohorte. It was never removed from the system, only from the published page.
+6. **Télécharger (.html)** and open the file. The tints must survive: the export serializes the live
+   DOM and inlines the same stylesheet.
 
-1. Every Chirurgie row must change tint **halfway across the page**, and every Médecine row must change
-   the opposite way. That alternation *is* the crossover, and it is the single most important thing
-   the document says.
-   ❌ **Fail if** a row is one flat colour end to end and Chirurgie and Médecine are two different
-   colours. That is the old per-row band, which drew one colour per **stage** under a legend reading
-   « Partition A / Partition B » — consistent, plausible and wrong.
-2. Hover any cell: the native title reads « Partition A » / « Partition B », so the fact is not
-   carried by colour alone.
-3. The identity columns (Stage, Service) stay on paper white — nothing about a *service* is a partition.
-4. **Télécharger (.html)** and open the file. The banding must survive: the export serializes the live
-   DOM and inlines the same stylesheet, so this is a check that the CSS class rename reached both.
-5. If any cell mixes partitions, it stays untinted and a « Partitions mêlées » key appears. Don't
-   manufacture one to test this — it is rare by construction.
+⚠ **Why this is not the per-row band the session-17 step was written to catch.** That band asserted a
+row belonged to *one partition*, which is false — a row visits every partition over the year, which is
+precisely what the crossover is. A row belongs to exactly one **stage**. Tinting by stage states
+something true, and states what the first column already says in words — which is also what makes it
+safe to cycle the palette.
+
+---
+
+## 12k · A dense cell must be readable (4 min) — session 19
+
+> ✅ **Executed 2026-08-14** on 5Med, 2025-2026, machine-read from the DOM. At a 1280px document width
+> the old `white-space: nowrap` put **15 group tokens outside their own `<td>`** — measured by comparing
+> each token's rect against its cell's — while the new rule gives **0**, at most **2** lines per cell,
+> and a document only 20px taller (1122 → 1142). At the printed width (1062px = A4 landscape less 8mm
+> margins) the table now lays out at **1026px** with **0** overflow and at most 3 lines: before the
+> print rule it was pinned at its 1477px screen min-width and ran off the right edge of the sheet.
+> The 3rd year still bands `A`/`B` with its legend intact.
+
+**Formation → Répartition annuelle → Cinquième Année Médecine.** Nine partitions, interleaved, one
+service for Santé Publique — so a single cell has to carry seven scattered group numbers.
+
+1. Find the **Santé Publique** row. Its cells read `8, 17, 26, 35, 44, 53`, `7, 16, 25, 34, 43, 52`…
+   Every number must sit **inside its own column**, wrapping to a second line if need be.
+   ❌ **Fail if** the numbers run over the neighbouring période and the two cells overlap. That was
+   the bug: a fixed-layout `<td>` does not clip, so the overflow painted across its neighbours and
+   neither période could be read.
+2. Narrow the browser window until the table scrolls. The cells take more lines; nothing is ever cut,
+   ellipsed or hidden. Same for the **Service (Chef de service)** column — long names like
+   « Hôp.Spécialités: ORL A - Pr.L.Essakalli Houssyni » now wrap instead of losing the chef's name to
+   an ellipsis, which is the half the column exists for.
+3. A range never splits across two lines: you must never see « 47- » ending a line and « 50 » opening
+   the next. Only whole runs move.
+4. Colour is by stage — see step **12i**. (The partition palette was what surfaced this: it wrapped at
+   six while this promotion has nine partitions, so A and G printed identically. It is gone.)
+5. **Imprimer / PDF**: the last période must be on the sheet. The screen min-width is dropped in print
+   (`@media print { table { min-width: 0 } }`), so the table takes the page width and the cells take
+   another line instead of the table running off the edge.
+
+---
+
+## 12l · A roster cannot be mixed across promotions by hand (5 min) — session 19
+
+> ⏳ **Not yet executed.** Covered by `GroupPerLevelIdentityTests` (11 cases, green); this is the
+> screen-level pass. Needs `GroupLabelPerPromotion` applied.
+
+`SplitAcademicGroupsPerLevel` repaired the data and the unique index keeps two rosters
+distinguishable. Neither stops a *student* being moved into another promotion's roster or a *cohorte*
+being built across two — both are plain FKs to rows that exist. These are those paths.
+
+1. **Étudiants → un étudiant de 3Med → Transférer**, and target a roster of the 5th year.
+   Expect a refusal naming both promotions: « … est un groupe de Cinquième Année Médecine, or cet
+   étudiant est inscrit en Troisième Année Médecine ». The registration must be unchanged afterwards.
+2. Same with a roster of **2024-2025**: « … appartient à l'année 2024-2025, or cette inscription est
+   celle de 2025-2026 ». A registration *is* a year; pointing it at another year's roster does not
+   move the student, it makes the row describe two years.
+3. **Académique → Groupes → Créer un groupe**, name it « Groupe 1 » on the 3rd year, then create
+   « Groupe 1 » on the 4th year. **Both must succeed** — that is the point of the migration — and both
+   must be numbered **1**. A third « Groupe 1 » on the 3rd year is refused, naming the promotion.
+4. On a stage of the 5th year, try to create a cohorte for a 3rd-year roster (`POST /cohorts`, or the
+   stage's cohort modal if it offers the roster at all): « Une cohorte ne peut pas relier deux
+   promotions ». Same for « Non réparti »: « … n'appartient à aucune promotion ».
+5. Edit « Non réparti » and set a partition label: refused. The bucket holds 4,725 registrations from
+   nine promotions; a label on it hands all of them to `CohortProvisioner` as one body.
+
+---
+
+## 15 · La fiche d'un service : ce qu'il contient vraiment (6 min) — session 19
+
+> ✅ **Executed 2026-08-14** against live data, on two services, machine-read from the DOM and checked
+> against a **separately written SQL implementation** of the same boundary algorithm — **zero
+> mismatches on both**.
+>
+> **Urologie (Hôpital Moulay Youssef, id 124)** — the cross-stage case: Urologie Néphrologie (5Med,
+> 9 périodes) and Chirurgie (3Med, 4 périodes) share it on partly-overlapping windows. 16 segments,
+> every window/day-count/load matching SQL; banner « 9 périodes au-dessus de la limite, sur 122 jours
+> cumulés. Pic : 48 étudiants du 01/05/2026 au 18/05/2026 ». ⚠ **The largest single période in the
+> database is 36** — so a per-slot table would have under-reported the peak by 12 students. That gap
+> is the whole justification for segmenting. Drill-down on 06/04→24/04 gave Chirurgie P1 groups
+> 75, 77, 79 = 32 plus Urologie P8 group 47 = 13, i.e. 45; « Voir les 45 étudiants nommément » loaded
+> 45 across **2 pages** with the debounced search present.
+>
+> **Santé Publique (id 76)** — the one-service-per-promotion case that prompted this: 9 segments, all
+> 9 over capacity, 193 days cumulative, peak **85 against 20** on 27/04→18/05.
+>
+> ⚠ **Steps 6 and 7 below were NOT executed.** 7 (year switch) — the automation could not drive the
+> Mantine year dropdown reliably; the arg is in the RTK Query cache key by construction but that is a
+> code reading, not an observation. 6 (quota edit) — authoring a quota *restricts* a service and
+> changes what auto-arrange and publish will do, so it is not something to try unprompted on your
+> database. Both are still worth a manual minute.
+
+**Infrastructure → onglet Services → cliquer le nom d'un service.** New page, `/admin/services/:id`.
+
+1. The header states **the limit in force**, and which of the two it is. With no quota:
+   « 20 — toutes promotions confondues » plus the warning that the *first* quota closes the service
+   to every promotion without one. With quotas: the per-promotion badges, and an explicit note that
+   the total « n'est pas consultée ». ❌ **Fail if** both numbers are presented as live — they never
+   are; quotas replace the total, they do not sit under it.
+2. **Occupation réelle.** Each row is a stretch over which the occupants do not change — *not* a
+   période. On a service shared by two stages whose windows only partly overlap you must see three
+   rows, the middle one carrying the sum. ❌ **Fail if** there is one row per créneau: the peak lives
+   in the overlap and per-slot rows never show it.
+3. Pick a service you know to be over-subscribed. The orange banner names the number of stretches, the
+   cumulative days over the limit, and the peak with its dates — and says how many *stages* and
+   *promotions* the load comes from. That last part is the point: a service is usually over-filled by
+   a stage nobody was looking at.
+4. Expand a stretch → the stages, promotions, périodes and group numbers present. Then
+   « Voir les N étudiants nommément » → a **paged**, debounced list. ❌ **Fail if** it loads unpaged;
+   a saturated stretch holds 85.
+5. **Stages autorisés**: the reverse of the stage's own list. A row badged « non admis » is a real
+   contradiction — the stage lists this service, the service's quotas exclude the stage's promotion —
+   and auto-arrange silently drops it today.
+6. Edit the quotas via « Modifier le service et ses quotas ». On save the timeline's verdicts must
+   change **without a reload**: the mutation invalidates `occupancy-{id}` and `stages-{id}`.
+7. Change the navbar year → the timeline refetches. ❌ **Fail if** it keeps last year's load under
+   this year's heading (that is `academicYearId` missing from the RTK Query arg, i.e. from the cache key).
+
+---
+
+## 17 · A partition count that describes the promotion (10 min) — session 21
+
+> ✅ **Executed 2026-08-16** against the real base (admin session, after the migration and an API
+> restart). Migration `PartitionScopeAndIndexGaps` applied; `IX_AcademicYear_IsCurrent` present; exactly
+> **1** current year, so the migration's demotion touched **0** rows as predicted.
+>
+> ⚠ **The promotion named in session 17 was the wrong one.** Med6 is **clean** — A–J × 10 exactly. The
+> defect is live on **4ème année Médecine** and **5ème année Pharmacie**, in a milder but identical
+> form, and it is the same defect: both were cut nine ways at 60 rosters
+> (`7,7,7,7,7,7,6,6,6`), then grew by 12, and every one of the 12 went into **A or B**:
+>
+> ```
+> A  13  1,10,19,28,37,46,55,61,63,65,67,69,71
+> B  13  2,11,20,29,38,47,56,62,64,66,68,70,72
+> C   7  3,12,21,30,39,48,57      …    I  6  9,18,27,36,45,54
+> ```
+>
+> Groups 1–60 are a textbook interleave over nine partitions; 61–72 alternate over two. Both promotions
+> were repaired (below) → **9 × 8 each**. Nothing else moved: 13,604 cohortes, 860 cellules, 98,555
+> affectations, 105,626 périodes, identical before and after.
+
+**A · The repair — 4ème Médecine and 5ème Pharmacie.**
+
+The lopsided cut is *data*: the write path is fixed, the rosters already sitting in A and B are not.
+Neither promotion had a planned cell or a published period, so the repair was free.
+
+1. **Groupes → Plan macro**, pick the promotion. The card now reads its numbers from the server; they
+   must match the SQL above.
+2. **Supprimer les partitions** → the confirm names the level and what survives, and the second toast
+   names the planned cells that now describe no partition (**0** on both).
+3. Re-cut into **9**, *Alterné* — the shape they already had. Sizes come out even: 8 per partition.
+4. Check the other promotions the same way. Any promotion whose partitions are wildly uneven *and* has
+   no published cell is the same defect; clear and re-cut. ⚠ One that **is** published cannot be
+   repaired this way and must not be: students were sent under those labels.
+   *(Checked 2026-08-16: 3Med 40/40, 5Med 7×6+6×3, Med6 10×10 — all even. Nothing else to repair.)*
+
+**B · The count now comes from the promotion, not from one stage's cohorts.**
+
+5. On a promotion cut into ≥ 3 partitions, find a stage whose cohorts cover only *some* of them (a stage
+   the CNPN does not require of every group, or one provisioned before the promotion grew). Create one
+   roster with no partition and give it a cohorte for that stage.
+6. Run **Répartition automatique** on that stage with no partition count.
+   - The new roster must join one of the promotion's **existing** partitions — including C, D, … which
+     that stage cannot see. Before this session it could only ever land in the labels present among the
+     stage's own cohorts.
+   - A roster of the promotion with **no cohorte in that stage** must stay unlabelled: an arrange labels
+     only what it places.
+7. The mirror case: a stage all of whose cohorts are unlabelled, on a promotion that *is* cut. Arranging
+   it must fill from the promotion's cut — not report `Schedule.PromotionNotPartitioned`, which is what
+   it used to do.
+
+**C · The cut cannot reach past its promotion.**
+
+8. `POST /api/groups/assign-partitions?academicYearId=N` with **no** `levelId` → **400**. It used to cut
+   every promotion of the year at once and label « Non réparti » along with them. Same for
+   `DELETE /api/groups/partitions`. ✅ Confirmed against the published contract
+   (`/openapi/v1.json`): `levelId` is `required: true` on **both**, where it used to be optional.
+9. After any cut, « Non réparti » (groupe n° 0) must still carry **no** partition, and no other
+   promotion's rosters may have changed.
+
+**D · The count is not read off a page.**
+
+10. `GET /api/groups/partitioning?levelId=N` returns `totalGroups`, `labelledGroups`,
+    `unlabelledGroups`, `unlabelledGroupNumbers` and one row per partition. Compare `totalGroups` with
+    the promotion's real roster count — for a promotion **past 200 rosters** the tab used to read low,
+    silently. ✅ `GET /api/groups/partitioning?academicYearId=21&levelId=4` → **200**, the tab renders
+    from it, and **no `pageSize=200` group fetch is issued for this tab at all** (network log).
+11. The unlabelled rosters print collapsed the way the répartition prints a cell (`41-60`, or
+    `3, 12, 21` for an interleaved cut), not as a truncated "first 12… +N" list.
+
+**E · « Retrait » is not a promotion.**
+
+14. **Groupes → Plan macro**, open the Niveau picker. « Retrait » must **not** be there any more —
+    nor in *Répartition automatique*, *Créer un groupe*, *Cycle de rotation*, *Répartition annuelle*,
+    *Curriculum*, *Stages*, or a service's quotas. ⚠ It **must** still appear in the **level catalogue**
+    (Académique → Niveaux), in a student's dossier, and in the Groupes **browse filter** — a withdrawn
+    registration has to be able to name its level, and 10 rosters sit under it.
+15. Force the act anyway: `POST /api/groups/assign-partitions?academicYearId=N&levelId=<retrait>` →
+    refused with **`Levels.NotAPromotion`**, naming the level. Same for auto-arrange.
+16. `DELETE /api/groups/partitions` on it must still **succeed** — that is how a label already on a
+    marker's roster comes off, and refusing the undo would leave only SQL.
+    *(Executed 2026-08-16: « Groupe 59 — Retrait » carried partition **E**, an artefact of
+    `SplitAcademicGroupsPerLevel` copying the folded roster's label onto each shard. Cleared through
+    the UI → 0 of 10 Retrait rosters labelled, all 12 registrations intact.)*
+
+**F · One current year, enforced.**
+
+12. `SELECT COUNT(*) FROM "AcademicYears" WHERE "IsCurrent";` → **1**. ✅ The migration demotes extras
+    (highest `Id` wins) before creating the index, so it should have touched **0** rows — it did.
+13. Flag a second year current directly in SQL → the write must be **refused** by
+    `IX_AcademicYear_IsCurrent`. ✅ `duplicate key value violates unique constraint
+    "IX_AcademicYear_IsCurrent"`, rolled back.
+
+❌ **Fail if** an auto-arrange labels a roster it is not placing, if a partition label appears on
+« Non réparti » or on « Retrait », if a year-wide cut succeeds, if two years can be current at once —
+or if « Retrait » disappears from the level catalogue or from a withdrawn student's dossier, which is
+the opposite mistake and just as wrong.
 
 ---
 
@@ -627,9 +930,122 @@ and not every admis comes back.
 
 ---
 
+## 16 · Un stage en un seul service, et une seule évaluation (10 min) — session 20
+
+> **Executed 2026-08-14 against the live base**, on 5MED / Gynécologie Obstétrique (k=3, 9 columns,
+> 60 rosters, 9 partitions). Two things could **not** be executed and are marked as such — read those
+> before trusting the rest.
+>
+> | check | result |
+> |---|---|
+> | 16a · Périodes column, drawer radios | ✅ render correctly |
+> | 16a · saving the mode | ❌ → 🔧 **the PUT dropped it** — the endpoint's `Request` record lacked the field, so every save wrote `PerPeriod` back. Fixed; **needs an API rebuild to re-verify** |
+> | 16b · unscoped arrange refused | ✅ `Schedule.SingleServiceRunNotScoped`, naming the stage and its 9 périodes |
+> | 16b · non-contiguous window refused | ✅ `Schedule.SingleServiceRunNotContiguous` on P1 + P3 |
+> | 16b · PerPeriod stage still arranges unscoped | ✅ 60 cells — the new guard does not touch it |
+> | 16b · run-by-run arrange | ✅ **60 of 60 rosters: 3 cells, 1 service** |
+> | 16b · contrast against PerPeriod | ✅ same axis re-arranged as PerPeriod → **all 60 rosters get 3 distinct services** |
+> | document reads as one service per run | ✅ « Gynécologie Obs A » prints `1, 10, 19, 28, 37` across P1-P2-P3; all 5 Gynéco service rows constant within every run; Psychiatrie (PerPeriod) rotates every column; `axisDisagreements: []` |
+> | 16c · publish → one collapsed period | ⛔ **not observable on this data** — see below |
+> | 16d · unpublish guard | ⛔ nothing is published, so there was nothing to unpublish |
+> | 16e · publish skips already-served | ✅ **706 skipped, 0 periods created** |
+> | imported history untouched | ✅ 105,626 periods, **0 grid-linked**, 0 coverage rows |
+>
+> ⛔ **Why 16c and 16d could not run.** Every 2025-2026 assignment in the base already carries one
+> imported period per stage — **0 assignments in the whole year lack one**. Publishing therefore skips
+> 100% of them (correctly — that is 16e), so no grid-linked period is ever created, and with none
+> created there is nothing to unpublish. Observing either on live data means first deciding what to do
+> with the imported 2025-2026 periods (they are `IsComplete` but **0 are evaluated**). The collapse is
+> covered by `SingleServiceRotationTests`, the guard by `UnpublishScheduleTests`.
+>
+> **Axis used:** 9 columns × 14 jours ouvrables from 2025-11-03. Six of seven stages then match their
+> stated duration exactly; Gynécologie gets 42 jo against 44, Neurologie 14 against 22 — reported by
+> `durationChecks`, never blocking, which is the intended behaviour.
+>
+> ⚠ **4MED could not be planned at all:** all five of its stages have **zero allowed services**, so it
+> fails at prerequisite step 0 with `Schedule.NoAllowedServices` — the same state the 6th year is in.
+> Its promotion is also cut into **9** partitions, which is invalid for its own axis (`T = 6` needs a
+> multiple of 6). Both are data-entry decisions, not code.
+>
+> ⚠ **Unrelated bug found, pre-existing:** the **Répartition annuelle** page's « Niveau » select is
+> stuck disabled on « Chargement… ». `GET /api/levels?pageSize=100` returns 200, but the RTK Query
+> entry stays `status: "pending"` for ever, so `isLoading` never clears. Verified identical with all
+> session-19/20 frontend changes stashed, so it is **not** from this work. The page is unusable until
+> fixed; the underlying data is fine (read directly from `GET /levels/5/repartition`).
+
+
+The feature: a stage occupying several périodes can keep the group in **one** service for the whole
+run, with **one** evaluation instead of `kₛ`. Default is unchanged (`PerPeriod`), so nothing moves
+until you switch a stage.
+
+⚠ **Nothing in your base is published**, so all of this is safe to try and safe to undo. Pick a stage
+whose répartition you are willing to re-arrange — **5MED Gynécologie Obstétrique** (k=3) is the case
+the feature was built for.
+
+### 16a — the switch is on the stage
+
+1. **Stages** → the list now has a **Périodes** column: every row reads « Un par période » today.
+2. Edit *Gynécologie Obstétrique* → « Déroulement des périodes » → **Un seul service pour tout le
+   stage** → save. The row's badge turns teal, « Service unique ».
+
+❌ **Fail if** saving reports an error, or the badge does not change. If it says *le mode de rotation
+ne peut plus être modifié*, that stage's répartition is published — dépubliez d'abord (16d).
+
+### 16b — arranging keeps the group put
+
+3. Open the stage's planning grid and run **Répartition automatique** *without* choosing périodes.
+   → refused: **« Précisez les périodes du passage à répartir (par exemple P1 à P3) »**.
+   This is the guard that matters: unscoped, a cohort would get one service for all nine columns.
+4. Re-run scoped to **P1–P3**. Every group now shows the **same service across the three columns**,
+   where before it moved S1 → S2 → S3.
+5. Try a non-contiguous window (P1 and P3) → refused: *les périodes … ne se suivent pas*.
+
+❌ **Fail if** an unscoped arrange succeeds, or if a group's three cells hold different services.
+
+### 16c — publishing produces one period, not three
+
+6. Publish that partition. Open a student of one of those groups (**Étudiants → parcours**, or the
+   cohort's assignment list).
+   → **one** service period spanning P1's start to P3's end, not three.
+7. The chef of that service sees **one** évaluation to fill for that student, not three. The stage
+   note is that single mark.
+
+❌ **Fail if** three periods appear, or if the single period stops at P1's end date.
+
+### 16d — undoing is guarded now
+
+8. **Dépublier** that cohort immediately → succeeds, and the toast says how many periods were removed.
+9. Now publish again, **start** the assignments, and dépublier again.
+   → refused, naming the toll: *« sur N période(s) publiée(s), N ont démarré, … »*. Confirm the second
+   dialog (**Supprimer quand même**) and it proceeds.
+   ⚠ This is the fix for a real hole: before, that first click deleted the periods **and cascaded away
+   every evaluation and attendance record** with no warning at all.
+10. « Dépublier tous les plannings » never forces — a started cohort is counted as an error, not
+    silently emptied.
+
+❌ **Fail if** step 9's first click deletes anything, or if the assignment afterwards still reads
+*Validé* / carries a note with no periods behind it.
+
+### 16e — publishing does not land on top of the imported history
+
+11. Publish **any** 2025-2026 stage on a promotion that came from the Access import.
+    → the result reports **`skippedAlreadyServed`**, and every student who already had an imported
+    period for that stage keeps exactly that one — no second set.
+12. Check one such student's parcours: **one** period for the stage, the imported one, unchanged.
+
+❌ **Fail if** a student ends up with two periods for one stage, or if `skippedAlreadyServed` is 0 on
+a promotion the import populated (all 706 5MED assignments of 2025-2026 have one).
+
+### 16f — the toggle back
+
+13. Dépublier the stage, then switch it back to « Un service par période » and re-arrange scoped to
+    P1–P3. The groups move between services again.
+
+---
+
 # Rollback
 
-Three migrations have been applied to `TodoDatabase`. Reverse in the order below.
+Reverse in the order below.
 
 ### Database (destructive — take a dump first)
 
@@ -639,6 +1055,10 @@ docker exec -e PGPASSWORD='<pw>' postgres-0fae29d8 \
   pg_dump -U postgres -d TodoDatabase -Fc -f /tmp/pre-rollback.dump
 
 # 2. Revert, newest first.
+dotnet ef database update HolidayCalendar \
+  --project PGSH.Infrastructure --startup-project PGSH.MigrationService   # undoes SplitAcademicGroupsPerLevel
+dotnet ef database update RegistrationYearOutcome \
+  --project PGSH.Infrastructure --startup-project PGSH.MigrationService   # undoes HolidayCalendar
 dotnet ef database update AddServiceLevelCapacityAndLocalization \
   --project PGSH.Infrastructure --startup-project PGSH.Infrastructure   # undoes RegistrationYearOutcome
 dotnet ef database update CnpnVersioning \
@@ -648,6 +1068,12 @@ dotnet ef database update StageSlotAcademicYear \
 dotnet ef database update CurriculumCnpn \
   --project PGSH.Infrastructure --startup-project PGSH.Infrastructure   # undoes StageSlotAcademicYear
 ```
+
+⚠ **`SplitAcademicGroupsPerLevel.Down()` merges the rosters back and is lossy in labels only.**
+Rehearsed both ways against a clone of your database: down takes 3 707 rosters back to 1 003 with
+registrations, cohorts and cells all unchanged. What it cannot restore is which promotion each row was
+split for — everything sharing `(year, number)` collapses onto the lowest id, which is the row that was
+there before. Re-running `Up` splits them again from the registrations, so nothing is permanently lost.
 
 ⚠ **Reverting `RegistrationYearOutcome` drops every verdict.** `OutcomeSource` and
 `OutcomeRecordedOn` are the only record that a year was closed by declaration rather than guessed at,

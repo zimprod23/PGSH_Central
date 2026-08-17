@@ -405,7 +405,23 @@ A mandatory optimization pass before production deployment.
 
 Known issues identified during design review. All are low-risk at current scale (~360 students) but must be resolved before scaling.
 
-### Confirmed defects from the 2026-08-06 audit (reproduced with probes, not yet fixed)
+### Confirmed defects from the 2026-08-06 audit — ✅ ALL CLOSED (verified in code 2026-08-16)
+
+Every item below was fixed in the sessions that followed; the list is kept because each one names a
+shape worth recognising again. Where the fix lives now:
+
+| Defect | Where it was closed |
+|---|---|
+| `UpdateServiceEvaluation` pre-set `Id` on `ObjectiveScore` | goes through the aggregate — `InternshipAssignment.AmendEvaluation`, no pre-set key |
+| `RerouteAsync` NRE on a slot-less period | refused up front: `StageErrors.CannotRerouteAdHocPeriod` |
+| `RerouteAsync` start date not clamped | `RemainingWindowStart(date, target.StartDate, target.EndDate)` |
+| `ResumePeriod` shifts completed/interrupted periods | filtered — `!p.IsComplete && !p.IsInterrupted` |
+| Evaluation updates bypass the aggregate | `AmendEvaluation` raises the event and recomputes |
+| `EvaluationSubmittedDomainEvent` carries `null` | carries `StageScoring.PeriodMark(evaluation)` |
+| Objective ids never validated against the stage | `EvaluationObjectiveResolver.ResolveAsync` |
+| `CompletePeriod` has no `IsStarted` guard | `StageErrors.PeriodNotStarted` |
+
+<details><summary>The original descriptions</summary>
 
 - **Editing an evaluation with objectives throws `DbUpdateConcurrencyException`** —
   `UpdateServiceEvaluationCommandHandler.cs:63` pre-sets `Id` on `ObjectiveScore` children of a tracked
@@ -427,26 +443,27 @@ Known issues identified during design review. All are low-risk at current scale 
 - **`CompletePeriod` has no `IsStarted` guard** (unlike `PausePeriod`) — a rotation that never ran can be closed
   and then evaluated. Left deliberately uncovered by tests pending a ruling.
 
+</details>
+
 ### Critical (data correctness)
 
-- **`FinalScore` computation**: `InternshipAssignment.FinalScore` is declared but never written. Add a domain method `RecomputeFinalScore(IEnumerable<ServiceEvaluation>)` that aggregates `ObjectiveScore.Score × StageObjective.Weight`. Call it from a domain event handler whenever `ObjectiveScore` records change, and persist via `SaveChangesAsync`. Until this is done, score-based sorting and transcript generation return null.
+- ✅ **`FinalScore` computation** *(closed)*: `InternshipAssignment.RecomputeFinalScore` is called from
+  `SubmitEvaluation` / `AmendEvaluation` / `RemovePublishedPeriods`.
 
-- **`IsCurrent` uniqueness on `AcademicYear`**: Nothing prevents two years having `IsCurrent = true` simultaneously. Add a PostgreSQL partial unique index:
-  ```sql
-  CREATE UNIQUE INDEX IX_AcademicYear_IsCurrent ON "AcademicYears" (true) WHERE "IsCurrent" = true;
-  ```
-  Also add a guard in `UpdateAcademicYearCommandHandler` (if built) mirroring the `POST` logic.
+- ✅ **`IsCurrent` uniqueness on `AcademicYear`** *(closed 2026-08-16, migration
+  `PartitionScopeAndIndexGaps`)*: a partial unique index — `unique` on `IsCurrent` with filter
+  `"IsCurrent"` — so at most one row can be flagged. The migration demotes any extras first, keeping
+  the highest `Id`, which is what `CreateAcademicYear` would have left standing. There is no update
+  handler to guard; the index is the invariant, not the write path.
 
-### High (FK index gaps)
+### ~~High (FK index gaps)~~ — never real
 
-- **`Registration.LevelId` missing index**: Used in every `WHERE` clause of auto-arrange and registration queries. Add in a migration:
-  ```csharp
-  builder.HasIndex(r => r.LevelId).HasDatabaseName("IX_Registration_LevelId");
-  ```
-- **`Registration.AcademicGroupId` missing index**: Same — used in auto-arrange unassigned-student query and any group membership report.
-  ```csharp
-  builder.HasIndex(r => r.AcademicGroupId).HasDatabaseName("IX_Registration_AcademicGroupId");
-  ```
+- ⚠ **`Registration.LevelId` and `Registration.AcademicGroupId` were never missing an index.** EF Core
+  creates one per foreign key by convention: `IX_Registrations_LevelId` and
+  `IX_Registrations_AcademicGroupId` are both in the model snapshot and both in the database.
+  Declaring them explicitly only *renames* the existing index — checked 2026-08-16 by scaffolding the
+  migration, which produced a `RenameIndex` and nothing else. `IX_Registration_Year_Level` (added
+  later, composite) is the one that was genuinely worth adding.
 
 ### Medium (correctness under concurrency)
 

@@ -43,6 +43,13 @@ public static class LevelMapper
         // "RETRAIT" — a withdrawal marker, not a year of study. Year 0 is inside Level's 0–10 range,
         // so the registration keeps a real level rather than being dropped; its status carries the
         // actual meaning. 13 registrations, 8 of which still have rotations on record.
+        //
+        // ⚠ Because it is a Level, every path that treats a level as a promotion will offer it: it was
+        // selectable in the planning pickers, and one of its rosters ended up carrying a partition
+        // label (an artefact of SplitAcademicGroupsPerLevel copying the parent roster's label onto
+        // each shard). `Level.IsPromotion` is the single test for this, and the assign/auto-arrange
+        // commands refuse a non-promotion. Do not "fix" the data: MED00 *replaced* the real year in
+        // the source, so the year the student withdrew from is not recoverable.
         ["MED00"]  = new(0, AcademicProgram.Medecine, "Retrait"),
     };
 

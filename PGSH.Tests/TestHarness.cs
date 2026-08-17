@@ -2,6 +2,8 @@
 using NSubstitute;
 using PGSH.Application.Abstractions.Authentication;
 using PGSH.Application.Employees.MyServices;
+using PGSH.Application.Stages.Planning;
+using PGSH.Application.Stages.Slots;
 using PGSH.Domain.Calendar;
 using PGSH.Domain.Employees;
 using PGSH.Domain.Hospitals;
@@ -64,6 +66,15 @@ public static class TestHarness
     /// <summary>An authorizer for a caller holding no role at all — neither admin, chef nor student.</summary>
     internal static ExecutionAuthorizer StrangerAuthorizer(this ApplicationDbContext db) =>
         new(db, UserContext(Guid.NewGuid()));
+
+    /// <summary>
+    /// The arranger with its real collaborators. One place, so a new dependency does not have to be
+    /// threaded through every planning test — and so no test can accidentally exercise it against a
+    /// stubbed partitioning, which is precisely the thing the promotion-wide cut has to be read from.
+    /// </summary>
+    internal static RotationArranger Arranger(this ApplicationDbContext db) =>
+        new(db, new ServiceOccupancyCalculator(db), new PromotionPartitioning(db),
+            new GroupScheduleConflictGuard(db));
 
     /// <summary>The current academic year plus the level and stage every cohort hangs off.</summary>
     public static Stage SeedCatalog(this ApplicationDbContext db, DateOnly? yearStart = null, DateOnly? yearEnd = null)
@@ -202,9 +213,13 @@ public static class TestHarness
         this ApplicationDbContext db, Stage stage, int groupId, string groupLabel,
         int academicYearId = CurrentYearId)
     {
+        // The roster takes the stage's promotion. A roster is identified by (year, level, number) and
+        // a cohorte cannot straddle two promotions, so a level-less group here would seed a state the
+        // handlers now refuse to create — and quietly exempt every test built on it from the rule.
         var group = new AcademicGroup
         {
             Id = groupId, Label = groupLabel, GroupNumber = groupId, AcademicYearId = academicYearId,
+            LevelId = stage.LevelId,
         };
         var cohort = new Cohort
         {

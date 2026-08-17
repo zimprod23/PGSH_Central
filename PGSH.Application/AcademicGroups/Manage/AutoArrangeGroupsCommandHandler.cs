@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
+using PGSH.Domain.Common.Utils;
 using PGSH.Domain.Registrations;
 using PGSH.SharedKernel;
 
@@ -21,6 +22,21 @@ internal sealed class AutoArrangeGroupsCommandHandler(IApplicationDbContext dbCo
     public async Task<Result<BulkResponse<Guid, int>>> Handle(
         AutoArrangeGroupsCommand request, CancellationToken cancellationToken)
     {
+        // Only a promotion is arranged into groups. « Retrait » (year 0) is a withdrawal marker the
+        // legacy import kept as a level — see Level.IsPromotion — and the students carrying it left;
+        // building rosters for them would put the withdrawn into a rotation that does not exist, since
+        // the marker has no stages at all.
+        var level = await dbContext.Levels
+            .AsNoTracking()
+            .FirstOrDefaultAsync(l => l.Id == request.LevelId, cancellationToken);
+
+        if (level is null)
+            return Result.Failure<BulkResponse<Guid, int>>(LevelErrors.NotFound(request.LevelId));
+
+        if (!level.IsPromotion)
+            return Result.Failure<BulkResponse<Guid, int>>(
+                LevelErrors.NotAPromotion(level.Label ?? $"niveau {request.LevelId}"));
+
         var registrations = await dbContext.Registrations
             .Where(r => r.LevelId == request.LevelId &&
                         r.AcademicYearId == request.AcademicYearId &&
@@ -43,19 +59,18 @@ internal sealed class AutoArrangeGroupsCommandHandler(IApplicationDbContext dbCo
             .AsNoTracking()
             .ToDictionaryAsync(v => v.Id, v => v.Code, cancellationToken);
 
-        // GroupNumber is unique per year — continue from the highest existing number
-        // so running auto-arrange for multiple levels in the same year doesn't conflict
+        // GroupNumber is unique per (year, promotion), so the count restarts at 1 for each — which is
+        // how the faculty numbers them and how they are printed: the 3rd year runs 1-80 and the 5th
+        // year 1-60, at the same time. It used to continue from the year's highest number, because
+        // the index spanned the year alone; the répartition then had to print a 5th year whose groups
+        // began at 81.
         int nextNumber = (await dbContext.AcademicGroups
-            .Where(g => g.AcademicYearId == request.AcademicYearId)
+            .Where(g => g.AcademicYearId == request.AcademicYearId && g.LevelId == request.LevelId)
             .Select(g => (int?)g.GroupNumber)
             .MaxAsync(cancellationToken) ?? 0) + 1;
 
         // Include the level label so admins can tell which level owns each group
-        var levelLabel = await dbContext.Levels
-            .Where(l => l.Id == request.LevelId)
-            .Select(l => l.Label)
-            .FirstOrDefaultAsync(cancellationToken)
-            ?? $"Niveau {request.LevelId}";
+        string levelLabel = level.Label ?? $"Niveau {request.LevelId}";
 
         // One run of the loop per text present at this level. Students with no stamp form their own
         // bucket rather than being folded into someone else's: an unassigned CNPN is a question for

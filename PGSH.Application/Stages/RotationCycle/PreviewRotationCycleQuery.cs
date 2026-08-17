@@ -259,8 +259,9 @@ internal sealed class RotationCycleContext(IApplicationDbContext dbContext)
 
         var partitionLabels = await dbContext.AcademicGroups
             .AsNoTracking()
-            .Where(g => g.AcademicYearId == academicYearId
-                     && (g.LevelId == levelId || g.Registrations.Any(r => r.LevelId == levelId)))
+            // LevelId alone — a roster with no promotion is « Non réparti », not a partition of this
+            // block. See AssignRotationGroupsCommandHandler for why the registration fallback went.
+            .Where(g => g.AcademicYearId == academicYearId && g.LevelId == levelId)
             .Where(g => g.RotationGroup != null)
             .Select(g => g.RotationGroup!)
             .Distinct()

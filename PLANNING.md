@@ -1,0 +1,326 @@
+# Planning a promotion's year
+
+How the répartition annuelle is built: what identifies a roster, the arithmetic that decides the
+shape of the crossover, and the steps to produce a document like
+[`example_stage_assignement/demo/MED05.png`](example_stage_assignement/demo/MED05.png).
+
+Written 2026-08-13, after the roster split (`SplitAcademicGroupsPerLevel`) and the concurrent-partition
+fix. Figures are measured against the real base unless marked otherwise.
+
+---
+
+## 1 · The four things that get confused
+
+| Thing | Is | Keyed by |
+|---|---|---|
+| **`AcademicGroup`** (roster) | the fixed set of students who move together | **(year, promotion, number)** |
+| **`Cohort`** | one roster *doing one stage* | (roster × stage) |
+| **`CohortSlotAssignment`** (cell) | that cohort *in one period, in one service* | (cohort × créneau → service) |
+| **`RotationGroup`** (partition) | a label (A, B, C…) grouping rosters that move together through the block | a column on the roster |
+
+A roster is not "in a service" — it is in a *sequence* of them, one per column. The service lives two
+levels out.
+
+---
+
+## 2 · Identity: a roster belongs to exactly one (year, promotion)
+
+`IX_AcademicGroup_Year_Level_Number` — `UNIQUE (AcademicYearId, LevelId, GroupNumber) NULLS NOT DISTINCT`.
+
+This is what makes all of the following true at once, and they are all *required*:
+
+- **Groupe 1 of 3ème année ≠ Groupe 1 of 5ème année**, in the same year. Different rows, different
+  students. (2025-2026 has five distinct « Groupe 1 »: Med3, Med4, Med5, Med6, Pharma5.)
+- **Groupe 1 of 3ème année 2024-2025 ≠ Groupe 1 of 3ème année 2025-2026.** A year apart is a different
+  promotion entirely. (Med3 « Groupe 1 » exists once per year, six rows, 8–14 students each, and **no
+  student appears in two of them**.)
+- Numbering therefore **restarts at 1 for each (year, promotion)** — Med3 runs 1-80, Med5 1-60, Med6
+  1-100, concurrently.
+
+⚠ **Why this is load-bearing and not cosmetic.** `GroupScheduleConflictGuard` forbids one roster from
+sitting in two services at the same time. Before the split, the legacy import keyed rosters on
+`(year, number)` alone, so 80 of the 100 rosters of 2025-2026 carried registrations from four or five
+promotions at once. The 3rd year's April–July placements *were* the 5th year's, so seven of the 5th
+year's nine columns were refused and the printed document came out with two.
+
+### Integrity audit (all zero, measured 2026-08-13)
+
+Several tables reach a roster indirectly and **no composite FK protects those joins** — they are held
+by the handlers. Re-run these after any bulk operation:
+
+```sql
+-- a registration must sit in a roster of its own year and its own promotion
+SELECT count(*) FROM "Registrations" r JOIN "AcademicGroups" g ON g."Id"=r."AcademicGroupId"
+WHERE r."AcademicYearId" <> g."AcademicYearId";
+SELECT count(*) FROM "Registrations" r JOIN "AcademicGroups" g ON g."Id"=r."AcademicGroupId"
+WHERE g."GroupNumber">0 AND g."LevelId" IS DISTINCT FROM r."LevelId";
+
+-- a cell's créneau and its cohort must agree on the year
+SELECT count(*) FROM "CohortSlotAssignments" a
+JOIN "StageSlots" sl ON sl."Id"=a."StageSlotId"
+JOIN "Cohorts" c ON c."Id"=a."CohortId" JOIN "AcademicGroups" g ON g."Id"=c."AcademicGroupId"
+WHERE sl."AcademicYearId" <> g."AcademicYearId";
+
+-- a cohort's stage and its roster must agree on the promotion
+SELECT count(*) FROM "Cohorts" c JOIN "Stages" st ON st."Id"=c."StageId"
+JOIN "AcademicGroups" g ON g."Id"=c."AcademicGroupId"
+WHERE g."GroupNumber">0 AND g."LevelId" IS DISTINCT FROM st."LevelId";
+
+-- an internship assignment must not span years
+SELECT count(*) FROM "InternshipAssignments" ia JOIN "Registrations" r ON r."Id"=ia."RegistrationId"
+JOIN "Cohorts" c ON c."Id"=ia."CurrentCohortId" JOIN "AcademicGroups" g ON g."Id"=c."AcademicGroupId"
+WHERE r."AcademicYearId" <> g."AcademicYearId";
+```
+
+⚠ **One check that is *not* expected to be zero**: an assignment whose stage level differs from the
+student's registration level. 290 of these exist and are legitimate — 275 are *Interne CHU* students
+doing 6th-year stages, 15 are withdrawn students with stage records, and cross-level retakes are a
+supported feature (`RevalidateStageCommand`).
+
+⚠ **« Non réparti » (`GroupNumber = 0`) is the one roster with no promotion.** It holds every
+promotion's unassigned registrations (4,725 in 2025-2026), carries no cohorts, and is never given a
+partition label. `NULLS NOT DISTINCT` keeps a year to exactly one of them.
+
+---
+
+## 3 · The arithmetic
+
+A **block** is the set of stages that run in parallel on one shared axis of columns.
+
+| Symbol | Meaning |
+|---|---|
+| `kₛ` | columns a partition spends in stage *s* |
+| `T` | length of the axis in columns |
+| `P` | number of partitions |
+| `Lₛ` | partitions sitting in stage *s* at any moment |
+| `N` | students in the promotion |
+
+### The three rules
+
+```
+T  = Σ kₛ                     the axis is as long as one partition needs to visit every stage
+Lₛ = P · kₛ / T               must be a whole number
+P  ≡ 0  (mod T / gcd(kₛ))     which is what the integrality of Lₛ pins P to
+```
+
+`T = Σkₛ`, **never** `partitions × k`. Partitions do not lengthen the timeline; they subdivide who is
+where. Three stages at `k=1` with six partitions is **3** columns with 2 partitions per stage, not 6.
+
+⚠ **A column is a column of the shared axis, not a stage.** Every stage carries a créneau on *every*
+column, and a partition takes a run of `kₛ` consecutive ones. That is what the other stages of the
+block need in order to cross over, and it holds whatever happens inside the run.
+
+⚠ **`kₛ` columns is not automatically `kₛ` services.** That is `Stage.RotationMode`, and it is a
+separate decision:
+
+| mode | inside a run of `kₛ` columns | evaluations |
+|---|---|---|
+| `PerPeriod` (default) | the partition moves S1 → S2 → … | one per column, note = their mean, all must pass |
+| `SingleService` | the partition stays in one service | **one**, and it is the stage's note |
+
+The imported history says which stages are which: **5ᵉ and 6ᵉ année are `SingleService` in essentially
+100% of their placements** (30,614/30,614 and 21,309/21,310), 3ᵉ année genuinely rotates. So on the 5th
+year below, Gynécologie's `k=3` means *three columns in one service*, not three services — the axis
+arithmetic is identical either way.
+
+⚠ **A `SingleService` stage must be arranged one run at a time.** Unscoped, "auto-arrange this stage"
+treats all nine Gynécologie columns as one run and gives a cohort one service for the year. The macro
+plan always scopes; the bare auto-arrange button is refused with `SingleServiceRunNotScoped`.
+
+### Some mixes are impossible, not unsupported
+
+Stages of `k = 2` and `k = 1` give `T = 3`. A two-column run must cover column 2 wherever it starts, so
+every partition is in that stage at column 2 and the other stands empty. **No `P` fixes it.** The
+search is exhaustive, so `NoFeasibleArrangement` is a proof, not a timeout.
+
+### Worked: the 5th year (reproduces `MED05.png`)
+
+Seven stages — Gynécologie `k=3`, plus Neurologie, Ophtalmologie, ORL, Psychiatrie, Santé Publique,
+Urologie at `k=1`:
+
+```
+T = 3 + 1+1+1+1+1+1 = 9 columns
+gcd(kₛ) = 1  →  P must be a multiple of 9/1 = 9      →  P = 9
+L_gynéco = 9·3/9 = 3 partitions at once  (= 20 of the 60 rosters)
+L_others = 9·1/9 = 1 partition at once   (= 6–7 rosters)
+```
+
+60 rosters ÷ 9 = partitions of 7,7,7,7,7,7,6,6,6.
+
+Other blocks in the base: **3rd year** `k=[2,2]` → `T=4`, `P` multiple of 2, `L=[1,1]`.
+**6th year** `k=[2,2,2,2,1,1]` → `T=10`, `P` multiple of 10, `L=[2,2,2,2,1,1]`.
+
+---
+
+## 4 · Capacity — what the arithmetic decides, and what it doesn't
+
+Balancing was fixed (see §5), but **capacity was not**, and one common instinct about it is wrong.
+
+> "A partition holds too many students — cut the promotion into more partitions."
+
+It cancels out. Stage *s* holds `Lₛ = P·kₛ/T` partitions of `N/P` students each:
+
+```
+students in stage s at any moment = (P · kₛ / T) · (N / P) = N · kₛ / T
+```
+
+**`P` disappears.** How many students sit in a stage at once depends only on the fraction of the year
+that stage occupies — never on how finely the promotion is cut.
+
+Checked against the built plan (N = 706): Santé Publique `706·1/9 ≈ 78` predicted, 69–85 observed;
+Gynécologie `706·3/9 = 235` over five services ≈ 47 each, observed a mean of ~47.
+
+So the **only** levers are:
+
+1. **raise `kₛ`** — give the stage more of the year, which shrinks every other stage;
+2. **add allowed services** to the stage;
+3. **enter true capacities** and accept the overflow as a recorded fact.
+
+### Where it actually stands (2025-2026, 5th year)
+
+| Stage | Services | Busiest service | Declared capacity |
+|---|---|---|---|
+| Santé Publique | 1 | **85 students** | 20 |
+| Gynécologie | 5 | 61 | 20 |
+| ORL | 2 | 50 | 20 |
+| Ophtalmologie | 3 | 38 | 20 |
+| Neurologie | 7 | 14 | 20 |
+
+⚠ Every 20 is an **import default** — nobody has entered what these services really take. Capacity is
+checked only at **publish**, and is waivable via `AllowOverCapacity`. Note the faculty's own `MED05.png`
+also puts 7 rosters in Santé Publique: this load is reality, not a modelling error.
+
+---
+
+## 5 · Concurrent partitions must be arranged together
+
+When `Lₛ > 1` — which happens exactly when the block's stages have unequal durations — the partitions
+sharing a stage over the same window are handed to `RotationArranger` in **one call**
+(`ConcurrencyBlock`, same stage + same window).
+
+The service queue is balanced over the cohorts of a single call. One call each balances every partition
+against the full service list in ignorance of the others, and the remainders *stack*: the queue builder
+gives the leftover to the same leading services every time, and every partition of a column carries the
+same rotation offset. Measured on Gynécologie (`L=3`, five services, 20 rosters): three calls of 7/7/6
+gave **6/5/3/3/3**; one call of 20 gives **4/4/4/4/4**, which is what the faculty prints.
+
+Per-column spread in the current plan is ≤ 1 roster for every stage — optimal, since 60 is not
+divisible by 9 (columns hold 21, 19 or 20 rosters → 5/4/4/4/4, 3/4/4/4/4, 4/4/4/4/4).
+
+---
+
+## 6 · Steps, from the frontend
+
+Order matters: the rotation cycle reads the partition labels, so they must exist first.
+
+### 0 · Prerequisites
+
+- **Rosters exist** — *Académique → Groupes → Répartition automatique* distributes students who have
+  no group. Groups are created per (year, promotion) and numbered from 1.
+- **Each stage has allowed services** — *Formation → Stages → «stage» → Services autorisés*. Without
+  them the plan refuses with `Schedule.NoAllowedServices`. ⚠ As of 2026-08-13 all six 6th-year stages
+  have none, so the 6th year cannot be planned yet.
+- **The navbar year is the year you mean.** There is one year selector and it scopes everything.
+
+### 1 · Cut the promotion into partitions
+
+*Académique → Groupes → **Planification Macro*** → choose the promotion.
+
+- Never cut: **Nombre de partitions** + **Découpage** → *Assigner les partitions*.
+- Already cut: **Nouveau nombre** → *Redécouper* (re-cuts), or *Supprimer les partitions* (clears).
+
+⚠ A promotion that already carries labels **keeps its count** whatever number you type — that is what
+stops a stray re-run from rebattling an existing plan. To change the count you must *Redécouper* or
+clear first. Both are **refused while any cell is published**.
+
+`Découpage`: `Alterné` gives A = 1,3,5… (prints as `1, 3, 5, 7`); `Contigu` gives A = 1-40 (prints as
+`1-40`). Same sizes, different printed cells.
+
+The count must satisfy §3. Get it wrong and step 2 refuses, naming the valid multiples.
+
+### 2 · Author the axis
+
+*Formation → **Bloc de rotation*** → choose the promotion.
+
+1. List the stages that run in parallel, each with its **périodes** (`kₛ`). The banner computes
+   `T = Σkₛ` and tells you how many date windows it needs.
+2. **Axe partagé**: *Début de l'axe*, *Durée d'une colonne*, *Unité*, then *Générer les N fenêtre(s)*
+   (or *Saisir à la main*). Each window is editable afterwards.
+   - `mois` / `semaines` — calendar-exact. A monthly axis must start on the 1st.
+   - `jours ouvrables` — weekends and jours fériés excluded, so **every column is the same amount of
+     stage**. This is the only unit under which février and mars are equal.
+3. ***Simuler***. Check:
+   - **Partitions simultanées** matches `Lₛ` (Gynécologie 3, the rest 1).
+   - **Durée réelle par stage** — worked and calendar days against each stage's declared duration,
+     as a range because partitions take different runs. Informative, **never blocking**.
+   - Warnings about provisional religious holidays: the dates will move if the décret does.
+4. ***Appliquer l'axe*** — writes the créneaux. Replaces any existing axis **wholesale**, and is
+   refused outright if any cell of the block is already published.
+
+### 3 · Run the plan
+
+***Générer le plan*** on the same page — provisions cohorts, affects students, arranges services.
+
+⚠ **Read the toast.** It reports cells written *and* cells refused. A refusal count means groups were
+already placed elsewhere over those dates; a plan missing columns is what that looks like. It also
+reports combinations skipped because a group's CNPN does not require that stage.
+
+### 4 · Publish the document
+
+*Formation → **Répartition annuelle*** → choose the promotion.
+
+Check the **Périodes non planifiées** banner (hatched cells — a service short, or a partition smaller
+than the service count), confirm the legend names the partitions you cut, then *Imprimer / PDF* or
+*Télécharger (.html)*.
+
+---
+
+## 7 · What the refusals mean
+
+| Message | Cause | Fix |
+|---|---|---|
+| `RotationCycle.PartitionCountIncompatible` | `P` is not a multiple of `T/gcd(kₛ)` | re-cut to a named multiple |
+| `RotationCycle.NoFeasibleArrangement` | the duration mix cannot tile (§3) | change a `kₛ` |
+| `RotationCycle.CannotReplacePublished` | a cell of the block is published | nothing — the axis is frozen |
+| `Schedule.NoAllowedServices` | the stage has no services | add them on the stage page |
+| `Schedule.NoServicesAdmitLevel` | services exist but their quotas exclude this promotion | add a `ServiceLevelCapacity` row |
+| `Schedule.NoSlots` | the axis is not authored yet | do step 2 |
+| `Schedule.PromotionNotPartitioned` | a partition was targeted on a promotion nobody cut | do step 1 |
+| `Schedule.GroupAlreadyPlaced` | a roster would be in two services at once — the message names the **promotion**, because the collision is often another one | check the crossover |
+| `CannotClearPublished` / `PlannedCellsAffected` | re-cutting under an existing plan | re-arrange after |
+| `Schedule.SingleServiceRunNotScoped` | a `SingleService` stage was arranged without naming the run's périodes | scope the arrange (P1–P3), or use the macro plan, which always does |
+| `Schedule.SingleServiceRunNotContiguous` | the périodes given do not follow each other | a single stay cannot have a hole — pick a consecutive run |
+| `Schedule.Underway` | dépublier would delete periods that have started, marks, or attendance | read the count it names, then confirm a second time if you mean it |
+| `Stages.RotationModeLockedByPublication` | changing a stage's mode under a published répartition | dépubliez that stage first |
+
+---
+
+## 8 · Undoing a plan
+
+The chain, outermost first. Each step is refused while the step outside it still holds.
+
+```
+dépublier la cohorte   →  vider les cellules       →  supprimer le créneau
+(ServicePeriods)          (CohortSlotAssignments)     (StageSlot)
+```
+
+- ⚠ **Dépublier is the destructive one.** Evaluations, attendance, pauses and délocalisations all
+  cascade from a `ServicePeriod`. Once anything has started it is refused (`Schedule.Underway`) and
+  the refusal names what would be lost; the second confirmation is you agreeing to that number. « Dépublier
+  tous les plannings » never forces — a started cohort is counted as an error instead.
+- **Periods that came from no cell are never touched**: imported history, délocalisations,
+  revalidations. The result reports them as kept.
+- After dépublier, the assignments go back to *Planned* and lose their computed note — a verdict over
+  evaluations that no longer exist is what had to be walked back.
+- To change a partitioning instead, see §6 step 1: *Redécouper* or *Supprimer les partitions*, both
+  refused while published.
+
+⚠ **Re-publishing does not re-do a stage a student has already served.** Any assignment that already
+holds a period is skipped and counted (`skippedAlreadyServed`). This is what stops the new répartition
+from doubling up on the Access history — all 706 5MED assignments of 2025-2026 carry one imported
+period per stage.
+
+---
+
+⚠ **An empty répartition has two causes and they need opposite acts**: no créneaux (author an axis) or
+créneaux nobody is in (run the plan). `DeclaredSlotCount` on the response is what separates them.

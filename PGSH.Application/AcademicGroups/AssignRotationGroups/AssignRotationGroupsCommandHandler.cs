@@ -3,6 +3,7 @@ using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
 using PGSH.Application.Stages.Planning;
 using PGSH.Application.Stages.Repartition;
+using PGSH.Domain.Common.Utils;
 using PGSH.Domain.Registrations;
 using PGSH.SharedKernel;
 
@@ -18,17 +19,33 @@ internal sealed class AssignRotationGroupsCommandHandler(IApplicationDbContext d
             return Result.Failure<PartitionAssignmentResult>(
                 Error.Validation("Partitions.InvalidCount", "Partition count must be at least 1."));
 
-        // Partitions are scoped per (year, level): different levels can have different
-        // partition counts. A group belongs to a level by its LevelId, or — for legacy/
-        // auto-arranged groups without one — by having a registration at that level.
-        var query = dbContext.AcademicGroups
-            .Where(g => g.AcademicYearId == request.AcademicYearId);
+        // A partition divides a promotion. « Retrait » (year 0) is a withdrawal marker the legacy
+        // import kept as a level — see Level.IsPromotion — so cutting it would describe a division of
+        // the withdrawn, and it is exactly how one of its rosters came to carry a label.
+        // ⚠ The clear is deliberately NOT guarded: it is how such a label is taken back off.
+        var level = await dbContext.Levels
+            .AsNoTracking()
+            .FirstOrDefaultAsync(l => l.Id == request.LevelId, cancellationToken);
 
-        if (request.LevelId.HasValue)
-            query = query.Where(g => g.LevelId == request.LevelId
-                                  || g.Registrations.Any(r => r.LevelId == request.LevelId));
+        if (level is null)
+            return Result.Failure<PartitionAssignmentResult>(LevelErrors.NotFound(request.LevelId));
 
-        var groups = await query
+        if (!level.IsPromotion)
+            return Result.Failure<PartitionAssignmentResult>(
+                LevelErrors.NotAPromotion(level.Label ?? $"niveau {request.LevelId}"));
+
+        // Partitions are scoped per (year, level): different levels have different partition counts,
+        // and one count applied across them is not a cut of anything.
+        //
+        // ⚠ The promotion is read from LevelId alone. Falling back to "has a registration at that
+        // level" was how legacy rosters — which carried no LevelId — were reached, and it is exactly
+        // wrong here: it also reaches « Non réparti », which holds every promotion's unassigned
+        // students at once, so cutting one level handed a partition label to a bucket of 4,725 people.
+        // SplitAcademicGroupsPerLevel gave every real roster its promotion; the only rows still
+        // without one are the buckets, and a bucket is not a rotation partition. Equality against a
+        // non-null LevelId excludes them by construction — which is why the parameter is required.
+        var groups = await dbContext.AcademicGroups
+            .Where(g => g.AcademicYearId == request.AcademicYearId && g.LevelId == request.LevelId)
             .OrderBy(g => g.GroupNumber)
             .ToListAsync(cancellationToken);
 

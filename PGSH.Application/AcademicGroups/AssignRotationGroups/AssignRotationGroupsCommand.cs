@@ -16,10 +16,19 @@ namespace PGSH.Application.AcademicGroups.AssignRotationGroups;
 /// Re-cut groups that already carry a partition, instead of only filling the ones that do not. Off by
 /// default: moving a group between partitions is precisely what an existing plan encodes.
 /// </param>
+/// <param name="LevelId">
+/// The promotion being cut. ⚠ <b>Required, and it is the guard rather than a filter.</b> Left optional
+/// this reached every promotion of the year at once — folding three numberings whose partition counts
+/// differ (2 in 1Med, 10 in 6Med) into one call, where <c>PartitionAllocator.BuildLabels</c> then
+/// resolves a single count for all of them — and it reached « Non réparti », the one roster that
+/// belongs to no promotion and must never carry a partition, since labelling it moves every promotion's
+/// unassigned registrations as one body (4,725 of them in 2025-2026). A cut has no meaning outside a
+/// promotion, so the type says so.
+/// </param>
 public sealed record AssignRotationGroupsCommand(
     int AcademicYearId,
     int PartitionCount,
-    int? LevelId = null,
+    int LevelId,
     PartitionStrategy Strategy = PartitionStrategy.Interleaved,
     bool Reassign = false) : ICommand<PartitionAssignmentResult>;
 

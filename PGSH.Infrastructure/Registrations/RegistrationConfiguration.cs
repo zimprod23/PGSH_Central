@@ -75,6 +75,11 @@ internal sealed class RegistrationConfiguration : IEntityTypeConfiguration<Regis
         // and every auto-arrange query reach registrations. LevelId had no index at all (Phase 13).
         builder.HasIndex(r => new { r.AcademicYearId, r.LevelId })
                .HasDatabaseName("IX_Registration_Year_Level");
+
+        // ⚠ No index is declared here for AcademicGroupId or LevelId on purpose: EF Core creates one
+        // per foreign key by convention (IX_Registrations_AcademicGroupId, IX_Registrations_LevelId),
+        // so the two "missing FK index" items carried in Phase 13 were never real. Declaring them
+        // renames the existing indexes and buys nothing.
     }
 }
 
@@ -109,6 +114,16 @@ internal sealed class AcademicYearConfiguration: IEntityTypeConfiguration<Academ
         builder.Property(x => x.Label).IsRequired().HasMaxLength(20);
         builder.HasIndex(x => x.Label).IsUnique(); // Prevent duplicate years
 
+        // ⚠ "The current year" is a singleton the whole application reads as one: AcademicYearResolver
+        // takes the *first* row flagged current and every handler that omits a year gets it, so two
+        // rows flagged at once means two different screens quietly disagree about which promotion they
+        // are showing — with nothing to indicate it. CreateAcademicYear demotes the others, but that
+        // is one write path guarding an invariant of the table; the partial index is the invariant.
+        builder.HasIndex(x => x.IsCurrent)
+               .IsUnique()
+               .HasFilter("\"IsCurrent\"")
+               .HasDatabaseName("IX_AcademicYear_IsCurrent");
+
         builder.HasMany(x => x.Groups)
                .WithOne(x => x.AcademicYear)
                .HasForeignKey(x => x.AcademicYearId)
@@ -123,13 +138,29 @@ internal sealed class AcademicGroupConfiguration : IEntityTypeConfiguration<Acad
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Label).IsRequired().HasMaxLength(100);
 
-        builder.HasIndex(x => new { x.AcademicYearId, x.GroupNumber })
+        // ⚠ The level is part of the key, not an attribute of the row. The faculty numbers its groups
+        // per promotion — the 3rd year runs 1-80, the 5th year 1-60, the 6th year 1-100, all at the
+        // same time — so a number is only meaningful alongside the promotion it counts within. Keying
+        // on (year, number) alone forced those three numberings into one, which is how the legacy
+        // import came to fold the 3rd year's "Groupe 1" and the 5th year's into a single roster: one
+        // row, five promotions, and a planning guard that then refused the 5th year because the 3rd
+        // was already placed over those dates.
+        //
+        // Nulls are not distinct, so "no promotion yet" is itself a bucket and the year's single
+        // « Non réparti » cannot be duplicated.
+        builder.HasIndex(x => new { x.AcademicYearId, x.LevelId, x.GroupNumber })
             .IsUnique()
-            .HasDatabaseName("IX_AcademicGroup_Year_Number");
+            .AreNullsDistinct(false)
+            .HasDatabaseName("IX_AcademicGroup_Year_Level_Number");
 
-        builder.HasIndex(x => new { x.AcademicYearId, x.Label })
+        // The label is keyed the same way, and for the same reason: it is what an admin reads, so it
+        // has to distinguish two rosters *of one promotion* — and only that. Held to (year, label),
+        // the obvious name for the 4th year's first roster, « Groupe 1 », was already taken by the 3rd
+        // year's, so the promotion the faculty numbers 1-60 could not be named the way it is printed.
+        builder.HasIndex(x => new { x.AcademicYearId, x.LevelId, x.Label })
             .IsUnique()
-            .HasDatabaseName("IX_AcademicGroup_Year_Label");
+            .AreNullsDistinct(false)
+            .HasDatabaseName("IX_AcademicGroup_Year_Level_Label");
 
         builder.HasOne(x => x.Level)
             .WithMany()

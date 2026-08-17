@@ -345,13 +345,17 @@ namespace PGSH.Infrastructure.Migrations
 
                     b.HasIndex("LevelId");
 
-                    b.HasIndex("AcademicYearId", "GroupNumber")
+                    b.HasIndex("AcademicYearId", "LevelId", "GroupNumber")
                         .IsUnique()
-                        .HasDatabaseName("IX_AcademicGroup_Year_Number");
+                        .HasDatabaseName("IX_AcademicGroup_Year_Level_Number");
 
-                    b.HasIndex("AcademicYearId", "Label")
+                    NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("AcademicYearId", "LevelId", "GroupNumber"), false);
+
+                    b.HasIndex("AcademicYearId", "LevelId", "Label")
                         .IsUnique()
-                        .HasDatabaseName("IX_AcademicGroup_Year_Label");
+                        .HasDatabaseName("IX_AcademicGroup_Year_Level_Label");
+
+                    NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("AcademicYearId", "LevelId", "Label"), false);
 
                     b.ToTable("AcademicGroups", "public");
                 });
@@ -379,6 +383,11 @@ namespace PGSH.Infrastructure.Migrations
                         .HasColumnType("date");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("IsCurrent")
+                        .IsUnique()
+                        .HasDatabaseName("IX_AcademicYear_IsCurrent")
+                        .HasFilter("\"IsCurrent\"");
 
                     b.HasIndex("Label")
                         .IsUnique();
@@ -868,6 +877,31 @@ namespace PGSH.Infrastructure.Migrations
                     b.ToTable("ServicePeriods", "public");
                 });
 
+            modelBuilder.Entity("PGSH.Domain.Stages.ServicePeriodSlotCoverage", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("CohortSlotAssignmentId")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("ServicePeriodId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ServicePeriodId");
+
+                    b.HasIndex("CohortSlotAssignmentId", "ServicePeriodId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_ServicePeriodSlotCoverage_Cell_Period");
+
+                    b.ToTable("ServicePeriodSlotCoverage", "public");
+                });
+
             modelBuilder.Entity("PGSH.Domain.Stages.Stage", b =>
                 {
                     b.Property<int>("Id")
@@ -892,6 +926,13 @@ namespace PGSH.Infrastructure.Migrations
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
+
+                    b.Property<string>("RotationMode")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("PerPeriod");
 
                     b.HasKey("Id");
 
@@ -1649,6 +1690,25 @@ namespace PGSH.Infrastructure.Migrations
                     b.Navigation("Service");
                 });
 
+            modelBuilder.Entity("PGSH.Domain.Stages.ServicePeriodSlotCoverage", b =>
+                {
+                    b.HasOne("PGSH.Domain.Stages.CohortSlotAssignment", "CohortSlotAssignment")
+                        .WithMany()
+                        .HasForeignKey("CohortSlotAssignmentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("PGSH.Domain.Stages.ServicePeriod", "ServicePeriod")
+                        .WithMany("SlotCoverage")
+                        .HasForeignKey("ServicePeriodId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("CohortSlotAssignment");
+
+                    b.Navigation("ServicePeriod");
+                });
+
             modelBuilder.Entity("PGSH.Domain.Stages.Stage", b =>
                 {
                     b.HasOne("PGSH.Domain.Common.Utils.Level", "Level")
@@ -1866,6 +1926,8 @@ namespace PGSH.Infrastructure.Migrations
                     b.Navigation("Evaluation");
 
                     b.Navigation("Pauses");
+
+                    b.Navigation("SlotCoverage");
                 });
 
             modelBuilder.Entity("PGSH.Domain.Stages.Stage", b =>

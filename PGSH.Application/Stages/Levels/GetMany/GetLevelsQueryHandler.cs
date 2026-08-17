@@ -18,6 +18,12 @@ internal sealed class GetLevelsQueryHandler(IApplicationDbContext dbContext)
         if (request.AcademicProgram.HasValue)
             query = query.Where(l => l.AcademicProgram == request.AcademicProgram.Value);
 
+        // Year > 0 rather than Level.IsPromotion: the rule lives on the entity, but an unmapped
+        // computed property cannot be translated to SQL, and filtering in memory here would page the
+        // wrong set. The two must agree — the test holds them together.
+        if (request.PromotionsOnly)
+            query = query.Where(l => l.Year > 0);
+
         if (!string.IsNullOrWhiteSpace(request.SearchTerm))
         {
             string term = request.SearchTerm.Trim().ToLower();

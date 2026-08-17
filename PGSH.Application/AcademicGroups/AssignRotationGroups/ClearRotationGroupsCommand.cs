@@ -23,13 +23,18 @@ namespace PGSH.Application.AcademicGroups.AssignRotationGroups;
 /// cells no longer describe any partition, so the crossover they encode has to be rebuilt by arranging
 /// again; <see cref="ClearRotationGroupsResult.PlannedCellsAffected"/> is how many.</para>
 /// </remarks>
-public sealed record ClearRotationGroupsCommand(int AcademicYearId, int? LevelId = null)
+/// <param name="LevelId">
+/// The promotion being un-partitioned — required for the same reason the cut is (see
+/// <see cref="AssignRotationGroupsCommand"/>): year-wide, this cleared every promotion at once and
+/// reached the year's « Non réparti » bucket.
+/// </param>
+public sealed record ClearRotationGroupsCommand(int AcademicYearId, int LevelId)
     : ICommand<ClearRotationGroupsResult>, IAuditableCommand
 {
     public string AuditAction => "PARTITIONS_CLEARED";
     public string AuditEntityType => "AcademicYear";
     public string? AuditEntityId => AcademicYearId.ToString();
-    public string? AuditMetadata => $$"""{"levelId":{{LevelId?.ToString() ?? "null"}}}""";
+    public string? AuditMetadata => $$"""{"levelId":{{LevelId}}}""";
 }
 
 /// <param name="PlannedCellsAffected">
@@ -47,16 +52,11 @@ internal sealed class ClearRotationGroupsCommandHandler(IApplicationDbContext db
     public async Task<Result<ClearRotationGroupsResult>> Handle(
         ClearRotationGroupsCommand request, CancellationToken cancellationToken)
     {
-        // Same reach as the assign: a group belongs to a level by LevelId, or — for legacy and
-        // auto-arranged groups without one — by having a registration at that level.
-        var query = dbContext.AcademicGroups
-            .Where(g => g.AcademicYearId == request.AcademicYearId);
-
-        if (request.LevelId.HasValue)
-            query = query.Where(g => g.LevelId == request.LevelId
-                                  || g.Registrations.Any(r => r.LevelId == request.LevelId));
-
-        var groups = await query.ToListAsync(cancellationToken);
+        // Same reach as the assign, and for the same reason: the promotion is LevelId, never
+        // "somebody at that level is registered here" and never the whole year.
+        var groups = await dbContext.AcademicGroups
+            .Where(g => g.AcademicYearId == request.AcademicYearId && g.LevelId == request.LevelId)
+            .ToListAsync(cancellationToken);
 
         if (groups.Count == 0)
             return new ClearRotationGroupsResult(0, 0, 0);

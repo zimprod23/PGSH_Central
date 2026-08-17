@@ -1,0 +1,406 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>5ème année médecine — Répartition annuelle des stages 2025-2026</title>
+<style>
+html, body { margin: 0; padding: 0; background: #ffffff; }
+/*
+ * The published «Répartition annuelle des stages».
+ *
+ * This file is the single source of the document's look: the page imports it for the on-screen
+ * preview, and imports it *again* as a raw string (`?raw`) to inline into the standalone .html the
+ * admin downloads. So the preview, the printed PDF and the uploaded file cannot drift apart.
+ *
+ * Deliberately plain CSS on plain <table> markup — no Mantine, no design tokens. What leaves the
+ * app has to stand on its own on the faculty's web server, with no stylesheet to fetch.
+ *
+ * It is a faculty publication, not an app screen: the restraint is the design. Colour carries
+ * exactly one meaning (which partition a row's rotation opens on) and everything else is set in
+ * ink on paper. Deliberately NOT theme-aware — a dark-mode répartition prints as a black slab.
+ */
+
+@page {
+  size: A4 landscape;
+  margin: 8mm;
+}
+
+.repartition-doc {
+  --navy: #0f3f6b;
+  --navy-soft: #1d5c93;
+  --rule: #16202b;
+  --rule-hair: #b9c4cf;
+  --ink: #14202b;
+  --ink-soft: #5a6b7a;
+  --paper: #ffffff;
+
+  background: var(--paper);
+  color: var(--ink);
+  font-family: 'Cambria', 'Georgia', 'Times New Roman', serif;
+  font-size: 12px;
+  line-height: 1.35;
+  padding: 0 0 18px;
+}
+
+/* ─── Masthead ────────────────────────────────────────────────────────────── */
+
+.repartition-doc__header {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 20px;
+  padding: 14px 18px 12px;
+  border-bottom: 2.5px solid var(--navy);
+  /* A whisper of tint behind the letterhead lifts it off the table without ink cost. */
+  background: linear-gradient(180deg, #f4f8fb 0%, var(--paper) 100%);
+}
+
+.repartition-doc__institution {
+  line-height: 1.45;
+  white-space: pre-line;
+  font-size: 11.5px;
+  color: var(--navy);
+  font-weight: 600;
+  border-left: 3px solid var(--navy);
+  padding-left: 9px;
+}
+
+.repartition-doc__title {
+  text-align: center;
+  line-height: 1.25;
+}
+
+.repartition-doc__title strong {
+  display: block;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--navy);
+  letter-spacing: 0.2px;
+}
+
+.repartition-doc__title span {
+  display: block;
+  margin-top: 3px;
+  font-size: 10.5px;
+  font-variant: small-caps;
+  letter-spacing: 1.6px;
+  color: var(--ink-soft);
+}
+
+/* A hairline flourish under the subtitle — the one purely decorative mark in the document. */
+.repartition-doc__title span::before,
+.repartition-doc__title span::after {
+  content: '';
+  display: inline-block;
+  width: 22px;
+  height: 1px;
+  margin: 0 8px;
+  vertical-align: middle;
+  background: var(--rule-hair);
+}
+
+.repartition-doc__year {
+  justify-self: end;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--navy);
+  border: 1px solid var(--navy);
+  border-radius: 999px;
+  padding: 3px 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ─── Table ───────────────────────────────────────────────────────────────── */
+
+/* Wide tables scroll inside their own box rather than pushing the page sideways. */
+.repartition-doc__scroll {
+  overflow-x: auto;
+  padding: 12px 18px 0;
+}
+
+.repartition-doc table {
+  border-collapse: collapse;
+  width: 100%;
+  /* Fixed layout with an explicit <colgroup>: without it the service names dictated the geometry and
+     the period columns came out uneven, which is exactly the column you compare across. */
+  table-layout: fixed;
+  border: 1px solid var(--rule);
+}
+
+.repartition-doc th,
+.repartition-doc td {
+  border: 1px solid var(--rule-hair);
+  padding: 4px 8px;
+  vertical-align: middle;
+}
+
+/* Date rows: quiet, so the identity band below them reads as the header proper. */
+.repartition-doc thead th {
+  background: #eef3f8;
+  font-weight: 700;
+  text-align: center;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  color: var(--navy);
+  font-size: 11px;
+}
+
+.repartition-doc thead .repartition-doc__date-to {
+  font-weight: 400;
+  color: var(--ink-soft);
+}
+
+/* The «Stage | Service» identity band, reversed out of navy. */
+.repartition-doc thead .repartition-doc__identity {
+  background: var(--navy);
+  color: #ffffff;
+  text-align: left;
+  border-color: var(--navy);
+  letter-spacing: 0.5px;
+  font-size: 10.5px;
+  text-transform: uppercase;
+}
+
+.repartition-doc thead .repartition-doc__identity--period {
+  text-align: center;
+}
+
+.repartition-doc thead .repartition-doc__spacer {
+  background: #eef3f8;
+}
+
+.repartition-doc__stage {
+  font-weight: 700;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--navy);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.repartition-doc__service {
+  font-size: 11.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The hospital reads as the quieter half of «Hôpital: Service - Chef». */
+.repartition-doc__hospital {
+  color: var(--ink-soft);
+}
+
+.repartition-doc__chef {
+  font-style: italic;
+  color: var(--ink-soft);
+}
+
+.repartition-doc__groups {
+  text-align: center;
+  white-space: nowrap;
+  /* Group numbers are the thing being compared down a column; lining figures keep them aligned. */
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.3px;
+  font-weight: 600;
+}
+
+/* An unplanned period. Left visibly empty rather than closed up: the hole is the point. */
+.repartition-doc__groups--empty {
+  background-image: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 5px,
+    rgba(20, 32, 43, 0.06) 5px,
+    rgba(20, 32, 43, 0.06) 10px
+  );
+  color: var(--rule-hair);
+  font-weight: 400;
+}
+
+/* ─── Partition banding ───────────────────────────────────────────────────── */
+/* The partition occupying one cell. This is the document's only use of colour, so it stays pale
+   enough for black text to dominate and distinct enough to survive greyscale printing.
+
+   ⚠ The band is on the **cell**, never on the row. A row visits every partition over the year —
+   that is what a crossover is — so a row-level band could only mean "the one it opens on", and with
+   two partitions that coincides exactly with the stage: the document then printed a colour-per-stage
+   under a legend reading « Partition A / Partition B ». Colouring the cells shows the mirror. */
+
+.repartition-doc__cell--band-0 { background-color: #fdeee4; }
+.repartition-doc__cell--band-1 { background-color: #e6f0e2; }
+.repartition-doc__cell--band-2 { background-color: #e3edf7; }
+.repartition-doc__cell--band-3 { background-color: #fdf4dc; }
+.repartition-doc__cell--band-4 { background-color: #eee9f6; }
+.repartition-doc__cell--band-5 { background-color: #fbe8e8; }
+
+/* The identity columns carry no partition — nothing about a service is a partition — so they stay on
+   the paper colour and the grid is the only thing wearing the key. */
+.repartition-doc__stage,
+.repartition-doc__service { background-color: var(--paper); }
+
+/* Alternate rows a shade deeper: over ten monthly columns, tracking one service across the page is
+   the hard part, and a banded row is far easier to follow than a flat one. Applied as an image so it
+   layers *over* the band's colour instead of replacing it. */
+.repartition-doc tbody tr:nth-child(even) td {
+  background-image: linear-gradient(rgba(20, 32, 43, 0.035), rgba(20, 32, 43, 0.035));
+}
+
+/* …which is also why the hatch has to out-specify it: the zebra is an image too, so on even rows it
+   was erasing the "no service here" hatching altogether. That was survivable while unplanned cells
+   were rare; periods authored but not yet arranged now print as whole hatched columns. */
+.repartition-doc tbody tr td.repartition-doc__groups--empty {
+  background-image: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 5px,
+    rgba(20, 32, 43, 0.06) 5px,
+    rgba(20, 32, 43, 0.06) 10px
+  );
+}
+
+/* A rule and a coloured tab wherever the stage changes: the eye finds the blocks without reading. */
+.repartition-doc__row--stage-start td {
+  border-top: 2px solid var(--navy);
+}
+
+.repartition-doc__row--stage-start .repartition-doc__stage {
+  box-shadow: inset 3px 0 0 var(--navy);
+}
+
+/* ─── Legend + footer ─────────────────────────────────────────────────────── */
+
+.repartition-doc__legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  margin: 10px 18px 0;
+  font-size: 10px;
+  color: var(--ink-soft);
+}
+
+.repartition-doc__legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.repartition-doc__swatch {
+  display: inline-block;
+  width: 22px;
+  height: 10px;
+  border: 1px solid var(--rule-hair);
+}
+
+.repartition-doc__swatch--band-0 { background-color: #fdeee4; }
+.repartition-doc__swatch--band-1 { background-color: #e6f0e2; }
+.repartition-doc__swatch--band-2 { background-color: #e3edf7; }
+.repartition-doc__swatch--band-3 { background-color: #fdf4dc; }
+.repartition-doc__swatch--band-4 { background-color: #eee9f6; }
+.repartition-doc__swatch--band-5 { background-color: #fbe8e8; }
+.repartition-doc__swatch--mixed {
+  background-color: var(--paper);
+  background-image: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 3px,
+    rgba(20, 32, 43, 0.18) 3px,
+    rgba(20, 32, 43, 0.18) 6px
+  );
+}
+
+.repartition-doc__swatch--empty {
+  background-image: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 5px,
+    rgba(20, 32, 43, 0.06) 5px,
+    rgba(20, 32, 43, 0.06) 10px
+  );
+}
+
+.repartition-doc__footnote {
+  margin: 8px 18px 0;
+  padding-top: 6px;
+  border-top: 1px solid var(--rule-hair);
+  font-size: 10px;
+  color: var(--ink-soft);
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.repartition-doc__empty {
+  margin: 28px 18px;
+  padding: 44px 8px;
+  text-align: center;
+  color: var(--ink-soft);
+  border: 1px dashed var(--rule-hair);
+}
+
+/* ─── Screen only ─────────────────────────────────────────────────────────── */
+
+@media screen {
+  .repartition-doc {
+    box-shadow: 0 1px 2px rgba(20, 32, 43, 0.06), 0 8px 24px rgba(20, 32, 43, 0.07);
+  }
+
+  /* The date rows stay put while a 60-row promotion scrolls past. Two stacked header rows plus the
+     identity row, each pinned at its own offset. */
+  .repartition-doc thead th {
+    position: sticky;
+    z-index: 2;
+  }
+  .repartition-doc thead tr:nth-child(1) th { top: 0; }
+  .repartition-doc thead tr:nth-child(2) th { top: 24px; }
+  .repartition-doc thead tr:nth-child(3) th { top: 48px; }
+
+  .repartition-doc tbody tr:hover td {
+    /* Reading one service across ten monthly columns is the hard part of this table on screen. */
+    box-shadow: inset 0 0 0 9999px rgba(15, 63, 107, 0.07);
+  }
+}
+
+/* ─── Print ───────────────────────────────────────────────────────────────── */
+
+@media print {
+  .repartition-doc {
+    padding: 0;
+    font-size: 10.5px;
+    box-shadow: none;
+  }
+
+  .repartition-doc__header { padding: 0 0 8px; background: none; }
+  .repartition-doc__scroll { overflow-x: visible; padding: 10px 0 0; }
+  .repartition-doc__legend,
+  .repartition-doc__footnote { margin-left: 0; margin-right: 0; }
+
+  /* A promotion's table runs past one sheet; repeating the date rows keeps page 2 readable. */
+  .repartition-doc thead {
+    display: table-header-group;
+  }
+
+  .repartition-doc tr {
+    break-inside: avoid;
+  }
+
+  /* Browsers drop background colours by default when printing, which would erase the partition
+     banding — the one piece of information carried by colour alone. */
+  .repartition-doc * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}
+
+</style>
+</head>
+<body>
+<div class="repartition-doc"><div class="repartition-doc__header"><div class="repartition-doc__institution">Université Mohammed V de Rabat
+Faculté de Médecine et de Pharmacie</div><div class="repartition-doc__title"><strong>5ème année médecine</strong><span>Répartition annuelle des stages</span></div><div class="repartition-doc__year">Année universitaire: 2025/2026</div></div><div class="repartition-doc__scroll"><table style="min-width: 1348px;"><colgroup><col style="width: 9%;"><col style="width: 31%;"><col style="width: 6.66667%;"><col style="width: 6.66667%;"><col style="width: 6.66667%;"><col style="width: 6.66667%;"><col style="width: 6.66667%;"><col style="width: 6.66667%;"><col style="width: 6.66667%;"><col style="width: 6.66667%;"><col style="width: 6.66667%;"></colgroup><thead><tr><th class="repartition-doc__spacer" colspan="2"></th><th>01/05/2026</th><th>15/05/2026</th><th>29/05/2026</th><th>12/06/2026</th><th>26/06/2026</th><th>10/07/2026</th><th>24/07/2026</th><th>07/08/2026</th><th>21/08/2026</th></tr><tr><th class="repartition-doc__spacer" colspan="2"></th><th class="repartition-doc__date-to">au 14/05/2026</th><th class="repartition-doc__date-to">au 28/05/2026</th><th class="repartition-doc__date-to">au 11/06/2026</th><th class="repartition-doc__date-to">au 25/06/2026</th><th class="repartition-doc__date-to">au 09/07/2026</th><th class="repartition-doc__date-to">au 23/07/2026</th><th class="repartition-doc__date-to">au 06/08/2026</th><th class="repartition-doc__date-to">au 20/08/2026</th><th class="repartition-doc__date-to">au 03/09/2026</th></tr><tr><th class="repartition-doc__identity">Stage</th><th class="repartition-doc__identity">Service (Chef de Service)</th><th class="repartition-doc__identity repartition-doc__identity--period">Période 1</th><th class="repartition-doc__identity repartition-doc__identity--period">Période 2</th><th class="repartition-doc__identity repartition-doc__identity--period">Période 3</th><th class="repartition-doc__identity repartition-doc__identity--period">Période 4</th><th class="repartition-doc__identity repartition-doc__identity--period">Période 5</th><th class="repartition-doc__identity repartition-doc__identity--period">Période 6</th><th class="repartition-doc__identity repartition-doc__identity--period">Période 7</th><th class="repartition-doc__identity repartition-doc__identity--period">Période 8</th><th class="repartition-doc__identity repartition-doc__identity--period">Période 9</th></tr></thead><tbody><tr><td class="repartition-doc__stage">Santé Publique</td><td class="repartition-doc__service"><span class="repartition-doc__hospital">Établissement non précisé&nbsp;:</span> Santé Publique<span class="repartition-doc__chef" title="Nom repris de la fiche du service (import). Désignez un chef de service pour que cette attribution soit datée et survive à une réimpression."> — Pr.R.Razine</span></td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__cell--band-0" title="Partition A">1, 10, 19, 28, 37, 46, 55</td><td class="repartition-doc__groups repartition-doc__cell--band-1" title="Partition B">2, 11, 20, 29, 38, 47, 56</td></tr><tr class="repartition-doc__row--stage-start"><td class="repartition-doc__stage">Urologie Néphrologie</td><td class="repartition-doc__service"><span class="repartition-doc__hospital">Hôpital Ibn Sina&nbsp;:</span> Urologie A<span class="repartition-doc__chef" title="Nom repris de la fiche du service (import). Désignez un chef de service pour que cette attribution soit datée et survive à une réimpression."> — Pr.Y.Nouini</span></td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__cell--band-1" title="Partition B">2, 11</td><td class="repartition-doc__groups repartition-doc__cell--band-0" title="Partition A">1, 10</td></tr><tr><td class="repartition-doc__stage">Urologie Néphrologie</td><td class="repartition-doc__service"><span class="repartition-doc__hospital">Hôpital Ibn Sina&nbsp;:</span> Urologie B<span class="repartition-doc__chef" title="Nom repris de la fiche du service (import). Désignez un chef de service pour que cette attribution soit datée et survive à une réimpression."> — Pr.A.I.Andaloussi</span></td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__cell--band-1" title="Partition B">20, 29</td><td class="repartition-doc__groups repartition-doc__cell--band-0" title="Partition A">19, 28</td></tr><tr><td class="repartition-doc__stage">Urologie Néphrologie</td><td class="repartition-doc__service"><span class="repartition-doc__hospital">Hôpital Militaire Mohammed V&nbsp;:</span> Urologie<span class="repartition-doc__chef" title="Nom repris de la fiche du service (import). Désignez un chef de service pour que cette attribution soit datée et survive à une réimpression."> — Pr.A.Ameur</span></td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__cell--band-1" title="Partition B">38</td><td class="repartition-doc__groups repartition-doc__cell--band-0" title="Partition A">37</td></tr><tr><td class="repartition-doc__stage">Urologie Néphrologie</td><td class="repartition-doc__service"><span class="repartition-doc__hospital">Hôpital Moulay Youssef&nbsp;:</span> Urologie<span class="repartition-doc__chef" title="Nom repris de la fiche du service (import). Désignez un chef de service pour que cette attribution soit datée et survive à une réimpression."> — Pr.Y.Nouini</span></td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__cell--band-1" title="Partition B">47</td><td class="repartition-doc__groups repartition-doc__cell--band-0" title="Partition A">46</td></tr><tr><td class="repartition-doc__stage">Urologie Néphrologie</td><td class="repartition-doc__service"><span class="repartition-doc__hospital">Hôpital Moulay Youssef&nbsp;:</span> Urologie<span class="repartition-doc__chef" title="Nom repris de la fiche du service (import). Désignez un chef de service pour que cette attribution soit datée et survive à une réimpression."> — Pr.A.I.Andaloussi</span></td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__cell--band-1" title="Partition B">56</td><td class="repartition-doc__groups repartition-doc__cell--band-0" title="Partition A">55</td></tr><tr class="repartition-doc__row--stage-start"><td class="repartition-doc__stage">Neurologie Neuro-chirurgie</td><td class="repartition-doc__service"><span class="repartition-doc__hospital">Hôpital des Spécialités&nbsp;:</span> Neurologie A<span class="repartition-doc__chef" title="Nom repris de la fiche du service (import). Désignez un chef de service pour que cette attribution soit datée et survive à une réimpression."> — Pr.S.Aidi</span></td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__cell--band-2" title="Partition C">3</td><td class="repartition-doc__groups repartition-doc__cell--band-5" title="Partition I">9</td></tr><tr><td class="repartition-doc__stage">Neurologie Neuro-chirurgie</td><td class="repartition-doc__service"><span class="repartition-doc__hospital">Hôpital des Spécialités&nbsp;:</span> Neurologie B<span class="repartition-doc__chef" title="Nom repris de la fiche du service (import). Désignez un chef de service pour que cette attribution soit datée et survive à une réimpression."> — Pr.W.REGRAGUI</span></td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__cell--band-2" title="Partition C">12</td><td class="repartition-doc__groups repartition-doc__cell--band-5" title="Partition I">18</td></tr><tr><td class="repartition-doc__stage">Neurologie Neuro-chirurgie</td><td class="repartition-doc__service"><span class="repartition-doc__hospital">Hôpital Militaire Mohammed V&nbsp;:</span> Neurologie<span class="repartition-doc__chef" title="Nom repris de la fiche du service (import). Désignez un chef de service pour que cette attribution soit datée et survive à une réimpression."> — Pr.Bourazza</span></td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__cell--band-2" title="Partition C">21</td><td class="repartition-doc__groups repartition-doc__cell--band-5" title="Partition I">27</td></tr><tr><td class="repartition-doc__stage">Neurologie Neuro-chirurgie</td><td class="repartition-doc__service"><span class="repartition-doc__hospital">Hôpital Ibn Sina&nbsp;:</span> Neuro-chirurgie A<span class="repartition-doc__chef" title="Nom repris de la fiche du service (import). Désignez un chef de service pour que cette attribution soit datée et survive à une réimpression."> — Pr.EL Maaqili</span></td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__cell--band-2" title="Partition C">30</td><td class="repartition-doc__groups repartition-doc__cell--band-5" title="Partition I">36</td></tr><tr><td class="repartition-doc__stage">Neurologie Neuro-chirurgie</td><td class="repartition-doc__service"><span class="repartition-doc__hospital">Hôpital des Spécialités&nbsp;:</span> Neuro-chirurgie B<span class="repartition-doc__chef" title="Nom repris de la fiche du service (import). Désignez un chef de service pour que cette attribution soit datée et survive à une réimpression."> — Pr.Y.Arkha</span></td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__cell--band-2" title="Partition C">39</td><td class="repartition-doc__groups repartition-doc__cell--band-5" title="Partition I">45</td></tr><tr><td class="repartition-doc__stage">Neurologie Neuro-chirurgie</td><td class="repartition-doc__service"><span class="repartition-doc__hospital">Hôpital Militaire Mohammed V&nbsp;:</span> Neuro-chirurgie<span class="repartition-doc__chef" title="Nom repris de la fiche du service (import). Désignez un chef de service pour que cette attribution soit datée et survive à une réimpression."> — Pr.M.Guazzaz</span></td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__cell--band-2" title="Partition C">48</td><td class="repartition-doc__groups repartition-doc__cell--band-5" title="Partition I">54</td></tr><tr><td class="repartition-doc__stage">Neurologie Neuro-chirurgie</td><td class="repartition-doc__service"><span class="repartition-doc__hospital">Hôpital des Spécialités&nbsp;:</span> Réa.Oto.Neuro.Oph<span class="repartition-doc__chef" title="Nom repris de la fiche du service (import). Désignez un chef de service pour que cette attribution soit datée et survive à une réimpression."> — Pr.M.Amor</span></td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__cell--band-2" title="Partition C">57</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td></tr><tr class="repartition-doc__row--stage-start"><td class="repartition-doc__stage">Gynécologie Obstétrique</td><td class="repartition-doc__service"><span class="repartition-doc__hospital">Maternité Souissi&nbsp;:</span> Gynécologie Obs B<span class="repartition-doc__chef" title="Nom repris de la fiche du service (import). Désignez un chef de service pour que cette attribution soit datée et survive à une réimpression."> — Pr.A.Baidada</span></td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups">4, 6-7, 13, 15</td><td class="repartition-doc__groups">43, 49, 51, 58, 60</td></tr><tr><td class="repartition-doc__stage">Gynécologie Obstétrique</td><td class="repartition-doc__service"><span class="repartition-doc__hospital">Maternité Souissi&nbsp;:</span> Gynécologie Obs C<span class="repartition-doc__chef" title="Nom repris de la fiche du service (import). Désignez un chef de service pour que cette attribution soit datée et survive à une réimpression."> — Pr.S.Bargach</span></td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups">16, 22, 24</td><td class="repartition-doc__groups">4, 6, 52</td></tr><tr><td class="repartition-doc__stage">Gynécologie Obstétrique</td><td class="repartition-doc__service"><span class="repartition-doc__hospital">Maternité Souissi&nbsp;:</span> Gynécologie Obs D<span class="repartition-doc__chef" title="Nom repris de la fiche du service (import). Désignez un chef de service pour que cette attribution soit datée et survive à une réimpression."> — Pr.Z.Elhanchi</span></td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups">25, 31, 33</td><td class="repartition-doc__groups">7, 13, 15</td></tr><tr><td class="repartition-doc__stage">Gynécologie Obstétrique</td><td class="repartition-doc__service"><span class="repartition-doc__hospital">Hôpital Militaire Mohammed V&nbsp;:</span> Gynécologie Obs<span class="repartition-doc__chef" title="Nom repris de la fiche du service (import). Désignez un chef de service pour que cette attribution soit datée et survive à une réimpression."> — Pr.J.Kouach</span></td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups">34, 40, 42</td><td class="repartition-doc__groups">16, 22, 24</td></tr><tr><td class="repartition-doc__stage">Gynécologie Obstétrique</td><td class="repartition-doc__service"><span class="repartition-doc__hospital">Hôpital des Orangers&nbsp;:</span> Gynécologie Obs A<span class="repartition-doc__chef" title="Nom repris de la fiche du service (import). Désignez un chef de service pour que cette attribution soit datée et survive à une réimpression."> — Pr.M.H.Alami</span></td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups">43, 49, 51-52, 58, 60</td><td class="repartition-doc__groups">25, 31, 33-34, 40, 42</td></tr><tr class="repartition-doc__row--stage-start"><td class="repartition-doc__stage">ORL</td><td class="repartition-doc__service"><span class="repartition-doc__hospital">Hôpital des Spécialités&nbsp;:</span> ORL A<span class="repartition-doc__chef" title="Nom repris de la fiche du service (import). Désignez un chef de service pour que cette attribution soit datée et survive à une réimpression."> — Pr.L.Essakalli Houssyni</span></td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__cell--band-3" title="Partition E">5, 14, 23, 32</td><td class="repartition-doc__groups repartition-doc__cell--band-4" title="Partition H">8, 17, 26</td></tr><tr><td class="repartition-doc__stage">ORL</td><td class="repartition-doc__service"><span class="repartition-doc__hospital">Hôpital Militaire Mohammed V&nbsp;:</span> ORL<span class="repartition-doc__chef" title="Nom repris de la fiche du service (import). Désignez un chef de service pour que cette attribution soit datée et survive à une réimpression."> — Pr.N.Errami</span></td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__cell--band-3" title="Partition E">41, 50, 59</td><td class="repartition-doc__groups repartition-doc__cell--band-4" title="Partition H">35, 44, 53</td></tr><tr class="repartition-doc__row--stage-start"><td class="repartition-doc__stage">Ophtalmologie</td><td class="repartition-doc__service"><span class="repartition-doc__hospital">Hôpital des Spécialités&nbsp;:</span> Ophtalmologie A<span class="repartition-doc__chef" title="Nom repris de la fiche du service (import). Désignez un chef de service pour que cette attribution soit datée et survive à une réimpression."> — Pr.L.O.Cherkaoui</span></td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__cell--band-4" title="Partition H">8, 17</td><td class="repartition-doc__groups repartition-doc__cell--band-2" title="Partition C">3, 12, 21</td></tr><tr><td class="repartition-doc__stage">Ophtalmologie</td><td class="repartition-doc__service"><span class="repartition-doc__hospital">Hôpital des Spécialités&nbsp;:</span> Ophtalmologie B<span class="repartition-doc__chef" title="Nom repris de la fiche du service (import). Désignez un chef de service pour que cette attribution soit datée et survive à une réimpression."> — Pr.E.Adballah</span></td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__cell--band-4" title="Partition H">26, 35</td><td class="repartition-doc__groups repartition-doc__cell--band-2" title="Partition C">30, 39</td></tr><tr><td class="repartition-doc__stage">Ophtalmologie</td><td class="repartition-doc__service"><span class="repartition-doc__hospital">Hôpital Militaire Mohammed V&nbsp;:</span> Ophtalmologie<span class="repartition-doc__chef" title="Nom repris de la fiche du service (import). Désignez un chef de service pour que cette attribution soit datée et survive à une réimpression."> — Pr.Y.Mouzari</span></td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__cell--band-4" title="Partition H">44, 53</td><td class="repartition-doc__groups repartition-doc__cell--band-2" title="Partition C">48, 57</td></tr><tr class="repartition-doc__row--stage-start"><td class="repartition-doc__stage">Psychiatrie</td><td class="repartition-doc__service"><span class="repartition-doc__hospital">Hôpital Militaire Mohammed V&nbsp;:</span> Psychiatrie<span class="repartition-doc__chef" title="Nom repris de la fiche du service (import). Désignez un chef de service pour que cette attribution soit datée et survive à une réimpression."> — Pr.M.Kadiri</span></td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__cell--band-5" title="Partition I">9, 18</td><td class="repartition-doc__groups repartition-doc__cell--band-3" title="Partition E">5, 14</td></tr><tr><td class="repartition-doc__stage">Psychiatrie</td><td class="repartition-doc__service"><span class="repartition-doc__hospital">Hôpital Ar-Razi&nbsp;:</span> Urgences Psychiatrie<span class="repartition-doc__chef" title="Nom repris de la fiche du service (import). Désignez un chef de service pour que cette attribution soit datée et survive à une réimpression."> — Pr.A.Ouannass</span></td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__cell--band-5" title="Partition I">27</td><td class="repartition-doc__groups repartition-doc__cell--band-3" title="Partition E">23, 32</td></tr><tr><td class="repartition-doc__stage">Psychiatrie</td><td class="repartition-doc__service"><span class="repartition-doc__hospital">Hôpital Ar-Razi&nbsp;:</span> Psychiatrie A<span class="repartition-doc__chef" title="Nom repris de la fiche du service (import). Désignez un chef de service pour que cette attribution soit datée et survive à une réimpression."> — Pr.M.Sabir</span></td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__cell--band-5" title="Partition I">36</td><td class="repartition-doc__groups repartition-doc__cell--band-3" title="Partition E">41</td></tr><tr><td class="repartition-doc__stage">Psychiatrie</td><td class="repartition-doc__service"><span class="repartition-doc__hospital">Hôpital Ar-Razi&nbsp;:</span> Psychiatrie B<span class="repartition-doc__chef" title="Nom repris de la fiche du service (import). Désignez un chef de service pour que cette attribution soit datée et survive à une réimpression."> — Pr.A.Ouannass</span></td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__cell--band-5" title="Partition I">45</td><td class="repartition-doc__groups repartition-doc__cell--band-3" title="Partition E">50</td></tr><tr><td class="repartition-doc__stage">Psychiatrie</td><td class="repartition-doc__service"><span class="repartition-doc__hospital">Hôpital Ar-Razi&nbsp;:</span> Pédopsychiatrie<span class="repartition-doc__chef" title="Nom repris de la fiche du service (import). Désignez un chef de service pour que cette attribution soit datée et survive à une réimpression."> — Pr.H.Kisra</span></td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__groups--empty">—</td><td class="repartition-doc__groups repartition-doc__cell--band-5" title="Partition I">54</td><td class="repartition-doc__groups repartition-doc__cell--band-3" title="Partition E">59</td></tr></tbody></table></div><div class="repartition-doc__legend"><span class="repartition-doc__legend-item"><span class="repartition-doc__swatch repartition-doc__swatch--band-0"></span>Partition A</span><span class="repartition-doc__legend-item"><span class="repartition-doc__swatch repartition-doc__swatch--band-1"></span>Partition B</span><span class="repartition-doc__legend-item"><span class="repartition-doc__swatch repartition-doc__swatch--band-2"></span>Partition C</span><span class="repartition-doc__legend-item"><span class="repartition-doc__swatch repartition-doc__swatch--band-3"></span>Partition E</span><span class="repartition-doc__legend-item"><span class="repartition-doc__swatch repartition-doc__swatch--band-4"></span>Partition H</span><span class="repartition-doc__legend-item"><span class="repartition-doc__swatch repartition-doc__swatch--band-5"></span>Partition I</span><span class="repartition-doc__legend-item"><span class="repartition-doc__swatch repartition-doc__swatch--mixed"></span>Partitions mêlées</span><span class="repartition-doc__legend-item"><span class="repartition-doc__swatch repartition-doc__swatch--empty"></span>Période non planifiée</span></div><div class="repartition-doc__footnote"><span>Les nombres désignent les numéros de groupe. Un intervalle « 47-50 » inclut les groupes 47, 48, 49 et 50.</span><span>28 service(s) · 9 période(s) · 60 groupe(s)</span></div></div>
+
+</body>
+</html>

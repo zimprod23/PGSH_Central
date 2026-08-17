@@ -21,10 +21,17 @@ public sealed record RotationArrangeResult(
 /// cells is restricted to the targeted cohorts × targeted slots, so arranging one
 /// partition's window never erases another's. Shared by the auto-arrange command
 /// and the macro-plan orchestrator.
+///
+/// <para>⚠ <b>The service queue is balanced over the cohorts of a single call</b>, so partitions
+/// that share a stage over the same window must be passed together in
+/// <paramref name="partitionLabels"/>. One call each balances every partition against the full
+/// service list in ignorance of the others, and their remainders stack — see
+/// <c>MacroPlan.ConcurrencyBlock</c>, which is what groups them.</para>
 /// </summary>
 internal sealed class RotationArranger(
     IApplicationDbContext dbContext,
     ServiceOccupancyCalculator occupancyCalculator,
+    PromotionPartitioning promotionPartitioning,
     Slots.GroupScheduleConflictGuard groupGuard)
 {
     public async Task<Result<RotationArrangeResult>> ArrangeAsync(
@@ -91,6 +98,25 @@ internal sealed class RotationArranger(
                 Error.Validation("Schedule.NoSlots",
                     "No time slots are defined for this stage in the selected window."));
 
+        // A single-service stage is arranged one run at a time, because the run is what the group
+        // spends in one service. The window is therefore not optional: "arrange the whole stage"
+        // would otherwise hand a cohort a single service for every column the stage owns — nine
+        // months in one service, written silently and looking exactly like a correct plan.
+        // ⚠ The macro plan always scopes its calls (a ConcurrencyBlock *is* a run), so this only
+        // ever bites the bare auto-arrange path, which is precisely where it should.
+        bool singleService = stage.RotationMode == StageRotationMode.SingleService;
+        if (singleService)
+        {
+            if (periodNumbers is not { Count: > 0 } && allSlots.Count > 1)
+                return Result.Failure<RotationArrangeResult>(
+                    StageErrors.SingleServiceRunNotScoped(stage.Name, allSlots.Count));
+
+            var numbers = slots.Select(s => s.PeriodNumber).Order().ToList();
+            if (numbers[^1] - numbers[0] != numbers.Count - 1)
+                return Result.Failure<RotationArrangeResult>(
+                    StageErrors.SingleServiceRunNotContiguous(stage.Name, numbers));
+        }
+
         var slotIds = slots.Select(s => s.Id).ToList();
 
         // All cohorts of the stage participate in the queue/rotation so the cycle stays
@@ -111,11 +137,35 @@ internal sealed class RotationArranger(
         if (cohorts.Count == 0)
             return Result.Success(new RotationArrangeResult(0, 0, 0, totalCapacity));
 
-        // Ensure every group involved carries a partition label (persist new ones),
-        // so partition filtering is meaningful even on a stage arranged for the first time.
-        var newlyAssigned = PartitionAllocator.AssignUnlabelled(
-            cohorts.Select(c => (c.AcademicGroupId, c.RotationGroup)).ToList(),
-            partitionCount ?? services.Count);
+        // ⚠ The cut is read from the PROMOTION, not from this stage's cohorts. PartitionAllocator
+        // takes "the existing partition count" from the labels it is shown, and a stage routinely
+        // reaches only part of its promotion — so passing the stage's own cohorts showed a promotion
+        // cut into ten as one cut into two, and the gap-fill wrote those two labels onto real rosters.
+        // See PromotionPartitioning for the measurement.
+        var cut = await promotionPartitioning.ReadAsync(academicYearId, levelId, cancellationToken);
+        bool alreadyCut = cut.IsCut;
+
+        // Fill the gaps in an existing cut, and cut a fresh promotion only when the caller stated
+        // into how many.
+        //
+        // ⚠ The count is never inferred from the stage's service list. That was the fallback here,
+        // and a stage's service count is not a statement about how a promotion should be divided:
+        // Santé Publique has one service, so arranging it first cut the whole promotion one-way and
+        // every later stage inherited that. Cutting a promotion is a deliberate act with its own
+        // command — a strategy, a published-cells refusal and an audit entry
+        // (AssignRotationGroupsCommand). Inventing one here bypassed all three.
+        var promotionFill = alreadyCut || partitionCount is not null
+            ? cut.FillGaps(partitionCount ?? 1)
+            : [];
+
+        // Balanced over the promotion, but written only for the rosters this arrange is actually
+        // placing. An arrange has no mandate to partition a roster it never touches — that is
+        // AssignRotationGroupsCommand's act, with its own guards and its own audit entry. The rest of
+        // the promotion keeps its gaps, and the next fill is balanced against the real state again.
+        var placeable = cohorts.Select(c => c.AcademicGroupId).ToHashSet();
+        var newlyAssigned = promotionFill
+            .Where(kv => placeable.Contains(kv.Key))
+            .ToDictionary(kv => kv.Key, kv => kv.Value);
 
         if (newlyAssigned.Count > 0)
         {
@@ -127,17 +177,30 @@ internal sealed class RotationArranger(
                 group.RotationGroup = newlyAssigned[group.Id];
         }
 
-        string LabelOf(CohortInfo c) => c.RotationGroup ?? newlyAssigned.GetValueOrDefault(c.AcademicGroupId)!;
+        // Genuinely nullable: a promotion nobody has cut carries no label at all, and pretending
+        // otherwise is what let the missing cut pass unnoticed.
+        string? LabelOf(CohortInfo c) => c.RotationGroup ?? newlyAssigned.GetValueOrDefault(c.AcademicGroupId);
 
         var targetCohorts = cohorts;
         if (partitionLabels is { Count: > 0 })
         {
             var wanted = partitionLabels.ToHashSet();
-            targetCohorts = cohorts.Where(c => wanted.Contains(LabelOf(c))).ToList();
+            targetCohorts = cohorts.Where(c => LabelOf(c) is { } label && wanted.Contains(label)).ToList();
         }
 
         if (targetCohorts.Count == 0)
+        {
+            // A partition was asked for and nothing carries one — the promotion has never been cut.
+            // Reported rather than returned as "0 cells", which is indistinguishable from a run that
+            // had nothing left to do. A label that simply has no cohort *here* is a different case
+            // and stays silent: CohortProvisioner legitimately skips a stage the group's CNPN does
+            // not require, and the macro plan counts that separately.
+            if (partitionLabels is { Count: > 0 } && !alreadyCut && newlyAssigned.Count == 0)
+                return Result.Failure<RotationArrangeResult>(
+                    StageErrors.PromotionNotPartitioned(stage.Name, levelLabel));
+
             return Result.Success(new RotationArrangeResult(0, 0, cohorts.Sum(c => c.StudentCount), totalCapacity));
+        }
 
         // Partition order first (A→B→C…), then group number — keeps each partition's
         // cohorts contiguous so the cyclic shift moves whole partition blocks together.
@@ -180,17 +243,11 @@ internal sealed class RotationArranger(
             .Select(a => new { a.Id, a.CohortId, a.StageSlotId })
             .ToListAsync(cancellationToken);
 
+        // ⚠ Via the coverage table, never via ServicePeriod.CohortSlotAssignmentId: that FK names only
+        // the first cell of a run, so under SingleService the trailing cells of a published run would
+        // read as free and be rewritten underneath a stage already underway. See PublishedCells.
         var existingCellIds = existingCells.Select(e => e.Id).ToList();
-        var lockedCellIds = existingCellIds.Count == 0
-            ? new List<int>()
-            : await dbContext.ServicePeriods
-                .Where(p => p.CohortSlotAssignmentId != null
-                         && existingCellIds.Contains(p.CohortSlotAssignmentId.Value))
-                .Select(p => p.CohortSlotAssignmentId!.Value)
-                .Distinct()
-                .ToListAsync(cancellationToken);
-
-        var lockedCellIdSet = lockedCellIds.ToHashSet();
+        var lockedCellIdSet = await dbContext.PublishedAmongAsync(existingCellIds, cancellationToken);
         var lockedCells = existingCells
             .Where(e => lockedCellIdSet.Contains(e.Id))
             .Select(e => (e.CohortId, e.StageSlotId))
@@ -244,9 +301,17 @@ internal sealed class RotationArranger(
         var newAssignments = new List<CohortSlotAssignment>(n * slots.Count);
         int groupConflicts = 0;
 
+        // The whole run shares the phase of its first column when the stage keeps the group in one
+        // service: that is the entire mechanical difference between the two modes. Advancing per
+        // column is what moves a cohort S1 → S2 → S3; freezing the offset leaves it where it is,
+        // and the publisher then collapses the run's cells into one period with one evaluation.
+        // The phase is still taken from the run's start rather than fixed, so two partitions doing
+        // the stage in different windows still land on different services.
+        int runOffset = phaseBySlotId[slots.MinBy(s => s.PeriodNumber)!.Id] * shiftPerSlot;
+
         foreach (var slot in slots)
         {
-            int offset = phaseBySlotId[slot.Id] * shiftPerSlot;
+            int offset = singleService ? runOffset : phaseBySlotId[slot.Id] * shiftPerSlot;
             for (int ci = 0; ci < n; ci++)
             {
                 if (lockedCells.Contains((targetCohortIds[ci], slot.Id)))

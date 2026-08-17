@@ -37,6 +37,7 @@ public static class DependencyInjection
         services.AddScoped<ServiceIntakeCalculator>();
         services.AddScoped<ServiceLevelCapacityResolver>();
         services.AddScoped<RotationArranger>();
+        services.AddScoped<PromotionPartitioning>();
         services.AddScoped<StudentAffectationService>();
         services.AddScoped<SchedulePublisher>();
         services.AddScoped<StagePeriodRunner>();

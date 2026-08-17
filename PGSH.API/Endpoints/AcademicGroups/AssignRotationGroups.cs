@@ -19,8 +19,10 @@ public sealed class AssignRotationGroupsEndpoint : IEndpoint
 
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
+        // levelId is required: a partition divides one promotion, and year-wide this reached every
+        // promotion of the year plus « Non réparti ». See AssignRotationGroupsCommand.
         app.MapPost("groups/assign-partitions",
-            async (int academicYearId, int? levelId, Request request, ISender sender, CancellationToken ct) =>
+            async (int academicYearId, int levelId, Request request, ISender sender, CancellationToken ct) =>
             {
                 var command = new AssignRotationGroupsCommand(
                     academicYearId, request.PartitionCount, levelId, request.Strategy, request.Reassign);

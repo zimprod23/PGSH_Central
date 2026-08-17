@@ -1,5 +1,101 @@
 # HANDOFF.md
 
+> **▶ SESSION 21 — the partition count was being read off a subset, in three different places.**
+>
+> ⚠ Numbered 21 because [`SMOKE-TEST.md`](SMOKE-TEST.md) already attributes steps **12j**, **12k/12l/15**
+> and **16** to sessions 18, 19 and 20 — the roster/promotion split, the service occupancy view and
+> `Stage.RotationMode`, all sitting uncommitted in the working tree. **Those three sessions have no
+> entry here**; read their smoke steps and CLAUDE.md for what they do.
+>
+> Session 17 left five open findings. Three were the same defect wearing different clothes: **a count
+> taken from a subset and used as if it described the whole.** Suite **852 green** (841 + 11).
+> **Verified live against the real base** (admin session, 2026-08-16, migration applied + API restarted)
+> — smoke step **17**, executed.
+>
+> **1 · Med6's lopsided partitions (session 17, finding 2) — cause found, and it was not
+> `AutoArrangeGroups`.** That handler never writes `RotationGroup` at all; the suspicion recorded last
+> session was wrong. The write is `RotationArranger`'s gap-fill, and it was passing
+> `PartitionAllocator` **the cohorts of the stage being arranged** rather than the promotion.
+> `BuildLabels` takes "the existing partition count" from the labels it is shown, and a stage routinely
+> reaches only part of its promotion — `CohortProvisioner` skips what a text does not require, and
+> cohorts are provisioned stage by stage. So a promotion cut into ten, seen through a stage whose
+> cohorts happened to carry only A and B, *is* a promotion cut into two: every unlabelled roster went
+> into those two, permanently. **A = 42, B = 42, C–J = 2 each** is exactly 80 rosters filled 40/40 on
+> top of a clean A–J × 2. The balance was wrong for the same reason — "fill the smallest partition"
+> measured over a subset is not the promotion's smallest.
+> The mirror case is worse because it is silent: a stage whose own cohorts carry no label made
+> `alreadyCut` false, so a legitimate partition target was refused as *not partitioned* and the rosters
+> stayed unlabelled — invisible to every partition filter downstream.
+> New `PromotionPartitioning` reads the cut from (année, niveau). ⚠ **An arrange still labels only the
+> rosters it is actually placing**: the count and the balance come from the whole promotion, the write
+> does not, because partitioning a roster this arrange never touches is `AssignRotationGroupsCommand`'s
+> act, with its own guards and its own audit entry.
+>
+> **2 · `levelId` was optional on the cut and the clear, and year-wide it reached everything.**
+> `AssignRotationGroupsCommand` / `ClearRotationGroupsCommand` filtered on the level *only if one was
+> given*. Without it: every promotion of the year cut in one act — each with its own partition count,
+> folded by `BuildLabels` into a single one for all of them — and « Non réparti » along with them, the
+> one roster that belongs to no promotion and whose labelling moves 4,725 students as a single body.
+> CLAUDE.md already claimed « AssignRotationGroups can no longer reach it »; it could. Both commands now
+> take `int LevelId`, so the compiler refuses the year-wide call and `?levelId=` is required on the two
+> endpoints. Every existing caller already sent it.
+>
+> **3 · The Plan macro tab counted partitions off a 200-row page (session 17, finding 4).**
+> New `GET groups/partitioning` (`GetPromotionPartitioningQuery`) returns each partition's membership
+> and the unlabelled rosters, counted over the whole promotion — two integers per roster, no student
+> payload. The page now reads `partitions`, `groupCountByPartition`, the unlabelled count and its
+> numbers from it; the bespoke "first 12… +N" truncation is gone, replaced by `GroupNumberRanges`, so
+> the numbers print the way the répartition prints a cell.
+>
+> **4 · « L'année en cours » is now a singleton the database enforces** — `IX_AcademicYear_IsCurrent`,
+> unique with filter `"IsCurrent"` (migration `PartitionScopeAndIndexGaps`). `AcademicYearResolver`
+> takes the *first* row flagged current, so two flagged at once means two screens disagreeing about
+> which promotion they show with nothing to say so. The migration demotes any extras first (highest
+> `Id` wins, which is what `CreateAcademicYear` would have left) — it should touch zero rows.
+>
+> **5 · Two Phase-13 items were never real.** `Registration.LevelId` and `Registration.AcademicGroupId`
+> are not missing indexes: EF Core creates one per FK by convention, and both are in the snapshot and
+> in the database. Scaffolding the "fix" produced a `RenameIndex` and nothing else. Recorded in
+> PHASES.md rather than silently dropped. The 2026-08-06 audit list above it is also **all closed** —
+> checked in code, not assumed.
+>
+> **6 · « Retrait » is a status wearing a level's clothes, and it was offered as a promotion.**
+> Raised as "damaged Access data" — it is not. `CODE_N = 'MED00'` marked a *withdrawal* instead of a
+> year, and `LevelMapper` kept it as a `Level` (year 0) on purpose so the registrations and the stages
+> already served that year survived. The data is coherent: 12 registrations, **all** `Withdrawn`, 8
+> carrying real périodes, parcours reading 1ère → 2ème → 3ème → Retrait, and two students who came back
+> afterwards. It is also unrepairable — MED00 *replaced* the real year in the source.
+> What it cost: the marker appeared in every promotion picker, and one of its rosters carried partition
+> **E** (an artefact of `SplitAcademicGroupsPerLevel` copying the folded roster's label onto each
+> shard). `CnpnTargetPlanner` had already been forced to special-case year 0 by hand — the third such
+> exception is now a domain rule instead: **`Level.IsPromotion`**, with `Levels.NotAPromotion` refused
+> by *assign* and *auto-arrange*. ⚠ The **clear is deliberately not refused** — it is how a label
+> already on a marker comes off, and it is what removed the live one. Reads split on intent:
+> `GetLevelsQuery.PromotionsOnly` is **off** by default (the dossier and the parcours must still name a
+> withdrawn registration's level) and the planning pickers pass it via `getPromotionLevels`.
+>
+> **Contract changes to know about:** `POST groups/assign-partitions` and `DELETE groups/partitions`
+> now **require** `levelId`; new `GET groups/partitioning?levelId=&academicYearId=`;
+> `GET levels` accepts `promotionsOnly`.
+> **A migration is pending** (`20260816200851_PartitionScopeAndIndexGaps`) and **the API must be
+> restarted** before any of this shows.
+>
+> Recipe: [`SMOKE-TEST.md`](SMOKE-TEST.md) step **17**.
+>
+> ### Still open after this session
+>
+> 1. ✅ **The lopsided promotions were repaired** (2026-08-16, with the user's go-ahead): 4Med and
+>    5Pharma cleared and re-cut into 9 *Alterné* → **8 rosters per partition** on both. Neither had a
+>    planned cell or a published period, so nothing depended on the old labels, and nothing else moved
+>    — 13,604 cohortes, 860 cellules, 98,555 affectations, 105,626 périodes, identical before and after.
+>    Every other promotion was checked and is even (3Med 40/40, 5Med 7×6+6×3, Med6 10×10).
+> 2. **The unexplained error-boundary trip** on the first Aïd date-move save (session 17, finding 1) —
+>    still not reproduced, still nothing to act on until it recurs.
+> 3. **The gap-fill card still cannot be shown** with no unlabelled roster anywhere. Clearing Med6 for
+>    the repair above is the natural moment to exercise it.
+>
+> ---
+
 > **▶ SESSION 17 — the three open findings of session 16, closed.**
 >
 > All four were "the system knows, and does not say". Suite **783 green** (773 + 10).

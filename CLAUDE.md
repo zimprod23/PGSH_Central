@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **PGSH** — *Plateforme de Gestion des Stages Hospitaliers* — manages hospital internships for medical and pharmacy students (Medecine, Pharmacie, Master, Doctorat programs). It covers the full lifecycle: hospital structure, academic groups, student registrations, rotation planning, execution, attendance, and evaluation.
 
-See [`SCHEMA.md`](SCHEMA.md) for the full database schema, [`PHASES.md`](PHASES.md) for the development roadmap, [`NOTES.md`](NOTES.md) for accumulated domain knowledge and codebase context, and [`SMOKE-TEST.md`](SMOKE-TEST.md) for the manual verification pass over the most recent sessions.
+See [`SCHEMA.md`](SCHEMA.md) for the full database schema, [`PHASES.md`](PHASES.md) for the development roadmap, [`NOTES.md`](NOTES.md) for accumulated domain knowledge and codebase context, [`PLANNING.md`](PLANNING.md) for the crossover arithmetic and the end-to-end procedure for producing a répartition annuelle, and [`SMOKE-TEST.md`](SMOKE-TEST.md) for the manual verification pass over the most recent sessions.
 
 ## Build & Run Commands
 
@@ -224,10 +224,10 @@ Lₛ = P · kₛ / T      partitions concurrently in stage s — must be a whole
   is where. Three stages at k=1 with six partitions is **3** columns with 2 partitions per stage — not 6.
 - ⚠ **`Lₛ` integral pins `P` to a multiple of `T / gcd(kₛ)`.** Refusals name that multiple
   (`PartitionCountIncompatible`), because "wrong number" without "here is what works" is useless.
-- ⚠ **A period is one *service*, not one stage.** "Chirurgie has 2 periods" means the group passes through
-  **two different services**, so every stage carries a slot per axis column and a partition takes a run of
-  `kₛ` consecutive ones. Modelling a 2-period stage as one 2-column slot keeps the group in one service
-  for two months — the opposite of what it means. (I got this wrong first; the tests caught it.)
+- ⚠ **A period is a *column of the axis*, and every stage carries a slot per column** — a partition takes
+  a run of `kₛ` consecutive ones. Modelling a 2-period stage as one 2-column slot is still wrong, because
+  the *other* stages need those columns for the crossover. Whether the group changes service between them
+  is a separate question, answered by `Stage.RotationMode` — see below.
 - ⚠ **Some duration mixes are impossible, not unsupported.** Stages of 2 and 1 give `T = 3`, and a
   two-column run must cover column 2 wherever it starts — so every partition is there and the other stage
   stands empty. No `P` fixes it. `RotationTiling`'s search is exhaustive, so `NoFeasibleArrangement` is a
@@ -238,6 +238,15 @@ Lₛ = P · kₛ / T      partitions concurrently in stage s — must be a whole
 - **`RotationCyclePlanner` is pure** (no DB, no clock), which is what lets the invariants be tested
   exhaustively — every partition visits every stage once, for exactly `kₛ` periods, tiling the year, with
   every stage at exactly `Lₛ` in every column.
+- ⚠ **`Lₛ > 1` means those partitions are arranged in *one* call, never one each.**
+  `GenerateMacroPlanCommandHandler` groups the matrix into `ConcurrencyBlock`s — same stage, same
+  window — and hands all their labels to `RotationArranger` together, because the service queue is
+  balanced over the cohorts of a single call. One call each balances every partition against the full
+  service list in ignorance of the others, and the leftovers *stack*: `BuildServiceQueue`'s stable
+  ordering gives the remainder to the same leading services every time, and every partition of a
+  column carries the same rotation offset. Measured on Med5 (Gynécologie `k=3`, `L=3`, five services,
+  twenty groups): three calls of 7/7/6 gave **6/5/3/3/3**, one call of 20 gives **4/4/4/4/4** — which
+  is what `MED05.png` prints.
 - **Authoring the axis and running the plan are two acts.** The apply writes the `StageSlot`s and
   *returns* the matrix; the caller hands it to the macro plan. Same separation as déliberation /
   réinscription, and it keeps cohort provisioning, arranging and publishing on their existing path.
@@ -253,6 +262,78 @@ Lₛ = P · kₛ / T      partitions concurrently in stage s — must be a whole
   weeks stay calendar-exact (a monthly axis must land on the 1st); only `WorkingDays` lays each column
   to a fixed count of worked days, and it is the **only** unit under which two columns are the same
   amount of stage — février and mars are not.
+
+### Several périodes is not several services — `Stage.RotationMode` says which
+A stage occupying `kₛ` columns can spend them moving S1 → S2 → … with an evaluation each, or standing
+in **one** service for the whole run with **one** evaluation. `StageRotationMode` (`PerPeriod` default
+/ `SingleService`) is the switch, and `Stage.LevelId` means a stage belongs to one promotion, so
+per-stage is already per-promotion.
+
+- ⚠ **Neither mode is the normal one.** Measured on the imported Access history 2026-08-14: 5ᵉ année is
+  `SingleService` in **30,614 of 30,614** stage placements and 6ᵉ in 21,309 of 21,310, while 3ᵉ genuinely
+  rotates (5,385 placements over two services, 409 over three). 5MED Gynécologie is one period of ~70
+  calendar days against a catalogue of 44 j.o. — three columns, one service. The per-période rotation was
+  never the general case; it is 3ᵉ and 4ᵉ année.
+- **The axis is untouched.** `T = Σkₛ` belongs to the block, the group really does occupy all `kₛ`
+  columns, and the cells still exist one per column — `PeriodAxis`, `GroupScheduleConflictGuard` and the
+  printed répartition are unaffected. Only two things move:
+  - `RotationArranger` freezes the rotation offset across the call (`runOffset`) instead of advancing it
+    per column, so every cell of the run takes the same service. The phase still comes from the run's
+    *first* column, so two partitions doing the stage in different windows still land differently.
+  - `SchedulePublisher` collapses the run into **one** `ServicePeriod` spanning it. `StageScoring` and
+    `RecomputeFinalScore` need no special case: the mean of one mark is that mark, and "every period
+    validated" is that one validated.
+- **A run is derived from the cells, not from the caller's window** (`SchedulePublisher.BuildStays`):
+  maximal consecutive period numbers *with the same service*, per cohort. That is what makes publishing
+  one concurrency block and publishing the whole stage produce the same stays. Breaking on a service
+  change matters too — a cell edited by hand to another service is two stays, not one period whose
+  service is a lie for half its span.
+- ⚠ **A single-service stage must be arranged run by run** (`SingleServiceRunNotScoped`). Unscoped,
+  "auto-arrange this stage" makes every column one run and hands a cohort one service for the whole year
+  — written silently, looking exactly like a correct plan. The macro plan always scopes (a
+  `ConcurrencyBlock` *is* a run), so the guard only bites the bare auto-arrange path. Non-contiguous
+  windows are refused too (`SingleServiceRunNotContiguous`): a single stay cannot have a hole.
+- ⚠ **The mode is frozen once the stage is published** (`RotationModeLockedByPublication`) — the periods
+  on disk were shaped by it.
+
+#### `ServicePeriodSlotCoverage` — because one period can cover several cells
+`ServicePeriod.CohortSlotAssignmentId` names the **first** cell of a run. It still answers "did this come
+from the grid?", which is all ~25 call sites ask. It cannot answer "is *this cell* published?" — under
+`SingleService` the trailing cells of a published run would read as free, and the arranger would rewrite
+them or `DeleteStageSlot` would drop a column out from under a running stage.
+
+- One coverage row **per covered cell under both modes**, so the guards read one table, not two.
+- The four callers go through `PublishedCells` (`PublishedAmongAsync`, `IsCellPublishedAsync`,
+  `SlotHasPublishedCellAsync`) rather than reading the FK: `RotationArranger`, `DeleteStageSlot`,
+  `ClearCohortSlotAssignment`, `ClearSlotAssignments`.
+- The migration back-fills one row per existing grid-linked period — correct because nothing can have
+  been published in `SingleService` mode before the mode existed.
+
+### Undoing a publication: `unpublish → clear cells → delete slot`
+The chain is right and each link is guarded, but ⚠ **deleting a `ServicePeriod` is not bookkeeping**:
+`ServiceEvaluation`, `AttendanceRecord`, `PeriodPause` and `Delocalization` all **cascade** from it.
+
+- `UnpublishCohortScheduleCommand` refuses once anything has started (`ScheduleUnderway`) and the refusal
+  **names what would be lost** — periods started, marks entered, attendance days. `Force: true` is the
+  caller having read that sentence; the UI shows it and asks a second time. Bulk unpublish never forces.
+- Removal goes through the aggregate (`InternshipAssignment.RemovePublishedPeriods`), which recomputes
+  the note and the status from what is left. Deleting the rows underneath it is what left assignments
+  reading *Validated, 14.5* with nothing behind them. `RecomputeStatusFromPeriods` deliberately does
+  **not** preserve terminal states the way `SyncStatusAfterReschedule` does — a verdict pronounced over
+  evaluations that no longer exist is exactly what has to be walked back.
+- ⚠ **Ad-hoc periods are never touched.** A period with no cell behind it is imported history, a
+  délocalisation or a revalidation; none came from a répartition and none can be recreated by publishing
+  one. Reported as `AdHocPeriodsKept`.
+
+### Publishing never lands on top of a stage already served
+⚠ **An assignment that already holds any `ServicePeriod` is skipped**, and the count is reported
+(`SkippedAlreadyServed`). Measured 2026-08-14: every one of the 706 5MED assignments of 2025-2026 carries
+an imported period per stage, while `IsPublishedAsync` only counts *grid-linked* ones — so publishing the
+new répartition would have given each student a second set for the same stage, averaged into the note and
+waited on by the lifecycle. Publication materialises a plan; it never re-materialises a past.
+
+Filtered per **assignment**, not per cohort: a cohort routinely mixes students with the stage behind them
+(repeaters, délocalisés) and students without, and the latter still need their schedule.
 
 ### Jours ouvrables — the calendar is entered, and half of it cannot be computed
 `WorkingDayCalendar` in `Domain/Calendar/` is the single answer to "how long is this really": calendar
@@ -327,6 +408,108 @@ independent rows with independent dates. No constraint ties them, and neither gu
     level through its *cohort*, so a slot reached via another stage would otherwise take its column,
     and its cells, out of the table entirely.
 
+### A roster belongs to one promotion, and its number counts within that promotion
+`AcademicGroup` is keyed `(AcademicYearId, LevelId, GroupNumber)` — `IX_AcademicGroup_Year_Level_Number`,
+`NULLS NOT DISTINCT`. The faculty numbers its groups per promotion and runs them at the same time: the
+3rd year 1-80, the 5th year 1-60, the 6th year 1-100. A number without its promotion identifies nothing.
+
+- ⚠ **This was the largest data defect in the base, and it emptied a répartition.** `LegacyImportPlanner`
+  keyed rosters on `(ANNEE_UNIV, GROUPE_STG)` alone, folding all three numberings into one set of rows:
+  measured 2026-08-13, **80 of the 100 numbered rosters of 2025-2026 carried registrations from four or
+  five promotions at once**, and `LevelId` was null on all 1,003 rows. `GroupScheduleConflictGuard`
+  forbids a roster from being in two services at once — correctly, on the premise that a roster is one
+  set of students — so the 3rd year's April–July placements *were* the 5th year's, seven of the 5th
+  year's nine columns were refused, and the printed document came out with two.
+  `SplitAcademicGroupsPerLevel` splits them; the importer now keys on the promotion too.
+- **« Non réparti » (`GroupNumber = 0`) is the one roster with no promotion**, by definition: it holds
+  every promotion's unassigned registrations — 4,725 of them in 2025-2026 — and carries no cohorts.
+  `NULLS NOT DISTINCT` is what keeps a year to one of them.
+- ⚠ **Reach a promotion's rosters by `LevelId`, never by "has a registration at that level".** That
+  fallback existed for legacy rows without a level; it also reaches the bucket, so cutting one level
+  handed a partition label to 4,725 people. Planning paths (`AssignRotationGroups`,
+  `ClearRotationGroups`, `PreviewRotationCycleQuery`) match on `LevelId` alone. `GetAcademicGroupsQuery`
+  deliberately keeps the wider reach — it is the screen scolarité assigns *from*, and hiding the bucket
+  behind a level filter hides the students it exists to surface.
+- **Numbering restarts at 1 per promotion** (`AutoArrangeGroups`, `CreateGroup`). It used to continue
+  from the year's highest number, which is why a 5th year would have printed as groups 81-140.
+- **The label is keyed the same way** — `IX_AcademicGroup_Year_Level_Label`, `NULLS NOT DISTINCT`
+  (`GroupLabelPerPromotion`). Held to (year, label), « Groupe 1 » — the obvious name for the 4th
+  year's first roster — was already taken by the 3rd year's, so a promotion could not be *named* the
+  way it is numbered and printed. A label distinguishes two rosters of one promotion and nothing more.
+- ⚠ **An index makes rosters distinguishable; it cannot stop them being mixed.** Two writes point a
+  row at a roster by plain FK and neither is guarded by anything downstream — every later check is
+  keyed on the roster the row *claims*. Both are now refused (`AcademicGroupErrors`,
+  `StageErrors.CohortPromotionMismatch`):
+  - `TransferStudentCommand` — a target roster in another **year** or another **promotion**. Otherwise
+    the student is affected to that roster's cohorts, i.e. stages he does not owe, and counted against
+    the other promotion's service quota. This is the write that could recreate by hand what
+    `SplitAcademicGroupsPerLevel` had to repair across 1,003 rows.
+  - `CreateCohortCommand` — a roster paired with a stage of another promotion. `CohortProvisioner`
+    always checked this on the bulk path; the hand-built path had no equivalent.
+- ⚠ **« Non réparti » must never acquire a partition label or a cohorte.** Either turns the bucket
+  into a roster and moves every promotion in it as one body. `AssignRotationGroups` can no longer
+  reach it, but `CreateGroup`/`UpdateGroup` write `RotationGroup` directly and are refused
+  (`UnassignedRosterCannotBePartitioned`), which is what lets `CohortProvisioner` match on `LevelId`
+  alone — its old "or has a registration at that level" fallback matched the bucket for *every* level
+  in a plan. The 12 bucket cohorts in the base are legacy-import history and are left alone; the guard
+  is on creation.
+- ⚠ **Only `AssignRotationGroupsCommand` cuts a promotion.** `RotationArranger` used to fall back to
+  `services.Count` — the *stage's* service count — whenever no count was given and no group carried a
+  label. That is not a statement about how a promotion divides, and it is sticky: Santé Publique has
+  one service, so arranging it first cut the whole promotion one-way and every later stage inherited
+  it, because `BuildLabels` lets an existing cut win over any requested count. The arranger now fills
+  gaps in an existing cut, cuts only on an explicit count, and reports `PromotionNotPartitioned` when
+  a partition is targeted on a promotion nobody has divided — rather than writing 0 cells, which
+  reads as "nothing to do".
+- ⚠ **…and the cut it fills gaps in is the *promotion's*, never the stage's cohorts**
+  (`PromotionPartitioning`). `BuildLabels` takes "the existing partition count" from the labels it is
+  shown, and a stage routinely reaches only part of its promotion — `CohortProvisioner` skips what a
+  text does not require, and cohorts are provisioned stage by stage. Shown one stage's cohorts, a
+  promotion cut into ten read as cut into two, and the gap-fill wrote those two onto real rosters
+  permanently: measured on Med6 (2026-08-13), **A = 42, B = 42, C–J = 2 each** on a promotion re-cut
+  into ten clean partitions the session before. The balance is wrong for the same reason — "fill the
+  smallest partition" measured over a subset is not the promotion's smallest. The mirror case is worse
+  because it is silent: a stage whose own cohorts carry no label made `alreadyCut` false, so a
+  legitimate partition target was refused as *not partitioned*.
+  - An arrange labels only the rosters **it is actually placing**. The count and the balance come from
+    the whole promotion; the write does not, because partitioning a roster this arrange never touches
+    is `AssignRotationGroupsCommand`'s act, with its own guards and its own audit entry.
+- ⚠ **`LevelId` is required on both the cut and the clear** — it is the guard, not a filter. Optional,
+  a year-wide call cut *every* promotion of the year in one act (each with its own partition count,
+  resolved by `BuildLabels` into a single one for all of them) and reached « Non réparti », the roster
+  that belongs to no promotion. The type says so now, so the compiler refuses the year-wide call and
+  `?levelId=` is a required query parameter.
+- **A count is not read off a page** — `GetPromotionPartitioningQuery` (`GET groups/partitioning`).
+  The Plan macro tab derived its partitions, their sizes and « N groupes sans partition » from
+  `GET /groups` at `pageSize: 200`; a promotion adds ~100 rosters a year, so past 200 every number on
+  that tab reads low — including the one whose whole job is to say a gap-fill is owed. Raising the
+  page size moves the cliff. The aggregate is computed where the rows are.
+
+### « Retrait » is a status wearing a level's clothes — `Level.IsPromotion`
+The Access base used `CODE_N = 'MED00'` to mark a **withdrawal** rather than a year of study, and
+`LegacyImport.LevelMapper` deliberately kept it as a `Level` with `Year = 0` so the registration — and
+the rotations already served that year — survived the import instead of being dropped.
+
+**The data is coherent and is not to be "repaired".** All 12 registrations read `Status = Withdrawn`,
+the parcours run 1ère → 2ème → 3ème → **Retrait**, 8 of the 12 carry real périodes, and two of those
+students came back (Retrait 2023-24 → 5ème année 2025-26). The real year they withdrew from is
+**unrecoverable**: MED00 *replaced* it in the source.
+
+- ⚠ **What it costs is that a marker is offered wherever a promotion is.** It has no stage, no cohorte
+  and nobody to rotate, but it is a `Level`, so it appeared in every picker beside « Troisième Année ».
+  One of its rosters ended up carrying partition **E** — not a deliberate cut but
+  `SplitAcademicGroupsPerLevel` copying the folded roster's label onto each shard.
+  `CnpnTargetPlanner` had already had to special-case year 0 by hand (« année ≤ 2 » must not sweep up
+  the withdrawn); `Level.IsPromotion` exists so the third such exception is not written by hand too.
+- **Refused:** `AssignRotationGroupsCommand` and `AutoArrangeGroupsCommand` (`Levels.NotAPromotion`).
+- ⚠ **`ClearRotationGroupsCommand` is deliberately *not* refused.** A label already on a marker's
+  roster is exactly what has to come off, and refusing the undo because the state should not exist
+  leaves no way to reach it but SQL. Same shape as the bucket cohorts: **the guard is on creation**.
+- **Reads split on intent, not on the row.** `GetLevelsQuery.PromotionsOnly` is *off* by default: the
+  student dossier, the parcours and the level catalogue all have to name a withdrawn registration's
+  level. It is the screens asking « which promotion am I planning? » that pass `true`
+  (`getPromotionLevels` on the frontend). A browse filter over *existing* rosters keeps the full list.
+
 ### A partition's shape is a choice, and it shows up in the published table
 `PartitionAllocator` cuts a promotion into rotation partitions (`AcademicGroup.RotationGroup`). Two
 strategies, both producing equal-sized partitions, and the arranger cannot tell them apart:
@@ -342,9 +525,18 @@ strategies, both producing equal-sized partitions, and the arranger cannot tell 
   partition, because that is exactly what the crossover is. The failure mode is the dangerous kind,
   plausible and self-consistent: with two partitions every Médecine row opens on A and every
   Chirurgie row on B, so the document printed **one colour per stage** under a legend reading
-  « Partition A / Partition B ». Tint the cells and the mirror is what you see.
-- A cell whose cohorts disagree carries `null`, not the first label found — and the renderer must
-  leave it untinted rather than invent one, which is what the « Partitions mêlées » key is for.
+  « Partition A / Partition B ». A cell whose cohorts disagree carries `null`, not the first label
+  found.
+- ⚠ **…and the published répartition does not print it at all.** A partition is scolarité's internal
+  division for building the rotation; the reader of that page is a student looking for his own group,
+  to whom "Partition G" explains nothing he can act on. The document colours by **stage** — which is
+  what he navigates by, is true of a whole row, and is already written in the first column, so the
+  five-tint palette may safely cycle. `RepartitionCell.rotationGroup` is still sent (it is a real
+  fact, and it is what explains *why* a cell holds the numbers it does) and is still shown where it
+  is actionable: `ScheduleGridModal`, `AssignmentsPage`.
+  - The partition palette could **not** cycle, which is how the collision was found: it wrapped at 6
+    while the 5th year has 9 partitions and the 6th has 10, so A and G printed identically under a
+    legend giving each its own swatch.
 
 - ⚠ **The stripe was never designed — it falls out of balancing.** "Fill the smallest partition,
   walking groups in number order" alternates on every group, so each partition steps by the partition
@@ -355,6 +547,12 @@ strategies, both producing equal-sized partitions, and the arranger cannot tell 
   queue repeats each service in a run — so consecutive `ci` share a service. Interleaved partitions
   make those consecutive indices non-consecutive group numbers, and `GroupNumberRanges` correctly
   refuses to merge across a hole. Nothing is broken; there is simply nothing to collapse.
+  - ⚠ **…and it is what the printed cell costs.** A stage with few services and a whole promotion to
+    place puts every group of a partition in one cell: Santé Publique in the 5th year is *one*
+    service taking 6-7 groups per période. Cut contiguously that prints « 21-27 » — five characters,
+    and exactly what `MED05.png` prints. Cut interleaved it cannot collapse at all and prints
+    « 3, 12, 21, 30, 39, 48, 57 » — twenty-five. Both are correct plans; only the second needs three
+    lines of a column. Worth saying when an admin asks why the document got hard to read.
 - ⚠ **`Contiguous` interacts with the CNPN split.** `AutoArrangeGroupsCommandHandler` buckets by
   (year, level, `CnpnVersionId`) and numbers sequentially per bucket, so each text's groups occupy a
   contiguous run — a contiguous partition can therefore land entirely inside one text where an
@@ -421,6 +619,12 @@ Every bug in this class lives exactly on that boundary: a year-invariant key (`s
 used to reach year-constituted rows. When you write `.Where(x => x.StageId == id)` against cohorts,
 assignments or slots, the year predicate is not optional.
 
+⚠ **« L'année en cours » is a singleton the database enforces** — `IX_AcademicYear_IsCurrent`, unique
+with filter `"IsCurrent"`. `AcademicYearResolver` takes the *first* row flagged current and every
+handler that omits a year gets it, so two rows flagged at once means two screens quietly disagreeing
+about which promotion they show, with nothing on either to say so. `CreateAcademicYear` demotes the
+others, but that is one write path guarding an invariant of the table.
+
 A global EF query filter was considered and rejected: of ~101 handlers touching year-constituted
 tables, ~15 are *deliberately* cross-year — student parcours, level dossier, curriculum comparison,
 revalidation's cross-level retake — and those are the load-bearing reads, not edge cases.
@@ -462,6 +666,35 @@ so one key expresses "10 first-year Médecine, 15 third-year, no pharmaciens" �
   `CapacityExceeded` — naming a quota nobody authored sends the user hunting for a rule that is not there.
 - **Every capacity refusal is waived by `AllowOverCapacity`** (the publish checkbox), including
   `LevelNotAdmitted`: the whole check sits inside `if (!allowOverCapacity)`.
+  - ⚠ **This is the wrong shape for this faculty and should be split.** Admissibility ("this service
+    does not take 1st-years") is not negotiable; a capacity target here is, because the base is
+    structurally over-subscribed — measured 2026-08-14, **233 of 353 planned cells are over capacity
+    (66%), worst 85 against 20**. One flag governing both means the hard rule gets switched off
+    every time. Also note all 148 services carry the imported default `Capacity = 20` and **not one
+    quota is authored**, so every capacity verdict today is measured against a number nobody wrote.
+
+### A service's load is not readable one period at a time
+`Services/Occupancy/` answers "what does this service actually hold, and when" — the question
+`RotationArranger` could only answer as a bare count of saturated services and `SchedulePublisher`
+only as a refusal, one service at a time.
+
+- ⚠ **The timeline is segmented at every window boundary, never one row per `StageSlot`.** Nothing
+  ties two stages' periods together — a slot is keyed (stage, year, number) — so Chirurgie P1 and
+  ANES REA P1 have independent dates and legitimately different lengths. Per-slot rows show each
+  slot's own cohorts, while the students standing there on a given morning are the union of every
+  window covering that day: **the peak lives in the overlap and a per-slot list never shows it**.
+  `OccupancyTimeline` is pure (like `PeriodAxis` and `RotationTiling`) so the boundary arithmetic is
+  tested exhaustively; boundaries are `start` and `end + 1`, or back-to-back windows merge.
+- **It measures the load exactly as the guard does** — `Cohort.Assignments.Count`, cells not
+  `ServicePeriod`s (a plan is worth inspecting before it is published), date overlap and no year
+  predicate, and the same `HasLevelRestrictions` branch. A page that explained a refusal with a
+  number that never produced it would be worse than no page.
+- The year bound is the year's **dates**, not `AcademicYearId`: two academic years never overlap on
+  the calendar, so nothing is lost, and a slot stamped with the wrong year but dated inside this one
+  is exactly the drift worth surfacing.
+- `GetServiceStagesQuery` is the reverse of `Stage.AllowedServices`, and flags the contradiction
+  neither side can see alone: the stage lists the service, the service's quotas exclude the stage's
+  promotion, so auto-arrange silently drops it.
 - `RotationArranger` drops services that refuse the stage's level *before* building the rotation, and
   weights by `CapacityFor(levelId)`: weighting by `Capacity` hands a service of 40 that accepts 5
   first-years the largest share of the first-year rotation. All refusing → `NoServicesAdmitLevel`,
