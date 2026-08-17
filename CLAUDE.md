@@ -100,9 +100,34 @@ Scalar UI at `/scalar/v1`, Swagger UI at `/swagger`. Both are configured with Ke
 - **Never encode a known bug as expected behaviour.** If a test would cement an unresolved asymmetry, leave the
   case uncovered with a comment saying why, and raise it.
 - ⚠ **Known blind spot:** `UseInMemoryDatabase` ignores FK constraints, unique indexes, `OnDelete` behaviour and
-  SQL translatability — constraint and query-translation defects are invisible to this suite, and authorization
-  cannot be tested at all without the HTTP pipeline. Testcontainers + `WebApplicationFactory` are the agreed
-  next step and are **not yet built**.
+  SQL translatability — constraint and query-translation defects remain invisible. **Testcontainers is still
+  not built**; do not read a green suite as proof that a query runs on PostgreSQL.
+
+### `PGSH.Tests/Integration/` — the half of an endpoint that is not the handler
+`ApiFactory` (`WebApplicationFactory<Program>`) hosts the **real** `Program.cs` in-process, so a test
+reaches a route the way a browser does: routing, the required-ness of a query parameter, model
+binding, authentication, `SyncUserMiddleware`, the exception handler and the `Result.Failure` →
+problem-details mapping. A handler test sees none of that.
+
+- ⚠ **A guard ordered *after* the write returns the same `Result.Failure` and passes the handler
+  test.** Only the store tells the two apart, so a refusal test asserts the refusal **and** that
+  nothing was written. That is the case this suite exists for.
+- ⚠ **Write the control too.** A route that 400s on everything — a typo in the path, a binding failure
+  — satisfies every refusal assertion and proves nothing. Pair each refusal with the request that must
+  still succeed.
+- Authentication is header-driven (`TestAuthHandler`: `X-Test-User`, `X-Test-Roles`), and **sending no
+  header leaves the request anonymous** — a handler that always authenticates cannot tell "allowed"
+  from "not checked". Roles are emitted as Keycloak's `realm_access` JSON so `KeycloakRoleTransformer`
+  is exercised rather than bypassed.
+- `ResetAsync()` per test, via `IAsyncLifetime`. The host and its store are shared across a class, and
+  a test that writes leaves its rows behind: rows one test wrote made three unrelated tests fail when
+  a guard was removed to check the suite bites, which hides which assertion actually broke.
+- ⚠ **The tests now depend on `PGSH.API`, so `dotnet test` fails with MSB3021/MSB3027 while the Aspire
+  stack is running** — the API holds its own `bin`. Build somewhere else instead:
+  `dotnet test PGSH.Tests/PGSH.Tests.csproj -p:BaseOutputPath=<tmp>/`. Do **not** also set
+  `BaseIntermediateOutputPath` — one shared `obj` across projects gives MSB4006 (circular dependency).
+- **Prove a new guard test bites**: break the guard, confirm the test fails, restore it. A pipeline
+  test has many ways to pass for the wrong reason.
 
 ## Application Layer Conventions
 

@@ -144,3 +144,12 @@ app.MapEndpoints(apiGroup);
 app.MapControllers();
 
 await app.RunAsync();
+
+/// <summary>
+/// Top-level statements compile to an <c>internal</c> <c>Program</c>, which
+/// <c>WebApplicationFactory&lt;T&gt;</c> cannot reach. Declaring the partial makes it public so
+/// <c>PGSH.Tests/Integration/</c> can host this exact pipeline — the routes, the model binding, the
+/// authentication, the exception handler and the problem-details mapping — instead of a
+/// reconstruction of it that can agree with the tests while disagreeing with production.
+/// </summary>
+public partial class Program;

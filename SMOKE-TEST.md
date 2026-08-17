@@ -741,8 +741,8 @@ being built across two — both are plain FKs to rows that exist. These are thos
 > ✅ **Executed 2026-08-16** against the real base (admin session, after the migration and an API
 > restart), **section E completed 2026-08-17**. Migration `PartitionScopeAndIndexGaps` applied;
 > `IX_AcademicYear_IsCurrent` present; exactly **1** current year, so the migration's demotion touched
-> **0** rows as predicted. One step remains unexecuted and is marked as such — **E 15**, the live
-> `Levels.NotAPromotion` refusal.
+> **0** rows as predicted. **E 15 is no longer a manual step** — the refusal it could never reach is
+> now covered end-to-end by `PGSH.Tests/Integration/PartitionEndpointTests`.
 >
 > ⚠ **The promotion named in session 17 was the wrong one.** Med6 is **clean** — A–J × 10 exactly. The
 > defect is live on **4ème année Médecine** and **5ème année Pharmacie**, in a milder but identical
@@ -824,15 +824,16 @@ Neither promotion had a planned cell or a published period, so the repair was fr
     fails at the same time. Level catalogue: **16 niveaux**, « Retrait » year 0, present. Dossier of a
     withdrawn student: parcours reads 2ᵉ → 2ᵉ → **Retrait** (Abandonnée) → 4ᵉ, i.e. one of the two who
     came back.)*
-15. Force the act anyway: `POST /api/groups/assign-partitions?academicYearId=N&levelId=<retrait>` →
-    refused with **`Levels.NotAPromotion`**, naming the level. Same for auto-arrange.
-    ⚠ **Not executed live, twice running.** The UI no longer offers the marker — which is step 14
-    passing — so the refusal is unreachable through the app, and driving it headlessly needs a bearer
-    token this environment will not hand over. What stands behind the guard is
-    `WithdrawalMarkerLevelTests`, which drives the real handlers and asserts the code and the label.
-    Not equivalent: it does not exercise the endpoint wiring, and it cannot catch the guard being
-    ordered after a write. Whoever gets an authenticated client should run it and delete this note.
-    *(Checked instead: Retrait held 10 rosters / **0** labels before and after the attempt.)*
+15. ~~Force the act anyway~~ — **no longer a manual step.** `PGSH.Tests/Integration/
+    PartitionEndpointTests` fires `POST groups/assign-partitions` at the marker through the real
+    pipeline and asserts **400 / `Levels.NotAPromotion`** naming the level, **plus that nothing was
+    written** — the half no handler test can see, since a guard ordered after the write returns the
+    same failure.
+    ⚠ **This step went unexecuted two sessions running**, and the reason is worth keeping: once step
+    14 passes the marker is not offered anywhere, so the refusal is unreachable by hand, and driving
+    it headlessly needs a bearer token. **A guard that can only be checked manually and can only be
+    reached by defeating another guard will not be checked.** That is what moved it into the suite
+    rather than into a better manual recipe.
 16. `DELETE /api/groups/partitions` on it must still **succeed** — that is how a label already on a
     marker's roster comes off, and refusing the undo would leave only SQL.
     *(Executed 2026-08-16: « Groupe 59 — Retrait » carried partition **E**, an artefact of

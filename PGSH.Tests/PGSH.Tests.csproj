@@ -22,6 +22,7 @@
     <PackageReference Include="FluentAssertions" />
     <PackageReference Include="NSubstitute" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
   </ItemGroup>
 
   <ItemGroup>
@@ -29,6 +30,8 @@
     <ProjectReference Include="..\PGSH.Application\PGSH.Application.csproj" />
     <ProjectReference Include="..\PGSH.Infrastructure\PGSH.Infrastructure.csproj" />
     <ProjectReference Include="..\PGSH.LegacyImport\PGSH.LegacyImport.csproj" />
+    <!-- The API itself, so Integration/ can host the real pipeline rather than a rebuilt one. -->
+    <ProjectReference Include="..\PGSH.API\PGSH.API.csproj" />
   </ItemGroup>
 
 </Project>
