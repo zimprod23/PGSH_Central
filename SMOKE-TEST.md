@@ -739,8 +739,10 @@ being built across two — both are plain FKs to rows that exist. These are thos
 ## 17 · A partition count that describes the promotion (10 min) — session 21
 
 > ✅ **Executed 2026-08-16** against the real base (admin session, after the migration and an API
-> restart). Migration `PartitionScopeAndIndexGaps` applied; `IX_AcademicYear_IsCurrent` present; exactly
-> **1** current year, so the migration's demotion touched **0** rows as predicted.
+> restart), **section E completed 2026-08-17**. Migration `PartitionScopeAndIndexGaps` applied;
+> `IX_AcademicYear_IsCurrent` present; exactly **1** current year, so the migration's demotion touched
+> **0** rows as predicted. One step remains unexecuted and is marked as such — **E 15**, the live
+> `Levels.NotAPromotion` refusal.
 >
 > ⚠ **The promotion named in session 17 was the wrong one.** Med6 is **clean** — A–J × 10 exactly. The
 > defect is live on **4ème année Médecine** and **5ème année Pharmacie**, in a milder but identical
@@ -813,8 +815,24 @@ Neither promotion had a planned cell or a published period, so the repair was fr
     *Curriculum*, *Stages*, or a service's quotas. ⚠ It **must** still appear in the **level catalogue**
     (Académique → Niveaux), in a student's dossier, and in the Groupes **browse filter** — a withdrawn
     registration has to be able to name its level, and 10 rosters sit under it.
+    *(Executed 2026-08-17. Read off the DOM rather than the screenshot, because both halves are the
+    same control and a picture cannot tell two mounted dropdowns apart: the browse filter's listbox
+    carries **16** options **with** « Retrait », the Plan macro and Répartition automatique listboxes
+    carry **15 without** it. ⚠ `find` reported a « Retrait » option in "the open dropdown" and was
+    wrong — it had matched the browse filter's listbox, still mounted and hidden from an earlier
+    click. Enumerate `[role="listbox"]` with its `getBoundingClientRect`, or this step passes and
+    fails at the same time. Level catalogue: **16 niveaux**, « Retrait » year 0, present. Dossier of a
+    withdrawn student: parcours reads 2ᵉ → 2ᵉ → **Retrait** (Abandonnée) → 4ᵉ, i.e. one of the two who
+    came back.)*
 15. Force the act anyway: `POST /api/groups/assign-partitions?academicYearId=N&levelId=<retrait>` →
     refused with **`Levels.NotAPromotion`**, naming the level. Same for auto-arrange.
+    ⚠ **Not executed live, twice running.** The UI no longer offers the marker — which is step 14
+    passing — so the refusal is unreachable through the app, and driving it headlessly needs a bearer
+    token this environment will not hand over. What stands behind the guard is
+    `WithdrawalMarkerLevelTests`, which drives the real handlers and asserts the code and the label.
+    Not equivalent: it does not exercise the endpoint wiring, and it cannot catch the guard being
+    ordered after a write. Whoever gets an authenticated client should run it and delete this note.
+    *(Checked instead: Retrait held 10 rosters / **0** labels before and after the attempt.)*
 16. `DELETE /api/groups/partitions` on it must still **succeed** — that is how a label already on a
     marker's roster comes off, and refusing the undo would leave only SQL.
     *(Executed 2026-08-16: « Groupe 59 — Retrait » carried partition **E**, an artefact of
