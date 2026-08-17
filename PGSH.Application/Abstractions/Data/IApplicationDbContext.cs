@@ -39,6 +39,7 @@ public interface IApplicationDbContext
     DbSet<CohortMembership> CohortMembership { get; set; }
     DbSet<ServiceEvaluation> ServiceEvaluation { get; set; }
     DbSet<ServicePeriod> ServicePeriods { get; set; }
+    DbSet<ServicePeriodSlotCoverage> ServicePeriodSlotCoverage { get; set; }
     DbSet<AuditLog> AuditLogs { get; set; }
     DbSet<Holiday> Holidays { get; set; }
 

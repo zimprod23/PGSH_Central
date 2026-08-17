@@ -20,6 +20,7 @@ internal sealed class CreateStageCommandHandler(IApplicationDbContext dbContext)
             Coefficient    = request.Coefficient,
             Description    = request.Description,
             DurationInDays = request.DurationInDays,
+            RotationMode   = request.RotationMode,
             LevelId        = request.LevelId,
             Objectives     = request.Objectives.Select(o => new StageObjective
             {

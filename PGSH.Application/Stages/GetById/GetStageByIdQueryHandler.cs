@@ -25,6 +25,7 @@ internal sealed class GetStageByIdQueryHandler(
                             s.Coefficient,
                             s.Description,
                             s.DurationInDays,
+                            s.RotationMode,
                             new LevelResponse(
                                 s.Level.Id,
                                 s.Level.Label,

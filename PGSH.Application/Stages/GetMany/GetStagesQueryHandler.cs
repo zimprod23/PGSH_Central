@@ -27,7 +27,8 @@ internal sealed class GetStagesQueryHandler(IApplicationDbContext dbContext)
             .OrderBy(s => s.Name)
             .ToPaginatedResponseAsync(
                 request.PageNumber, request.PageSize,
-                s => new StageSummaryResponse(s.Id, s.Name, s.Coefficient, s.DurationInDays, s.Level.Label),
+                s => new StageSummaryResponse(
+                    s.Id, s.Name, s.Coefficient, s.DurationInDays, s.Level.Label, s.RotationMode),
                 cancellationToken);
 
         return Result.Success(response);

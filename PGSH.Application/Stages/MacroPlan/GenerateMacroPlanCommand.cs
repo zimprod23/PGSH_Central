@@ -38,4 +38,10 @@ public sealed record MacroPlanResult(
     /// Cells the arranger declined because the group was already placed in an overlapping period of
     /// another stage — the plan's partitions were authored to collide.
     /// </summary>
-    int GroupConflicts = 0);
+    int GroupConflicts = 0,
+    /// <summary>
+    /// Student assignments publication left alone because they already held a service period — an
+    /// imported historical rotation, a délocalisation, a revalidation. Reported so a plan that
+    /// publishes far fewer periods than expected explains itself.
+    /// </summary>
+    int SkippedAlreadyServed = 0);

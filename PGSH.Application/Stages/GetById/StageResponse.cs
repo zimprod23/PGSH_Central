@@ -1,4 +1,5 @@
 ﻿using PGSH.Application.Stages.Levels;
+using PGSH.Domain.Stages;
 
 namespace PGSH.Application.Stages.GetById;
 
@@ -8,6 +9,7 @@ public sealed record StageResponse(
     int Coefficient,
     string? Description,
     int DurationInDays,
+    StageRotationMode RotationMode,
     LevelResponse? LevelResponse,
     StageObjectiveResponse[] StageObjectiveResponse,
     AllowedServiceSummary[] AllowedServices

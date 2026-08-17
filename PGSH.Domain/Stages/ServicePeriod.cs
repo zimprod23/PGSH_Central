@@ -10,9 +10,21 @@ public sealed class ServicePeriod
     public int ServiceId { get; set; }
     public Service Service { get; set; } = default!;
 
-    // Links to the schedule grid cell that generated this period (null = ad-hoc)
+    // Links to the schedule grid cell that generated this period (null = ad-hoc). Under
+    // StageRotationMode.SingleService one period covers a whole run of cells; this one is the first
+    // of them. It answers "did this period come from the grid?", which is all that ~25 call sites
+    // ask. The question "is *this cell* published?" is a different one and must go through
+    // SlotCoverage — the lead FK alone would leave every trailing cell of a run looking free.
     public int? CohortSlotAssignmentId { get; set; }
     public CohortSlotAssignment? CohortSlotAssignment { get; set; }
+
+    /// <summary>
+    /// Every planning cell this period was materialised from — one row per cell, including the lead.
+    /// One row in <see cref="StageRotationMode.PerPeriod"/>, <c>kₛ</c> in
+    /// <see cref="StageRotationMode.SingleService"/>.
+    /// </summary>
+    public ICollection<ServicePeriodSlotCoverage> SlotCoverage { get; set; }
+        = new List<ServicePeriodSlotCoverage>();
 
     public DateOnly StartDate { get; set; }
     public DateOnly EndDate { get; set; }
@@ -43,6 +55,27 @@ public sealed class ServicePeriod
 
     public ICollection<AttendanceRecord> Attendance { get; set; } = new List<AttendanceRecord>();
     public ServiceEvaluation? Evaluation { get; set; }
+}
+
+/// <summary>
+/// Which planning cell produced a <see cref="ServicePeriod"/>. A join rather than a plain FK on the
+/// period because the relationship is genuinely one-to-many: a stage in
+/// <see cref="StageRotationMode.SingleService"/> keeps the group in one service across its whole run,
+/// so a single continuous period covers the <c>kₛ</c> consecutive cells of that run.
+///
+/// <para>⚠ <b>This is the only honest answer to "is this cell published?"</b> The cells still exist
+/// one per column — the axis needs them and <c>GroupScheduleConflictGuard</c> reads them — so a guard
+/// that looked only at <see cref="ServicePeriod.CohortSlotAssignmentId"/> would find the lead cell
+/// locked and every trailing cell of the run apparently free, and would happily let the arranger
+/// rewrite them or let the slot be deleted underneath a running stage.</para>
+/// </summary>
+public sealed class ServicePeriodSlotCoverage
+{
+    public int Id { get; set; }
+    public Guid ServicePeriodId { get; set; }
+    public ServicePeriod ServicePeriod { get; set; } = default!;
+    public int CohortSlotAssignmentId { get; set; }
+    public CohortSlotAssignment CohortSlotAssignment { get; set; } = default!;
 }
 
 /// <summary>

@@ -22,24 +22,25 @@ internal sealed class GenerateMacroPlanCommandHandler(
         if (cohortResult.IsFailure)
             return Result.Failure<MacroPlanResult>(cohortResult.Error);
 
+        var blocks = ConcurrencyBlock.From(request.Plans);
+
         int studentsAssigned = 0, cellsArranged = 0, saturated = 0, cohortsPublished = 0, periodsPublished = 0;
-        int groupConflicts = 0;
+        int groupConflicts = 0, skippedAlreadyServed = 0;
 
-        foreach (var plan in request.Plans)
+        foreach (var block in blocks)
         {
-            string[] partition = [plan.RotationGroup];
-
             if (request.AssignStudents)
             {
                 var affected = await affectation.AssignByStageAsync(
-                    plan.StageId, request.AcademicYearId, partition, cancellationToken);
+                    block.StageId, request.AcademicYearId, block.RotationGroups, cancellationToken);
                 studentsAssigned += affected.SuccessCount;
             }
 
             if (request.AutoArrange)
             {
                 var arranged = await arranger.ArrangeAsync(
-                    plan.StageId, request.AcademicYearId, partition, plan.PeriodNumbers, null, cancellationToken);
+                    block.StageId, request.AcademicYearId, block.RotationGroups, block.PeriodNumbers,
+                    null, cancellationToken);
 
                 // A stage whose period slots aren't defined yet is a setup-order issue,
                 // not a hard error: keep the cohorts/affectation already done and let the
@@ -61,16 +62,17 @@ internal sealed class GenerateMacroPlanCommandHandler(
 
         if (request.Publish)
         {
-            foreach (var plan in request.Plans)
+            foreach (var block in blocks)
             {
                 var published = await publisher.PublishStageAsync(
-                    plan.StageId, request.AcademicYearId, [plan.RotationGroup], plan.PeriodNumbers,
+                    block.StageId, request.AcademicYearId, block.RotationGroups, block.PeriodNumbers,
                     request.AllowOverCapacity, cancellationToken);
                 if (published.IsFailure)
                     return Result.Failure<MacroPlanResult>(published.Error);
 
-                cohortsPublished += published.Value.PublishedCohorts;
-                periodsPublished += published.Value.PeriodsCreated;
+                cohortsPublished     += published.Value.PublishedCohorts;
+                periodsPublished     += published.Value.PeriodsCreated;
+                skippedAlreadyServed += published.Value.SkippedAlreadyServed;
             }
         }
 
@@ -83,6 +85,47 @@ internal sealed class GenerateMacroPlanCommandHandler(
             cohortsPublished,
             periodsPublished,
             cohortResult.Value.NotRequiredByCnpn,
-            groupConflicts));
+            groupConflicts,
+            skippedAlreadyServed));
     }
+}
+
+/// <summary>
+/// The partitions that occupy one stage over one window — everything the matrix puts in the same
+/// place at the same time. <c>Lₛ = P·kₛ/T</c> of them, which is more than one exactly when the
+/// block's stages have unequal durations.
+/// </summary>
+/// <remarks>
+/// <para>⚠ <b>Concurrent partitions must be arranged in one call, not one each.</b> The service
+/// queue is balanced over the cohorts of a single call, so arranging them separately balances each
+/// partition against the full service list in ignorance of the others — and the leftovers stack,
+/// because <c>BuildServiceQueue</c>'s stable ordering always hands the remainder to the same leading
+/// services and every partition of a column carries the same rotation offset. Measured on the
+/// 5th-year block (Gynécologie k=3, L=3, five services, 20 groups): three separate calls of 7/7/6
+/// gave <b>6/5/3/3/3</b>, where the faculty's own document and one call of 20 both give
+/// <b>4/4/4/4/4</b>.</para>
+/// <para>The key is the window as well as the stage: with L &gt; 1 a stage holds several distinct
+/// runs at once (the 5th year has {A,B,C} in périodes 1-3, {E,H,I} in 4-6 and {D,F,G} in 7-9), and
+/// those are three separate blocks, not one. <c>RotationTiling</c> gives concurrent partitions
+/// identical runs, so equality of the period list is the right test; a plan that ever staggered
+/// them would simply fall back to today's per-partition behaviour rather than mis-group.</para>
+/// </remarks>
+internal sealed record ConcurrencyBlock(
+    int StageId,
+    IReadOnlyList<string> RotationGroups,
+    IReadOnlyList<int> PeriodNumbers)
+{
+    public static List<ConcurrencyBlock> From(IReadOnlyList<PartitionStagePlan> plans) =>
+        plans
+            // ⚠ An absent window is legitimate and means "every period of the stage" — the matrix
+            // says so in its own hint («  vide = toutes  »), and the body can leave the field out
+            // entirely. Normalised before it becomes a key, because a null here is a 500 on a
+            // request that used to work.
+            .Select(p => (p.RotationGroup, p.StageId, Periods: (p.PeriodNumbers ?? []).Order().ToList()))
+            .GroupBy(p => (p.StageId, Window: string.Join(",", p.Periods)))
+            .Select(g => new ConcurrencyBlock(
+                g.Key.StageId,
+                g.Select(p => p.RotationGroup).Distinct().Order().ToList(),
+                g.First().Periods))
+            .ToList();
 }

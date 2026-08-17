@@ -2,6 +2,7 @@ using FluentValidation;
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
+using PGSH.Application.Stages.Planning;
 using PGSH.Domain.Stages;
 using PGSH.SharedKernel;
 
@@ -101,11 +102,7 @@ internal sealed class DeleteStageSlotCommandHandler(IApplicationDbContext dbCont
         if (slot is null)
             return Result.Failure(StageErrors.SlotNotFound(request.SlotId));
 
-        bool hasPublishedCells = await dbContext.CohortSlotAssignments
-            .Where(a => a.StageSlotId == request.SlotId)
-            .AnyAsync(a => dbContext.InternshipAssignments
-                .Where(ia => ia.CurrentCohortId == a.CohortId)
-                .Any(ia => ia.ServicePeriods.Any(p => p.CohortSlotAssignmentId == a.Id)), cancellationToken);
+        bool hasPublishedCells = await dbContext.SlotHasPublishedCellAsync(request.SlotId, cancellationToken);
 
         if (hasPublishedCells)
             return Result.Failure(StageErrors.SlotPublished);
@@ -201,9 +198,7 @@ internal sealed class ClearCohortSlotAssignmentCommandHandler(IApplicationDbCont
         if (existing is null)
             return Result.Success();
 
-        bool isPublished = await dbContext.InternshipAssignments
-            .Where(a => a.CurrentCohortId == request.CohortId)
-            .AnyAsync(a => a.ServicePeriods.Any(p => p.CohortSlotAssignmentId == existing.Id), cancellationToken);
+        bool isPublished = await dbContext.IsCellPublishedAsync(existing.Id, cancellationToken);
 
         if (isPublished)
             return Result.Failure(StageErrors.ScheduleAlreadyPublished);
@@ -228,9 +223,7 @@ internal sealed class ClearSlotAssignmentsCommandHandler(IApplicationDbContext d
 
         var unpublishedAssignments = await dbContext.CohortSlotAssignments
             .Where(a => a.StageSlotId == request.StageSlotId
-                     && !dbContext.InternshipAssignments
-                            .Where(ia => ia.CurrentCohortId == a.CohortId)
-                            .Any(ia => ia.ServicePeriods.Any(p => p.CohortSlotAssignmentId == a.Id)))
+                     && !dbContext.ServicePeriodSlotCoverage.Any(c => c.CohortSlotAssignmentId == a.Id))
             .ToListAsync(cancellationToken);
 
         dbContext.CohortSlotAssignments.RemoveRange(unpublishedAssignments);

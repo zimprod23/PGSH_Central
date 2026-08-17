@@ -21,10 +21,23 @@ internal class UpdateStageCommandHandler(IApplicationDbContext dbContext) : ICom
                 return Result.Failure(StageErrors.MissingLevel);
         }
 
+        // The mode is what shaped the periods already on disk — one per cell, or one per run — so
+        // flipping it under a published répartition leaves the arranger and the publisher describing
+        // a rotation that does not match the one students were sent on. Unpublish first.
+        if (stage.RotationMode != request.RotationMode)
+        {
+            bool published = await dbContext.ServicePeriodSlotCoverage
+                .AnyAsync(c => c.CohortSlotAssignment.StageSlot.StageId == request.Id, cancellationToken);
+
+            if (published)
+                return Result.Failure(StageErrors.RotationModeLockedByPublication(stage.Name));
+        }
+
         stage.Name = request.Name;
         stage.Description = request.Description;
         stage.Coefficient = request.Coefficient;
         stage.DurationInDays = request.DurationInDays;
+        stage.RotationMode = request.RotationMode;
         stage.LevelId = request.LevelId;
 
         stage.Objectives.Clear();

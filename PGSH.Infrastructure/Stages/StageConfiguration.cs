@@ -13,6 +13,12 @@ internal sealed class StageConfiguration : IEntityTypeConfiguration<Stage>
         builder.Property(s => s.Coefficient).IsRequired();
         builder.Property(s => s.DurationInDays).IsRequired();
 
+        builder.Property(s => s.RotationMode)
+               .HasConversion<string>()
+               .HasMaxLength(20)
+               .IsRequired()
+               .HasDefaultValue(StageRotationMode.PerPeriod);
+
         // Relationship with Level using explicit Key
         builder.HasOne(s => s.Level)
                .WithMany()
@@ -114,6 +120,32 @@ internal sealed class CohortSlotAssignmentConfiguration : IEntityTypeConfigurati
         builder.HasIndex(a => new { a.CohortId, a.StageSlotId })
                .IsUnique()
                .HasDatabaseName("IX_CohortSlotAssignment_Cohort_Slot");
+    }
+}
+
+internal sealed class ServicePeriodSlotCoverageConfiguration
+    : IEntityTypeConfiguration<ServicePeriodSlotCoverage>
+{
+    public void Configure(EntityTypeBuilder<ServicePeriodSlotCoverage> builder)
+    {
+        builder.HasKey(c => c.Id);
+
+        builder.HasOne(c => c.ServicePeriod)
+               .WithMany(p => p.SlotCoverage)
+               .HasForeignKey(c => c.ServicePeriodId)
+               .OnDelete(DeleteBehavior.Cascade);
+
+        // Cascade, matching ServicePeriod.CohortSlotAssignment's SetNull in spirit: deleting a cell
+        // removes the record that it produced anything, and every path that can delete a cell is
+        // already refused while that cell is covered.
+        builder.HasOne(c => c.CohortSlotAssignment)
+               .WithMany()
+               .HasForeignKey(c => c.CohortSlotAssignmentId)
+               .OnDelete(DeleteBehavior.Cascade);
+
+        builder.HasIndex(c => new { c.CohortSlotAssignmentId, c.ServicePeriodId })
+               .IsUnique()
+               .HasDatabaseName("IX_ServicePeriodSlotCoverage_Cell_Period");
     }
 }
 

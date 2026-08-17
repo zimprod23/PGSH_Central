@@ -1,4 +1,5 @@
 ﻿using PGSH.Application.Abstractions.Messaging;
+using PGSH.Domain.Stages;
 
 namespace PGSH.Application.Stages.Create;
 
@@ -8,7 +9,8 @@ public sealed record CreateStageCommand(
     string? Description,
     int DurationInDays,
     int LevelId,
-    List<CreateStageObjectiveRequest> Objectives): ICommand<int>;
+    List<CreateStageObjectiveRequest> Objectives,
+    StageRotationMode RotationMode = StageRotationMode.PerPeriod): ICommand<int>;
 
 
 public sealed record CreateStageObjectiveRequest(

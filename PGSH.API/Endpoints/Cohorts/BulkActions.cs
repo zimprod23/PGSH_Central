@@ -22,10 +22,10 @@ public sealed class CohortBulkActions : IEndpoint
         .RequireAuthorization();
 
         app.MapDelete("cohorts/{id:int}/publish-schedule", async (
-            int id, ISender sender, CancellationToken ct) =>
+            int id, [FromQuery] bool? force, ISender sender, CancellationToken ct) =>
         {
-            var result = await sender.Send(new UnpublishCohortScheduleCommand(id), ct);
-            return result.Match(count => Results.Ok(new { removed = count }), CustomResults.Problem);
+            var result = await sender.Send(new UnpublishCohortScheduleCommand(id, force ?? false), ct);
+            return result.Match(Results.Ok, CustomResults.Problem);
         })
         .WithTags(Tags.Cohorts)
         .RequireAuthorization();

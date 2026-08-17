@@ -85,6 +85,66 @@ public sealed class InternshipAssignment : Entity
         }
     }
 
+    /// <summary>
+    /// Undoes a publication: drops the execution records this assignment received from the planning
+    /// grid and brings its status and note back in line with what is left. Returns how many periods
+    /// were removed.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ <b>Ad-hoc periods are never touched.</b> A period with no cell behind it is a délocalisation,
+    /// a revalidation or an imported historical stage — none of which came from a répartition, and
+    /// none of which can be reproduced by publishing one again. Unpublishing is the inverse of
+    /// publishing and nothing more.
+    /// <para>The status must be recomputed rather than left alone: an assignment whose periods have
+    /// all just been deleted would otherwise keep reading <c>Ongoing</c> (hidden from nothing,
+    /// counted by the bulk clôture) or even <c>Validated</c> with a <c>FinalScore</c> and no period
+    /// behind it.</para>
+    /// </remarks>
+    public int RemovePublishedPeriods()
+    {
+        var published = ServicePeriods.Where(p => p.CohortSlotAssignmentId is not null).ToList();
+        if (published.Count == 0)
+            return 0;
+
+        foreach (var period in published)
+            ServicePeriods.Remove(period);
+
+        RecomputeFinalScore();
+        RecomputeStatusFromPeriods();
+        return published.Count;
+    }
+
+    /// <summary>
+    /// Derives the lifecycle status from the periods that actually exist. Unlike
+    /// <see cref="SyncStatusAfterReschedule"/> this does <b>not</b> preserve terminal states: it is
+    /// called when periods have been removed, and a verdict pronounced over evaluations that no
+    /// longer exist is exactly what has to be walked back. A ratified stage whose evidence survives
+    /// intact keeps its ratification.
+    /// </summary>
+    private void RecomputeStatusFromPeriods()
+    {
+        var graded = ServicePeriods.Where(p => !p.IsInterrupted).ToList();
+
+        if (graded.Count == 0)
+        {
+            Status = InternshipStatus.Planned;
+            return;
+        }
+
+        bool allEvaluated = graded.All(p => p.Evaluation is not null);
+        bool allComplete  = graded.All(p => p.IsComplete);
+
+        // A ratification (or refusal) survives only while every period behind it is still evaluated;
+        // it is an administrative act on a complete record, not on whichever periods remain.
+        if (Status is InternshipStatus.Validated or InternshipStatus.Rejected && allEvaluated)
+            return;
+
+        Status = allEvaluated && allComplete ? InternshipStatus.Evaluated
+               : allComplete                 ? InternshipStatus.Completed
+               : graded.Any(p => p.IsStarted) ? InternshipStatus.Ongoing
+               : InternshipStatus.Planned;
+    }
+
     // Suspends an in-flight period (e.g. an exam week). Only a started, not-yet-complete period
     // can be paused; the chef sees it frozen until an admin resumes it.
     public Result PausePeriod(Guid periodId, DateOnly date, PauseKind kind, string? reason)

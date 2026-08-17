@@ -5,7 +5,13 @@ using PGSH.SharedKernel;
 
 namespace PGSH.Application.Stages.Planning;
 
-public sealed record PublishResult(int PublishedCohorts, int PeriodsCreated, int SkippedCohorts);
+/// <param name="SkippedAlreadyServed">
+/// Student assignments that already carried a service period and were therefore left alone. These
+/// are the stages someone has already done — an imported historical rotation, a délocalisation, a
+/// revalidation — and publishing over them would duplicate the stage rather than schedule it.
+/// </param>
+public sealed record PublishResult(
+    int PublishedCohorts, int PeriodsCreated, int SkippedCohorts, int SkippedAlreadyServed = 0);
 
 /// <summary>
 /// Materialises the planned schedule into execution records: one
@@ -34,8 +40,12 @@ internal sealed class SchedulePublisher(
         if (slotAssignments.Count == 0)
             return Result.Failure(StageErrors.ScheduleNotConfigured);
 
+        // ⚠ An assignment that already holds a period has already been served — an imported
+        // historical rotation, a délocalisation, a revalidation. Publishing over it would add a
+        // second set of periods for the same stage, which the score then averages and the lifecycle
+        // then waits on. Publication materialises a plan; it never re-materialises a past.
         var assignmentIds = await dbContext.InternshipAssignments
-            .Where(a => a.CurrentCohortId == cohortId)
+            .Where(a => a.CurrentCohortId == cohortId && !a.ServicePeriods.Any())
             .Select(a => a.Id)
             .ToListAsync(ct);
 
@@ -83,10 +93,18 @@ internal sealed class SchedulePublisher(
             .ToListAsync(ct))
             .ToHashSet();
 
-        var assignmentsByCohort = (await dbContext.InternshipAssignments
+        // Already-served assignments are excluded, not skipped as whole cohorts: a cohort routinely
+        // mixes students who have the stage behind them (repeaters, délocalisés) with students who
+        // do not, and the latter still need their schedule. See PublishCohortAsync for why.
+        var candidates = await dbContext.InternshipAssignments
             .Where(a => cohortIds.Contains(a.CurrentCohortId))
-            .Select(a => new { a.Id, a.CurrentCohortId })
-            .ToListAsync(ct))
+            .Select(a => new { a.Id, a.CurrentCohortId, AlreadyServed = a.ServicePeriods.Any() })
+            .ToListAsync(ct);
+
+        int skippedAlreadyServed = candidates.Count(a => a.AlreadyServed);
+
+        var assignmentsByCohort = candidates
+            .Where(a => !a.AlreadyServed)
             .GroupBy(a => a.CurrentCohortId)
             .ToDictionary(g => g.Key, g => g.Select(a => a.Id).ToList());
 
@@ -126,7 +144,7 @@ internal sealed class SchedulePublisher(
             await dbContext.SaveChangesAsync(ct);
         }
 
-        return Result.Success(new PublishResult(published, newPeriods.Count, skipped));
+        return Result.Success(new PublishResult(published, newPeriods.Count, skipped, skippedAlreadyServed));
     }
 
     private Task<bool> IsPublishedAsync(int cohortId, CancellationToken ct) =>
@@ -149,7 +167,8 @@ internal sealed class SchedulePublisher(
                 a.Id, a.CohortId, a.ServiceId, a.StageSlot.StartDate, a.StageSlot.EndDate,
                 a.StageSlot.PeriodNumber, a.Service.Name,
                 a.Cohort.Stage.LevelId,
-                a.Cohort.Stage.Level.Label ?? ("niveau " + a.Cohort.Stage.LevelId)))
+                a.Cohort.Stage.Level.Label ?? ("niveau " + a.Cohort.Stage.LevelId),
+                a.Cohort.Stage.RotationMode))
             .ToListAsync(ct);
     }
 
@@ -209,25 +228,98 @@ internal sealed class SchedulePublisher(
         return Result.Success();
     }
 
+    /// <summary>
+    /// One <see cref="ServicePeriod"/> per student per <i>stay</i>. Under
+    /// <see cref="StageRotationMode.PerPeriod"/> a stay is a single cell; under
+    /// <see cref="StageRotationMode.SingleService"/> it is the whole run the group spends in one
+    /// service, so the run's cells collapse into one continuous period carrying one evaluation.
+    /// </summary>
     private static List<ServicePeriod> BuildPeriods(
         IReadOnlyCollection<SlotAssignmentInfo> slotAssignments, IReadOnlyCollection<Guid> assignmentIds)
     {
-        var periods = new List<ServicePeriod>(slotAssignments.Count * assignmentIds.Count);
-        foreach (var sa in slotAssignments)
+        var stays = BuildStays(slotAssignments);
+        var periods = new List<ServicePeriod>(stays.Count * assignmentIds.Count);
+
+        foreach (var stay in stays)
             foreach (var assignmentId in assignmentIds)
-                periods.Add(new ServicePeriod
+            {
+                // Do NOT pre-set the coverage rows' Id: they are children of a brand-new period and
+                // EF generates the keys (see InternshipAssignment.Delocalize for the failure mode).
+                var period = new ServicePeriod
                 {
                     InternshipAssignmentId = assignmentId,
-                    ServiceId              = sa.ServiceId,
-                    CohortSlotAssignmentId = sa.Id,
-                    StartDate              = sa.StartDate,
-                    EndDate                = sa.EndDate,
+                    ServiceId              = stay.ServiceId,
+                    CohortSlotAssignmentId = stay.Cells[0].Id,
+                    StartDate              = stay.StartDate,
+                    EndDate                = stay.EndDate,
                     IsComplete             = false,
-                });
+                };
+
+                foreach (var cell in stay.Cells)
+                    period.SlotCoverage.Add(new ServicePeriodSlotCoverage
+                    {
+                        CohortSlotAssignmentId = cell.Id,
+                    });
+
+                periods.Add(period);
+            }
+
         return periods;
     }
 
+    /// <summary>
+    /// Groups a cohort's cells into the stays they represent.
+    ///
+    /// <para>A run is a maximal set of that cohort's cells with <b>consecutive period numbers and the
+    /// same service</b>. Deriving it from the cells rather than from the caller's window is what makes
+    /// it general: publishing one concurrency block and publishing the whole stage both produce the
+    /// same stays, because each cohort only ever holds the cells of its own run. Breaking on a service
+    /// change matters too — a cell edited by hand to a different service is two stays, not one period
+    /// silently spanning both.</para>
+    /// </summary>
+    private static List<Stay> BuildStays(IReadOnlyCollection<SlotAssignmentInfo> slotAssignments)
+    {
+        var stays = new List<Stay>();
+
+        foreach (var group in slotAssignments.GroupBy(sa => sa.CohortId))
+        {
+            var ordered = group.OrderBy(sa => sa.PeriodNumber).ToList();
+
+            if (ordered[0].RotationMode != StageRotationMode.SingleService)
+            {
+                stays.AddRange(ordered.Select(sa => new Stay([sa], sa.ServiceId, sa.StartDate, sa.EndDate)));
+                continue;
+            }
+
+            var run = new List<SlotAssignmentInfo> { ordered[0] };
+            for (int i = 1; i < ordered.Count; i++)
+            {
+                var previous = ordered[i - 1];
+                var current  = ordered[i];
+
+                if (current.PeriodNumber == previous.PeriodNumber + 1 && current.ServiceId == previous.ServiceId)
+                {
+                    run.Add(current);
+                    continue;
+                }
+
+                stays.Add(Close(run));
+                run = [current];
+            }
+            stays.Add(Close(run));
+        }
+
+        return stays;
+
+        static Stay Close(List<SlotAssignmentInfo> run) => new(
+            [.. run], run[0].ServiceId, run.Min(c => c.StartDate), run.Max(c => c.EndDate));
+    }
+
+    private sealed record Stay(
+        IReadOnlyList<SlotAssignmentInfo> Cells, int ServiceId, DateOnly StartDate, DateOnly EndDate);
+
     private sealed record SlotAssignmentInfo(
         int Id, int CohortId, int ServiceId, DateOnly StartDate, DateOnly EndDate,
-        int PeriodNumber, string ServiceName, int LevelId, string LevelLabel);
+        int PeriodNumber, string ServiceName, int LevelId, string LevelLabel,
+        StageRotationMode RotationMode);
 }
