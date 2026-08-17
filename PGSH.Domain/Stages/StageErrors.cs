@@ -286,12 +286,21 @@ public static class StageErrors
     /// name this level. Distinct from a quota of zero only in wording; both refuse, but this one
     /// tells the planner the service was never a candidate rather than that it is full.
     /// </summary>
+    /// <remarks>
+    /// ⚠ <b>The only capacity-family refusal <c>AllowOverCapacity</c> does not waive</b>, and the
+    /// message says so, because the checkbox is right there and its label promises otherwise. Being
+    /// full is a target; not being admitted is a fact about the service. The remedy is to change the
+    /// plan or to author a quota — the message names both, since a refusal with no way forward is
+    /// just a wall.
+    /// </remarks>
     public static Error LevelNotAdmitted(
         int periodNumber, string serviceName, string levelLabel,
         DateOnly start, DateOnly end) => Error.Conflict(
         "Schedule.LevelNotAdmitted",
         $"La période {periodNumber} ne peut pas être publiée : le service « {serviceName} » "
         + $"({start:dd/MM/yyyy} – {end:dd/MM/yyyy}) n'accueille pas les étudiants de {levelLabel}. "
+        + "Ce refus ne peut pas être forcé : « autoriser le dépassement » ne lève que les dépassements "
+        + "d'effectif, pas une promotion que le service n'accueille pas. "
         + "Choisissez un autre service, ou ajoutez un quota pour cette promotion depuis la fiche du service.");
 
     /// <summary>

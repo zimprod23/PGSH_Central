@@ -270,6 +270,10 @@ public class ServiceLevelCapacityTests
             "8 ≤ 10 for this promotion, and 38 ≤ 100 overall — the other promotion's overflow is its own problem");
     }
 
+    /// <summary>
+    /// A quota is a target and the override is the admin accepting it will be missed — for the
+    /// per-promotion quota exactly as for the plain ceiling. This half of the flag is unchanged.
+    /// </summary>
     [Fact]
     public async Task AllowOverCapacity_still_bypasses_the_level_quota()
     {
@@ -280,8 +284,52 @@ public class ServiceLevelCapacityTests
 
         var result = await Publisher(db).PublishCohortAsync(CohortId, allowOverCapacity: true, default);
 
-        result.IsSuccess.Should().BeTrue("the override is the admin accepting every capacity rule's breach, not just the ceiling's");
+        result.IsSuccess.Should().BeTrue("being over a target is what the override is for");
         (await db.ServicePeriods.CountAsync()).Should().Be(12);
+    }
+
+    /// <summary>
+    /// ⚠ The half the flag must <b>not</b> waive. Being full is a target; not being admitted is a fact
+    /// about the service, and no checkbox makes it false.
+    ///
+    /// <para>This mattered because the base is structurally over-subscribed — 233 of 353 planned cells
+    /// are over capacity — so the override is ticked as a matter of routine. One flag governing both
+    /// rules meant the hard one was switched off every time it was reached, and a rule enforced only
+    /// when nobody needs the override is not enforced.</para>
+    /// </summary>
+    [Fact]
+    public async Task But_it_never_admits_a_promotion_the_service_refuses()
+    {
+        await using var db = TestHarness.NewContext("cap-admissibility-not-waivable");
+        var service = await SeedGridAsync(db, students: 2, capacity: 20);
+        db.SeedLevel(OtherLevelId, "1ère année Pharmacie", 1, AcademicProgram.Pharmacie);
+        db.SeedLevelCapacity(service, OtherLevelId, 15);
+        await db.SaveChangesAsync();
+
+        var result = await Publisher(db).PublishCohortAsync(CohortId, allowOverCapacity: true, default);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be("Schedule.LevelNotAdmitted");
+        result.Error.Description.Should().Contain("ne peut pas être forcé",
+            "the checkbox is on screen promising otherwise, so the refusal has to say it does not apply here");
+        (await db.ServicePeriods.CountAsync()).Should().Be(0,
+            "a service that does not take this promotion must receive nobody, override or not");
+    }
+
+    /// <summary>
+    /// The override still has to work on an unrestricted service, where there is no admissibility
+    /// question at all — otherwise the split would have turned every over-booking into a wall.
+    /// </summary>
+    [Fact]
+    public async Task And_an_unrestricted_service_still_takes_the_overflow()
+    {
+        await using var db = TestHarness.NewContext("cap-unrestricted-override");
+        await SeedGridAsync(db, students: 25, capacity: 20);
+
+        var result = await Publisher(db).PublishCohortAsync(CohortId, allowOverCapacity: true, default);
+
+        result.IsSuccess.Should().BeTrue();
+        (await db.ServicePeriods.CountAsync()).Should().Be(25);
     }
 
     // ── Auto-arrange ──────────────────────────────────────────────────────────────

@@ -339,7 +339,7 @@ Réanimation included, is not a sensible default.
 **Capacity is measured GLOBALLY across stages (fixed 2026-06-03, was Phase 7.5 #1):** occupancy is no longer grouped by `(StageSlotId, ServiceId)` within one stage. `ServiceOccupancyCalculator` (`Application/Stages/Planning/`) loads every planned `CohortSlotAssignment` targeting a service and exposes `ServiceOccupancyLookup.LoadOn(serviceId, start, end)` = total students on that service whose slot window **overlaps** `[start,end]` (overlap = `a.Start <= end && start <= a.End`), across **all** stages. This is the single source for the three places load matters:
 - `GetStageScheduleQueryHandler` — each cell's `occupiedSeats` shows the real cross-stage load (the macro case: a service shared by partition A in stage X and partition B in stage Y over overlapping dates shows the combined load, not a per-stage half).
 - `RotationArranger` — saturation is counted after the save against the global load per `(slot window, service)`.
-- `SchedulePublisher.EnsureCapacityAsync` — **pre-publish guard** (previously absent): both `PublishCohortAsync` and `PublishStageAsync` refuse with `StageErrors.CapacityExceeded` if any service would exceed capacity over an overlapping window — **unless `allowOverCapacity` is set**, an explicit opt-in override threaded from the publish commands/endpoints (`PublishCohortScheduleCommand.AllowOverCapacity`, `PublishStageScheduleCommand.AllowOverCapacity`, `GenerateMacroPlanCommand.AllowOverCapacity`). When the override is on, the guard is skipped and over-booking is permitted intentionally. The frontend exposes it as an "Autoriser le dépassement de capacité" checkbox in the publish confirm dialogs (per-cohort and "Publier tout"). Distinct cohorts across stages are different physical students, and a group's cohort-in-X vs cohort-in-Y run in non-overlapping windows, so summing overlapping windows does not double-count. Counting `CohortSlotAssignment`s covers both planned and published load (publish keeps the cells); purely ad-hoc `ServicePeriod`s (null `CohortSlotAssignmentId`) are not yet included.
+- `SchedulePublisher.EnsureIntakeAsync` (named `EnsureCapacityAsync` until 2026-08-17) — **pre-publish guard** (previously absent): both `PublishCohortAsync` and `PublishStageAsync` refuse with `StageErrors.CapacityExceeded` if any service would exceed capacity over an overlapping window — **unless `allowOverCapacity` is set**, an explicit opt-in override threaded from the publish commands/endpoints (`PublishCohortScheduleCommand.AllowOverCapacity`, `PublishStageScheduleCommand.AllowOverCapacity`, `GenerateMacroPlanCommand.AllowOverCapacity`). ⚠ Since 2026-08-17 the override waives only the *occupancy* half: `LevelNotAdmitted` is checked whatever the caller asks for, because a service that does not take a promotion is not a target being missed. The frontend exposes it as an « Autoriser le dépassement d’effectif » checkbox in the publish confirm dialogs (per-cohort and "Publier tout"). Distinct cohorts across stages are different physical students, and a group's cohort-in-X vs cohort-in-Y run in non-overlapping windows, so summing overlapping windows does not double-count. Counting `CohortSlotAssignment`s covers both planned and published load (publish keeps the cells); purely ad-hoc `ServicePeriod`s (null `CohortSlotAssignmentId`) are not yet included.
 
 ### Long-running requests are not aborted by navigation or other requests
 RTK Query mutations ("démarrer", publish, macro plan) each get their own `AbortController` and are independent of queries (student search etc.), so one never cancels another. SPA navigation does not reload, so an in-flight mutation runs to completion server-side (RTK auto-aborts only *queries* when their last subscriber leaves, never mutations). There is no client request timeout. Implication: a slow mutation finishes invisibly in the background — keep handlers idempotent so an accidental re-trigger is safe (Phase 7.5 robustness item).
@@ -1314,10 +1314,27 @@ per-level quota machinery — built, documented, tested — is unused. The page 
 rules is in force on every service, because an empty quota table reads as "not configured yet" when
 it means "open to everyone", and a total on a restricted service reads as live when it is dead data.
 
-⚠ **Still open** (from the architecture review the same day, in the order that pays): real capacities
-first; then turn `RotationArranger`'s bare `saturatedServices` count into the same service × période ×
-overflow report this page now gives; then split `AllowOverCapacity` so admissibility is never waived
-with the target; then change `BuildServiceQueue`'s objective to distribute unavoidable excess in
+✅ **`AllowOverCapacity` is split** (2026-08-17). `EnsureCapacityAsync` → `EnsureIntakeAsync`, called
+unconditionally: **admissibility is checked whatever the caller asks for**, occupancy only when the
+override is off.
+
+The 66% is not background colour here — it *is* the argument. A flag that has to be ticked on two
+thirds of the plan is ticked as a matter of routine, so whatever else it happened to govern was
+switched off every time it was reached. **A rule enforced only when nobody needs the override is not
+enforced**, and this one was the rule against sending 1ère année to a service that does not take
+them. The same table also says why the *other* half must stay waivable: with 148 of 148 services on
+the imported default and 0 quotas authored, a capacity verdict is measured against a number nobody
+wrote, and refusing on it outright would stop planning altogether.
+
+Two consequences worth keeping. The refusal now says it cannot be forced — the checkbox is on screen
+promising otherwise, and its description literally listed « service n'accueillant pas cette
+promotion » among what it would push through. And the occupancy lookup, the expensive half, is built
+only when a number will actually be read, so splitting the flag did not make the common publish
+slower than when it skipped everything.
+
+⚠ **Still open** (same review, in the order that pays): real capacities first; then turn
+`RotationArranger`'s bare `saturatedServices` count into the same service × période × overflow report
+this page now gives; then change `BuildServiceQueue`'s objective to distribute unavoidable excess in
 proportion to capacity instead of dropping services smaller than one cohort; and close the two silent
 degeneracies (`shiftPerSlot == 0` when cohorts < périodes, weight 0 excluding a service outright).
 

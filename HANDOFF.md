@@ -1,5 +1,63 @@
 # HANDOFF.md
 
+> **▶ SESSION 22 — a guard nobody can reach, and a guard everybody switches off.**
+>
+> Two defects of the same family: a rule that is *written* correctly and *enforced* never. Suite
+> **859 green** (852 + 5 + 2). Sessions 18-21 are now **committed and pushed** on
+> `cnpn-versioning-and-year-scoping` — four commits by session, plus these.
+>
+> **1 · `Levels.NotAPromotion` could not be checked, so it wasn't — twice.** The smoke step said
+> "force the act anyway". But once « Retrait » stopped being offered in the pickers — the session-21
+> fix working — the refusal became unreachable through the app, and firing it headlessly needs a
+> bearer token. **A guard that can only be checked by hand, and can only be reached by defeating
+> another guard, will not be checked.** The answer was not a better way to get a token.
+>
+> New **`PGSH.Tests/Integration/`**: `ApiFactory` hosts the real `Program.cs` in-process
+> (`WebApplicationFactory`), so a test reaches a route the way a browser does — routing, the
+> required-ness of a query parameter, model binding, authentication, `SyncUserMiddleware`, the
+> exception handler, the `Result.Failure` → problem-details mapping. Five tests on
+> `POST groups/assign-partitions`:
+> the marker refused **400 / `Levels.NotAPromotion`**; **and nothing written while refusing** — the
+> point of the whole file, since a guard ordered *after* the write returns the same `Result.Failure`
+> and passes the handler test; a real promotion still cut (without that control, a route that 400s on
+> everything satisfies both refusal tests); `levelId` omitted refused rather than applied year-wide;
+> and an anonymous caller **401** — the authorization layer had never been asserted anywhere.
+>
+> ⚠ Verified the tests *bite* by breaking the guard and confirming they fail. That run also exposed
+> the store leaking between tests — rows one test wrote took three unrelated ones down, hiding which
+> assertion broke — hence `ResetAsync` per test. The same mutation now fails exactly two.
+>
+> ⚠ **Two constraints.** The store is still InMemory: this closes the *pipeline* blind spot, not the
+> *store* one — **Testcontainers is still not built**, so a green suite is not proof a query runs on
+> PostgreSQL. And `PGSH.Tests` now references `PGSH.API`, so **`dotnet test` fails with MSB3021 while
+> the Aspire stack is running**; build elsewhere with `-p:BaseOutputPath=<tmp>/` and do *not* also set
+> `BaseIntermediateOutputPath` (MSB4006, circular dependency).
+>
+> **2 · `AllowOverCapacity` was switching off a rule that is not negotiable.** One checkbox governed
+> both "this service is over its number" and "this service does not take 1ère année". The base is
+> structurally over-subscribed — **233 of 353 planned cells are over capacity (66%)** — so the
+> override is ticked as a matter of routine, and the hard rule was switched off every time it was
+> reached. *A rule enforced only when nobody needs the override is not enforced.*
+> `EnsureCapacityAsync` → **`EnsureIntakeAsync`**, called unconditionally: admissibility is checked
+> whatever the caller asks for, occupancy only when the override is off. The refusal now **says it
+> cannot be forced**, and the checkbox — relabelled « dépassement d'**effectif** » — no longer claims
+> a power it lacks; its description literally promised to force a service that refuses the promotion.
+> The occupancy lookup is built only when a number will actually be read, so the common publish does
+> no more work than when the flag skipped everything.
+> Confirmed by mutation: putting the override back in front of the admissibility check fails the new
+> test and **only** that test.
+>
+> ### Still open after this session
+>
+> 1. **Testcontainers.** `Integration/` proves the pipeline; nothing proves the SQL. FK constraints,
+>    unique indexes, `OnDelete` and query translatability are still invisible to every test.
+> 2. **Only `assign-partitions` has endpoint coverage.** The harness is the expensive part and it is
+>    built; extend it where a guard is unreachable by hand or ordering matters, not everywhere.
+> 3. Items 2 and 3 of session 21 below (the unreproduced error-boundary trip; the gap-fill card still
+>    never exercised) are unchanged.
+>
+> ---
+
 > **▶ SESSION 21 — the partition count was being read off a subset, in three different places.**
 >
 > ⚠ Numbered 21 because [`SMOKE-TEST.md`](SMOKE-TEST.md) already attributes steps **12j**, **12k/12l/15**

@@ -689,14 +689,26 @@ so one key expresses "10 first-year Médecine, 15 third-year, no pharmaciens" �
   all promotions against a total. Mixing them is the bug this table exists to prevent.
 - **Only a restricted service can breach a quota.** On an unrestricted one the guard reports the plain
   `CapacityExceeded` — naming a quota nobody authored sends the user hunting for a rule that is not there.
-- **Every capacity refusal is waived by `AllowOverCapacity`** (the publish checkbox), including
-  `LevelNotAdmitted`: the whole check sits inside `if (!allowOverCapacity)`.
-  - ⚠ **This is the wrong shape for this faculty and should be split.** Admissibility ("this service
-    does not take 1st-years") is not negotiable; a capacity target here is, because the base is
+- **`AllowOverCapacity` waives a target, never an admissibility rule** — `SchedulePublisher.
+  EnsureIntakeAsync` (renamed from `EnsureCapacityAsync`, which described half of what it does).
+  Two rules of different kinds:
+  - **Admissibility** (`LevelNotAdmitted`) — the service carries intake rules and none names this
+    promotion. Checked **whatever the caller asks for**. Publishing anyway sends students to a
+    service that does not take them, which no checkbox makes true.
+  - **Occupancy** (`CapacityExceeded`, `LevelCapacityExceeded`) — over the number. Waivable, because
+    the number is a target.
+  - ⚠ **Why the split had to happen: the override is ticked as a matter of routine.** The base is
     structurally over-subscribed — measured 2026-08-14, **233 of 353 planned cells are over capacity
-    (66%), worst 85 against 20**. One flag governing both means the hard rule gets switched off
-    every time. Also note all 148 services carry the imported default `Capacity = 20` and **not one
-    quota is authored**, so every capacity verdict today is measured against a number nobody wrote.
+    (66%), worst 85 against 20** — so one flag governing both meant the hard rule was switched off
+    every time it was reached. *A rule enforced only when nobody needs the override is not enforced.*
+  - The refusal **says it cannot be forced**, because the checkbox is on screen promising otherwise;
+    the checkbox's own description says so too, and is now labelled « dépassement d'**effectif** ».
+  - The occupancy lookup is built **only when a number will be read** — with the override on,
+    admissibility is answered by the intake rules alone, so splitting the flag did not make the
+    common publish do more work than when it skipped everything.
+  - ⚠ Still true: all 148 services carry the imported default `Capacity = 20` and **not one quota is
+    authored**, so every *capacity* verdict today is measured against a number nobody wrote. That is
+    an argument about the soft half only — it is exactly why the soft half stays waivable.
 
 ### A service's load is not readable one period at a time
 `Services/Occupancy/` answers "what does this service actually hold, and when" — the question

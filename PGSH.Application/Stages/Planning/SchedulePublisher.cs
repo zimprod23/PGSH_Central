@@ -52,12 +52,9 @@ internal sealed class SchedulePublisher(
         if (assignmentIds.Count == 0)
             return Result.Failure(StageErrors.NoPlannedAssignments);
 
-        if (!allowOverCapacity)
-        {
-            var capacity = await EnsureCapacityAsync(slotAssignments, ct);
-            if (capacity.IsFailure)
-                return capacity;
-        }
+        var intake = await EnsureIntakeAsync(slotAssignments, allowOverCapacity, ct);
+        if (intake.IsFailure)
+            return intake;
 
         var periods = BuildPeriods(slotAssignments, assignmentIds);
         await dbContext.ServicePeriods.AddRangeAsync(periods, ct);
@@ -131,12 +128,9 @@ internal sealed class SchedulePublisher(
             published++;
         }
 
-        if (!allowOverCapacity)
-        {
-            var capacity = await EnsureCapacityAsync(publishableSlots, ct);
-            if (capacity.IsFailure)
-                return Result.Failure<PublishResult>(capacity.Error);
-        }
+        var intake = await EnsureIntakeAsync(publishableSlots, allowOverCapacity, ct);
+        if (intake.IsFailure)
+            return Result.Failure<PublishResult>(intake.Error);
 
         if (newPeriods.Count > 0)
         {
@@ -173,10 +167,10 @@ internal sealed class SchedulePublisher(
     }
 
     /// <summary>
-    /// Refuses to publish if any service would be over-booked over an overlapping window — counted
-    /// globally across every stage, so a service shared by two partitions running different stages
-    /// on overlapping dates cannot be silently over-filled. The cohort being published is already
-    /// part of the planned occupancy the lookup measures.
+    /// Checks what a service will take, over every overlapping window — counted globally across every
+    /// stage, so a service shared by two partitions running different stages on overlapping dates
+    /// cannot be silently over-filled. The cohort being published is already part of the planned
+    /// occupancy the lookup measures.
     ///
     /// <b>One</b> ceiling per service, not two — quotas replace the total rather than sitting under
     /// it. A restricted service is measured per promotion against that promotion's quota; an
@@ -184,15 +178,39 @@ internal sealed class SchedulePublisher(
     /// granting 10 and 15 publishes 6 + 15 = 21 without complaint, and the same service with no
     /// quotas refuses at 21. See <see cref="Domain.Hospitals.Service.CapacityFor"/>.
     /// </summary>
-    private async Task<Result> EnsureCapacityAsync(
-        IReadOnlyCollection<SlotAssignmentInfo> slotAssignments, CancellationToken ct)
+    /// <remarks>
+    /// ⚠ <b>Two rules of different kinds, and <paramref name="allowOverCapacity"/> waives only one.</b>
+    /// <list type="bullet">
+    /// <item><b>Admissibility</b> — the service carries intake rules and none of them name this
+    /// promotion. Not negotiable, and not waivable: publishing anyway sends students to a service that
+    /// does not take them, which no checkbox makes true.</item>
+    /// <item><b>Occupancy</b> — the service takes this promotion but would hold more than its number.
+    /// Negotiable, because the number is a target and this base is structurally over-subscribed:
+    /// measured 2026-08-14, <b>233 of 353 planned cells are over capacity (66%), worst 85 against
+    /// 20</b>, and not one of the 148 services has an authored quota — every capacity verdict today is
+    /// measured against the imported default of 20.</item>
+    /// </list>
+    /// One flag governing both is what made this wrong: with two thirds of the plan over capacity the
+    /// checkbox is ticked as a matter of routine, and it was silently switching off the hard rule
+    /// alongside the soft one. A rule that is only enforced when nobody needs the override is not
+    /// enforced.
+    /// </remarks>
+    private async Task<Result> EnsureIntakeAsync(
+        IReadOnlyCollection<SlotAssignmentInfo> slotAssignments, bool allowOverCapacity, CancellationToken ct)
     {
         if (slotAssignments.Count == 0)
             return Result.Success();
 
         var serviceIds = slotAssignments.Select(s => s.ServiceId).Distinct().ToList();
-        var occupancy = await occupancyCalculator.BuildAsync(serviceIds, ct);
         var intake = await intakeCalculator.BuildAsync(serviceIds, ct);
+
+        // Admissibility is answered by the intake rules alone; only a capacity verdict needs to know
+        // how many students are actually there. So with the override on, the expensive half is never
+        // built — which is what keeps splitting the flag from making the common publish slower than
+        // it was when the flag skipped everything.
+        var occupancy = allowOverCapacity
+            ? null
+            : await occupancyCalculator.BuildAsync(serviceIds, ct);
 
         foreach (var sa in slotAssignments
                      .GroupBy(s => new { s.ServiceId, s.LevelId, s.StartDate, s.EndDate })
@@ -200,13 +218,16 @@ internal sealed class SchedulePublisher(
         {
             if (intake.HasLevelRestrictions(sa.ServiceId))
             {
+                // Checked whatever the caller asked for. This is the hard half.
                 if (!intake.Admits(sa.ServiceId, sa.LevelId))
                     return Result.Failure(StageErrors.LevelNotAdmitted(
                         sa.PeriodNumber, sa.ServiceName, sa.LevelLabel, sa.StartDate, sa.EndDate));
 
+                if (allowOverCapacity) continue;
+
                 // This promotion's students only: the quota is about them, and another promotion
                 // filling its own quota is not this one's problem.
-                int levelLoad = occupancy.LoadOn(sa.ServiceId, sa.LevelId, sa.StartDate, sa.EndDate);
+                int levelLoad = occupancy!.LoadOn(sa.ServiceId, sa.LevelId, sa.StartDate, sa.EndDate);
                 int levelCapacity = intake.CapacityFor(sa.ServiceId, sa.LevelId);
                 if (levelLoad > levelCapacity)
                     return Result.Failure(StageErrors.LevelCapacityExceeded(
@@ -216,9 +237,13 @@ internal sealed class SchedulePublisher(
                 continue;
             }
 
-            // Unrestricted: one number for everybody, so the load is everybody. Blaming a "quota"
-            // here would send the user looking for a rule nobody authored.
-            int load = occupancy.LoadOn(sa.ServiceId, sa.StartDate, sa.EndDate);
+            // An unrestricted service admits every promotion by definition, so there is no hard half
+            // here — only the number, and the number is what the override is for.
+            if (allowOverCapacity) continue;
+
+            // One number for everybody, so the load is everybody. Blaming a "quota" here would send
+            // the user looking for a rule nobody authored.
+            int load = occupancy!.LoadOn(sa.ServiceId, sa.StartDate, sa.EndDate);
             int capacity = intake.TotalCapacity(sa.ServiceId);
             if (load > capacity)
                 return Result.Failure(StageErrors.CapacityExceeded(

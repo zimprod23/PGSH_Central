@@ -855,6 +855,33 @@ the opposite mistake and just as wrong.
 
 ---
 
+## 18 · The override stops waiving a rule that is not negotiable (5 min) — session 22
+
+> ⚠ **Not yet executed live.** Needs a restricted service, and **not one of the 148 services has an
+> authored quota**, so the state this changes does not exist in the base yet — it has to be created.
+> Covered by `ServiceLevelCapacityTests` (`But_it_never_admits_a_promotion_the_service_refuses`,
+> confirmed by mutation), which is why this is a check of the *screens*, not of the rule.
+
+1. Pick a service used by a planned but unpublished cohorte. **Fiche du service → quotas**: add a
+   quota for **another** promotion only. That single row *restricts* the service — from then on it
+   admits no promotion without one.
+2. Publish the cohorte with « Autoriser le dépassement d'effectif » **ticked**. It must still be
+   **refused** with `Schedule.LevelNotAdmitted`, and the message must say « Ce refus ne peut pas être
+   forcé ». ⚠ Before this session the tick published it.
+3. The checkbox's description must **not** promise to force a service that refuses the promotion —
+   it used to, in both the per-cohorte and the publish-all modals. A control describing a power it
+   lacks is worse than none: the admin ticks it, gets the same refusal, and concludes the screen is
+   broken rather than the plan.
+4. Now add a quota for **this** promotion, smaller than the cohorte. Publish with the box **unticked**
+   → refused `Schedule.LevelCapacityExceeded`. Tick it → **published**. That half is unchanged, and it
+   is the half that has to keep working: two thirds of planned cells are over capacity.
+5. Remove the quotas afterwards, or the service stays restricted.
+
+❌ **Fail if** the tick publishes onto a service that does not admit the promotion, if the refusal
+does not say it cannot be forced, or if ticking it no longer gets a merely over-full service through.
+
+---
+
 ## 12h · Correcting Aïd after the décret (4 min)
 
 > ✅ **Executed 2026-08-13** on the real *Aïd al-Fitr* row, and **fully restored afterwards** —
