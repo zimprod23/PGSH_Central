@@ -24,7 +24,29 @@ public record ServiceDetailResponse(
     bool HasOwnLocalization,
     ServiceChefResponse? ServiceChef,
     List<ServiceLevelCapacityResponse> LevelCapacities,
-    List<StaffMemberResponse> Staff);
+    List<StaffMemberResponse> Staff,
+    /// <summary>
+    /// Every tenure, newest first — who led the service and when. This is what lets a répartition
+    /// reprinted three years later name the chef it was published under, and it is the only dated
+    /// answer of the three the résolution order considers.
+    /// </summary>
+    List<ChefTenureResponse> ChefHistory,
+    /// <summary>
+    /// The name in the legacy « Responsable (source) » note, when the service has one — 140 of 148
+    /// services do, and none of those has a configured chef. ⚠ Undated: it says who the Access base
+    /// last recorded, not who led the service on any particular date, so it is surfaced separately
+    /// rather than folded into <see cref="ServiceChef"/>. Linking a real chef is what replaces it.
+    /// </summary>
+    string? ChefFromSourceNote);
+
+public record ChefTenureResponse(
+    Guid EmployeeId,
+    string FirstName,
+    string LastName,
+    string Grade,
+    DateOnly StartDate,
+    /// <summary>Null while the tenure is the sitting one.</summary>
+    DateOnly? EndDate);
 
 /// <summary>One authored intake rule. An empty list on the detail means the service takes every promotion.</summary>
 public record ServiceLevelCapacityResponse(

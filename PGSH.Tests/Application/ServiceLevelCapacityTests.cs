@@ -44,9 +44,6 @@ public class ServiceLevelCapacityTests
     private static SchedulePublisher Publisher(ApplicationDbContext db) =>
         new(db, new ServiceOccupancyCalculator(db), new ServiceIntakeCalculator(db));
 
-    private static RotationArranger Arranger(ApplicationDbContext db) =>
-        new(db, new ServiceOccupancyCalculator(db), new PGSH.Application.Stages.Slots.GroupScheduleConflictGuard(db));
-
     /// <summary>Fills <paramref name="cohort"/> with <paramref name="students"/> registered assignments.</summary>
     private static void Populate(ApplicationDbContext db, Cohort cohort, int students, int levelId)
     {
@@ -308,7 +305,7 @@ public class ServiceLevelCapacityTests
         Populate(db, cohort, 5, TestHarness.LevelId);
         await db.SaveChangesAsync();
 
-        var result = await Arranger(db).ArrangeAsync(TestHarness.StageId, TestHarness.CurrentYearId, null, null, null, default);
+        var result = await db.Arranger().ArrangeAsync(TestHarness.StageId, TestHarness.CurrentYearId, null, null, null, default);
 
         result.IsSuccess.Should().BeTrue();
         var cells = await db.CohortSlotAssignments.ToListAsync();
@@ -333,7 +330,7 @@ public class ServiceLevelCapacityTests
         Populate(db, cohort, 5, TestHarness.LevelId);
         await db.SaveChangesAsync();
 
-        var result = await Arranger(db).ArrangeAsync(TestHarness.StageId, TestHarness.CurrentYearId, null, null, null, default);
+        var result = await db.Arranger().ArrangeAsync(TestHarness.StageId, TestHarness.CurrentYearId, null, null, null, default);
 
         result.IsFailure.Should().BeTrue();
         result.Error.Code.Should().Be("Schedule.NoServicesAdmitLevel",
@@ -367,7 +364,7 @@ public class ServiceLevelCapacityTests
         }
         await db.SaveChangesAsync();
 
-        var result = await Arranger(db).ArrangeAsync(TestHarness.StageId, TestHarness.CurrentYearId, null, null, null, default);
+        var result = await db.Arranger().ArrangeAsync(TestHarness.StageId, TestHarness.CurrentYearId, null, null, null, default);
 
         result.IsSuccess.Should().BeTrue();
         var cells = await db.CohortSlotAssignments.ToListAsync();

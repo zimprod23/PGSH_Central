@@ -17,6 +17,8 @@ internal sealed class GetServiceByIdQueryHandler(IApplicationDbContext dbContext
             .Include(s => s.Staff)
             .Include(s => s.LevelCapacities)
                 .ThenInclude(c => c.Level)
+            .Include(s => s.ChefHistory)
+                .ThenInclude(h => h.Employee)
             .FirstOrDefaultAsync(s => s.Id == request.Id, cancellationToken);
 
         if (service is null)
@@ -63,7 +65,20 @@ internal sealed class GetServiceByIdQueryHandler(IApplicationDbContext dbContext
                 e.LastName,
                 e.PPR,
                 e.Grade.ToString(),
-                e.Position?.ToString() ?? "Normal")).ToList()
+                e.Position?.ToString() ?? "Normal")).ToList(),
+            service.ChefHistory
+                .OrderByDescending(h => h.StartDate)
+                .Select(h => new ChefTenureResponse(
+                    h.EmployeeId,
+                    h.Employee.FirstName,
+                    h.Employee.LastName,
+                    h.Employee.Grade.ToString(),
+                    h.StartDate,
+                    h.EndDate))
+                .ToList(),
+            // Parsed here rather than in SQL: it is free text with a known prefix, and the format
+            // lives in one place so the importer that writes it and every reader cannot drift.
+            ServiceChefSourceNote.Read(service.Description)
         );
 
         return Result.Success(response);

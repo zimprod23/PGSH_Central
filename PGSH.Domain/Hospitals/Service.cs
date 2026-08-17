@@ -14,10 +14,19 @@ public sealed class Service
     public ServiceType ServiceType { get; set; }
 
     /// <summary>
-    /// The physical ceiling: how many students of any kind the service holds at once. Per-level
-    /// intake rules live in <see cref="LevelCapacities"/> and sit <i>underneath</i> this number,
-    /// never replacing it — see <see cref="ServiceLevelCapacity"/>.
+    /// How many students the service holds at once, counted across every promotion — <b>but only
+    /// while no <see cref="LevelCapacities"/> row exists</b>. The moment one does, this number stops
+    /// being consulted: quotas <i>replace</i> it rather than sitting under it, so a service of 20
+    /// granting 10 and 15 holds 25 and nothing objects. Read the limit through
+    /// <see cref="CapacityFor"/>, never off this property.
     /// </summary>
+    /// <remarks>
+    /// ⚠ This comment used to say quotas sit "underneath this number, never replacing it", which is
+    /// the opposite of what <see cref="CapacityFor"/> does and of the rule the publish guard
+    /// enforces. Corrected 2026-08-14. Note also that all 148 imported services carry the default
+    /// 20 and none has a quota, so every capacity decision in the base today is measured against a
+    /// number nobody authored.
+    /// </remarks>
     public int Capacity { get; set; } = 20;
 
     public int HospitalId { get; set; }
