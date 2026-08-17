@@ -1,6 +1,7 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
+using PGSH.Domain.Registrations;
 using PGSH.Domain.Stages;
 using PGSH.SharedKernel;
 
@@ -11,17 +12,34 @@ internal sealed class CreateCohortCommandHandler(IApplicationDbContext dbContext
 {
     public async Task<Result<int>> Handle(CreateCohortCommand request, CancellationToken cancellationToken)
     {
-        bool stageExists = await dbContext.Stages
-            .AnyAsync(s => s.Id == request.StageId, cancellationToken);
-        if (!stageExists)
+        var stage = await dbContext.Stages
+            .AsNoTracking()
+            .Where(s => s.Id == request.StageId)
+            .Select(s => new { s.Name, s.LevelId, LevelLabel = s.Level == null ? null : s.Level.Label })
+            .FirstOrDefaultAsync(cancellationToken);
+        if (stage is null)
             return Result.Failure<int>(StageErrors.NotFound(request.StageId));
 
-        bool groupExists = await dbContext.AcademicGroups
-            .AnyAsync(g => g.Id == request.AcademicGroupId, cancellationToken);
-        if (!groupExists)
-            return Result.Failure<int>(Error.NotFound(
-                "AcademicGroups.NotFound",
-                $"The academic group with Id = '{request.AcademicGroupId}' was not found."));
+        var group = await dbContext.AcademicGroups
+            .AsNoTracking()
+            .Where(g => g.Id == request.AcademicGroupId)
+            .Select(g => new { g.Label, g.LevelId, LevelLabel = g.Level == null ? null : g.Level.Label })
+            .FirstOrDefaultAsync(cancellationToken);
+        if (group is null)
+            return Result.Failure<int>(AcademicGroupErrors.NotFound(request.AcademicGroupId));
+
+        // Both ends of a cohorte belong to one promotion. CohortProvisioner enforces this on the bulk
+        // path; without it here the hand-built path could pair any roster with any stage, which is the
+        // shape of defect SplitAcademicGroupsPerLevel had to undo across 1,003 rows.
+        if (group.LevelId is null)
+            return Result.Failure<int>(StageErrors.CohortOnUnassignedRoster(group.Label));
+
+        if (group.LevelId != stage.LevelId)
+            return Result.Failure<int>(StageErrors.CohortPromotionMismatch(
+                group.Label,
+                group.LevelLabel ?? $"niveau {group.LevelId}",
+                stage.Name,
+                stage.LevelLabel ?? $"niveau {stage.LevelId}"));
 
         bool duplicate = await dbContext.Cohorts
             .AnyAsync(c => c.StageId == request.StageId && c.AcademicGroupId == request.AcademicGroupId, cancellationToken);

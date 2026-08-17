@@ -11,6 +11,10 @@ public sealed record GroupPlacement(
     int GroupNumber,
     int StageSlotId,
     string StageName,
+    // The promotion the placement belongs to. Not decoration: a legacy group row is shared by every
+    // level that used its number, so the stage the group is busy in often belongs to another year of
+    // study entirely, and naming only the stage makes the refusal unreadable.
+    string LevelLabel,
     int PeriodNumber,
     DateOnly StartDate,
     DateOnly EndDate);
@@ -55,6 +59,7 @@ internal sealed class GroupScheduleConflictGuard(IApplicationDbContext dbContext
                 a.Cohort.AcademicGroup.GroupNumber,
                 a.StageSlotId,
                 a.StageSlot.Stage.Name,
+                a.StageSlot.Stage.Level.Label ?? ("niveau " + a.StageSlot.Stage.LevelId),
                 a.StageSlot.PeriodNumber,
                 a.StageSlot.StartDate,
                 a.StageSlot.EndDate))
@@ -92,8 +97,8 @@ internal sealed class GroupScheduleConflictGuard(IApplicationDbContext dbContext
             if (occupancy.ConflictFor(groupId, newStart, newEnd) is { } conflict)
             {
                 return Result.Failure(StageErrors.GroupAlreadyPlaced(
-                    conflict.GroupNumber, conflict.StageName, conflict.PeriodNumber,
-                    conflict.StartDate, conflict.EndDate));
+                    conflict.GroupNumber, conflict.StageName, conflict.LevelLabel,
+                    conflict.PeriodNumber, conflict.StartDate, conflict.EndDate));
             }
         }
 
@@ -130,8 +135,8 @@ internal sealed class GroupScheduleConflictGuard(IApplicationDbContext dbContext
         return conflict is null
             ? Result.Success()
             : Result.Failure(StageErrors.GroupAlreadyPlaced(
-                conflict.GroupNumber, conflict.StageName, conflict.PeriodNumber,
-                conflict.StartDate, conflict.EndDate));
+                conflict.GroupNumber, conflict.StageName, conflict.LevelLabel,
+                conflict.PeriodNumber, conflict.StartDate, conflict.EndDate));
     }
 }
 

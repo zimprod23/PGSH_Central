@@ -165,6 +165,32 @@ public static class StageErrors
         "Cohorts.NotFound",
         $"The cohort with Id = '{cohortId}' was not found.");
 
+    /// <summary>
+    /// A cohorte is a roster <i>doing one stage</i>, so both ends have to belong to the same
+    /// promotion. Building one across promotions plans a roster into a stage set that is not its own,
+    /// and — because a cell's level is read off <c>Cohort.Stage.LevelId</c> — books it against the
+    /// wrong promotion's service quota.
+    /// </summary>
+    /// <remarks>
+    /// <c>CohortProvisioner</c> has always checked this; the hand-built path had no equivalent, which
+    /// left a cohorte across promotions reachable by a single POST.
+    /// </remarks>
+    public static Error CohortPromotionMismatch(
+        string groupLabel, string groupLevel, string stageName, string stageLevel) => Error.Validation(
+        "Cohorts.PromotionMismatch",
+        $"« {groupLabel} » est un groupe de {groupLevel}, mais « {stageName} » est un stage de "
+        + $"{stageLevel}. Une cohorte ne peut pas relier deux promotions.");
+
+    /// <summary>
+    /// « Non réparti » holds every promotion's unassigned registrations, so a cohorte on it would put
+    /// all of them through one stage in one service — see <c>AcademicGroupErrors</c>.
+    /// </summary>
+    public static Error CohortOnUnassignedRoster(string groupLabel) => Error.Validation(
+        "Cohorts.OnUnassignedRoster",
+        $"« {groupLabel} » n'appartient à aucune promotion : il rassemble les inscriptions non "
+        + "réparties de toutes les promotions de l'année. Répartissez ces étudiants dans des groupes "
+        + "avant de créer une cohorte.");
+
     // === Schedule / StageSlot ===
     public static Error SlotNotFound(int slotId) => Error.NotFound(
         "Schedule.SlotNotFound",
@@ -204,16 +230,35 @@ public static class StageErrors
         + "Les périodes d'un stage doivent se suivre sans se chevaucher.");
 
     /// <summary>
+    /// A partition was targeted on a promotion that has never been divided into any. Distinct from
+    /// "that partition holds no cohort here", which is legitimate and stays silent — this one means
+    /// the caller is naming a division that does not exist, and no arrangement can follow from it.
+    /// </summary>
+    public static Error PromotionNotPartitioned(string stageName, string levelLabel) => Error.Validation(
+        "Schedule.PromotionNotPartitioned",
+        $"Aucun groupe de « {levelLabel} » ne porte de partition, donc « {stageName} » ne peut pas être "
+        + "réparti par partition. Découpez d'abord la promotion (Groupes → Planification Macro), "
+        + "ou lancez la répartition sans cibler de partition.");
+
+    /// <summary>
     /// A group would sit in two services at once: it is already placed in a period whose dates
     /// overlap the one being assigned. This is the real double-booking rule — it names the group,
     /// so it can tell the legitimate case (partition A in Médecine P1, partition B in Chirurgie P1,
     /// same dates) from the mistake (group 1 in both).
     /// </summary>
+    /// <remarks>
+    /// ⚠ It names the <b>promotion</b> too, because the collision is not always within the one being
+    /// planned. Legacy groups are numbered per year rather than per (year, level), so one row can
+    /// carry the 3rd year's group 1 and the 5th year's — and then planning the 5th year is refused by
+    /// a placement made for the 3rd. "Déjà affecté au stage « Chirurgie »" sends the admin hunting
+    /// through a promotion that has no Chirurgie; the level label is what makes it legible.
+    /// </remarks>
     public static Error GroupAlreadyPlaced(
-        int groupNumber, string stageName, int periodNumber, DateOnly start, DateOnly end) => Error.Conflict(
+        int groupNumber, string stageName, string levelLabel,
+        int periodNumber, DateOnly start, DateOnly end) => Error.Conflict(
         "Schedule.GroupAlreadyPlaced",
-        $"Le groupe {groupNumber} est déjà affecté au stage « {stageName} » période {periodNumber} "
-        + $"({start:dd/MM/yyyy} – {end:dd/MM/yyyy}), qui chevauche cette période. "
+        $"Le groupe {groupNumber} est déjà affecté au stage « {stageName} » ({levelLabel}) "
+        + $"période {periodNumber} ({start:dd/MM/yyyy} – {end:dd/MM/yyyy}), qui chevauche cette période. "
         + "Un groupe ne peut pas être dans deux services en même temps — ciblez une autre partition.");
 
     public static Error CapacityExceeded(
@@ -275,6 +320,46 @@ public static class StageErrors
     public static readonly Error SlotPublished = Error.Conflict(
         "Schedule.SlotPublished",
         "This period cannot be deleted because one or more of its cohorts have already been published. Unpublish them first.");
+
+    /// <summary>
+    /// Unpublishing deletes <see cref="ServicePeriod"/>s, and evaluations, attendance, pauses and
+    /// délocalisations all cascade from them. Once a rotation has actually begun that is no longer
+    /// the inverse of publishing — it is the destruction of what happened — so the caller has to say
+    /// so explicitly, and the refusal names what would be lost rather than a bare "cannot".
+    /// </summary>
+    public static Error ScheduleUnderway(
+        int periods, int started, int evaluated, int attendanceDays) => Error.Conflict(
+        "Schedule.Underway",
+        $"Cette répartition est déjà engagée : sur {periods} période(s) publiée(s), {started} ont démarré, "
+        + $"{evaluated} portent une évaluation et {attendanceDays} journée(s) de présence sont enregistrées. "
+        + "Dépublier les supprimerait définitivement. Confirmez explicitement pour continuer.");
+
+    public static Error RotationModeLockedByPublication(string stageName) => Error.Conflict(
+        "Stages.RotationModeLockedByPublication",
+        $"Le mode de rotation du stage « {stageName} » ne peut plus être modifié : sa répartition est "
+        + "publiée, et les périodes déjà créées suivent le mode actuel. Dépubliez la répartition de ce "
+        + "stage avant de changer le mode.");
+
+    /// <summary>
+    /// A single-service stage is arranged run by run, so the caller must say which périodes make up
+    /// the run. Left unscoped, "arrange the whole stage" would put a cohort in one service for every
+    /// column the stage owns — a year in one service, silently.
+    /// </summary>
+    public static Error SingleServiceRunNotScoped(string stageName, int slotCount) => Error.Validation(
+        "Schedule.SingleServiceRunNotScoped",
+        $"Le stage « {stageName} » se déroule dans un seul service par passage, et compte {slotCount} périodes "
+        + "sur l'axe. Précisez les périodes du passage à répartir (par exemple P1 à P3) : sans cela, un groupe "
+        + "serait affecté à un seul service pour la totalité des périodes du stage.");
+
+    /// <summary>
+    /// The run handed to the arranger is not a contiguous block of the axis. A single stay cannot
+    /// have a hole in it, and the dates of the resulting period would silently span the gap.
+    /// </summary>
+    public static Error SingleServiceRunNotContiguous(
+        string stageName, IReadOnlyList<int> periodNumbers) => Error.Validation(
+        "Schedule.SingleServiceRunNotContiguous",
+        $"Les périodes {string.Join(", ", periodNumbers)} du stage « {stageName} » ne se suivent pas. "
+        + "Un passage en un seul service doit couvrir des périodes consécutives.");
 
     public static readonly Error NoPlannedAssignments = Error.Validation(
         "Schedule.NoPlannedAssignments",

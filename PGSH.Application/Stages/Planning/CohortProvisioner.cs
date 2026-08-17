@@ -53,13 +53,21 @@ internal sealed class CohortProvisioner(IApplicationDbContext dbContext)
         var stageLevel = stages.ToDictionary(s => s.Id, s => s.LevelId);
         var levelIds   = stageLevel.Values.Distinct().ToList();
 
-        // A group belongs to a stage's level by LevelId, or (legacy/auto-arranged groups
-        // without one) by having a registration at that level. Scoping here prevents a
-        // partition label that is reused across levels (A in 1Med and A in 2Med) from
-        // creating cross-level cohorts.
+        // A group belongs to a stage's level by LevelId and by nothing else. Scoping here prevents a
+        // partition label that is reused across levels (A in 1Med and A in 2Med) from creating
+        // cross-level cohorts.
+        //
+        // ⚠ There used to be a second reach — "or has a registration at that level" — for legacy
+        // rosters that carried no LevelId. SplitAcademicGroupsPerLevel gave every real roster its
+        // promotion, so the only rows left without one are the year's « Non réparti » buckets, and a
+        // bucket holds every promotion at once: the fallback would have matched it for *every* level
+        // in the plan and given 4,725 people a cohorte. Level-less rosters are excluded outright, and
+        // AcademicGroupErrors refuses the two acts that could label one.
         var groups = await dbContext.AcademicGroups
             .AsNoTracking()
             .Where(g => g.AcademicYearId == academicYearId
+                     && g.LevelId != null
+                     && levelIds.Contains(g.LevelId.Value)
                      && g.RotationGroup != null
                      && partitionKeys.Contains(g.RotationGroup))
             .Select(g => new
@@ -68,7 +76,6 @@ internal sealed class CohortProvisioner(IApplicationDbContext dbContext)
                 g.Label,
                 g.RotationGroup,
                 g.LevelId,
-                RegLevels = g.Registrations.Where(r => levelIds.Contains(r.LevelId)).Select(r => r.LevelId).Distinct().ToList(),
                 // Auto-arrange keeps a group to one text; a hand-built one might not, so take the
                 // distinct set and only trust it when there is exactly one.
                 CnpnVersionIds = g.Registrations
@@ -105,9 +112,6 @@ internal sealed class CohortProvisioner(IApplicationDbContext dbContext)
             .Select(p => (p.AcademicGroupId, p.StageId))
             .ToHashSet();
 
-        bool GroupInLevel(int? groupLevel, IReadOnlyList<int> regLevels, int level) =>
-            groupLevel == level || regLevels.Contains(level);
-
         int created = 0, skipped = 0, notRequired = 0;
         var newCohorts = new List<Cohort>();
 
@@ -116,7 +120,7 @@ internal sealed class CohortProvisioner(IApplicationDbContext dbContext)
             int level = stageLevel[mapping.StageId];
 
             var partitionGroups = groups.Where(g =>
-                g.RotationGroup == mapping.RotationGroup && GroupInLevel(g.LevelId, g.RegLevels, level));
+                g.RotationGroup == mapping.RotationGroup && g.LevelId == level);
 
             foreach (var group in partitionGroups)
             {

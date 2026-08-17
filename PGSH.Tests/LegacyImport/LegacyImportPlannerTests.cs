@@ -197,6 +197,78 @@ public class LegacyImportPlannerTests
     }
 
     [Fact]
+    public void One_group_number_in_two_promotions_is_two_rosters()
+    {
+        // ⚠ GROUPE_STG restarts at 1 for each promotion, so « Groupe 5 » of the 4th year and
+        // « Groupe 5 » of the 6th year are different sets of students who merely share a number.
+        // Folding them into one row is not a labelling slip: a roster is the unit
+        // GroupScheduleConflictGuard forbids from being in two services at once, so the 4th year's
+        // dates then refuse the 6th year's, and the second promotion planned comes out nearly empty.
+        var source = new LegacyDatabase(
+            AcademicYears: [new LegacyAcademicYear("2024/2025", true)],
+            Niveaux:
+            [
+                new LegacyNiveau("MED04", "Quatrième Année Médecine", "Médecine", 4),
+                new LegacyNiveau("MED06", "Sixième Année Médecine", "Médecine", 6),
+            ],
+            Stages: [new LegacyStage(Cardiologie, "MED04", "Cardiologie", 1, 22)],
+            Services: [new LegacyService(ServiceA, "Hôp.IbnSina: Cardiologie A - Pr.R.Fellat")],
+            Students:
+            [
+                new LegacyStudent(6024248, "TAZI OMAR", "1100000099", null, "M", null, null, null, null, null, null),
+                new LegacyStudent(6024249, "ALAMI SARA", "1100000098", null, "F", null, null, null, null, null, null),
+            ],
+            Registrations:
+            [
+                new LegacyRegistration(NumIns,     6024248, "2024/2025", "MED04", 5, "N", false),
+                new LegacyRegistration(NumIns + 1, 6024249, "2024/2025", "MED06", 5, "N", false),
+            ],
+            StageAssignments: []);
+
+        var plan = new LegacyImportPlanner().Plan(source);
+
+        plan.AcademicGroups.Should().HaveCount(2, "one number, two promotions");
+        plan.AcademicGroups.Should().OnlyContain(g => g.GroupNumber == 5);
+        plan.AcademicGroups.Select(g => g.Level!.Year).Should().BeEquivalentTo([4, 6]);
+
+        // And each student is in their own promotion's roster, not in whichever was created first.
+        plan.Registrations.Should().OnlyContain(r => r.AcademicGroup!.Level!.Year == r.Level.Year);
+    }
+
+    [Fact]
+    public void The_no_group_bucket_stays_one_per_year_across_promotions()
+    {
+        // « Non réparti » belongs to no promotion by definition — splitting it per level would invent
+        // rosters nobody is a member of.
+        var source = new LegacyDatabase(
+            AcademicYears: [new LegacyAcademicYear("2024/2025", true)],
+            Niveaux:
+            [
+                new LegacyNiveau("MED04", "Quatrième Année Médecine", "Médecine", 4),
+                new LegacyNiveau("MED06", "Sixième Année Médecine", "Médecine", 6),
+            ],
+            Stages: [new LegacyStage(Cardiologie, "MED04", "Cardiologie", 1, 22)],
+            Services: [new LegacyService(ServiceA, "Hôp.IbnSina: Cardiologie A - Pr.R.Fellat")],
+            Students:
+            [
+                new LegacyStudent(6024248, "TAZI OMAR", "1100000099", null, "M", null, null, null, null, null, null),
+                new LegacyStudent(6024249, "ALAMI SARA", "1100000098", null, "F", null, null, null, null, null, null),
+            ],
+            Registrations:
+            [
+                new LegacyRegistration(NumIns,     6024248, "2024/2025", "MED04", null, "N", false),
+                new LegacyRegistration(NumIns + 1, 6024249, "2024/2025", "MED06", null, "N", false),
+            ],
+            StageAssignments: []);
+
+        var plan = new LegacyImportPlanner().Plan(source);
+
+        plan.AcademicGroups.Should().ContainSingle();
+        plan.AcademicGroups[0].Label.Should().Be("Non réparti");
+        plan.AcademicGroups[0].Level.Should().BeNull();
+    }
+
+    [Fact]
     public void A_withdrawal_registration_is_imported_as_withdrawn()
     {
         var plan = Plan(Source(

@@ -17,6 +17,11 @@ internal sealed class GetAcademicGroupsQueryHandler(IApplicationDbContext dbCont
         if (request.AcademicYearId.HasValue)
             query = query.Where(g => g.AcademicYearId == request.AcademicYearId.Value);
 
+        // ⚠ Deliberately wider than the planning paths, which match on LevelId alone. This is the
+        // screen scolarité assigns students from, and every unassigned registration of every
+        // promotion sits in one level-less « Non réparti » roster — 4,725 of them in 2025-2026.
+        // Matching on LevelId only would hide them behind a level filter, which is where they are
+        // looked for. Nothing here writes a plan, so the extra row costs nothing.
         if (request.LevelId.HasValue)
             query = query.Where(g => g.LevelId == request.LevelId.Value
                                   || g.Registrations.Any(r => r.LevelId == request.LevelId.Value));

@@ -87,7 +87,10 @@ public class GroupScheduleConflictTests
 
         clash.IsFailure.Should().BeTrue();
         clash.Error.Code.Should().Be("Schedule.GroupAlreadyPlaced");
-        clash.Error.Description.Should().Contain("groupe 7").And.Contain("Cardiologie");
+        // The promotion is named as well as the stage: a legacy group row is shared by every level
+        // that used its number, so the stage it is busy in is often another year of study entirely.
+        clash.Error.Description.Should()
+            .Contain("groupe 7").And.Contain("Cardiologie").And.Contain("3ème année");
         (await db.CohortSlotAssignments.CountAsync()).Should().Be(1, "the clashing cell is not written");
     }
 
@@ -150,8 +153,7 @@ public class GroupScheduleConflictTests
         }
         await db.SaveChangesAsync();
 
-        var arranger = new RotationArranger(
-            db, new ServiceOccupancyCalculator(db), new GroupScheduleConflictGuard(db));
+        var arranger = db.Arranger();
 
         var medecineRun = await arranger.ArrangeAsync(
             TestHarness.StageId, TestHarness.CurrentYearId, null, null, null, default);
@@ -187,8 +189,7 @@ public class GroupScheduleConflictTests
         }
         await db.SaveChangesAsync();
 
-        var arranger = new RotationArranger(
-            db, new ServiceOccupancyCalculator(db), new GroupScheduleConflictGuard(db));
+        var arranger = db.Arranger();
 
         var medecineRun = await arranger.ArrangeAsync(
             TestHarness.StageId, TestHarness.CurrentYearId, ["A"], null, null, default);
@@ -224,8 +225,7 @@ public class GroupScheduleConflictTests
         }
         await db.SaveChangesAsync();
 
-        var arranger = new RotationArranger(
-            db, new ServiceOccupancyCalculator(db), new GroupScheduleConflictGuard(db));
+        var arranger = db.Arranger();
 
         await arranger.ArrangeAsync(TestHarness.StageId, TestHarness.CurrentYearId, null, null, null, default);
         (await db.CohortSlotAssignments.CountAsync()).Should().Be(4);
@@ -316,8 +316,7 @@ public class GroupScheduleConflictTests
         db.SeedCohortFor(medecine, group, 101);
         await db.SaveChangesAsync();
 
-        var arranger = new RotationArranger(
-            db, new ServiceOccupancyCalculator(db), new GroupScheduleConflictGuard(db));
+        var arranger = db.Arranger();
 
         await arranger.ArrangeAsync(TestHarness.StageId, TestHarness.CurrentYearId, null, null, null, default);
         var again = await arranger.ArrangeAsync(TestHarness.StageId, TestHarness.CurrentYearId, null, null, null, default);

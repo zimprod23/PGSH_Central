@@ -330,7 +330,10 @@ public sealed class LegacyImportPlanner
         byNumIns = [];
         groupOfRegistration = [];
         var registrations = new List<Registration>(source.Count);
-        var groupIndex = new Dictionary<(string Year, int Number), AcademicGroup>();
+        // Keyed on (year, promotion, number). The promotion is (année × filière) rather than the whole
+        // LevelKey: several legacy codes resolve to one level with different labels, and Find matches
+        // them the same way — keying on the record would split one roster in two.
+        var groupIndex = new Dictionary<(string Year, int LevelYear, AcademicProgram Program, int Number), AcademicGroup>();
 
         foreach (var legacy in source.OrderBy(r => r.NumIns))
         {
@@ -362,14 +365,31 @@ public sealed class LegacyImportPlanner
             // 17,529 registrations carry no group; only 67 of those have rotations. Group 0 keeps the
             // FK satisfiable without pretending they belonged to a real group.
             int number = legacy.GroupNumber is > 0 ? legacy.GroupNumber.Value : 0;
-            var indexKey = (legacy.AcademicYear, number);
+
+            // ⚠ The promotion is part of a roster's identity, because GROUPE_STG restarts at 1 for
+            // each of them: the 3rd year runs 1-80 and the 5th year 1-60 in the same année. Keyed on
+            // (year, number) alone — as this was until 2026-08-13 — those two numberings collapse
+            // into one set of rows, and 80 of the 100 rosters of 2025-2026 ended up carrying four or
+            // five promotions at once. That is not a labelling problem: a roster is the unit
+            // GroupScheduleConflictGuard forbids from being in two places, so the 3rd year's spring
+            // placements then refused the 5th year's, and its répartition came out with two of its
+            // nine columns filled.
+            //
+            // « Non réparti » stays one bucket per year: it belongs to no promotion by definition,
+            // and splitting it would invent a roster per level that nobody is a member of.
+            var indexKey = number == 0
+                ? (legacy.AcademicYear, 0, default(AcademicProgram), 0)
+                : (legacy.AcademicYear, key.Year, key.Program, number);
+
             if (!groupIndex.TryGetValue(indexKey, out var group))
             {
+                var level = number == 0 ? null : Find(levels, key);
                 group = new AcademicGroup
                 {
-                    Label = number == 0 ? "Non réparti" : $"Groupe {number}",
+                    Label = number == 0 ? "Non réparti" : $"Groupe {number} — {level!.Label}",
                     GroupNumber = number,
                     AcademicYear = year,
+                    Level = level,
                 };
                 groupIndex[indexKey] = group;
                 groups.Add(group);

@@ -23,13 +23,35 @@ internal sealed class TransferStudentCommandHandler(
                 "Registrations.NotFound",
                 $"Registration '{request.RegistrationId}' not found."));
 
-        bool targetGroupExists = await dbContext.AcademicGroups
-            .AnyAsync(g => g.Id == request.TargetGroupId, cancellationToken);
+        var target = await dbContext.AcademicGroups
+            .AsNoTracking()
+            .Where(g => g.Id == request.TargetGroupId)
+            .Select(g => new { g.Label, g.AcademicYearId, g.LevelId })
+            .FirstOrDefaultAsync(cancellationToken);
 
-        if (!targetGroupExists)
-            return Result.Failure(Error.NotFound(
-                "AcademicGroups.NotFound",
-                $"Target group '{request.TargetGroupId}' not found."));
+        if (target is null)
+            return Result.Failure(AcademicGroupErrors.NotFound(request.TargetGroupId));
+
+        // ⚠ This is the only write that can put a registration in a roster of another promotion, and
+        // nothing downstream would object: the FK is satisfied, and every later guard is keyed on the
+        // roster the registration *claims*. A 3rd-year moved into a 5th-year roster is then affected
+        // to that roster's cohorts — 5th-year stages he does not owe — and counted against the 5th
+        // year's service quotas. Refused here rather than repaired later, which is what
+        // SplitAcademicGroupsPerLevel had to do for 1,003 rows.
+        if (target.AcademicYearId != registration.AcademicYearId)
+            return Result.Failure(AcademicGroupErrors.TargetGroupInAnotherYear(
+                target.Label,
+                await YearLabelAsync(target.AcademicYearId, cancellationToken),
+                await YearLabelAsync(registration.AcademicYearId, cancellationToken)));
+
+        // A level-less target is « Non réparti », and putting a student back in the bucket is a
+        // legitimate un-assignment rather than a cross-promotion move — the bucket belongs to no
+        // promotion precisely so that it can hold all of them.
+        if (target.LevelId is { } targetLevel && targetLevel != registration.LevelId)
+            return Result.Failure(AcademicGroupErrors.TargetGroupInAnotherLevel(
+                target.Label,
+                await LevelLabelAsync(targetLevel, cancellationToken),
+                await LevelLabelAsync(registration.LevelId, cancellationToken)));
 
         // A definitive move can only ever land on a different group; a temporary loan may target
         // a different group while the student stays registered in their own, so the same-group
@@ -115,4 +137,19 @@ internal sealed class TransferStudentCommandHandler(
         await dbContext.SaveChangesAsync(cancellationToken);
         return Result.Success();
     }
+
+    // Resolved only on the way to a refusal. The message has to name the two promotions — "ce groupe
+    // n'est pas le bon" sends an admin hunting through a list of sixty — but the successful transfer,
+    // which is the one that runs thousands of times, should not pay for two extra reads.
+    private async Task<string> YearLabelAsync(int academicYearId, CancellationToken ct) =>
+        await dbContext.AcademicYears
+            .Where(y => y.Id == academicYearId)
+            .Select(y => y.Label)
+            .FirstOrDefaultAsync(ct) ?? $"année {academicYearId}";
+
+    private async Task<string> LevelLabelAsync(int levelId, CancellationToken ct) =>
+        await dbContext.Levels
+            .Where(l => l.Id == levelId)
+            .Select(l => l.Label)
+            .FirstOrDefaultAsync(ct) ?? $"niveau {levelId}";
 }
