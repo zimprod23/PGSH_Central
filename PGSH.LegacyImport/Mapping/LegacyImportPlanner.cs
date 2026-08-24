@@ -200,7 +200,9 @@ public sealed class LegacyImportPlanner
         }
 
         // Exactly one current year: `encours` is 'O' on eleven of them, so the latest wins instead.
-        if (years.Count > 0) years[^1].IsCurrent = true;
+        // Through the aggregate rather than the flag — the singleton is enforced by a unique index, and
+        // MakeCurrent is the one place that knows it.
+        if (years.Count > 0) years[^1].MakeCurrent();
 
         return years;
     }

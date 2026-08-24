@@ -5,6 +5,7 @@ using PGSH.Application.Calendar;
 using PGSH.Application.Employees.MyServices;
 using PGSH.Application.Hospitals.Services;
 using PGSH.Application.Stages.Cnpn;
+using PGSH.Application.AcademicYears.Manage;
 using PGSH.Application.Stages.Cnpn.Effectivity;
 using PGSH.Application.Stages.Progression;
 using PGSH.Application.Stages.Cnpn.Targeting;
@@ -55,6 +56,8 @@ public static class DependencyInjection
         services.AddScoped<OutstandingStageFinder>();
         services.AddScoped<FinalYearGuard>();
         services.AddScoped<AcademicYearResolver>();
+        services.AddScoped<AcademicYearCalendarGuard>();
+        services.AddScoped<CurrentYearDesignation>();
         services.AddScoped<SlotOverlapGuard>();
         services.AddScoped<GroupScheduleConflictGuard>();
         services.AddScoped<EvaluationObjectiveResolver>();

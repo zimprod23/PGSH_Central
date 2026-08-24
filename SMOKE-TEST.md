@@ -48,7 +48,7 @@ Timings below are the real figures from your data — if you see a different num
 
 ```bash
 rm -rf PGSH.Tests/bin PGSH.Tests/obj          # ⚠ see below
-dotnet test PGSH.Tests/PGSH.Tests.csproj      # expect: 965 passed, 0 failed, ~35 s
+dotnet test PGSH.Tests/PGSH.Tests.csproj      # expect: 989 passed, 0 failed, ~37 s
 ```
 
 ⚠ **Incremental `dotnet test` runs in this repo have been reporting phantom counts** — the same suite came
@@ -1659,6 +1659,82 @@ période et **sans** choisir de partition.
 3. Nudge one stage's P1 by three days on its own grid, come back: that stage must have **left** the
    block and appear on its own. A screen that reports it as still aligned is hiding the drift.
 4. The control: a promotion with no axis at all opens an empty form, not an error.
+---
+
+## 23 · Poser, corriger et supprimer une année universitaire (8 min) — session 26
+
+> **Status: built and unit-tested (24 tests: 14 handler, 10 endpoint), never run against the real
+> base.** No migration. ⚠ **This is the step the in-memory suite cannot stand in for**: every delete
+> guard here exists to keep the user away from a foreign key, and `UseInMemoryDatabase` has none.
+
+*Admin → Académique → Années universitaires.*
+
+### 23a — designating « l'année en cours »
+
+1. With 2025-2026 current, designate **2026-2027**. The reply must name what stood down
+   (`previousLabel: "2025-2026"`), and the navbar must follow.
+2. ⚠ **Check the singleton on the database, not on the screen:**
+
+```sql
+SELECT COUNT(*) FROM public."AcademicYears" WHERE "IsCurrent";   -- must be exactly 1, always
+```
+
+   Two rows flagged at once means two screens quietly disagreeing about which promotion they show,
+   with nothing on either to say so. `IX_AcademicYear_IsCurrent` should make it impossible — this step
+   is what proves the index is really there and that the demote precedes the promote.
+3. Designate the year that already holds it → refused (`AcademicYears.AlreadyCurrent`), count still 1.
+4. Put 2025-2026 back before continuing. **Everything below assumes it is current again.**
+
+### 23b — deleting
+
+1. Try to delete **2025-2026** (the current one) → refused, `AcademicYears.CannotDeleteCurrent`.
+   Deleting the year every unscoped handler resolves through leaves the app with no answer to
+   « quelle année ? ».
+2. Try to delete a year that holds data — any of the imported ones. It must be refused with
+   `AcademicYears.StillInUse` **naming every count at once**, not just the first: « 6 057
+   inscription(s), 63 période(s) de stage, … ». One reason at a time sends the user round the loop.
+3. ⚠ **The assertion is the year, not the message.** Re-read it afterwards:
+
+```sql
+SELECT "Id","Label","IsCurrent" FROM public."AcademicYears" ORDER BY "Id";
+```
+
+   A guard ordered after the delete returns the same refusal and passes every handler test. Here it
+   would have taken the year's **rosters** with it — `AcademicGroups.AcademicYearId` is `CASCADE`,
+   which is the whole reason this step is written.
+4. The control: create a throwaway year (« 2099-2100 », 01/09/2099 → 31/08/2100), delete it, and it
+   goes. A route that refuses everything satisfies every assertion above and proves nothing.
+5. Create a throwaway year, auto-arrange a couple of empty rosters into it, delete it: it succeeds and
+   reports `rostersRemoved` — the number is the point, because it is the only thing destroyed and the
+   only thing that cannot be read back.
+
+### 23c — the calendar rule that was never enforced
+
+1. Edit 2026-2027 to start **01/06/2026** → refused, `AcademicYears.OverlapsAnotherYear`, naming
+   2025-2026. ⚠ Not tidiness: `ServiceOccupancyCalculator` bounds a year by its **dates**, not by its
+   id, so a day belonging to two years counts every slot in the overlap twice against a service — the
+   number the publish guard refuses on.
+2. Confirm the base satisfied it all along, and keep the query — it is the regression test:
+
+```sql
+SELECT a."Label", b."Label" AS overlaps_with
+FROM public."AcademicYears" a
+JOIN public."AcademicYears" b
+  ON a."Id" < b."Id" AND a."StartDate" <= b."EndDate" AND b."StartDate" <= a."EndDate";
+-- verified empty 2026-08-24, on 22 years
+```
+
+3. Re-save a year completely unchanged → **allowed**. A year must not collide with itself; this is the
+   control for the two refusals above and it is the one that breaks first when the guard is rewritten.
+4. Rename a year to another year's label → refused, `AcademicYears.DuplicateLabel`.
+5. **Narrow** a year that carries `StageSlot`s so some fall outside the new span → **allowed**, and the
+   reply must report `slotsOutsideSpan`. Refusing would block the ordinary case (a year corrected while
+   its axis is still a draft); saying nothing would hide périodes that no longer sit in their own year.
+
+### 23d — who may
+
+Every route above, as a **professeur** → 403 `AcademicYears.NotAllowed`, and nothing changed. With no
+session at all → 401. The year is the one setting that moves every screen at once.
 
 
 ---

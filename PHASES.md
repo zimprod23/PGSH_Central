@@ -1040,6 +1040,25 @@ be recorded **approximately** until this lands. Three pieces, best done together
 
 ### 🔲 Phase 15.2 — data entry (blocks scolarité, not code)
 
+⚠ **The 3ᵉ année of 2026-2027 is the first cohort 1650.25 actually binds** (`CnpnLevelEffectivity`,
+level = 3ᵉ année, from = 2026-2027). That year has **no registrations yet**, which is the whole reason
+the entry can wait — and also the reason it must not be left much longer:
+`RegistrationCnpnStamper` reads the rule **once, at the creation of a registration**, so every stamp
+handed out before the requirement sets exist is a registration pointing at a text that requires
+nothing. Nothing is wrong at that moment; `CohortProvisioner` simply stands aside where no set is
+recorded, so a whole promotion would plan as if it owed no stage at all.
+
+**Order of operations, and it is not the obvious one:**
+
+1. Record 1650.25's requirement sets — the stage list per level. **Awaiting the list from the faculty.**
+2. *Then* open 2026-2027 for registrations.
+
+Doing it the other way round is recoverable but not cheap: the stamps themselves stay right (the text
+is the same row), but every plan built in between was built against an empty requirement set, and
+`CohortProvisioner`'s refusals are counted rather than raised, so nothing on screen says so.
+
+
+
 - **1650.25 has zero recorded requirements.** Nothing historical maps to it; the stage lists must be
   entered from `cnpn/CNPN Diplôme de Docteur en Médecine.pdf`. Six-year students have no CNPN content
   until then.
@@ -1113,7 +1132,32 @@ Only then decide whether the importer should move such a value into `Appogee` an
 ⚠ **Do not guess this in bulk from the shape alone** — a digits-only CNE is not proof, and blanking a
 real identifier is worse than keeping an odd-looking one.
 
-### 16.3 — Re-import hygiene
+### 16.3 — ⚠ The live base is no longer a clean copy of the source
+
+**Raised 2026-08-24.** The development base has been written to by every smoke-test pass since the
+import: CNPN stamps and effectivity rules, partitions cut and re-cut, verdicts recorded, rosters split
+per promotion, service quotas, holidays, the 5MED répartition arranged and re-arranged, and the 51
+`StageAllowedServices` authored for the 6ᵉ année. None of it is in `Medecine.mdb`, and some of it is
+*deliberately* not (the roster split, the CNPN work) — so « re-import and start again » would throw
+away real decisions alongside the test residue.
+
+**So the re-import cannot be a restore.** Decide per category, before running anything:
+
+| category | source of truth after the re-import |
+|---|---|
+| students, registrations, périodes, évaluations | the Access base — re-import wins |
+| roster identity per promotion, `Registration.LevelId` | the importer, corrected — see 16.3 below |
+| CNPN texts, stamps, effectivity rules, targeting | **PGSH** — nothing in Access expresses them |
+| partitions, `StageSlot`s, cells, allowed services, holidays | **PGSH** — authored here, no source |
+| year outcomes (`OutcomeSource`) | **PGSH** for anything `Declared`; Access for the rest |
+
+⚠ **The two halves have to be re-linked, and the join is `Student`.** A re-import that renumbers
+student ids detaches every CNPN stamp and every waiver from the person it was granted to. Pin the
+identity (CNE, else Appogée — see 16.1) and verify the join **before** dropping anything.
+
+Take a `pg_dump -Fc` first, and keep it: it is the only copy of the authored half.
+
+### 16.4 — Re-import hygiene
 
 - The importer must be **re-runnable against a restored dump**, not against the current base: the app
   has written to it since (CNPN stamps, partitions, verdicts, périodes). Decide up front whether 16.1
