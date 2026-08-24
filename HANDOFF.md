@@ -6,8 +6,8 @@
 >
 > | # | Do this | Why it is not done |
 > |---|---|---|
-> | 1 | **Re-arrange 5MED Urologie, Ophtalmologie, ORL and Neurologie** — scoped, one block at a time. `SMOKE-TEST.md` §22a. | **Measured 2026-08-24: the catastrophic form is gone** (only Psychiatrie had it, and it was re-run). What is left is the frozen tie-break — Urologie A took the extra cohort in all 9 columns and carries 18 cells against 9, and one of Neurologie's 8 services was never used all year. Nothing is published, so the repair is free. |
-> | 2 | **Author the 6ᵉ année's allowed services, then give it its crossover** — `SMOKE-TEST.md` §22c.5 has the query that reads them off six years of history. | ⚠ **Measured 2026-08-24: all six 6MED stages carry zero `StageAllowedServices`**, so nothing can be arranged into them at all. Everything else is ready — ten partitions of ten rosters, ten slots per stage, zero cells. It is the promotion `StageWouldFillEveryColumn` exists for, and the only end-to-end test of the block on real data. |
+> | 1 | **Give the 6ᵉ année its crossover** — bloc de rotation (`k = [2,2,2,2,1,1]`, `T = 10`, `P = 10`), then the plan macro. | Now unblocked: its 51 allowed services were authored 2026-08-24 (`SMOKE-TEST.md` §22c.5) and it was already cut into ten partitions of ten rosters with ten slots per stage. Zero cells. It is the promotion `StageWouldFillEveryColumn` exists for, and the only end-to-end test of the block on real data. |
+> | 2 | **Review three 6MED service calls** on the Stage page — *Pédiatrie CCP*, *Urgences (Moulay Youssef)*, and everything at *Azzamouri*. | All three were excluded by the recency rule and all three are arguable. `SMOKE-TEST.md` §22c.5 names them and the one-line undo. |
 > | 3 | **Close 2025-2026 for real** — Clôture & réinscription, exceptions canvas, confirm, apply. | 6 057 verdicts with no undo but a restore. It is the user's click, not ours. **Take a `pg_dump -Fc` first.** |
 > | 4 | **Walk the defence roll** — name a handful of 7ᵉ année students « Diplômé » and check they graduate while the rest stay put. | The 14.3e rule is verified by tests and by the preview's numbers; nobody has used the flow it now depends on. |
 > | 5 | **Phase 16 — the Access re-import** (`LEGACY-` CNEs, and 16.2's open question). | Specified and measured in session 24, not started. |
@@ -49,8 +49,11 @@
 > **Verified live**: the user re-ran Psychiatrie between turns — five services in every période,
 > 12/12/13/11/12 over the year, exactly what the fix projects.
 >
-> **What this costs**: every other stage arranged before this session still carries the old shape.
-> Row 1 of the table above.
+> **The repair is done.** Measured against the live base 2026-08-24: the catastrophic form existed
+> only in Psychiatrie. What remained was the frozen tie-break, repaired the same day —
+> Urologie 18·15·9·9·9 → 13·12·12·12·11, Ophtalmologie 24·18·18 → 21·20·19, ORL 33·27 → 30·30, and
+> Neurologie from 7 of 8 services to 8 of 8. Cell totals unchanged and 0 rosters double-booked, so
+> only the service assignment moved.
 >
 > **▶ SESSION 24 — the CNPN moved off the student and onto the registration.**
 >

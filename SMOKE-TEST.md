@@ -1530,6 +1530,35 @@ GROUP BY a."ServiceId", sv."Name" ORDER BY cells DESC;
 `cols_taking_two` equal to the column count is the frozen tie-break. After a re-arrange it must be
 spread across the services, and no service may sit at 0 cells while another carries two per column.
 
+**✅ Executed 2026-08-24.** All four re-arranged, unscoped, from the stage's own *Grille de planning*
+— which is the safe path here because the other stages already hold every group in 8 of the 9 columns,
+so the guard in §22c cannot fire and the arrange has freedom over services only.
+
+| stage | before | after |
+|---|---|---|
+| Urologie Néphrologie | 18·15·9·9·9 | 13·12·12·12·11 |
+| Ophtalmologie | 24·18·18 | 21·20·19 |
+| ORL | 33·27 | 30·30 |
+| Neurologie | 7 of 8 services, one idle all year | 8 of 8 — 8·8·8·8·7·7·7·7 |
+
+Gynécologie was already flat (39·36·36·36·33 over 180 cells) and was left alone. The two checks that
+say the repair moved only what it should:
+
+```sql
+-- must be 0: a roster in two services in one column
+SELECT COUNT(*) FROM (
+  SELECT c."AcademicGroupId", sl."PeriodNumber"
+  FROM public."CohortSlotAssignments" a
+  JOIN public."StageSlots" sl ON sl."Id" = a."StageSlotId"
+  JOIN public."Cohorts" c ON c."Id" = a."CohortId"
+  JOIN public."Stages" s ON s."Id" = sl."StageId"
+  WHERE sl."AcademicYearId" = <année> AND s."LevelId" = <promotion>
+  GROUP BY c."AcademicGroupId", sl."PeriodNumber" HAVING COUNT(*) > 1) x;
+```
+
+and the per-stage cell totals, which must be **unchanged** — 60 per stage here. A re-arrange that
+moves a total has not rebalanced the year, it has lost or invented a placement.
+
 ### 22b — the balance itself
 
 *Admin → Stages → un stage réparti → Répartition*.
@@ -1589,7 +1618,31 @@ période et **sans** choisir de partition.
 
    ⚠ **History is evidence, not authority.** A service the 6ᵉ année used in 2019 may have closed, and
    a long tail of one or two périodes is as likely to be a délocalisation as a standing arrangement.
-   Read the counts, prune, then author the list on the Stage page — do not bulk-insert it.
+
+   ⚠ **…and volume is the wrong filter, which is not obvious.** Ranking by total périodes drops
+   exactly the partners that matter: Hôpital Moulay Youssef went 33 → 1 453 → 1 864 périodes over the
+   last three years and Lalla Aicha 11 → 648 → 862, so six years of history buries them under
+   hospitals that have been there all along. **Recency is the signal.** Hôpital Azzamouri is the
+   mirror case — it appears in all six stages, but only ever in 2024-2025, and not at all this year.
+
+   **✅ Authored 2026-08-24: 51 rows**, on the rule *used in the last two academic years, at least ten
+   times*. Both halves are needed — recency alone keeps Endocrinologie's single période under
+   MEDECINE, and the three Traumatologie services that show 6, 6 and 4 under CHIRURGIE while carrying
+   447, 401 and 392 under URGENCES, which is where they belong.
+
+   | stage | services authored |
+   |---|---|
+   | GYNECOLOGIE OBSTETRIQUE | 5 |
+   | ANESTHESIE REANIMATION | 7 |
+   | PEDIATRIE | 7 |
+   | URGENCES OU TRAUMATOLOGIE | 6 |
+   | CHIRURGIE | 13 |
+   | MEDECINE | 13 |
+
+   ⚠ **Three judgement calls to review on the Stage page**, all excluded by the rule and all arguable:
+   *Pédiatrie CCP* (230 périodes historically, 2 recently — wound down, or mis-sampled?), *Urgences
+   (Moulay Youssef)* at 5 recent, on a site that is growing fast, and everything at *Azzamouri*.
+   Undo is one statement: `DELETE FROM "StageAllowedServices" WHERE "StageId" IN (15,16,17,18,19,20);`
 
 ### 22d — the configuration comes back
 
