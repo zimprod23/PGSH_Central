@@ -1,5 +1,7 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using PGSH.Application.Stages.Cnpn;
+using PGSH.Application.Stages.Progression;
 using PGSH.Application.Students.Registrations.Reinscription;
 using PGSH.Domain.Registrations;
 using PGSH.Infrastructure.Database;
@@ -18,10 +20,20 @@ public class ReinscriptionTests
     private const int NextLevelId = 4;
 
     private static ApplyReinscriptionCommandHandler ApplyHandler(ApplicationDbContext db) =>
-        new(db, new ReinscriptionPlanner(db), db.AdminAuthorizer());
+        new(db, Planner(db), Stamper(db), db.AdminAuthorizer());
+
+    internal static ReinscriptionPlanner Planner(ApplicationDbContext db) =>
+        new(db, new OutstandingStageFinder(db));
+
+    /// <summary>
+    /// The rollover stamps the governing CNPN onto each registration it creates — it is the act an
+    /// effectivity rule authored over the summer actually bites on.
+    /// </summary>
+    private static RegistrationCnpnStamper Stamper(ApplicationDbContext db) =>
+        new(db, new CnpnAssignment(db));
 
     private static PreviewReinscriptionQueryHandler PreviewHandler(ApplicationDbContext db) =>
-        new(new ReinscriptionPlanner(db), db.AdminAuthorizer());
+        new(Planner(db), db.AdminAuthorizer());
 
     /// <summary>
     /// The 3rd year of Médecine closed, the 4th year existing to receive it, and the year after this
@@ -250,7 +262,7 @@ public class ReinscriptionTests
         await db.SaveChangesAsync();
 
         var handler = new ApplyReinscriptionCommandHandler(
-            db, new ReinscriptionPlanner(db), db.StrangerAuthorizer());
+            db, Planner(db), Stamper(db), db.StrangerAuthorizer());
 
         var result = await handler.Handle(
             new ApplyReinscriptionCommand(TestHarness.CurrentYearId, NextYearId, TestHarness.LevelId), default);
@@ -274,5 +286,56 @@ public class ReinscriptionTests
         // report says which source each row came from so nobody mistakes one for the other.
         result.Value.WillRegister.Should().Be(1);
         result.Value.Rows.Single().OutcomeSource.Should().Be(RegistrationOutcomeSource.Inferred);
+    }
+
+    [Fact]
+    public async Task One_run_rolls_every_promotion_of_the_year_each_from_its_own_level()
+    {
+        await using var db = TestHarness.NewContext(nameof(One_run_rolls_every_promotion_of_the_year_each_from_its_own_level));
+        SeedTwoLevelsAndTwoYears(db);
+        db.SeedLevel(levelId: 5, "5ème année", year: 5);
+
+        var third = SeedClosed(db, "Sara", "Bennani", RegistrationStatus.Validated);
+        var fourth = db.SeedRegistration("Ali", "Amrani", levelId: NextLevelId);
+        fourth.RecordYearOutcome(
+            RegistrationStatus.Failed, RegistrationOutcomeSource.Declared, null, DateTime.UtcNow);
+        await db.SaveChangesAsync();
+
+        // Level omitted: every promotion of the closing year, each student moving up from his own
+        // level. A year is closed in one sitting, so rolling it level by level only invites half of
+        // it to be forgotten.
+        var result = await ApplyHandler(db).Handle(
+            new ApplyReinscriptionCommand(TestHarness.CurrentYearId, NextYearId), default);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.ScopeLabel.Should().Be("Toutes les promotions");
+        result.Value.WillRegister.Should().Be(2);
+        result.Value.ByLevel.Should().HaveCount(2);
+
+        var created = await db.Registrations.Where(r => r.AcademicYearId == NextYearId).ToListAsync();
+        created.Single(r => r.StudentId == third.StudentId).LevelId.Should().Be(NextLevelId);
+        created.Single(r => r.StudentId == fourth.StudentId).LevelId.Should().Be(NextLevelId);
+    }
+
+    [Fact]
+    public async Task Rows_needing_attention_are_never_the_ones_the_cap_hides()
+    {
+        await using var db = TestHarness.NewContext(nameof(Rows_needing_attention_are_never_the_ones_the_cap_hides));
+        SeedTwoLevelsAndTwoYears(db);
+
+        for (int i = 0; i < 20; i++)
+            SeedClosed(db, $"Etudiant{i:D2}", "Admis", RegistrationStatus.Validated);
+
+        // The one row an operator has to act on, seeded last so it would sort late in every ordering
+        // but the intended one.
+        db.SeedRegistration("Zzz", "Sansdecision");
+        await db.SaveChangesAsync();
+
+        var report = await PreviewHandler(db).Handle(
+            new PreviewReinscriptionQuery(TestHarness.CurrentYearId, NextYearId, TestHarness.LevelId),
+            default);
+
+        report.Value.NeedsAttention.Should().Be(1);
+        report.Value.Rows[0].Action.Should().Be(ReinscriptionAction.NoOutcome);
     }
 }

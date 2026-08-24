@@ -20,6 +20,18 @@ internal sealed class RegistrationConfiguration : IEntityTypeConfiguration<Regis
         // legacy import carried — the column has to be able to say "nobody has pronounced yet".
         builder.Property(r => r.OutcomeSource)
                .HasConversion<string>();
+
+        // Nullable for the same reason: the six imported years were backfilled from the student's
+        // stamp where he had one, and ~2,200 enrolled students carry none at all. Restrict — a text
+        // that governed a year cannot be deleted out from under the registrations it governed, which
+        // is also what makes DeleteCnpnVersionCommand's gate a refusal rather than a 500.
+        builder.Property(r => r.CnpnSource)
+               .HasConversion<string>();
+
+        builder.HasOne(r => r.CnpnVersion)
+               .WithMany()
+               .HasForeignKey(r => r.CnpnVersionId)
+               .OnDelete(DeleteBehavior.Restrict);
         // Enum mapping
         //builder.Property(r => r.Level)
         //       .HasConversion<string>()
@@ -171,5 +183,37 @@ internal sealed class AcademicGroupConfiguration : IEntityTypeConfiguration<Acad
             .WithOne(x => x.AcademicGroup)
             .HasForeignKey(x => x.AcademicGroupId)
             .OnDelete(DeleteBehavior.SetNull);
+    }
+}
+/// <summary>
+/// The nominative exception to « la dernière année ne commence pas avant que tout soit validé ».
+/// </summary>
+internal sealed class FinalYearEntryWaiverConfiguration : IEntityTypeConfiguration<FinalYearEntryWaiver>
+{
+    public void Configure(EntityTypeBuilder<FinalYearEntryWaiver> builder)
+    {
+        builder.HasKey(w => w.Id);
+
+        builder.Property(w => w.Reason).HasMaxLength(1000).IsRequired();
+        builder.Property(w => w.OutstandingSummary).HasMaxLength(1000);
+
+        // Cascade from the student: a waiver for somebody who no longer exists explains nothing.
+        builder.HasOne(w => w.Student)
+               .WithMany()
+               .HasForeignKey(w => w.StudentId)
+               .OnDelete(DeleteBehavior.Cascade);
+
+        // Restrict on the year, like every other year-anchored row: an academic year cannot be
+        // deleted out from under the exceptions granted for it.
+        builder.HasOne(w => w.AcademicYear)
+               .WithMany()
+               .HasForeignKey(w => w.AcademicYearId)
+               .OnDelete(DeleteBehavior.Restrict);
+
+        // One waiver per student per year. A second would say the same thing twice, and the
+        // réinscription only ever asks whether one exists.
+        builder.HasIndex(w => new { w.StudentId, w.AcademicYearId })
+               .IsUnique()
+               .HasDatabaseName("IX_FinalYearEntryWaiver_Student_Year");
     }
 }

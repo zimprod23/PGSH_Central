@@ -30,8 +30,10 @@ public interface IApplicationDbContext
     DbSet<ObjectiveScore> ObjectiveScores { get; set; }
     DbSet<AcademicYear> AcademicYears { get; set; }
     DbSet<AcademicGroup> AcademicGroups { get; set; }
+    DbSet<FinalYearEntryWaiver> FinalYearEntryWaivers { get; set; }
     DbSet<Cohort> Cohorts { get; set; }
     DbSet<CnpnVersion> CnpnVersions { get; set; }
+    DbSet<CnpnLevelEffectivity> CnpnLevelEffectivities { get; set; }
     DbSet<Curriculum> Curriculums { get; set; }
     DbSet<CurriculumStage> CurriculumStages { get; set; }
     DbSet<StageSlot> StageSlots { get; set; }

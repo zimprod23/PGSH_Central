@@ -3,22 +3,24 @@ using FluentValidation;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
 using PGSH.Application.Employees.MyServices;
+using PGSH.Application.Stages.Cnpn;
 using PGSH.Domain.Registrations;
 using PGSH.SharedKernel;
 
 namespace PGSH.Application.Students.Registrations.Reinscription;
 
 /// <summary>
-/// Creates the next year's registrations from the promotion's closed verdicts.
+/// Creates the next year's registrations from the closed verdicts of the year that is ending.
 /// </summary>
+/// <param name="LevelId">One promotion, or every promotion of the closing year when omitted.</param>
 public sealed record ApplyReinscriptionCommand(
     int FromAcademicYearId,
     int ToAcademicYearId,
-    int LevelId) : ICommand<ReinscriptionReport>, IAuditableCommand
+    int? LevelId = null) : ICommand<ReinscriptionReport>, IAuditableCommand
 {
     public string AuditAction => "REINSCRIPTION_APPLIED";
-    public string AuditEntityType => "Level";
-    public string? AuditEntityId => LevelId.ToString();
+    public string AuditEntityType => LevelId is null ? "AcademicYear" : "Level";
+    public string? AuditEntityId => (LevelId ?? FromAcademicYearId).ToString();
 
     public string? AuditMetadata => JsonSerializer.Serialize(new
     {
@@ -34,13 +36,14 @@ internal sealed class ApplyReinscriptionCommandValidator : AbstractValidator<App
     {
         RuleFor(x => x.FromAcademicYearId).GreaterThan(0);
         RuleFor(x => x.ToAcademicYearId).GreaterThan(0);
-        RuleFor(x => x.LevelId).GreaterThan(0);
+        RuleFor(x => x.LevelId).GreaterThan(0).When(x => x.LevelId is not null);
     }
 }
 
 internal sealed class ApplyReinscriptionCommandHandler(
     IApplicationDbContext dbContext,
     ReinscriptionPlanner planner,
+    RegistrationCnpnStamper stamper,
     ExecutionAuthorizer authorizer)
     : ICommandHandler<ApplyReinscriptionCommand, ReinscriptionReport>
 {
@@ -58,6 +61,7 @@ internal sealed class ApplyReinscriptionCommandHandler(
             return Result.Failure<ReinscriptionReport>(plan.Error);
 
         var registeredOn = DateTime.UtcNow;
+        var created = new List<Registration>(plan.Value.Work.Count);
 
         foreach (var item in plan.Value.Work)
         {
@@ -81,10 +85,20 @@ internal sealed class ApplyReinscriptionCommandHandler(
                 registration.Id, item.StudentId, item.LevelId, plan.Value.ToAcademicYearId));
 
             dbContext.Registrations.Add(registration);
+            created.Add(registration);
         }
 
-        if (plan.Value.Work.Count > 0)
+        if (created.Count > 0)
+        {
+            // The rollover is where an effectivity rule authored over the summer actually bites: it
+            // is the act that creates next year's registrations, and a repeater re-entering the level
+            // the rule names is stamped here rather than by anyone remembering to run a command.
+            var stamp = await stamper.StampAsync(created, cancellationToken);
+            if (stamp.IsFailure)
+                return Result.Failure<ReinscriptionReport>(stamp.Error);
+
             await dbContext.SaveChangesAsync(cancellationToken);
+        }
 
         return plan.Value.Report;
     }

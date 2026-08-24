@@ -143,6 +143,17 @@ internal sealed class UpdateCnpnVersionCommandHandler(
             return Result.Failure(
                 CnpnErrors.CannotShortenBelowRecordedLevel(request.TotalYears, deepestRecorded));
 
+        // …nor a level the text has been declared to take effect for: the rule would point at a year
+        // the programme no longer has.
+        int deepestEffective = await dbContext.CnpnLevelEffectivities
+            .Where(e => e.CnpnVersionId == version.Id)
+            .Select(e => (int?)e.Level.Year)
+            .MaxAsync(ct) ?? 0;
+
+        if (deepestEffective > request.TotalYears)
+            return Result.Failure(
+                CnpnErrors.CannotShortenBelowEffectiveLevel(request.TotalYears, deepestEffective));
+
         version.Code       = request.Code.Trim();
         version.Label      = request.Label.Trim();
         version.TotalYears = request.TotalYears;

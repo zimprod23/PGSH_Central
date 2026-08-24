@@ -31,7 +31,20 @@ internal sealed class GetStudentRegistrationsQueryHandler(IApplicationDbContext 
                 r.Level.Label,
                 r.Status.ToString(),
                 r.failureReasons != null,
-                r.failureReasons != null ? r.failureReasons.Description : null
+                r.failureReasons != null ? r.failureReasons.Description : null,
+                r.OutcomeSource != null ? r.OutcomeSource.ToString() : null,
+                r.OutcomeRecordedOn,
+                r.AcademicGroupId,
+                r.AcademicGroup != null ? r.AcademicGroup.Label : null,
+                // The registration's own text first, the student's only as a fallback: the parcours
+                // shows what each year required, and those two answers part company as soon as an
+                // effectivity rule moves a student mid-cursus — which is exactly the case worth
+                // showing.
+                r.CnpnVersionId ?? r.Student.CnpnVersionId,
+                r.CnpnVersionId != null
+                    ? r.CnpnVersion!.Code
+                    : r.Student.CnpnVersionId != null ? r.Student.CnpnVersion!.Code : null,
+                r.CnpnSource != null ? r.CnpnSource.ToString() : null
             ))
             .ToListAsync(ct);
 

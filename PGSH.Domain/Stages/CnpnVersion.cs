@@ -59,4 +59,12 @@ public sealed class CnpnVersion
     public AcademicYear? AppliesToEntrantsFromAcademicYear { get; set; }
 
     public ICollection<Curriculum> Curricula { get; set; } = new List<Curriculum>();
+
+    /// <summary>
+    /// The levels this text takes over from a given year onward, whoever is sitting in them — the
+    /// second half of "who does this text bind", alongside
+    /// <see cref="AppliesToEntrantsFromAcademicYearId"/>. Entry governs the new intake; these govern
+    /// the promotions already in the building. See <see cref="CnpnLevelEffectivity"/>.
+    /// </summary>
+    public ICollection<CnpnLevelEffectivity> LevelEffectivities { get; set; } = new List<CnpnLevelEffectivity>();
 }

@@ -128,6 +128,30 @@ public static class TestHarness
     }
 
     /// <summary>
+    /// « Ce texte régit tel niveau à partir de telle année ». Navigations are set explicitly for the
+    /// same reason <see cref="SeedCnpnVersion"/> does it: resolution compares
+    /// <c>FromAcademicYear.StartDate</c>, and the in-memory provider will not fix up a reference from
+    /// a foreign key alone before the first save.
+    /// </summary>
+    public static CnpnLevelEffectivity SeedEffectivity(
+        this ApplicationDbContext db, int id, int cnpnVersionId, int levelId, int fromAcademicYearId)
+    {
+        var effectivity = new CnpnLevelEffectivity
+        {
+            Id = id,
+            CnpnVersionId = cnpnVersionId,
+            LevelId = levelId,
+            FromAcademicYearId = fromAcademicYearId,
+            RecordedOn = DateTime.UtcNow,
+            CnpnVersion = db.CnpnVersions.Local.FirstOrDefault(v => v.Id == cnpnVersionId)!,
+            Level = db.Levels.Local.FirstOrDefault(l => l.Id == levelId)!,
+            FromAcademicYear = db.AcademicYears.Local.FirstOrDefault(y => y.Id == fromAcademicYearId)!,
+        };
+        db.CnpnLevelEffectivities.Add(effectivity);
+        return effectivity;
+    }
+
+    /// <summary>
     /// An earlier academic year, for the repeating student: the same level registered twice, once per
     /// year. Defaults to the year before <see cref="SeedCatalog"/>'s.
     /// </summary>

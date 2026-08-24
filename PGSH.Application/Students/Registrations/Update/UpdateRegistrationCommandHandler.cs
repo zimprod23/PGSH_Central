@@ -54,7 +54,8 @@ internal class UpdateRegistrationCommandHandler(IApplicationDbContext dbContext)
             request.Status,
             request.AcademicYearId,
             request.LevelId,
-            failureReasons);
+            failureReasons,
+            DateTime.UtcNow);
 
         if (result.IsFailure) return result;
         

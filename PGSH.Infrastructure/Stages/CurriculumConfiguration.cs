@@ -57,6 +57,45 @@ internal sealed class CnpnVersionConfiguration : IEntityTypeConfiguration<CnpnVe
     }
 }
 
+internal sealed class CnpnLevelEffectivityConfiguration : IEntityTypeConfiguration<CnpnLevelEffectivity>
+{
+    public void Configure(EntityTypeBuilder<CnpnLevelEffectivity> builder)
+    {
+        builder.HasKey(e => e.Id);
+        builder.Property(e => e.Note).HasMaxLength(500);
+
+        builder.HasOne(e => e.CnpnVersion)
+               .WithMany(v => v.LevelEffectivities)
+               .HasForeignKey(e => e.CnpnVersionId)
+               .OnDelete(DeleteBehavior.Cascade);
+
+        builder.HasOne(e => e.Level)
+               .WithMany()
+               .HasForeignKey(e => e.LevelId)
+               .OnDelete(DeleteBehavior.Restrict);
+
+        // Restrict, like the intake year: a year that anchors when a text takes effect cannot be
+        // deleted out from under it.
+        builder.HasOne(e => e.FromAcademicYear)
+               .WithMany()
+               .HasForeignKey(e => e.FromAcademicYearId)
+               .OnDelete(DeleteBehavior.Restrict);
+
+        // One text takes effect for one level once. A second row for the same pair would mean the
+        // text starts governing that level twice, which says nothing.
+        builder.HasIndex(e => new { e.CnpnVersionId, e.LevelId })
+               .IsUnique()
+               .HasDatabaseName("IX_CnpnLevelEffectivity_Version_Level");
+
+        // ⚠ And two texts cannot start governing one level in the same year. Resolution takes the
+        // latest start date at or before the registration's year; a tie has no defensible winner,
+        // exactly as with two texts claiming one intake (IntakeYearAlreadyTaken).
+        builder.HasIndex(e => new { e.LevelId, e.FromAcademicYearId })
+               .IsUnique()
+               .HasDatabaseName("IX_CnpnLevelEffectivity_Level_FromYear");
+    }
+}
+
 internal sealed class CurriculumStageConfiguration : IEntityTypeConfiguration<CurriculumStage>
 {
     public void Configure(EntityTypeBuilder<CurriculumStage> builder)

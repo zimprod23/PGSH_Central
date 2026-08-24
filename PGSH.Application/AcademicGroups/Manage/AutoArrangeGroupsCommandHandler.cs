@@ -49,11 +49,20 @@ internal sealed class AutoArrangeGroupsCommandHandler(IApplicationDbContext dbCo
                 "Groups.NoUnassignedStudents",
                 "No unassigned students found for the selected level and year."));
 
-        var cnpnByStudent = await dbContext.Students
+        // ⚠ The registration's own stamp decides the bucket; the student's is only the fallback for a
+        // row the resolution never reached. A roster is built for one year, and what its members owe
+        // that year is what the text governing *that* registration requires — which is precisely what
+        // stops agreeing with the student's current stamp the moment an effectivity rule moves him
+        // mid-cursus, i.e. exactly the case groups must not mix.
+        var studentIds = registrations.Select(r => r.StudentId).ToList();
+
+        var studentStamps = await dbContext.Students
             .AsNoTracking()
-            .Where(s => registrations.Select(r => r.StudentId).Contains(s.Id))
+            .Where(s => studentIds.Contains(s.Id))
             .Select(s => new { s.Id, s.CnpnVersionId })
             .ToDictionaryAsync(s => s.Id, s => s.CnpnVersionId, cancellationToken);
+
+        int? CnpnOf(Registration r) => r.CnpnVersionId ?? studentStamps.GetValueOrDefault(r.StudentId);
 
         var versionCodes = await dbContext.CnpnVersions
             .AsNoTracking()
@@ -76,7 +85,7 @@ internal sealed class AutoArrangeGroupsCommandHandler(IApplicationDbContext dbCo
         // bucket rather than being folded into someone else's: an unassigned CNPN is a question for
         // scolarité, and silently grouping them with a text they may not follow answers it wrongly.
         var buckets = registrations
-            .GroupBy(r => cnpnByStudent.GetValueOrDefault(r.StudentId))
+            .GroupBy(CnpnOf)
             .OrderBy(g => g.Key ?? int.MaxValue)
             .ToList();
 

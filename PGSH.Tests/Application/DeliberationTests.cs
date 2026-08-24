@@ -44,6 +44,15 @@ public class DeliberationTests
     private static DeliberationRow Row(int sheetRow, Registration r, string? decision, string? motif = null) =>
         new(sheetRow, r.Student!.CNE, r.Student.Appogee, decision, motif);
 
+    /// <summary>The classic canvas: one promotion, every student named, silence means silence.</summary>
+    private static ApplyDeliberationCommand Apply(
+        IReadOnlyList<DeliberationRow> rows, int? academicYearId = null) =>
+        new(rows, TestHarness.LevelId, academicYearId);
+
+    private static PreviewDeliberationQuery Preview(
+        IReadOnlyList<DeliberationRow> rows, int? academicYearId = null) =>
+        new(rows, TestHarness.LevelId, academicYearId);
+
     [Fact]
     public async Task Admis_redoublant_and_exclu_each_close_the_year_with_their_own_verdict()
     {
@@ -51,7 +60,7 @@ public class DeliberationTests
         var promotion = await SeedPromotionAsync(db);
 
         var result = await ApplyHandler(db).Handle(
-            new ApplyDeliberationCommand(TestHarness.LevelId, [
+            Apply( [
                 Row(2, promotion[0], "Admis"),
                 Row(3, promotion[1], "Redoublant", "Deux modules non acquis"),
                 Row(4, promotion[2], "Exclu", "Troisième redoublement"),
@@ -81,7 +90,7 @@ public class DeliberationTests
         var promotion = await SeedPromotionAsync(db);
 
         var result = await ApplyHandler(db).Handle(
-            new ApplyDeliberationCommand(TestHarness.LevelId, [
+            Apply( [
                 Row(2, promotion[0], "Admis", "félicitations du jury"),
                 Row(3, promotion[1], "Redoublant", "Deux modules non acquis"),
             ]),
@@ -106,7 +115,7 @@ public class DeliberationTests
         var promotion = await SeedPromotionAsync(db);
 
         var result = await ApplyHandler(db).Handle(
-            new ApplyDeliberationCommand(TestHarness.LevelId, [
+            Apply( [
                 Row(2, promotion[0], "Admis"),
                 Row(3, promotion[1], "Peut-être"),
             ]),
@@ -127,7 +136,7 @@ public class DeliberationTests
         var promotion = await SeedPromotionAsync(db);
 
         var report = await PreviewHandler(db).Handle(
-            new PreviewDeliberationQuery(TestHarness.LevelId, [
+            Preview( [
                 Row(2, promotion[0], "Admis"),
                 new DeliberationRow(3, "CNE-INCONNU", null, "Admis", null),
             ]),
@@ -146,7 +155,7 @@ public class DeliberationTests
         var promotion = await SeedPromotionAsync(db);
 
         var report = await PreviewHandler(db).Handle(
-            new PreviewDeliberationQuery(TestHarness.LevelId, [
+            Preview( [
                 Row(2, promotion[0], "Admis"),
                 Row(3, promotion[0], "Redoublant"),
             ]),
@@ -164,7 +173,7 @@ public class DeliberationTests
         var promotion = await SeedPromotionAsync(db);
 
         var report = await PreviewHandler(db).Handle(
-            new PreviewDeliberationQuery(TestHarness.LevelId, [
+            Preview( [
                 Row(2, promotion[0], "  ADMIS "),
                 Row(3, promotion[1], "ajourné"),
                 Row(4, promotion[2], "Démission"),
@@ -184,11 +193,11 @@ public class DeliberationTests
         var promotion = await SeedPromotionAsync(db);
 
         await ApplyHandler(db).Handle(
-            new ApplyDeliberationCommand(TestHarness.LevelId, [Row(2, promotion[0], "Redoublant", "erreur de saisie")]),
+            Apply( [Row(2, promotion[0], "Redoublant", "erreur de saisie")]),
             default);
 
         var corrected = await ApplyHandler(db).Handle(
-            new ApplyDeliberationCommand(TestHarness.LevelId, [Row(2, promotion[0], "Admis")]),
+            Apply( [Row(2, promotion[0], "Admis")]),
             default);
 
         corrected.IsSuccess.Should().BeTrue();
@@ -207,7 +216,7 @@ public class DeliberationTests
         var promotion = await SeedPromotionAsync(db);
 
         var report = await PreviewHandler(db).Handle(
-            new PreviewDeliberationQuery(TestHarness.LevelId, [Row(2, promotion[0], "Admis")]),
+            Preview( [Row(2, promotion[0], "Admis")]),
             default);
 
         // A promotion of three closed with a one-row file is worth seeing before applying.
@@ -226,7 +235,7 @@ public class DeliberationTests
         await db.SaveChangesAsync();
 
         var report = await PreviewHandler(db).Handle(
-            new PreviewDeliberationQuery(TestHarness.LevelId, [Row(2, promotion[0], "Diplômé")]),
+            Preview( [Row(2, promotion[0], "Diplômé")]),
             default);
 
         report.Value.Rows.Single().Status.Should().Be(DeliberationRowStatus.NotAFinalYear);
@@ -242,7 +251,7 @@ public class DeliberationTests
         // ~2,200 stamps are inferred and 19 students have none at all; refusing on absence would make
         // the feature unusable on the real data.
         var report = await PreviewHandler(db).Handle(
-            new PreviewDeliberationQuery(TestHarness.LevelId, [Row(2, promotion[0], "Diplômé")]),
+            Preview( [Row(2, promotion[0], "Diplômé")]),
             default);
 
         report.Value.CanApply.Should().BeTrue();
@@ -263,7 +272,7 @@ public class DeliberationTests
         await db.SaveChangesAsync();
 
         var report = await PreviewHandler(db).Handle(
-            new PreviewDeliberationQuery(TestHarness.LevelId, [Row(2, registration, "Admis")]),
+            Preview( [Row(2, registration, "Admis")]),
             default);
 
         // The jury deliberates on the whole year; PGSH sees only the stages. It reports, it does not rule.
@@ -281,7 +290,7 @@ public class DeliberationTests
         var handler = new ApplyDeliberationCommandHandler(db, Planner(db), db.StrangerAuthorizer());
 
         var result = await handler.Handle(
-            new ApplyDeliberationCommand(TestHarness.LevelId, [Row(2, promotion[0], "Admis")]),
+            Apply( [Row(2, promotion[0], "Admis")]),
             default);
 
         result.IsFailure.Should().BeTrue();
@@ -298,7 +307,7 @@ public class DeliberationTests
         await db.SaveChangesAsync();
 
         var report = await PreviewHandler(db).Handle(
-            new PreviewDeliberationQuery(TestHarness.LevelId,
+            Preview(
                 [new DeliberationRow(2, "X", null, "Admis", null)],
                 TestHarness.PreviousYearId),
             default);
@@ -322,7 +331,7 @@ public class DeliberationTests
 
         // Ali is at the same level, in the year before. The current-year canvas must not reach him.
         var report = await PreviewHandler(db).Handle(
-            new PreviewDeliberationQuery(TestHarness.LevelId, [Row(2, lastYear, "Admis")]),
+            Preview( [Row(2, lastYear, "Admis")]),
             default);
 
         report.Value.Rows.Single().Status.Should().Be(DeliberationRowStatus.UnknownStudent);
@@ -335,7 +344,7 @@ public class DeliberationTests
         var promotion = await SeedPromotionAsync(db);
 
         await ApplyHandler(db).Handle(
-            new ApplyDeliberationCommand(TestHarness.LevelId, [Row(2, promotion[0], "Admis")]),
+            Apply( [Row(2, promotion[0], "Admis")]),
             default);
 
         var registration = await db.Registrations.FirstAsync(r => r.StudentId == promotion[0].StudentId);

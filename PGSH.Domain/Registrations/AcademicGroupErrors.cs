@@ -59,6 +59,26 @@ public static class AcademicGroupErrors
         + "toutes ces promotions ensemble. Répartissez d'abord ces étudiants dans des groupes.");
 
     /// <summary>
+    /// Joining a roster is the act for a registration that has none; moving between two is a transfer,
+    /// and the difference is not cosmetic. A transfer carries the student's running rotation across —
+    /// interrupting the in-flight period, rehoming the future ones — and a first assignment has nothing
+    /// to carry, so running it as a join would silently skip all of that.
+    /// </summary>
+    public static Error AlreadyInAGroup(string groupLabel) => Error.Conflict(
+        "AcademicGroups.AlreadyInAGroup",
+        $"Cet étudiant est déjà dans « {groupLabel} ». Utilisez un transfert pour le changer de groupe : "
+        + "ses rotations en cours doivent suivre.");
+
+    /// <summary>
+    /// A registration whose year is over for the student — abandon, exclusion, diplôme. There is
+    /// nothing to plan, and the roster's quota would count someone who will not come.
+    /// </summary>
+    public static Error CursusEndedCannotJoin(string status) => Error.Conflict(
+        "AcademicGroups.CursusEndedCannotJoin",
+        $"L'année de cet étudiant est close ({status}) : il n'y a pas de rotation à lui affecter. "
+        + "Corrigez d'abord la décision de l'année si elle est erronée.");
+
+    /// <summary>
     /// Two rosters of the same promotion cannot share a label — the label is what an admin reads.
     /// Across promotions they can: « Groupe 1 » exists in the 3rd year and in the 5th year at once,
     /// which is exactly how the faculty numbers and names them.

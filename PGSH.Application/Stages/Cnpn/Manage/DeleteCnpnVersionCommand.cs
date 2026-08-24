@@ -60,6 +60,17 @@ internal sealed class DeleteCnpnVersionCommandHandler(
         if (students > 0)
             return Result.Failure<int>(CnpnErrors.CannotDeleteWithStudents(version.Code, students));
 
+        // The same gate from the other side, and it is not redundant: a text can govern a *closed*
+        // year of a student who has since moved to another one, so the student count reaches zero
+        // while registrations still name it. Those rows are the record of what those years required —
+        // Registrations → CnpnVersions is Restrict, so without this the cascade is a 500.
+        int registrations = await dbContext.Registrations.CountAsync(
+            r => r.CnpnVersionId == request.Id, ct);
+
+        if (registrations > 0)
+            return Result.Failure<int>(
+                CnpnErrors.CannotDeleteWithRegistrations(version.Code, registrations));
+
         // Counted before the cascade takes them, so the caller can report what was actually removed.
         int curricula = await dbContext.Curriculums.CountAsync(c => c.CnpnVersionId == request.Id, ct);
 

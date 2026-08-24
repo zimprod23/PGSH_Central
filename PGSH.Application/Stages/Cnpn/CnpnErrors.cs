@@ -88,4 +88,71 @@ public static class CnpnErrors
         "Cnpn.CannotDeleteWithStudents",
         $"{studentCount} étudiant(s) relèvent du CNPN {code}. Rattachez-les à un autre texte avant "
         + "de le supprimer — sans cela ils ne relèveraient plus d'aucun CNPN.");
+
+    /// <summary>
+    /// The same gate, from the other side. A text stamped on a registration is the record of what a
+    /// student was required to do that year; deleting it would leave closed years pointing at nothing.
+    /// </summary>
+    public static Error CannotDeleteWithRegistrations(string code, int registrationCount) => Error.Conflict(
+        "Cnpn.CannotDeleteWithRegistrations",
+        $"{registrationCount} inscription(s) ont été régies par le CNPN {code}. Supprimer le texte "
+        + "effacerait ce que ces années exigeaient — rattachez-les à un autre texte d'abord.");
+
+    // === Effectivity — « ce texte régit tel niveau à partir de telle année » ===
+
+    public static Error EffectivityNotFound(int id) => Error.NotFound(
+        "CnpnEffectivity.NotFound",
+        $"Aucune règle d'entrée en vigueur enregistrée sous l'identifiant {id}.");
+
+    /// <summary>
+    /// A text takes effect for a level once. A second row would say it starts governing that level
+    /// twice, which states nothing — correct the existing row instead.
+    /// </summary>
+    public static Error EffectivityAlreadyDeclared(string code, string levelLabel, string yearLabel) =>
+        Error.Conflict(
+            "CnpnEffectivity.AlreadyDeclared",
+            $"Le CNPN {code} régit déjà {levelLabel} à partir de {yearLabel}. Modifiez cette règle "
+            + "plutôt que d'en ajouter une seconde.");
+
+    /// <summary>
+    /// Two texts starting to govern one level in one year. Resolution takes the latest start date at
+    /// or before the registration's year, so a tie has no defensible winner — the same objection as
+    /// two texts claiming one intake.
+    /// </summary>
+    public static Error EffectivityYearAlreadyTaken(string levelLabel, string yearLabel, string otherCode) =>
+        Error.Conflict(
+            "CnpnEffectivity.YearAlreadyTaken",
+            $"Le CNPN {otherCode} prend déjà effet pour {levelLabel} en {yearLabel} ; deux textes ne "
+            + "peuvent pas entrer en vigueur au même moment pour un même niveau.");
+
+    public static Error EffectivityProgramMismatch(
+        string code, AcademicProgram textProgram, string levelLabel, AcademicProgram levelProgram) =>
+        Error.Validation(
+            "CnpnEffectivity.ProgramMismatch",
+            $"Le CNPN {code} relève de la filière {textProgram} ; {levelLabel} relève de {levelProgram}.");
+
+    /// <summary>
+    /// Shortening a text below a level it takes effect for would leave the rule pointing at a year
+    /// the programme no longer has.
+    /// </summary>
+    public static Error CannotShortenBelowEffectiveLevel(int totalYears, int levelYear) =>
+        Error.Validation(
+            "Cnpn.CannotShortenBelowEffectiveLevel",
+            $"Ce CNPN entre en vigueur pour la {levelYear}ᵉ année ; il ne peut pas être ramené à "
+            + $"{totalYears} années. Retirez d'abord cette règle d'entrée en vigueur.");
+
+    /// <summary>
+    /// The population moved between the preview and the apply. Same guard as the déliberation's
+    /// <c>DefaultsNotConfirmed</c>, and for the same reason: a registration created in between widens
+    /// the act silently, and a tick-box confirmation cannot notice.
+    /// </summary>
+    public static Error EffectivityMoveCountNotConfirmed(int confirmed, int actual) => Error.Conflict(
+        "CnpnEffectivity.MoveCountNotConfirmed",
+        $"Vous avez confirmé {confirmed} inscription(s) à re-rattacher, mais {actual} le seraient "
+        + "maintenant. Relancez l'aperçu avant d'appliquer.");
+
+    public static readonly Error EffectivityNothingToApply = Error.Problem(
+        "CnpnEffectivity.NothingToApply",
+        "Aucune inscription à re-rattacher : toutes relèvent déjà de ce texte, ou aucune n'existe "
+        + "encore pour ce niveau depuis l'entrée en vigueur.");
 }

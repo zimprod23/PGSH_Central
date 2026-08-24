@@ -1,6 +1,8 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
+using PGSH.Application.Stages.Cnpn;
+using PGSH.Application.Stages.Progression;
 using PGSH.Domain.Registrations;
 using PGSH.Domain.Students;
 using PGSH.SharedKernel;
@@ -8,7 +10,9 @@ using PGSH.SharedKernel;
 namespace PGSH.Application.Students.Registrations.CreateMany;
 
 internal sealed class CreateManyRegistrationsCommandHandler(
-    IApplicationDbContext dbContext)
+    IApplicationDbContext dbContext,
+    RegistrationCnpnStamper stamper,
+    FinalYearGuard finalYear)
     : ICommandHandler<CreateManyRegistrationsCommand, BulkResponse<Guid, Guid>>
 {
     public async Task<Result<BulkResponse<Guid, Guid>>> Handle(
@@ -50,6 +54,18 @@ internal sealed class CreateManyRegistrationsCommandHandler(
                 continue;
             }
 
+            // Same gate as the single-registration path. Per student rather than per batch: whether
+            // this is somebody's last year is a question about his own text, and the answer differs
+            // inside one promotion since 1650.25.
+            var gate = await finalYear.EnsureMayEnterAsync(
+                studentId, request.LevelId, request.AcademicYearId, cancellationToken);
+
+            if (gate.IsFailure)
+            {
+                itemResults.Add(new BulkItemResult<Guid, Guid>(studentId, default, gate.Error));
+                continue;
+            }
+
             // Success: Create the registration entity
             var reg = new Registration
             {
@@ -71,6 +87,13 @@ internal sealed class CreateManyRegistrationsCommandHandler(
         if (newRegistrations.Any())
         {
             dbContext.Registrations.AddRange(newRegistrations);
+
+            // One pass for the whole batch: the population's stamps, prior texts and the year's
+            // effectivity rules are three lookups, not four per student.
+            var stamp = await stamper.StampAsync(newRegistrations, cancellationToken);
+            if (stamp.IsFailure)
+                return Result.Failure<BulkResponse<Guid, Guid>>(stamp.Error);
+
             await dbContext.SaveChangesAsync(cancellationToken);
         }
 

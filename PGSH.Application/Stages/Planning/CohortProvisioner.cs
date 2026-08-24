@@ -78,9 +78,15 @@ internal sealed class CohortProvisioner(IApplicationDbContext dbContext)
                 g.LevelId,
                 // Auto-arrange keeps a group to one text; a hand-built one might not, so take the
                 // distinct set and only trust it when there is exactly one.
+                //
+                // ⚠ The registration's stamp first, the student's only as a fallback. A group is a
+                // roster of one year, so what its members owe is what the text governing *that* year
+                // required — which is exactly what the registration records and what the student's
+                // own stamp stops being the moment an effectivity rule moves him. Null on both is the
+                // legacy row nobody has resolved; it simply does not join the set.
                 CnpnVersionIds = g.Registrations
-                    .Where(r => r.Student.CnpnVersionId != null)
-                    .Select(r => r.Student.CnpnVersionId!.Value)
+                    .Where(r => r.CnpnVersionId != null || r.Student.CnpnVersionId != null)
+                    .Select(r => r.CnpnVersionId ?? r.Student.CnpnVersionId!.Value)
                     .Distinct()
                     .ToList(),
             })

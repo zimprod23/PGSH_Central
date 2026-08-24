@@ -56,6 +56,64 @@ internal sealed class StudentAffectationService(IApplicationDbContext dbContext)
         return await AssignAsync(cohorts, ct);
     }
 
+    /// <summary>
+    /// Affects <em>one</em> registration to every cohort its new roster already holds, for the stages of
+    /// its own level. The bulk paths above walk cohorts and pick up their students; this walks one
+    /// student and picks up his cohorts — the direction a late arrival needs, since nobody is going to
+    /// re-run the affectation of the whole promotion for him.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ Does <b>not</b> save. The caller is joining a roster, which is several writes that must land
+    /// together — the group pointer, these assignments and the periods materialised from them.
+    /// </remarks>
+    public async Task<IReadOnlyList<InternshipAssignment>> AssignRegistrationAsync(
+        Registration registration, int academicGroupId, CancellationToken ct)
+    {
+        var cohorts = await dbContext.Cohorts
+            .AsNoTracking()
+            .Where(c => c.AcademicGroupId == academicGroupId && c.Stage.LevelId == registration.LevelId)
+            .Select(c => c.Id)
+            .ToListAsync(ct);
+
+        if (cohorts.Count == 0)
+            return [];
+
+        var alreadyAssigned = (await dbContext.InternshipAssignments
+                .AsNoTracking()
+                .Where(a => a.RegistrationId == registration.Id && cohorts.Contains(a.CurrentCohortId))
+                .Select(a => a.CurrentCohortId)
+                .ToListAsync(ct))
+            .ToHashSet();
+
+        var created = new List<InternshipAssignment>();
+
+        foreach (int cohortId in cohorts)
+        {
+            if (alreadyAssigned.Contains(cohortId)) continue;
+
+            var assignmentId = Guid.NewGuid();
+            var assignment = new InternshipAssignment
+            {
+                Id              = assignmentId,
+                RegistrationId  = registration.Id,
+                CurrentCohortId = cohortId,
+            };
+
+            assignment.MembershipHistory.Add(new CohortMembership
+            {
+                Id                     = Guid.NewGuid(),
+                InternshipAssignmentId = assignmentId,
+                CohortId               = cohortId,
+                StartDate              = DateOnly.FromDateTime(DateTime.UtcNow),
+            });
+
+            dbContext.InternshipAssignments.Add(assignment);
+            created.Add(assignment);
+        }
+
+        return created;
+    }
+
     private async Task<BulkResponse<Guid, Guid>> AssignAsync(IReadOnlyList<CohortTarget> cohorts, CancellationToken ct)
     {
         if (cohorts.Count == 0)

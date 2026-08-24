@@ -9,16 +9,18 @@ using PGSH.SharedKernel;
 namespace PGSH.Application.Students.Registrations.Deliberation;
 
 /// <summary>
-/// The blank déliberation sheet, pre-filled with the promotion's own students. Handing out an empty
-/// template would mean someone retypes 688 identifiers by hand, and a mistyped CNE is a row that
-/// belongs to nobody.
+/// The déliberation sheet to fill in. Handing out a bare header row would mean someone retypes
+/// identifiers by hand, and a mistyped CNE is a row that belongs to nobody — so both modes carry the
+/// students: <see cref="DeliberationTemplateMode.Full"/> as the rows to decide,
+/// <see cref="DeliberationTemplateMode.Exceptions"/> as a reference list beside an empty sheet.
 ///
-/// Scoped to one (year, level) — <paramref name="AcademicYearId"/> omitted resolves to the current
-/// year, never to all of them.
+/// Scoped to one academic year — omitted resolves to the current one, never to all of them — and
+/// narrowed to one level only when <paramref name="LevelId"/> is given.
 /// </summary>
 public sealed record GetDeliberationTemplateQuery(
-    int LevelId,
-    int? AcademicYearId = null) : IQuery<DeliberationTemplateFile>;
+    int? LevelId = null,
+    int? AcademicYearId = null,
+    DeliberationTemplateMode Mode = DeliberationTemplateMode.Exceptions) : IQuery<DeliberationTemplateFile>;
 
 public sealed record DeliberationTemplateFile(string FileName, byte[] Content);
 
@@ -37,32 +39,40 @@ internal sealed class GetDeliberationTemplateQueryHandler(
         if (access.IsFailure)
             return Result.Failure<DeliberationTemplateFile>(access.Error);
 
-        var level = await dbContext.Levels
-            .AsNoTracking()
-            .Where(l => l.Id == request.LevelId)
-            .Select(l => new { l.Label, l.Year, l.AcademicProgram })
-            .FirstOrDefaultAsync(cancellationToken);
-
-        if (level is null)
-            return Result.Failure<DeliberationTemplateFile>(RegistrationErrors.MissingLevel);
-
         var year = await yearResolver.ResolveWithLabelAsync(request.AcademicYearId, cancellationToken);
         if (year.IsFailure)
             return Result.Failure<DeliberationTemplateFile>(year.Error);
 
         (int yearId, string yearLabel) = year.Value;
-        string levelLabel = level.Label ?? $"Année {level.Year} — {level.AcademicProgram}";
+
+        string scopeLabel = "Toutes les promotions";
+        if (request.LevelId is { } levelId)
+        {
+            var level = await dbContext.Levels
+                .AsNoTracking()
+                .Where(l => l.Id == levelId)
+                .Select(l => new { l.Label, l.Year, l.AcademicProgram })
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (level is null)
+                return Result.Failure<DeliberationTemplateFile>(RegistrationErrors.MissingLevel);
+
+            scopeLabel = level.Label ?? $"Année {level.Year} — {level.AcademicProgram}";
+        }
 
         var students = await dbContext.Registrations
             .AsNoTracking()
-            .Where(r => r.AcademicYearId == yearId && r.LevelId == request.LevelId)
-            .OrderBy(r => r.AcademicGroup!.GroupNumber)
+            .Where(r => r.AcademicYearId == yearId)
+            .Where(r => request.LevelId == null || r.LevelId == request.LevelId)
+            .OrderBy(r => r.Level.Year)
+            .ThenBy(r => r.AcademicGroup!.GroupNumber)
             .ThenBy(r => r.Student.LastName)
             .ThenBy(r => r.Student.FirstName)
             .Select(r => new DeliberationTemplateStudent(
                 r.Student.CNE,
                 r.Student.Appogee,
                 ((r.Student.FirstName ?? "") + " " + (r.Student.LastName ?? "")).Trim(),
+                r.Level.Label ?? ("Année " + r.Level.Year),
                 r.AcademicGroup != null ? (r.AcademicGroup.Label ?? "") : "",
                 // Pre-filling a verdict already recorded is what makes a correction pass practical:
                 // the jury re-downloads, changes the two lines it got wrong, and re-uploads.
@@ -73,12 +83,16 @@ internal sealed class GetDeliberationTemplateQueryHandler(
         // fact the year picker is on a year this level did not run.
         if (students.Count == 0)
             return Result.Failure<DeliberationTemplateFile>(
-                DeliberationErrors.PromotionHasNoStudents(levelLabel, yearLabel));
+                DeliberationErrors.PromotionHasNoStudents(scopeLabel, yearLabel));
 
-        var template = new DeliberationTemplate(yearLabel, levelLabel, students);
+        var template = new DeliberationTemplate(yearLabel, scopeLabel, request.Mode, students);
+
+        string prefix = request.Mode == DeliberationTemplateMode.Exceptions
+            ? "deliberation-exceptions"
+            : "deliberation";
 
         return new DeliberationTemplateFile(
-            $"deliberation-{Slug(levelLabel)}-{Slug(yearLabel)}.xlsx",
+            $"{prefix}-{Slug(scopeLabel)}-{Slug(yearLabel)}.xlsx",
             sheetParser.BuildTemplate(template));
     }
 

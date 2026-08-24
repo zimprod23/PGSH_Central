@@ -1,6 +1,8 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
+using PGSH.Application.Stages.Cnpn;
+using PGSH.Application.Stages.Progression;
 using PGSH.Domain.Registrations;
 using PGSH.Domain.Students;
 using PGSH.SharedKernel;
@@ -8,7 +10,9 @@ using PGSH.SharedKernel;
 namespace PGSH.Application.Students.Registrations.Create;
 
 internal sealed class CreateRegistrationCommandHandler(
-    IApplicationDbContext dbContext) : ICommandHandler<CreateRegistrationCommand, Guid>
+    IApplicationDbContext dbContext,
+    RegistrationCnpnStamper stamper,
+    FinalYearGuard finalYear) : ICommandHandler<CreateRegistrationCommand, Guid>
 {
     public async Task<Result<Guid>> Handle(CreateRegistrationCommand request, CancellationToken cancellationToken)
     {
@@ -55,6 +59,14 @@ internal sealed class CreateRegistrationCommandHandler(
 
         if (alreadyRegistered) return Result.Failure<Guid>(RegistrationErrors.DuplicateRegistration(request.StudentId, request.AcademicYearId));
 
+        // The last year of a cursus does not begin while an earlier stage is unvalidated. Enforced
+        // here as well as in the réinscription: a guard the bulk path applies and the manual one does
+        // not is a guard anyone can step around by using the other button.
+        var gate = await finalYear.EnsureMayEnterAsync(
+            request.StudentId, request.LevelId, request.AcademicYearId, cancellationToken);
+
+        if (gate.IsFailure) return Result.Failure<Guid>(gate.Error);
+
 
         var registration = new Registration
         {
@@ -72,6 +84,12 @@ internal sealed class CreateRegistrationCommandHandler(
             request.AcademicYearId));
 
         dbContext.Registrations.Add(registration);
+
+        // Before the save, so the registration is written with the text that governs it rather than
+        // acquiring one in a second round-trip. A student for whom no text can be determined keeps a
+        // null stamp; every reader falls back to his own, and a guess here would be worse.
+        var stamp = await stamper.StampAsync([registration], cancellationToken);
+        if (stamp.IsFailure) return Result.Failure<Guid>(stamp.Error);
 
         await dbContext.SaveChangesAsync(cancellationToken);
         return registration.Id;

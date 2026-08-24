@@ -8,10 +8,11 @@ namespace PGSH.Application.Students.Registrations.Reinscription;
 /// <summary>
 /// What the rollover would create. Nothing is written; the report is the plan the apply will execute.
 /// </summary>
+/// <param name="LevelId">One promotion, or every promotion of the closing year when omitted.</param>
 public sealed record PreviewReinscriptionQuery(
     int FromAcademicYearId,
     int ToAcademicYearId,
-    int LevelId) : IQuery<ReinscriptionReport>;
+    int? LevelId = null) : IQuery<ReinscriptionReport>;
 
 internal sealed class PreviewReinscriptionQueryValidator : AbstractValidator<PreviewReinscriptionQuery>
 {
@@ -19,7 +20,7 @@ internal sealed class PreviewReinscriptionQueryValidator : AbstractValidator<Pre
     {
         RuleFor(x => x.FromAcademicYearId).GreaterThan(0);
         RuleFor(x => x.ToAcademicYearId).GreaterThan(0);
-        RuleFor(x => x.LevelId).GreaterThan(0);
+        RuleFor(x => x.LevelId).GreaterThan(0).When(x => x.LevelId is not null);
     }
 }
 

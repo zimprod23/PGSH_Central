@@ -92,12 +92,25 @@ public sealed class Student: User
         return Result.Success();
     }
 
+    /// <summary>
+    /// Edits a registration in place.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ <b><paramref name="status"/> goes through <see cref="Registration.RecordYearOutcome"/> and
+    /// <see cref="Registration.ReopenYear"/>, never through the setter.</b> It used to be a plain
+    /// assignment, which meant the edit form could write « Admis » onto a registration while leaving
+    /// <c>OutcomeSource</c> null — a verdict nobody declared. The réinscription then reported that
+    /// student as « aucune décision enregistrée » and refused to carry him over, with an edit screen
+    /// showing the verdict in place: the field said one thing and the rollover another, and neither
+    /// was wrong about what it read.
+    /// </remarks>
     public Result UpdateRegistration(
         Guid registrationId,
         RegistrationStatus status,
         int academicYearId,
         int levelId,
-        FailureReasons? failure)
+        FailureReasons? failure,
+        DateTime recordedOn)
     {
         var registration = registrations.FirstOrDefault(r => r.Id == registrationId);
         if (registration is null) return Result.Failure(RegistrationErrors.NotFound(registrationId));
@@ -109,11 +122,29 @@ public sealed class Student: User
             return Result.Failure(RegistrationErrors.DuplicateRegistration(this.Id, academicYearId));
         }
 
-        // Update properties
-        registration.Status = status;
         registration.AcademicYearId = academicYearId;
         registration.LevelId = levelId;
-        registration.failureReasons = failure;
+
+        if (status.IsYearOutcome())
+        {
+            var outcome = registration.RecordYearOutcome(
+                status, RegistrationOutcomeSource.Declared, failure, recordedOn);
+
+            if (outcome.IsFailure) return outcome;
+        }
+        else
+        {
+            // Back to a year in progress. Where a verdict stands, that is a withdrawal and has to be
+            // recorded as one; where none does, it is an ordinary edit of a row nobody has closed.
+            if (registration.OutcomeSource is not null)
+            {
+                var reopened = registration.ReopenYear(null);
+                if (reopened.IsFailure) return reopened;
+            }
+
+            registration.Status = status;
+            registration.failureReasons = failure;
+        }
 
         registration.Raise(new RegistrationUpdatedDomainEvent(registration.Id, status));
 
