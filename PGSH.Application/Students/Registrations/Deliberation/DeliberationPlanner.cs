@@ -387,6 +387,21 @@ internal sealed class DeliberationPlanner(
     /// The shortest text on record per programme — the first year at which « Admis » and « Diplômé »
     /// stop being interchangeable for a student nobody has stamped.
     /// </summary>
+    /// <remarks>
+    /// ⚠ <b>Known bias, deliberately left in the safe direction.</b> This counts every
+    /// <c>CnpnVersion</c> of the programme, including one recorded for citation only (null
+    /// <c>AppliesToEntrantsFromAcademicYearId</c>) which no entrant can ever be selected onto. A
+    /// citation text <em>shorter</em> than any real one would therefore pull the threshold down and
+    /// leave whole cohorts in <c>FinalYearUndecided</c> rather than promoting them.
+    ///
+    /// <para>Latent today: measured 2026-08-24, the only such row is arrêté 2175.22 at
+    /// <c>TotalYears = 7</c>, which is longer than 1650.25's 6 — so the Médecine threshold is already
+    /// the right one. Left as is rather than filtered because the two errors are not symmetric: too
+    /// low means students are left undecided and somebody names them by hand, too high means the
+    /// exceptions file <b>graduates people who are still enrolled</b>, which is the failure this whole
+    /// rule was written to prevent. Filtering correctly also has to admit versions reachable through
+    /// <c>CnpnLevelEffectivity</c> and targeting, so it is not the one-line change it looks like.</para>
+    /// </remarks>
     private async Task<Dictionary<AcademicProgram, int>> EarliestFinalYearByProgramAsync(
         List<Registration> registrations, CancellationToken ct)
     {

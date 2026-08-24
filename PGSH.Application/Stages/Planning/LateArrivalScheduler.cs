@@ -86,7 +86,7 @@ internal sealed class LateArrivalScheduler(IApplicationDbContext dbContext)
                     continue;
                 }
 
-                assignment.ServicePeriods.Add(new ServicePeriod
+                var period = new ServicePeriod
                 {
                     InternshipAssignmentId = assignment.Id,
                     ServiceId              = cell.ServiceId,
@@ -96,7 +96,21 @@ internal sealed class LateArrivalScheduler(IApplicationDbContext dbContext)
                     StartDate              = cell.StartDate > asOf ? cell.StartDate : asOf,
                     EndDate                = cell.EndDate,
                     IsStarted              = startedCellIds.Contains(cell.Id),
+                };
+
+                // ⚠ The coverage row is not bookkeeping. `CohortSlotAssignmentId` answers « did this
+                // come from the grid? »; only ServicePeriodSlotCoverage answers « is *this cell*
+                // published? », and that is what PublishedCells — and so RotationArranger,
+                // DeleteStageSlot, ClearCohortSlotAssignment and ClearSlotAssignments — actually read.
+                // Without it the newcomer's cell reads as free: a later auto-arrange rewrites it with
+                // another service while his période keeps naming the old one, and DeleteStageSlot lets
+                // the column go out from under him.
+                period.SlotCoverage.Add(new ServicePeriodSlotCoverage
+                {
+                    CohortSlotAssignmentId = cell.Id,
                 });
+
+                assignment.ServicePeriods.Add(period);
 
                 created++;
             }

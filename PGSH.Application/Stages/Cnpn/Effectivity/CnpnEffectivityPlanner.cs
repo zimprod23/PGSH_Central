@@ -48,10 +48,27 @@ internal sealed class CnpnEffectivityPlanner(
         if (rule is null)
             return Result.Failure<Plan>(CnpnErrors.EffectivityNotFound(effectivityId));
 
+        // ⚠ Bounded above by the next rule on this level, not left open-ended. Uniqueness is
+        // (CnpnVersionId, LevelId) and (LevelId, FromAcademicYearId), so a level may carry several
+        // rules — « à partir de 2026-2027 » followed by « à partir de 2028-2029 » — and
+        // RegistrationCnpnStamper resolves a year to the rule with the *latest* From at or before it.
+        // Read open-ended, this rule's preview claimed every later year too, and the apply then wrote
+        // the later rule's text to them: the numbers the operator confirmed described writes that
+        // never happened, which is exactly the « le dry run est le plan » guarantee this planner
+        // exists to keep.
+        var nextFrom = await dbContext.CnpnLevelEffectivities
+            .AsNoTracking()
+            .Where(e => e.LevelId == rule.LevelId && e.FromAcademicYear.StartDate > rule.From)
+            .OrderBy(e => e.FromAcademicYear.StartDate)
+            .Select(e => (DateOnly?)e.FromAcademicYear.StartDate)
+            .FirstOrDefaultAsync(ct);
+
         // Tracked: the apply writes through the aggregate, and the preview must plan against the same
         // objects it would mutate — the guarantee CnpnTargetPlanner and the évaluation import make.
         var inScope = await dbContext.Registrations
-            .Where(r => r.LevelId == rule.LevelId && r.AcademicYear.StartDate >= rule.From)
+            .Where(r => r.LevelId == rule.LevelId
+                     && r.AcademicYear.StartDate >= rule.From
+                     && (nextFrom == null || r.AcademicYear.StartDate < nextFrom))
             .ToListAsync(ct);
 
         string levelLabel = rule.LevelLabel ?? $"niveau {rule.LevelId}";

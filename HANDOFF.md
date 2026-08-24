@@ -6,17 +6,53 @@
 >
 > | # | Do this | Why it is not done |
 > |---|---|---|
-> | 1 | **Give the 6ᵉ année its crossover** — bloc de rotation (`k = [2,2,2,2,1,1]`, `T = 10`, `P = 10`), then the plan macro. | Now unblocked: its 51 allowed services were authored 2026-08-24 (`SMOKE-TEST.md` §22c.5) and it was already cut into ten partitions of ten rosters with ten slots per stage. Zero cells. It is the promotion `StageWouldFillEveryColumn` exists for, and the only end-to-end test of the block on real data. |
-> | 2 | **Review three 6MED service calls** on the Stage page — *Pédiatrie CCP*, *Urgences (Moulay Youssef)*, and everything at *Azzamouri*. | All three were excluded by the recency rule and all three are arguable. `SMOKE-TEST.md` §22c.5 names them and the one-line undo. |
-> | 3 | **Close 2025-2026 for real** — Clôture & réinscription, exceptions canvas, confirm, apply. | 6 057 verdicts with no undo but a restore. It is the user's click, not ours. **Take a `pg_dump -Fc` first.** |
-> | 4 | **Walk the defence roll** — name a handful of 7ᵉ année students « Diplômé » and check they graduate while the rest stay put. | The 14.3e rule is verified by tests and by the preview's numbers; nobody has used the flow it now depends on. |
-> | 5 | **Phase 16 — the Access re-import** (`LEGACY-` CNEs, and 16.2's open question). | Specified and measured in session 24, not started. |
-> | 6 | **Testcontainers.** | Carried since session 22. The integration suite proves the pipeline; nothing proves the SQL. |
-> | 7 | **Sweep other screens for stale data** — `loadingMiddleware`'s re-entrant dispatch (fixed, `SMOKE-TEST.md` §20f) silently staled whichever query settled *last* on any page, for the whole life of the middleware. | The bug is fixed; nobody has checked what else it was quietly breaking. |
-> | 8 | **Decide on the 56 programme-mismatched stamps** — Médecine registrations governed by `PHARM-LEGACY`. `SMOKE-TEST.md` §20g has the query. | Pre-existing, from the original CNPN backfill. One of the 57 was corrected incidentally by the 2ème année rule. |
-> | 9 | **Try the final-year gate on the real base** — `SMOKE-TEST.md` §21. | Built and tested in session 24, never run against real data. The migration is applied (verified 2026-08-24); only the walk-through is owed. |
-> | 10 | **Close the revalidation flexibility hole** — no way to hand a student a stage he never attempted, and no generic "assign this student to this cohort". | Identified in session 24. `RevalidateStageCommand` needs a prior *failed* attempt; every other creation path is bulk or specific. |
-> | 11 | **Year-segregation audit, académic-year update/delete, Inscriptions screen.** | Session 24 was scoped to the CNPN alone, by agreement. |
+> | 1 | **Enter 1650.25's requirement sets — the stage list per level — *before* opening 2026-2027 for registrations.** ⚠ **Awaiting the list from the faculty.** | `RegistrationCnpnStamper` reads the effectivity rule once, at the creation of a registration. Open the year first and every 3ᵉ année of 2026-2027 gets a stamp pointing at a text that requires nothing — `CohortProvisioner` then stands aside silently and the promotion plans as if it owed no stage. `PHASES.md` §15.2. |
+> | 2 | **Batch the final-year gate in `CreateManyRegistrationsCommandHandler`.** | It calls `EnsureMayEnterAsync` per student inside the loop, and `OutstandingStageFinder.ForStudentAsync` pulls every assignment of that student's whole cursus — ~2 800 queries to enrol a promotion of 700. `ForPromotionAsync` already exists; the batched `RegistrationCnpnStamper` call fifteen lines below is the shape to copy. Found by the session-26 review. |
+> | 3 | **Decide whether `LateArrivalScheduler` should materialise périodes for an *unpublished* grid.** | It materialises every open cell of the roster whether or not the répartition was published, so a newcomer can hold périodes for a plan nobody published — and `SchedulePublisher` will then skip his assignment as `SkippedAlreadyServed`. The coverage half of this was fixed in session 26; this half is a design question, not a bug. |
+> | 4 | **Run `SMOKE-TEST.md` §23** — the academic-year routes, against the real base. | Built and tested in session 26; every delete guard exists to keep the user away from a foreign key, and the in-memory suite has none. |
+> | 5 | **Give the 6ᵉ année its crossover** — bloc de rotation (`k = [2,2,2,2,1,1]`, `T = 10`, `P = 10`), then the plan macro. | Now unblocked: its 51 allowed services were authored 2026-08-24 (`SMOKE-TEST.md` §22c.5) and it was already cut into ten partitions of ten rosters with ten slots per stage. Zero cells. It is the promotion `StageWouldFillEveryColumn` exists for, and the only end-to-end test of the block on real data. |
+> | 6 | **Review three 6MED service calls** on the Stage page — *Pédiatrie CCP*, *Urgences (Moulay Youssef)*, and everything at *Azzamouri*. | All three were excluded by the recency rule and all three are arguable. `SMOKE-TEST.md` §22c.5 names them and the one-line undo. |
+> | 7 | **Close 2025-2026 for real** — Clôture & réinscription, exceptions canvas, confirm, apply. | 6 057 verdicts with no undo but a restore. It is the user's click, not ours. **Take a `pg_dump -Fc` first.** |
+> | 8 | **Walk the defence roll** — name a handful of 7ᵉ année students « Diplômé » and check they graduate while the rest stay put. | The 14.3e rule is verified by tests and by the preview's numbers; nobody has used the flow it now depends on. |
+> | 9 | **Phase 16 — the Access re-import** (`LEGACY-` CNEs, and 16.2's open question). | Specified and measured in session 24, not started. |
+> | 10 | **Testcontainers.** | Carried since session 22. The integration suite proves the pipeline; nothing proves the SQL. |
+> | 11 | **Sweep other screens for stale data** — `loadingMiddleware`'s re-entrant dispatch (fixed, `SMOKE-TEST.md` §20f) silently staled whichever query settled *last* on any page, for the whole life of the middleware. | The bug is fixed; nobody has checked what else it was quietly breaking. |
+> | 12 | **Decide on the 56 programme-mismatched stamps** — Médecine registrations governed by `PHARM-LEGACY`. `SMOKE-TEST.md` §20g has the query. | Pre-existing, from the original CNPN backfill. One of the 57 was corrected incidentally by the 2ème année rule. |
+> | 13 | **Try the final-year gate on the real base** — `SMOKE-TEST.md` §21. | Built and tested in session 24, never run against real data. The migration is applied (verified 2026-08-24); only the walk-through is owed. |
+> | 14 | **Close the revalidation flexibility hole** — no way to hand a student a stage he never attempted, and no generic "assign this student to this cohort". | Identified in session 24. `RevalidateStageCommand` needs a prior *failed* attempt; every other creation path is bulk or specific. |
+> | 15 | **Year-segregation audit, académic-year update/delete, Inscriptions screen.** | Session 24 was scoped to the CNPN alone, by agreement. |
+>
+> **▶ SESSION 26 — the year is a thing you can set, correct and remove.**
+>
+> Suite **989 green** (965 + 24: 14 handler tests, 10 endpoint tests). Both new guards proven to bite —
+> disabling them fails exactly four tests, one per guard per layer.
+>
+> **The finding.** `AcademicYear` had a create and a list, and nothing else: designating « l'année en
+> cours » was only possible as a *side effect* of creating another year, and there was no way at all to
+> remove one entered by mistake. Two things the schema says that nobody had read:
+>
+> - **`AcademicGroups.AcademicYearId` is `CASCADE`** while five other foreign keys are `RESTRICT`. So an
+>   ungated delete is destructive in two different ways and neither announces itself — a raw 500 on the
+>   restricting ones, and the year's rosters silently gone on the cascading one.
+> - **Two years sharing a day was never prevented**, and `ServiceOccupancyCalculator` bounds a year by
+>   its *dates* rather than by `AcademicYearId` — deliberately, so a slot stamped with the wrong year
+>   still surfaces. That choice is only safe while the two cannot disagree; overlapping years count
+>   every slot in the overlap twice against a service's load. The base satisfies the rule; nothing was
+>   enforcing it.
+>
+> **What was built.** `AcademicYears/Manage/` — set current, update, delete, plus
+> `AcademicYearCalendarGuard` shared with create. `AcademicYear` became an `Entity` with `init`
+> accessors over backing fields, so an object initialiser still builds one but only
+> `MakeCurrent`/`Relinquish`/`Rename`/`Reschedule` can change one afterwards.
+>
+> ⚠ **Two bugs found in existing code by building it:**
+> - `CreateAcademicYearCommandHandler` demoted the sitting year with `ExecuteUpdateAsync`, which the
+>   **in-memory provider does not support** — so the one part of that handler that can leave the base
+>   with no current year at all could never be reached by a test. Both handlers now demote through the
+>   aggregate, in their own `SaveChanges` before the promotion (the unique filtered index is checked at
+>   the end of each statement, so ordering is not EF's to choose).
+> - `LegacyImportPlanner` flipped `IsCurrent` on the last year directly. The compiler caught it the
+>   moment the property stopped having a setter — which is precisely the write the change exists for.
 >
 > **▶ SESSION 25 — a service holds who is standing in it, so the balance is per column.**
 >

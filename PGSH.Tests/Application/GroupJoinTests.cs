@@ -75,6 +75,39 @@ public class GroupJoinTests
             .AcademicGroupId.Should().Be(10);
     }
 
+    /// <summary>
+    /// ⚠ A période created here must claim its cell through <c>ServicePeriodSlotCoverage</c>, not only
+    /// through <c>CohortSlotAssignmentId</c>.
+    ///
+    /// <para><c>PublishedCells</c> — and so <c>RotationArranger</c>, <c>DeleteStageSlot</c>,
+    /// <c>ClearCohortSlotAssignment</c> and <c>ClearSlotAssignments</c> — reads the coverage table,
+    /// never the foreign key. Without a coverage row the newcomer's cell reads as free: a later
+    /// auto-arrange rewrites it with a different service while his période goes on naming the old one,
+    /// and the slot can be deleted out from under a student who is standing in it.</para>
+    /// </summary>
+    [Fact]
+    public async Task A_period_created_for_a_late_arrival_marks_its_cell_published()
+    {
+        await using var db = TestHarness.NewContext(nameof(A_period_created_for_a_late_arrival_marks_its_cell_published));
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var (newcomer, _, future) = SeedPublishedRoster(db, today);
+        await db.SaveChangesAsync();
+
+        await Handler(db).Handle(new AssignStudentToGroupCommand(newcomer.Id, 10), default);
+
+        var period = await db.ServicePeriods
+            .Include(p => p.SlotCoverage)
+            .SingleAsync(p => p.InternshipAssignment!.RegistrationId == newcomer.Id);
+
+        period.CohortSlotAssignmentId.Should().NotBeNull();
+        period.SlotCoverage.Should().ContainSingle()
+            .Which.CohortSlotAssignmentId.Should().Be(period.CohortSlotAssignmentId);
+
+        var published = await db.PublishedAmongAsync([period.CohortSlotAssignmentId!.Value], default);
+        published.Should().Contain(period.CohortSlotAssignmentId!.Value,
+            "the arranger must not treat the cell he is standing in as free");
+    }
+
     [Fact]
     public async Task A_rotation_the_roster_has_already_begun_is_created_started()
     {
