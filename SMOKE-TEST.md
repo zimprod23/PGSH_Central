@@ -35,8 +35,10 @@ Prerequisites: `dotnet run --project PGSH.AppHost`, log in as an admin (Scolarit
 | `HolidayCalendar` | ✅ applied (session 16) |
 | `SplitAcademicGroupsPerLevel` | ✅ applied — verified 2026-08-14: 3,696 of 3,707 rosters carry a promotion, the other 11 are the one « Non réparti » bucket per year; 0 rosters span two promotions, 0 registrations disagree with their roster's year or level |
 | `StageRotationModeAndSlotCoverage` | ✅ applied — verified 2026-08-14: all 27 stages default to `PerPeriod` (no behaviour change), and `ServicePeriodSlotCoverage` holds 0 rows against 0 grid-linked periods, so the backfill is consistent. Additive only: a new column with a default and a new table |
-| `PartitionScopeAndIndexGaps` | 🔲 **pending** — apply before step **17**. Adds `IX_AcademicYear_IsCurrent` (unique, filtered on `"IsCurrent"`) and demotes any extra current year first, keeping the highest `Id`. It should touch 0 rows: `CreateAcademicYear` already demotes the others. No table or column is added |
+| `PartitionScopeAndIndexGaps` | ✅ applied — verified 2026-08-24. Adds `IX_AcademicYear_IsCurrent` (unique, filtered on `"IsCurrent"`) and demotes any extra current year first, keeping the highest `Id`. It should touch 0 rows: `CreateAcademicYear` already demotes the others. No table or column is added |
 | `GroupLabelPerPromotion` | ✅ applied — verified 2026-08-14: `IX_AcademicGroup_Year_Level_Label` and `IX_AcademicGroup_Year_Level_Number` both present, the two year-only indexes gone. A pure relaxation: `IX_AcademicGroup_Year_Label` → `IX_AcademicGroup_Year_Level_Label` (`NULLS NOT DISTINCT`). The old key is a superset of the new one, so no existing row can collide; see step **12l** |
+| `RegistrationCnpnAndLevelEffectivity` | ✅ applied — verified 2026-08-24. Adds `Registration.CnpnVersionId` / `CnpnSource` and the `CnpnLevelEffectivity` table, and backfills the six imported years from the student's stamp as `Backfilled` |
+| `FinalYearEntryWaiver` | ✅ applied — verified 2026-08-24. One new table, no data change |
 
 Timings below are the real figures from your data — if you see a different number, that is the bug.
 
@@ -1493,6 +1495,41 @@ Re-arrange each stage the first query names, **scoped** — one concurrency bloc
 macro plan. Then re-run both queries: every column must show more than one service, and the per-stage
 totals must be flat (5MED Psychiatrie went from 9 columns in 1 service to 12/12/13/11/12 over five).
 
+**Measured on the live base 2026-08-24, and it is smaller than feared.** The first query names only
+5MED Santé Publique, which has exactly **one** allowed service — the legitimate case, not the defect.
+The catastrophic form is gone: Psychiatrie was the only stage that had it and it has been re-run.
+
+⚠ **What is left is the milder half, and the first query cannot see it.** Every column is spread
+correctly — 6-7 cohorts over 5 services is 2,2,1,1,1, which cannot be improved on — but *which*
+services carry the leftover was frozen, so the imbalance accumulates over the year:
+
+| stage | services | cells | per service over the year |
+|---|---|---|---|
+| Urologie Néphrologie | 5 | 60 | 18 · 15 · 9 · 9 · 9 |
+| Ophtalmologie | 3 | 60 | 24 · 18 · 18 |
+| ORL | 2 | 60 | 33 · 27 |
+| Neurologie | 8 (7 used) | 60 | one service **never used all year** |
+| Psychiatrie *(re-run)* | 5 | 60 | 13 · 12 · 12 · 12 · 11 |
+
+Urologie A took the extra cohort in **all nine columns**, Urologie B in six of nine, and the other
+three in none — the stable tie-break exactly as predicted, and 2× the load on one service. Use this
+query to see it rather than the year totals, which a service named the same as another will merge:
+
+```sql
+SELECT a."ServiceId", sv."Name", COUNT(*) AS cells,
+       COUNT(DISTINCT CASE WHEN cnt = 2 THEN sl."PeriodNumber" END) AS cols_taking_two
+FROM public."CohortSlotAssignments" a
+JOIN public."StageSlots" sl ON sl."Id" = a."StageSlotId"
+JOIN public."Services" sv   ON sv."Id" = a."ServiceId"
+JOIN LATERAL (SELECT COUNT(*) AS cnt FROM public."CohortSlotAssignments" b
+              WHERE b."StageSlotId" = a."StageSlotId" AND b."ServiceId" = a."ServiceId") c ON true
+WHERE sl."StageId" = <stage> AND sl."AcademicYearId" = <année>
+GROUP BY a."ServiceId", sv."Name" ORDER BY cells DESC;
+```
+
+`cols_taking_two` equal to the column count is the frozen tie-break. After a re-arrange it must be
+spread across the services, and no service may sit at 0 cells while another carries two per column.
+
 ### 22b — the balance itself
 
 *Admin → Stages → un stage réparti → Répartition*.
@@ -1525,6 +1562,34 @@ période et **sans** choisir de partition.
 4. Then do it properly: apply the bloc de rotation for the 6ᵉ année (`k = [2,2,2,2,1,1]`, `T = 10`,
    `P = 10`), hand the matrix to the plan macro, and the same button now works because the crossover
    exists.
+5. ⚠ **First it needs services.** Measured 2026-08-24: the 6ᵉ année is ready in every other respect —
+   ten partitions of ten rosters each, ten slots per stage — but **all six of its stages carry zero
+   `StageAllowedServices`**, so nothing can be arranged into them at all. The imported history names
+   which services each one actually used, over ~3,550 périodes per stage:
+
+   | stage | services used historically |
+   |---|---|
+   | GYNECOLOGIE OBSTETRIQUE | 6 |
+   | PEDIATRIE | 10 |
+   | ANESTHESIE REANIMATION | 11 |
+   | URGENCES OU TRAUMATOLOGIE | 11 |
+   | MEDECINE | 24 |
+   | CHIRURGIE | 28 |
+
+   ```sql
+   SELECT s."Name" AS stage, sv."Id", sv."Name", COUNT(*) AS periods
+   FROM public."ServicePeriods" sp
+   JOIN public."InternshipAssignments" ia ON ia."Id" = sp."InternshipAssignmentId"
+   JOIN public."Cohorts" c  ON c."Id"  = ia."CurrentCohortId"
+   JOIN public."Stages" s   ON s."Id"  = c."StageId"
+   JOIN public."Services" sv ON sv."Id" = sp."ServiceId"
+   WHERE s."LevelId" = <6ᵉ année>
+   GROUP BY s."Name", sv."Id", sv."Name" ORDER BY s."Name", periods DESC;
+   ```
+
+   ⚠ **History is evidence, not authority.** A service the 6ᵉ année used in 2019 may have closed, and
+   a long tail of one or two périodes is as likely to be a délocalisation as a standing arrangement.
+   Read the counts, prune, then author the list on the Stage page — do not bulk-insert it.
 
 ### 22d — the configuration comes back
 
