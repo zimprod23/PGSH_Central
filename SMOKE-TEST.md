@@ -46,7 +46,7 @@ Timings below are the real figures from your data — if you see a different num
 
 ```bash
 rm -rf PGSH.Tests/bin PGSH.Tests/obj          # ⚠ see below
-dotnet test PGSH.Tests/PGSH.Tests.csproj      # expect: 852 passed, 0 failed, ~30 s
+dotnet test PGSH.Tests/PGSH.Tests.csproj      # expect: 965 passed, 0 failed, ~35 s
 ```
 
 ⚠ **Incremental `dotnet test` runs in this repo have been reporting phantom counts** — the same suite came

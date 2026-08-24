@@ -10,19 +10,19 @@
 > | 2 | **Give Med6 its crossover** — bloc de rotation (`k = [2,2,2,2,1,1]`, `T = 10`, `P = 10`), then the plan macro. | Six stages, ten columns, **zero cells**. It is the promotion the new `StageWouldFillEveryColumn` guard exists for, and the only end-to-end test of the block on real data. |
 > | 3 | **Close 2025-2026 for real** — Clôture & réinscription, exceptions canvas, confirm, apply. | 6 057 verdicts with no undo but a restore. It is the user's click, not ours. **Take a `pg_dump -Fc` first.** |
 > | 4 | **Walk the defence roll** — name a handful of 7ᵉ année students « Diplômé » and check they graduate while the rest stay put. | The 14.3e rule is verified by tests and by the preview's numbers; nobody has used the flow it now depends on. |
-> | 5 | **Endpoint tests for `groups/assign-student` and `registrations/{id}/outcome`.** | Only the déliberation routes got them. |
-> | 6 | **Phase 16 — the Access re-import** (`LEGACY-` CNEs, and 16.2's open question). | Specified and measured in session 24, not started. |
-> | 7 | **Testcontainers.** | Carried since session 22. The integration suite proves the pipeline; nothing proves the SQL. |
-> | 8 | **Sweep other screens for stale data** — `loadingMiddleware`'s re-entrant dispatch (fixed, `SMOKE-TEST.md` §20f) silently staled whichever query settled *last* on any page, for the whole life of the middleware. | The bug is fixed; nobody has checked what else it was quietly breaking. |
-> | 9 | **Decide on the 56 programme-mismatched stamps** — Médecine registrations governed by `PHARM-LEGACY`. `SMOKE-TEST.md` §20g has the query. | Pre-existing, from the original CNPN backfill. One of the 57 was corrected incidentally by the 2ème année rule. |
-> | 10 | **Apply migration `FinalYearEntryWaiver`** (new table only, no data change) and try the gate on the real base — `SMOKE-TEST.md` §21. | Built and tested in session 24; never run against real data. |
-> | 11 | **Close the revalidation flexibility hole** — no way to hand a student a stage he never attempted, and no generic "assign this student to this cohort". | Identified in session 24. `RevalidateStageCommand` needs a prior *failed* attempt; every other creation path is bulk or specific. |
-> | 12 | **Year-segregation audit, académic-year update/delete, Inscriptions screen.** | Session 24 was scoped to the CNPN alone, by agreement. |
+> | 5 | **Phase 16 — the Access re-import** (`LEGACY-` CNEs, and 16.2's open question). | Specified and measured in session 24, not started. |
+> | 6 | **Testcontainers.** | Carried since session 22. The integration suite proves the pipeline; nothing proves the SQL. |
+> | 7 | **Sweep other screens for stale data** — `loadingMiddleware`'s re-entrant dispatch (fixed, `SMOKE-TEST.md` §20f) silently staled whichever query settled *last* on any page, for the whole life of the middleware. | The bug is fixed; nobody has checked what else it was quietly breaking. |
+> | 8 | **Decide on the 56 programme-mismatched stamps** — Médecine registrations governed by `PHARM-LEGACY`. `SMOKE-TEST.md` §20g has the query. | Pre-existing, from the original CNPN backfill. One of the 57 was corrected incidentally by the 2ème année rule. |
+> | 9 | **Apply migration `FinalYearEntryWaiver`** (new table only, no data change) and try the gate on the real base — `SMOKE-TEST.md` §21. | Built and tested in session 24; never run against real data. |
+> | 10 | **Close the revalidation flexibility hole** — no way to hand a student a stage he never attempted, and no generic "assign this student to this cohort". | Identified in session 24. `RevalidateStageCommand` needs a prior *failed* attempt; every other creation path is bulk or specific. |
+> | 11 | **Year-segregation audit, académic-year update/delete, Inscriptions screen.** | Session 24 was scoped to the CNPN alone, by agreement. |
 >
 > **▶ SESSION 25 — a service holds who is standing in it, so the balance is per column.**
 >
-> Suite **951 green** (926 + 25: 7 column-balance tests, 7 rotation-config tests, 11 carried over from
-> the guard's fallout). Frontend `tsc --noEmit` and `npm run lint` clean in the changed files.
+> Suite **965 green** (926 + 39: 7 column-balance tests, 7 rotation-config tests, 11 carried over from
+> the guard's fallout, and 14 endpoint tests for `groups/assign-student` and
+> `registrations/{id}/outcome` — the two routes that had handler coverage and no pipeline coverage). Frontend `tsc --noEmit` and `npm run lint` clean in the changed files.
 >
 > **The finding, and the user found it in the printed document.** `RotationArranger` built the
 > capacity-weighted service queue over the cohorts of the whole *call* and indexed each cell by its
