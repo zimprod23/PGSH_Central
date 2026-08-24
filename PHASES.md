@@ -577,9 +577,11 @@ déliberation and uploaded, exactly like the évaluation import.
 
 `Application/Students/Registrations/Deliberation/` — `GetDeliberationTemplateQuery`,
 `PreviewDeliberationQuery`, `ApplyDeliberationCommand`, all three sharing `DeliberationPlanner` so the
-dry run *is* the plan. API: `GET|POST levels/{levelId}/deliberation[/template|/preview]`.
+dry run *is* the plan. API: `GET|POST deliberation[/template|/preview]` — ⚠ **re-scoped to the year in
+14.3d below**, `levelId` now a filter rather than the route.
 
-- **One canvas is one promotion — (academic year, level).** That is how a jury sits, and it is what
+- **One canvas is one promotion — (academic year, level).** *(Superseded by 14.3d: the scope is the
+  year, and a level narrows it. The reasoning below is why matching had to be scoped at all.)* That is how a jury sits, and it is what
   makes the identifier index mean anything: a CNE is unique within a promotion, and matching across
   years turns a legitimate row into an ambiguous one.
 - **`RegistrationStatus` gained `Graduated` and `Excluded`.** *Exclu* is not *redouble* — one ends the
@@ -605,7 +607,7 @@ dry run *is* the plan. API: `GET|POST levels/{levelId}/deliberation[/template|/p
 
 **Built 2026-08-09.** `Application/Students/Registrations/Reinscription/` —
 `PreviewReinscriptionQuery`, `ApplyReinscriptionCommand`, sharing `ReinscriptionPlanner`.
-API: `GET levels/{levelId}/reinscription/preview`, `POST levels/{levelId}/reinscription`.
+API: `GET reinscription/preview`, `POST reinscription` — ⚠ **re-scoped to the year in 14.3d**, `levelId` now an optional filter rather than the route.
 
 *Admis → niveau + 1. Redoublant → même niveau. Diplômé / Exclu / Abandon → rien.*
 
@@ -622,6 +624,88 @@ API: `GET levels/{levelId}/reinscription/preview`, `POST levels/{levelId}/reinsc
   `Registration.Status`, so a `Pending` row would be grouped and planned exactly like an active one
   while claiming not to be enrolled. Grouping is `AutoArrangeGroupsCommand`'s job and runs next — these
   students are the "Non réparti" bucket it reads from.
+
+### ✅ 14.3d — The exceptions canvas, and the flexibility around it
+
+**Built 2026-08-18.** 14.3a and 14.3b were complete server-side and **unreachable**: there was no UI
+for either, so nobody in the running app could close a year. That gap is what made re-shaping the
+canvas cheap — the redesign landed before the screen was written rather than after.
+
+Four changes, one act of scolarité:
+
+**1 · The canvas is a list of exceptions, and one file covers the year.** Scolarité types only the
+students the year went badly for; everyone the file does not name is *Admis*. Read [CLAUDE.md → "The
+canvas is a list of exceptions"](CLAUDE.md) for the rules; the ones that decide the design:
+- Year-wide matching is safe because a student holds one registration per year — it is *cross-year*
+  matching that is ambiguous, and that is still impossible.
+- ⚠ **Superseded the same day by 14.3e:** this shipped as *Admis, or Diplômé where the year is the
+  last of the student's own CNPN*, with an unstamped student on a possibly-final year **blocking** the
+  file. The first run against real data killed both halves — the default now promotes and never
+  graduates, and the blocking case disappeared with it. Read 14.3e before touching the planner.
+- The default never overwrites a verdict already recorded, which is what makes the import re-runnable.
+- `ConfirmedDefaultCount` is echoed back from the preview and refused on a mismatch — a registration
+  created between the two calls is exactly what a checkbox would have waved through.
+- `DeliberationTemplateMode.Full` keeps the old nominative canvas; both modes produce the same decision
+  sheet, so the parser never learns which one it is reading.
+
+**2 · The réinscription runs year-wide too** — `levelId` optional, each student moving up from his own
+level. Rows are ordered attention-first under a cap, so a bounded report can never hide a row somebody
+must act on.
+
+**3 · One student at a time** — `Registrations/Outcome/`, `POST registrations/{id}/outcome[/reopen]`.
+Required by the exceptions file, not merely convenient: re-uploading a promotion's file must never be
+the way to fix one row. ⚠ This also closed a real defect — `UpdateRegistrationCommand` wrote `Status`
+directly and left `OutcomeSource` null, so the edit form showed « Admis » while the réinscription
+reported « aucune décision enregistrée ». Reopening reports `LaterRegistrationExists` and deletes
+nothing.
+
+**4 · Joining a roster after the schedule is published** — `AcademicGroups/Join/`,
+`POST groups/assign-student`. The transfer path silently did nothing for a student who had no group.
+`LateArrivalScheduler` materialises only windows that have not closed; a stage the roster already
+finished is owed and unserved (`StagesAlreadyOver`), never invented.
+
+**Frontend.** New `YearClosurePage` (admin → Académique → « Clôture & réinscription ») drives both acts
+on one screen. `AdminStudentDetailPage` gained the per-student verdict control, « Rouvrir l'année » and
+« Affecter à un groupe ». ⚠ `RegistrationStatus` on the frontend was still the pre-14.3a five-value
+union — `Graduated` and `Excluded` were missing, and both status maps would have rendered a graduate
+blank. Fixed, and the type error is what found them.
+
+**Tests: 897 green** (859 + 38, including 8 endpoint tests through the real pipeline). Four guards
+were each verified by breaking them and confirming the right tests fail: the default not overwriting a
+recorded verdict, `ConfirmedDefaultCount`, the closed-window rule, and the binding of
+`defaultUnlistedToAdmis`.
+
+⚠ **The final-year rule changed after the first run against real data** — see 14.3e.
+
+### ✅ 14.3e — The default promotes, it never graduates
+
+**Changed 2026-08-18, the same day, after the first run against the real base.** 14.3d shipped with
+« silence = Admis, ou Diplômé en dernière année ». The live data says the second half is wrong:
+
+| | in the final year | of whom, there before |
+|---|---|---|
+| 7ᵉ année Médecine | 1 657 | **855** (550 twice, 173 three times, 132 four times) |
+| 6ᵉ année Pharmacie | 356 | **74** |
+
+The final year is the **thesis year**. Students sit in it until they defend, PGSH holds no record of a
+defence, and so "still there" and "finished" are both perfectly ordinary — the exact situation where a
+default must not choose. Applying it would have graduated **~930 students who were simply still
+enrolled**, and that is a floor.
+
+So `MayBeAFinalYear` replaces `DefaultOutcomeFor`: anyone who may be in his last year is counted
+(`FinalYearUndecided`, per level and in total) and **left untouched**. The faculty names its graduates
+instead, which costs it nothing — the defence roll is the list it already has.
+
+Two things fell out of the change rather than being added:
+- **`DefaultIssues` is gone.** It existed to block the file when an unstamped student sat on a year
+  that might be his last. Nobody in a possible final year is decided for any more, so that student
+  needs no special case and the import stops having a blocking condition it did not need.
+- **`DefaultedGraduations` is gone** — the default writes exactly one outcome now, so the report says
+  so with one number.
+
+⚠ **The general lesson, worth keeping:** an exceptions file works where the exception is the rare case.
+Check that assumption per promotion before inverting a default — here it holds for years 1–5 and
+reverses completely in the last one.
 
 ### 🔲 14.3c — Inferring the imported years (still open)
 
@@ -878,6 +962,51 @@ fixed Gregorian days — and Nouvel An Amazigh only from 2024, when the décret 
   unit and per-column counts on *Bloc de rotation*, and the strategy / redécouper / supprimer controls
   on *Groupes* — `Contiguous` and re-cutting previously needed Scalar.
 
+### ✅ Phase 15.09 — the balance is per column, and the crossover is authored
+
+**Done 2026-08-18/24.** Two defects in `RotationArranger`, one of them printed in a document the
+faculty was about to hand out.
+
+**The service queue was built over the cohorts of the *call*** and each cell indexed by its global
+position. Those coincide only when the caller scoped to a `ConcurrencyBlock` — and « auto-répartir ce
+stage », every partition and every période at once, is a real button that does not. The crossover
+leaves one partition free per column; partitions are contiguous in the ordering and each service owns
+a contiguous run of the queue, so the free partition fell *inside* one service's run. Measured on 5MED
+Psychiatrie 2025-2026 (60 groups, 9 partitions, 5 services): **all nine columns in one service, 69-85
+students against a capacity of 20, two of five services unused all year.** Reproduced 9/9 from
+`queue[(ci + phase·⌊n/T⌋) mod n]`.
+
+- ⚠ **Nothing reported it.** 60 cells written, no failure, and the `GroupConflicts` it counted are the
+  ones the crossover is made of — indistinguishable from a correct plan. The printed répartition is the
+  only place it shows, which is where the user found it.
+- **A column's shape cannot be improved on; which services carry the remainder can.** Seven cohorts
+  over five services is 2,2,1,1,1 whichever way they fall. Only the leftover tie-break can move, and it
+  was stable — with 148 services on one imported capacity the same two carried the pair in every column
+  of the year. `BuildServiceQueue` now breaks ties by the column's phase.
+- **The step is at least 1.** `⌊m/cycleLength⌋` is 0 whenever a column set is smaller than the cycle,
+  which froze a `PerPeriod` run into one service — `SingleService` by accident.
+
+**The unscoped arrange is a fill, not a plan, and its correctness was borrowed.** Psychiatrie was
+arrangeable in one click only because six other stages already held every group in 8 of its 9 columns:
+480 of 540 candidate cells refused, 60 free, one per roster — no freedom over columns at all. Pressed
+*first*, the same button writes the whole promotion into one stage for the year, and every stage
+arranged afterwards gets nothing. `StageErrors.StageWouldFillEveryColumn` refuses it, narrowed twice:
+only when the call names **neither** a partition **nor** a window (naming either is authored
+targeting), and only when another stage of the promotion declares the same windows (a stage that *is*
+the whole axis starves nobody). Med6 — six stages, ten columns, zero cells — is the live case.
+
+**Reopening the block no longer shows an empty form.** `GetRotationCycleQuery`
+(`GET levels/{id}/rotation-cycle`) reads the blocks **from the axis on disk**: stages whose slots carry
+the identical window list *are* a block, so a date corrected afterwards on one stage's own grid shows
+through instead of being papered over. The axis cannot state `kₛ` — every stage of a block carries a
+slot on every column, which is what makes the crossover possible — so it is recovered in order (the
+apply's audit entry → the widest run a cohort holds → nothing) and `RotationPeriodsSource` says which,
+for the same reason `OutcomeSource` and `CnpnSource` do.
+
+⚠ **Carried: every cell arranged before this lands still has the old shape**, and it looks correct in
+the grid. `SMOKE-TEST.md` §22a has the two queries that find them; nothing is published, so
+re-arranging is free.
+
 ### 🔲 Phase 15.1 — the semester model (the deferred half)
 
 The new CNPN organises **12 semesters**, not 6 years, and types its placements:
@@ -920,3 +1049,77 @@ be recorded **approximately** until this lands. Three pieces, best done together
 - **~2,200 students carry `CnpnAssignmentIsInferred`** — entry deduced from their current level
   because the legacy import never carried it. The single assumption is that the 1,013 at level 2 did
   not repeat an unrecorded first year. Confirm or correct in bulk.
+
+---
+
+## 🔲 Phase 16 — Re-importing the Access base, cleanly
+
+**Raised 2026-08-18 by the user, measured the same day against the live base.** The import of
+2026-08-07 got the *rows* right — all 104,924 migrated and verified — but it manufactured identifiers
+it did not need to, and the placeholders are now visible to every user of the app. Re-run the import
+with the corrections below rather than patching the data in place, so the importer and the base agree.
+
+### 16.1 — `LEGACY-nnnnn` is not an identifier, it is a prefix on the Appogée
+
+Measured on `TodoDatabase`, 2026-08-18:
+
+| | count |
+|---|---|
+| students | 10,204 |
+| `CNE LIKE 'LEGACY-%'` | **4,695** |
+| …of those, carrying a usable `Appogee` | **4,695** (all of them) |
+| …of those, carrying no `Appogee` either | 0 |
+| Appogée colliding with another student's real CNE | **0** |
+| duplicate Appogée among the 4,695 | **0** |
+
+The placeholder is literally `"LEGACY-" + Appogee` — `LEGACY-10001373` / `10001373`. So it carries **no
+information whatsoever**: every one of those students already had an identifier, and the import
+invented a second one that looks like a CNE and is not.
+
+What it costs today:
+- 46% of the student body cannot be found by their real identifier in a CNE search.
+- It is the reason `StudentIdentifierRules.ValidCne` had to be loosened to a bare format check — the
+  old `^[A-Z]\d{6,12}$` rejected 5,646 students, and these 4,695 were the bulk of them. Removing the
+  placeholders removes most of that pressure, though the format check stays right for other reasons
+  (faculty codes, internal spaces — see CLAUDE.md).
+- A déliberation or évaluation canvas prints `LEGACY-14000022` in the CNE column, and scolarité has no
+  way to know that is not what is on the student's card.
+
+**The fix, and the thing not to do.** Leave `CNE` **null** where the source has none. Do *not* write
+`CNE = Appogee`: that asserts the appogée is the national code, which is exactly the false claim the
+prefix was invented to avoid making. Null is the honest value and the schema already allows it
+(`Users.CNE` is nullable); uniqueness is the constraint that protects anything here, and it is enforced
+separately. The consequence to handle deliberately:
+- ⚠ **Every search, canvas and import that matches on CNE must fall back to Appogée**, and must say
+  which one it matched. The déliberation planner already indexes both (`byCne` / `byAppogee`) and
+  reports the ambiguous case, so that path is ready; audit the others before flipping the data.
+- The reference tab of the déliberation canvas and the student list should show Appogée where CNE is
+  null, rather than an empty cell.
+
+### 16.2 — Open: does Access hold the Appogée *in* the CNE column?
+
+The user's reading, not yet verified: some records of `Medecine.mdb` may carry an appogée number in
+the CNE field, so a "real" CNE in PGSH today may in fact be an appogée. Not the same defect as 16.1 —
+those rows have no `LEGACY-` marker and look perfectly normal.
+
+To check before re-importing, against the `.mdb` (gitignored, real PII):
+- the shape distribution of the source CNE column — a modern CNE is a letter plus digits, an appogée is
+  digits only (and the eight samples above are all 8 digits starting with the intake year: `13…`,
+  `14…`);
+- how many source rows have CNE and Appogée equal, or CNE matching the appogée grammar;
+- whether any source row has a CNE that is another row's Appogée.
+
+Only then decide whether the importer should move such a value into `Appogee` and null the `CNE`.
+⚠ **Do not guess this in bulk from the shape alone** — a digits-only CNE is not proof, and blanking a
+real identifier is worse than keeping an odd-looking one.
+
+### 16.3 — Re-import hygiene
+
+- The importer must be **re-runnable against a restored dump**, not against the current base: the app
+  has written to it since (CNPN stamps, partitions, verdicts, périodes). Decide up front whether 16.1
+  is a re-import or a targeted data fix, and if the latter, write it as a migration so it is recorded.
+- Take a dump first (`pg_dump -Fc`) — see the rollback section of [`SMOKE-TEST.md`](SMOKE-TEST.md).
+- Re-check the two defects the last import left and that were repaired by hand afterwards, so the new
+  run does not recreate them: rosters keyed without their promotion (`SplitAcademicGroupsPerLevel`) and
+  `Registration.LevelId` left null on 1,003 rows. Both are in the importer now; confirm with a query
+  after the run rather than assuming.

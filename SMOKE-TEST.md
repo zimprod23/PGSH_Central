@@ -1,4 +1,4 @@
-# Smoke test — sessions 11 → 21
+# Smoke test — sessions 11 → 23
 
 Covers the year-scoping lockdown (11), CNPN versioning + targeting + text editing (12–13), per-level
 service quotas and the répartition annuelle (14), the déliberation / réinscription flow (14), the
@@ -16,7 +16,13 @@ guard that stops unpublishing from silently deleting evaluations and attendance,
 publishing never lands on top of a stage a student has already served (step **16** — **not yet
 executed**). Session 21 fixes the partition count itself: read from the promotion instead of from one
 stage's cohorts, required to name its promotion, and counted server-side instead of off a 200-row page
-(step **17** — **not yet executed**, and it carries the Med6 repair).
+(step **17** — **not yet executed**, and it carries the Med6 repair). Sessions 22-24 add the
+admissibility/occupancy split on the capacity override (step **18**), the déliberation canvas as a
+list of exceptions plus the single-row outcome (step **19**), the CNPN carried on the registration
+and `CnpnLevelEffectivity` (step **20**) and the final-year gate (step **21**). Session 25 balances a
+service queue per **column** instead of per call, refuses the unscoped arrange on a stage nothing has
+crossed into, and reads the rotation block back into its form (step **22** — **not yet executed**,
+and it carries a data repair: every cell arranged before it needs re-running).
 **Rollback is at the bottom** — read it before you start, not after.
 
 Prerequisites: `dotnet run --project PGSH.AppHost`, log in as an admin (Scolarité).
@@ -922,7 +928,10 @@ the write — the number must be computed against the span it left as well.
 
 *Admin → Étudiants → une promotion → « Clôturer l'année »*
 
-> **Restart the API first.** `levels/{id}/deliberation*` and `levels/{id}/reinscription*` are new.
+> ⚠ **Superseded by step 19 (session 23).** The routes moved from `levels/{id}/deliberation*` to
+> `deliberation*`, the canvas became a list of exceptions, and the screen this step describes was never
+> actually built — 13 and 14 were written against the API alone. Kept because the *properties* they
+> check (all-or-nothing, the contradiction count, idempotence) are unchanged and step 18 leans on them.
 
 PGSH has no exams, no TP, no deliberation — so the verdict comes from the faculty as a file. This is
 what replaces guessing at `Registration.Status`.
@@ -953,6 +962,8 @@ dropped without the row saying so.
 ---
 
 ## 14 · Réinscription: next year from the verdicts (5 min)
+
+> ⚠ **Superseded by step 19 (session 23)** — route now `reinscription`, `levelId` optional.
 
 *Admin → Étudiants → une promotion clôturée → « Réinscrire »*
 
@@ -1089,6 +1100,451 @@ a promotion the import populated (all 706 5MED assignments of 2025-2026 have one
 
 ---
 
+## 19 · Clôture & réinscription, pour de vrai (15 min) — session 23
+
+*Admin → Académique → « Clôture & réinscription »* — a screen that did not exist before this session.
+
+> **Status: 19a, 19b, 19c and 19d executed 2026-08-18** against the live base (admin session), and the
+> base was **restored afterwards** — 0 verdicts recorded, 0 registrations in 2026-2027. The only thing
+> left behind on purpose is the **2026-2027 academic year** (created during the run, needed anyway) and
+> two `History` rows for the test student, which honestly record what happened.
+>
+> The **year-wide apply is deliberately not executed** — see 19f. **19e is not executable on this base**:
+> after the fix in 19f every registration of the current year has a group, and the only group-less
+> registration reachable is one the rollover creates in 2026-2027, a year with no groups, no cohorts
+> and no published schedule. The interesting half of 19e — materialising only the windows still open —
+> needs a published grid, and the base holds **zero** grid-linked périodes anywhere.
+
+> **Restart the API first.** `deliberation*`, `reinscription*`, `registrations/{id}/outcome[/reopen]`
+> and `groups/assign-student` are new routes; the old `levels/{id}/…` ones are gone. No migration.
+
+### 19a — the exceptions canvas
+
+1. Leave **Promotion** empty (all of them), keep **Exceptions seulement**, and download the canvas.
+   Two tabs matter: `Déliberation` is *empty* under a warning line, and `Étudiants (référence)` lists
+   every registration of the year with its niveau and its « Décision enregistrée ».
+2. Put 3–4 rows in `Déliberation` — copy CNEs from the reference tab — mixing `Redoublant`, `Exclu`
+   and `Abandon`. Upload.
+3. The simulation must show, **per promotion**: inscrits, dans le fichier, **admis par défaut**,
+   **diplômés**, inchangés.
+   - **Measured 2026-08-18** with a 3-row exceptions file, and every figure reconciles against SQL:
+     8,077 registrations − 3 named − 1 already-decided (« Retrait », already `Withdrawn`) =
+     **8,073 admis par défaut**, of which **2,016 diplômés**.
+   - ⚠ The one number to read carefully is **Diplômés**. It is per *student*, from his own CNPN, not
+     per level, and the row that proves it is **Sixième Année Médecine: 686 admis / 2 diplômés** —
+     two students on the six-year text sitting beside 686 on the seven-year one. The level alone
+     could never have produced that split. The rest: 6ᵉ Pharmacie 356/356, 7ᵉ Médecine 1 657/1 657,
+     Interne CHU 1/1.
+4. **Enregistrer les décisions is disabled** until the confirmation checkbox is ticked. Tick it, apply.
+5. Re-upload the *same* file. Now everyone carries a verdict, so `admis par défaut` = **0** and
+   `déjà décidé(s), inchangé(s)` = the whole year. Nothing changes. That is the re-runnability rule.
+
+### 19b — the guard that matters (do this one)
+
+6. Simulate again with a file naming one student. Note the « admis par défaut » figure. **Before
+   applying**, create a registration for a new student in the same year (19d below, or the student
+   dossier). Now apply → refused, `Deliberation.DefaultsNotConfirmed`, naming both numbers.
+   *This is the whole reason the count is echoed instead of a checkbox.* Re-simulate → applies.
+7. Mistype one CNE → the row errors, **Enregistrer is disabled**, and the alert says the import is
+   all-or-nothing. Verify **nothing** was written (the untouched students still read « en cours »).
+   - **Executed 2026-08-18** with `CNE-QUI-NEXISTE-PAS` and a decision reading « Peut-être »: two
+     error rows, correctly diagnosed (*Étudiant inconnu* / *Décision invalide*), the second one still
+     naming the student it belongs to so the operator knows whose line to fix. Apply stayed disabled.
+
+### 19c — réinscription, year-wide
+
+8. Pick the destination year (the picker only offers years starting *after* the one being closed; if
+   none exists it says so). **Simuler**. Expect `willRegister` ≈ admis + redoublants, a per-target-level
+   breakdown, and an « à traiter » count for anyone with no decision.
+   - **Executed 2026-08-18, before any verdict existed**: `0 à créer`, `8 077 ignoré(s) sur 8 077`,
+     `8 077 à traiter`, every row *Aucune décision — clôturez la promotion d'abord*, attention-rows
+     first and the list capped. It refuses to carry anyone over before the year is closed, which is
+     the guard, not a failure.
+9. Apply, then **Simuler again** → 0 to create, everyone `Déjà inscrit`. Idempotent.
+10. Check a created row: `Active`, **no group**, so it lands in « Non réparti ».
+   - **Executed on one student** (see 19d): 5ᵉ année → **6ᵉ année Médecine**, `Active`,
+     `OutcomeSource` null, no group. Exactly one row created.
+
+### 19d — one student at a time
+
+> **Executed end-to-end 2026-08-18** on one student (5ᵉ année Médecine), then reverted. This is the
+> cheapest way to exercise the whole chain — verdict → rollover → undo — without touching 8 000 rows,
+> and it is worth re-running that way whenever the chain changes.
+
+11. On a student's dossier, the year card now carries a **Décision** select (the five verdicts) and,
+    once set, « Prononcée par la faculté » plus the date. Set one → the réinscription picks it up.
+    - Verified: `Status=Validated`, `OutcomeSource=Declared`, `OutcomeRecordedOn` set, and a
+      `StatusChange` history row carrying the source. The rollover then offered **1 à créer**.
+12. Click the **undo arrow** → « Décision retirée ». If the rollover already created next year's
+    registration, the toast says so and **that row is still there**. Confirm it is: deleting it would
+    take the student's rotations with it.
+    - Verified: back to `Active` with `OutcomeSource` null, and a second history row reading
+      `reopened: true, withdrawnOutcome: Validated` — a withdrawal is distinguishable from a verdict on
+      the timeline, which is the point of having its own event. The 2026-2027 registration survived.
+13. ⚠ **The old defect**: edit a registration's status through the edit form. It must now show
+    « Prononcée par la faculté », not a blank source. Before this session the form wrote the status and
+    the réinscription still reported « aucune décision enregistrée ».
+
+### 19e — joining a roster after publication
+
+14. Take a student with **no group** (a fresh registration, or one from the rollover) →
+    « Affecter à un groupe ». Pick a roster of his own promotion whose schedule is published.
+15. The toast names the rotations created **and** the stages already over. Then check his dossier:
+    - one `InternshipAssignment` per cohorte of the roster, including the finished stages;
+    - `ServicePeriod`s **only** for windows not yet closed;
+    - a period on a cell the roster has already started shows as *started*, beginning **today**, not
+      on the cell's own start date.
+16. Try « Affecter » on a student who already has a group → refused, told to use a transfer.
+17. Try a roster of another promotion (via the API — the picker filters them out) → refused,
+    `AcademicGroups.TargetGroupInAnotherLevel`.
+
+### 19f — ⚠ what the first real run found: silence must not mean *diplômé*
+
+The default is right for years 1–6 and **wrong for a final year**, and the live data says so plainly:
+
+| | in the final year | of whom, there before |
+|---|---|---|
+| 7ᵉ année Médecine | 1 657 | **855** (550 twice, 173 three times, 132 four times) |
+| 6ᵉ année Pharmacie | 356 | **74** |
+
+The 7ᵉ année is the thesis year: students sit in it until they defend, and PGSH holds no record of a
+defence. So « everyone not named is diplômé » would graduate **at least ~930 students who are simply
+still enrolled** — and that is a floor, since a first-time final-year student can also fail to defend.
+
+An exceptions file only works where the exception is the rare case. In a final year it is the reverse:
+the graduates are the list the faculty actually has (the defence roll), and the lingerers are the
+silent majority.
+
+**Settled the same day (PHASES 14.3e): the default promotes and never graduates.** Anyone who may be in
+his last year is counted and left untouched, and the faculty names its graduates. Re-verified live
+after the change: **6 057 admis par défaut / 2 016 en dernière année**, with *Sixième Année Médecine*
+splitting **686 admis / 2 en dernière année* — the two students on the six-year text, which is the
+per-student CNPN rule visible on real data.
+
+⚠ **What this step is now for.** The rule is verified by tests and by those numbers; what nobody has
+walked is the flow it makes load-bearing. **Upload a defence roll**: a file naming a handful of 7ᵉ année
+students « Diplômé ». Expect exactly those to graduate, the rest to stay `Active` with no decision, and
+`FinalYearUndecided` to drop by the number you named.
+
+---
+
+## 20 · Le CNPN d'une inscription, et l'entrée en vigueur par niveau (12 min) — session 24
+
+*Admin → Académique → « CNPN (programme) »*, panneau **« Entrée en vigueur par niveau »**, au-dessus
+de « Étudiants rattachés à ce CNPN ».
+
+> **Status: 20a, 20b, 20c and 20d executed 2026-08-18** against the live base, and the base was
+> **restored afterwards** — 0 effectivity rules, 43 605 registrations all `Backfilled`, 0 divergence
+> from the student stamps, student totals unchanged (6 460 / 1 980 / 1 745). **20e was deliberately
+> not executed**: applying the rule would have re-stamped 936 real registrations and moved 936
+> confirmed student stamps, which is a faculty decision, not a test.
+>
+> ⚠ **20f is a defect found by this pass and left open** — see the bottom of this section.
+
+> The migration `RegistrationCnpnAndLevelEffectivity` was **already applied** when this ran
+> (`__EFMigrationsHistory` confirms it), so no restart was needed.
+
+### 20a — the backfill is exactly what it claims
+
+1. The column exists on every row and agrees with the student's own stamp, everywhere:
+
+```sql
+SELECT COALESCE("CnpnSource",'(null)'), count(*) FROM public."Registrations" GROUP BY 1;
+-- Backfilled | 43605          ← measured 2026-08-18
+
+SELECT count(*) FROM public."Registrations" r JOIN public."Users" u ON u."Id"=r."StudentId"
+WHERE r."CnpnVersionId" IS DISTINCT FROM u."CnpnVersionId";
+-- 0                            ← the backfill changed no behaviour, it froze what was computed
+```
+
+2. ⚠ The source reads `Backfilled`, **not** `StudentStamp`, and the distinction is the point: nobody
+   was asked at the time. There is no `(null)` bucket on this base — every enrolled student now
+   carries a stamp, so the ~2 200 unstamped students noted in earlier sessions have since been
+   resolved. The null path stays supported anyway; it is not dead code, it is the path a student with
+   no recorded text still takes.
+
+### 20b — the real transition is visible in the data
+
+3. This is the situation the whole feature exists for, in 2025-2026 Médecine:
+
+| promotion | inscrits | 2174.18 (7 ans) | 1650.25 (6 ans) |
+|---|---|---|---|
+| 1ère année | 1 061 | 1 | **1 060** |
+| 2ème année | 940 | **19** | 920 |
+| 3ème année | 936 | **936** | 0 |
+| 4ème année | 852 | 852 | 0 |
+
+   The 19 in the 2nd year are the repeaters who entered before 2024-2025 sitting beside 920 who did
+   not — two texts in one (level, year), which is exactly what no year-keyed model can express. The
+   3rd year is wholly on the old text, so « la 3ᵉ année de 2026-2027 » is a live decision, not a
+   hypothetical.
+
+### 20c — the picker refuses what the server would refuse
+
+4. Open the panel with **Texte comparé = CNPN 2025 (6 ans)** and open **Niveau**. It must offer
+   **exactly** Première…Sixième Année Médecine — and nothing else.
+   - **Measured 2026-08-18**: six options. No Pharmacie level (another programme), no *Septième Année*
+     (beyond a six-year text's span), no *Retrait* (not a promotion), and no level this text already
+     takes effect for. All four are server guards, mirrored client-side so no click can only fail.
+5. **Ajouter stays disabled** until both a level and a year are chosen, with the reason on the tooltip.
+   Confirmed: clicking it with no level selected sends no request at all.
+
+### 20d — authoring a rule, and what « 0 inscriptions régies » means
+
+6. Add **Troisième Année Médecine · à partir de 2025-2026**. The row appears reading
+   **« 0 inscriptions régies »**.
+   - ⚠ **Zero is correct and is the whole design.** The rule is read as each registration is *created*;
+     it does not reach back. A number here only appears once registrations have been stamped under it.
+     Anyone reading it as "the rule did nothing" has misread it, which is why the column is labelled
+     *régies* and not *concernées*.
+7. Press **Rattraper** — the catch-up path, needed only when a rule is authored *after* the
+   réinscription has already run. The preview must reconcile against SQL.
+   - **Measured 2026-08-18 on the real base: 936 inscription(s) concernées · 936 à re-rattacher ·
+     936 étudiant(s) · 0 année close.** Exactly the 936 rows of the table above. The sample is capped
+     at 50 rows; the counts stay exact.
+   - **Then verify the preview wrote nothing.** It is a dry run over 936 tracked entities, and the
+     assertion that matters is not the numbers but that the store is untouched:
+
+```sql
+SELECT "CnpnVersionId","CnpnSource",count(*) FROM public."Registrations"
+WHERE "LevelId"=3 AND "AcademicYearId"=21 GROUP BY 1,2;
+-- 1 | Backfilled | 936        ← unchanged after the preview
+```
+
+8. Delete the rule. The toast reads « Règle supprimée » with **no** count clause, because it governed
+   nothing. Had it governed rows, the sentence would name them — removing a rule is prospective and
+   never un-stamps anybody.
+
+### 20e — applying it (NOT executed, and read this before you do)
+
+9. **Re-rattacher 936 inscription(s)** would re-stamp 936 registrations *and* move 936 confirmed
+   student stamps onto the six-year text — which changes how many years those students owe. That is
+   the faculty's decision. Take a `pg_dump -Fc` first, and note there is **no undo command**: the way
+   back is another rule, or SQL.
+10. The guard to exercise deliberately: run the preview, then create a registration in the same
+    (level, year) from another tab, then apply → refused with `CnpnEffectivity.MoveCountNotConfirmed`
+    naming both numbers. Same shape as the déliberation's `DefaultsNotConfirmed`, same reason.
+11. The other guard, which cannot be forced at all: a registration whose year has been pronounced
+    counts as **année close** and is skipped. There is no override checkbox — re-open the year.
+
+### 20f — ✅ RESOLVED: a re-entrant dispatch in `loadingMiddleware` (app-wide, pre-existing)
+
+12. **Symptom.** The panel rendered « 0 règle(s) » with a permanent « Actualisation… » on a fresh
+    load, while the store held the very same query as `fulfilled`, with 3 rows and 1 subscriber
+    attached. Navigating away and back fixed it; reloading did not.
+
+13. **Root cause — not this panel, and not the CNPN feature at all.** `src/app/loadingMiddleware.ts`
+    dispatched **before** forwarding the action:
+
+```ts
+if (action.type.endsWith("/fulfilled")) api.dispatch(fulfilled());   // ⚠ before next(action)
+return next(action);
+```
+
+   `api.dispatch` runs the whole reducer chain and notifies every subscriber *while the action in
+   flight has not yet been reduced*. On `api/executeQuery/fulfilled` that means subscribers re-render
+   reading the query as still `pending`, `data: undefined` — and `useSyncExternalStore` caches that
+   stale snapshot.
+
+14. ⚠ **Why it hid for so long, and why it looked like a CNPN bug.** It self-corrects almost
+    everywhere: any *later* dispatch notifies again and every component catches up. Only the query
+    that settles **last on a page** has nothing after it — so it stays pending forever. On the CNPN
+    page that was the effectivity table; the versions table above it, driven by the same slice and
+    invalidated by the same mutation, always refreshed. Every "fix" tried on the panel (memoizing the
+    argument, dropping it, explicit `refetch()`) changed nothing, correctly — the panel was never the
+    problem.
+
+15. **Fix:** forward first, then dispatch. One reorder, no behaviour change to the loader.
+    **Verified live 2026-08-18 after a clean restart and re-login**: the table renders 3 rules on a
+    fresh load, and a create (3 → 4) and a delete (4 → 3) both refresh immediately with no reload.
+
+16. ⚠ **Re-test other screens for the same class of staleness.** This was app-wide for the whole life
+    of the middleware, so any screen whose *last* query settled without a following dispatch has been
+    showing stale data — silently, and nobody would have reported it as a bug.
+
+### 20g — the corrective rules, applied for real (executed 2026-08-18)
+
+13. `pg_dump -Fc` taken first and **verified restorable** (19 MB, 34 tables). ⚠ Piping `pg_dump` to a
+    file through Git Bash on Windows **corrupts the dump** — "did not find magic string in file
+    header". Write it inside the container and `docker cp` it out, with `MSYS_NO_PATHCONV=1` so the
+    container path is not rewritten.
+14. Three rules authored through the panel, for 1650.25 — the new text rolling one level forward per
+    year, which is how it actually reaches a promotion already in the building:
+
+| rule | in scope | déjà à jour | re-rattachées |
+|---|---|---|---|
+| 1ère année from 2024-2025 | 1 061 | 1 060 | **1** |
+| 2ème année from 2025-2026 | 940 | 920 | **20** |
+| 3ème année from 2026-2027 | 0 | — | 0 — fires at the réinscription |
+
+15. Result, verified in SQL: 1ère and 2ème années are now **wholly on 1650.25**, the 21 moved rows
+    carry `CnpnSource = 'Effectivity'`, and the 1 981 rows that were already correct were **not
+    touched** (they still read `Backfilled`). Student stamps moved 2174.18 6 460 → 6 440 and
+    1650.25 1 980 → 2 001, which balances exactly.
+16. ⚠ **One of the 20 was a data fix, not a repeater.** It was a Médecine registration stamped with
+    **`PHARM-LEGACY`, a Pharmacie text** — one of **57 such rows** in the base, a pre-existing defect
+    from the original CNPN backfill (not from the per-registration migration, which copied the student
+    stamp faithfully). Applying the rule corrected the one row that fell in scope; **56 remain** and
+    need a decision. `CreateCnpnEffectivityCommand` refuses this pairing going forward.
+
+```sql
+-- the 56 that are left
+SELECT v."Code" AS text, v."AcademicProgram" AS text_program, l."AcademicProgram" AS level_program, count(*)
+FROM public."Registrations" r
+JOIN public."Levels" l ON l."Id"=r."LevelId"
+JOIN public."CnpnVersions" v ON v."Id"=r."CnpnVersionId"
+WHERE v."AcademicProgram" <> l."AcademicProgram" GROUP BY 1,2,3;
+```
+
+17. The 3ème année rule is the one that matters next: at the September rollover every student
+    re-registering in the 3rd year — repeaters included — is stamped 1650.25 automatically, while the
+    ones who pass into the 4th keep 2174.18. That is the whole cut, and nobody has to remember it.
+
+## 21 · La dernière année ne commence pas sur un stage non validé (10 min) — session 24
+
+> **Status: built and unit-tested (11 tests), never run against the real base.** Migration
+> `FinalYearEntryWaiver` creates one table and changes no data.
+
+*Admin → Académique → « Clôture & réinscription »*, plus the student dossier.
+
+1. Find a student in the year **below** his last (7ᵉ under 2174.18, 6ᵉ under 1650.25) who carries an
+   unvalidated stage. `GET students/{id}/outstanding-stages` is the same list the gate reads.
+
+```sql
+-- candidates: students whose every attempt at some stage came back NonValidé
+SELECT r."StudentId", s."Name" AS stage, l."Label" AS owed_in
+FROM public."InternshipAssignments" a
+JOIN public."Registrations" r ON r."Id" = a."RegistrationId"
+JOIN public."Cohorts" c ON c."Id" = a."CurrentCohortId"
+JOIN public."Stages" s ON s."Id" = c."StageId"
+JOIN public."Levels" l ON l."Id" = r."LevelId"
+GROUP BY r."StudentId", c."StageId", s."Name", l."Label"
+HAVING bool_and(a."Result" = 'NonValidé')
+LIMIT 20;
+```
+
+2. Close his year « Admis », then run the réinscription preview for his promotion. He must appear as
+   **« Bloqué — dernière année »**, the report must count him under `finalYearBlocked`, and **no
+   registration must be created for him** — that is the assertion, not the badge.
+3. The control, and do it in the same run: a classmate with no outstanding stage must roll over
+   normally. A gate that refuses everybody proves nothing.
+4. ⚠ **Check a student one year lower.** The same debt must **not** block him — carrying an
+   unvalidated stage forward is legal everywhere except into the final year.
+5. ⚠ **Check a student with no CNPN stamp.** He must roll over untouched. This is the case the guard
+   got wrong in development: a `Dictionary<Guid,int>` default of 0 made every year his last, so the
+   rule fired hardest exactly where it must stand aside.
+6. Grant the dérogation (`POST final-year-waivers` with a reason), re-run the preview: he now rolls
+   over, and the report counts him under **`finalYearWaived`** rather than silently. Verify the stored
+   waiver kept `OutstandingAtGrant` and `OutstandingSummary` — what it excused, as it read that day.
+7. Try to grant a second waiver for the same year → refused. Try to grant one to a student who owes
+   nothing → refused (`FinalYearWaiver.NotNeeded`). Revoke before the rollover → allowed; revoke
+   *after* → refused (`FinalYearWaiver.AlreadyUsed`).
+8. ⚠ **The manual path.** Create the same student's next-year registration by hand from the dossier —
+   it must be refused identically (`Registrations.FinalYearBlocked`). A rule the rollover enforces and
+   the form does not is a rule anyone steps around with the other button.
+9. **Revalidation is the other way out**: open the failed stage (`POST registrations/{id}/revalidate`),
+   let it come back validated, and the student rolls over with no waiver at all.
+---
+
+## 22 · Une colonne se répartit sur tous les services (12 min) — session 25
+
+> **Status: built and unit-tested (14 tests), and the Psychiatrie half was verified live on
+> 2026-08-18 — the other stages of the base have not been re-run.** No migration. ⚠ **This step
+> carries a data repair**: every cell arranged *before* this session was written by the broken
+> indexing, and a wrong plan looks exactly like a right one in the grid.
+
+### 22a — find what the old arranger left behind
+
+Nothing is published anywhere (0 grid-linked `ServicePeriod`s), so re-arranging costs nothing but a
+click. The signature of the defect is a column whose cells all sit in one service:
+
+```sql
+-- a période in which every cohort landed in the same service
+SELECT s."Name" AS stage, l."Label" AS promo, sl."PeriodNumber",
+       COUNT(*) AS cells, COUNT(DISTINCT a."ServiceId") AS services
+FROM public."CohortSlotAssignments" a
+JOIN public."StageSlots" sl ON sl."Id" = a."StageSlotId"
+JOIN public."Stages" s      ON s."Id"  = sl."StageId"
+JOIN public."Levels" l      ON l."Id"  = s."LevelId"
+WHERE sl."AcademicYearId" = <année en cours>
+GROUP BY s."Name", l."Label", sl."PeriodNumber"
+HAVING COUNT(DISTINCT a."ServiceId") = 1 AND COUNT(*) > 1
+ORDER BY cells DESC;
+```
+
+⚠ **One row is not proof.** A stage with a single admitted service is legitimately one service per
+column — check `Stage.AllowedServices` and the quotas before calling it a defect. What convicts is
+the *year-wide* shape: a stage whose every column names the same service while other services of the
+same stage carry nothing.
+
+```sql
+-- the year's load per (stage, service): the untouched services are the tell
+SELECT s."Name" AS stage, sv."Name" AS service, COUNT(*) AS cells
+FROM public."CohortSlotAssignments" a
+JOIN public."StageSlots" sl ON sl."Id" = a."StageSlotId"
+JOIN public."Stages" s      ON s."Id"  = sl."StageId"
+JOIN public."Services" sv   ON sv."Id" = a."ServiceId"
+WHERE sl."AcademicYearId" = <année en cours>
+GROUP BY s."Name", sv."Name"
+ORDER BY stage, cells DESC;
+```
+
+Re-arrange each stage the first query names, **scoped** — one concurrency block at a time, or via the
+macro plan. Then re-run both queries: every column must show more than one service, and the per-stage
+totals must be flat (5MED Psychiatrie went from 9 columns in 1 service to 12/12/13/11/12 over five).
+
+### 22b — the balance itself
+
+*Admin → Stages → un stage réparti → Répartition*.
+
+1. Pick any période of an arranged stage. Its cells must name **several** services, and the counts
+   across a column must differ by at most one. Seven cohorts over five services is 2,2,1,1,1 — that
+   multiset cannot be improved on, only rotated.
+2. ⚠ **Check which services carry the leftover, column by column.** With all 148 services on the same
+   imported capacity the tie-break used to be stable, so the same two services took the pair in every
+   column of the year. The remainder must now move between columns.
+3. The control: a stage with **one** admitted service still puts everybody there, and reports nothing.
+
+### 22c — the stage that would swallow the year
+
+*Admin → Stages → un stage de la **6ᵉ année** → Répartition → « Auto-répartir »*, **sans** cocher de
+période et **sans** choisir de partition.
+
+1. It must be **refused**, naming the stage and its ten périodes, and telling you to establish the
+   crossover first. Med6 is the live case: six stages, ten columns, zero cells — the promotion where
+   the first button pressed would have decided the year.
+2. ⚠ **Nothing must have been written.** Re-open the grid: still empty. The guard runs before the
+   stale-cell removal precisely so a refusal cannot leave the grid emptier than it found it.
+3. **Three controls, and they are the point** — the guard has to bite narrowly or it is worse than
+   the bug:
+   - name a partition (« A ») with no période → **allowed**. « A → Médecine P1-P2 » is the faculty's
+     own layout, not an accident.
+   - name the périodes with no partition → **allowed**, same reason.
+   - on a promotion where one stage *is* the whole axis (nothing else declares those windows) →
+     **allowed**. A stage nobody competes with starves nobody.
+4. Then do it properly: apply the bloc de rotation for the 6ᵉ année (`k = [2,2,2,2,1,1]`, `T = 10`,
+   `P = 10`), hand the matrix to the plan macro, and the same button now works because the crossover
+   exists.
+
+### 22d — the configuration comes back
+
+*Admin → Planification → Bloc de rotation*.
+
+1. Choose **5ᵉ année médecine**, then reload the page and choose it again. The seven stages must come
+   back **in the order they were authored** — Gynécologie first at 3 périodes — with the nine windows
+   filled and a banner naming the apply date. The order is not decoration: it is the itinerary
+   partition A actually walks.
+2. ⚠ **The durations must be flagged when they were not read from an apply.** A block arranged but
+   never applied through this screen shows « déduites de la grille » (`Derived`); one with neither
+   shows « à ressaisir » (`Unknown`). « 1 période » deduced from an empty grid is not « 1 période »
+   entered by somebody.
+3. Nudge one stage's P1 by three days on its own grid, come back: that stage must have **left** the
+   block and appear on its own. A screen that reports it as still aligned is hiding the drift.
+4. The control: a promotion with no axis at all opens an empty form, not an error.
+
+
+---
+
 # Rollback
 
 Reverse in the order below.
@@ -1139,16 +1595,23 @@ Or restore the dump, which is cleaner:
 
 ### Code
 
-Sessions 11–13 are **committed** on `cnpn-versioning-and-year-scoping`, nothing is pushed:
+Everything through session 25 is **committed** on `cnpn-versioning-and-year-scoping`, nothing is
+pushed. The working tree is clean, so `git revert <sha>` is the only lever — `git status` no longer
+covers anything:
 
 ```bash
 git log --oneline -3
-#   008fd37  Per-level service quotas, the répartition annuelle, and a CNE that admits real students
-#   f9875e4  Scope everything by academic year, and version the CNPN
+#   c603ceb  A service holds who is standing in it, so the balance is per column
+#   bdde739  What a student owes is a fact about a registration, not about him
+#   9cc1f5b  Stop the capacity override from waiving admissibility
 ```
 
-So `git revert 008fd37` / `git reset --hard f9875e4` are the levers for those two, and `git status`
-covers whatever is still in the tree (the déliberation / réinscription work, at time of writing).
+⚠ **`bdde739` is five work streams in one commit** — the registration's own CNPN, the effectivity
+rules, the déliberation defaults, the single-row outcome, the final-year gate and the group-join
+path. They could not be separated at file granularity (`DependencyInjection.cs`,
+`RegistrationErrors.cs`, `DeliberationPlanner.cs` and the model snapshot each carry hunks from three
+or more of them), so reverting it takes all six back and drops two migrations with it. Revert the
+migrations from the database *first*, in the order given above.
 The **frontend is a separate repo** and had pre-existing uncommitted work before all of this:
 
 ```bash
@@ -1157,18 +1620,5 @@ cd PGSH/PGSH.Frontend && git status --short
 
 `git checkout .` there would discard that too. Stash rather than checkout if in doubt.
 
-Untracked backend files added since `008fd37` (checkout will not remove them):
-
-```
-PGSH.Domain/Registrations/RegistrationOutcomeSource.cs
-PGSH.Domain/Registrations/RegistrationYearOutcomeRecordedDomainEvent.cs
-PGSH.Application/Students/Registrations/Deliberation/
-PGSH.Application/Students/Registrations/Reinscription/
-PGSH.Application/Students/Registrations/RegistrationYearOutcomeRecordedEventHandler.cs
-PGSH.Infrastructure/Registrations/ClosedXmlDeliberationSheetParser.cs
-PGSH.API/Endpoints/Registrations/Deliberation.cs
-PGSH.API/Endpoints/Registrations/Reinscription.cs
-PGSH.Tests/Application/DeliberationTests.cs
-PGSH.Tests/Application/ReinscriptionTests.cs
-cnpn/                                    ← your PDF, keep this
-```
+The backend tree is now clean — everything those sessions added is tracked, so a `git checkout .`
+removes nothing of it. The one untracked path left is `cnpn/`, your PDF; keep it.

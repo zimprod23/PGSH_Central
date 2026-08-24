@@ -164,10 +164,67 @@ problem-details mapping. A handler test sees none of that.
 (BO 7422, 17 July 2025) took Médecine from 7 years to 6 from 2024-2025, while art. 2 leaves everyone
 registered *before* that year under arrêté 2174.18 in its pre-2175.22 form. From 2026-2027 one
 (level, year) therefore holds students of two texts, so the year cannot identify a requirement set.
+
+#### What a student owes is a fact about a *registration*, not about the student
+`Registration.CnpnVersionId` (+ `CnpnSource`) is the governing text for **one student, at one level,
+in one year** — resolved once, when the registration is created, and never recomputed.
+`Student.CnpnVersionId` remains "the text he is on now"; it is the default a new registration is
+stamped from, not the answer to what any given year required.
+
+- ⚠ **The case that forces it.** A 4ᵉ année student still owing two stages from his 3ᵉ année owes them
+  under the 3ᵉ année of *his* 3ᵉ année. Reshaping that level for the promotions behind him must not
+  reach back and change his debt — and with one stamp per student it did, because requirements were
+  always resolved from where he stands today.
+- **Read order everywhere: `r.CnpnVersionId ?? r.Student.CnpnVersionId`.** Null is not "owes nothing",
+  it is "never resolved" — the six imported years were backfilled from the student's stamp
+  (`Backfilled`, deliberately not `StudentStamp`: nobody was asked at the time), and ~2,200 enrolled
+  students carry no stamp at all. Moved onto the registration: `CohortProvisioner`,
+  `AutoArrangeGroupsCommandHandler`, `DeliberationPlanner`, `RecordRegistrationOutcomeCommand`,
+  `GetStudentRegistrationsQuery`.
+- ⚠ **A pronounced year freezes its text** (`Registration.CnpnFrozenByOutcome`). The verdict was
+  recorded against a requirement set; moving that set afterwards leaves nobody able to say what the
+  jury ruled on. There is no override — re-opening the year is the act that makes the change
+  legitimate. Note the guard lives in **two** places (aggregate and `CnpnEffectivityPlanner`), and the
+  planner's fires first: a test that only goes through the planner proves nothing about the aggregate.
+- `DeleteCnpnVersionCommand` gates on registrations as well as students (`CannotDeleteWithRegistrations`).
+  Not redundant: a text can govern a closed year of a student who has since moved on, so the student
+  count reaches zero while registrations still name it — and the FK is `Restrict`, i.e. a 500.
+
+#### « À partir de la 3ᵉ année de 2026-2027 » — `CnpnLevelEffectivity`
+One authored row: **this text governs this level from this year onward, whoever is sitting in it.**
+`Cnpn/Effectivity/`. The intake year on the text governs the promotion *arriving*; these govern the
+promotions already in the building.
+
+- ⚠ **No entry-based rule can express it.** After the 7→6 reduction was contested the cut actually
+  applied was « la 3ᵉ année de 2026-2027 et en dessous » — two students with the *same entry year*
+  land on different texts, one repeating the named level and one a year ahead of it.
+- **Read once per registration, then frozen** (`RegistrationCnpnStamper`). That is what makes both
+  halves true at once: the repeater re-registering gets a *new* registration, so the rule sees him
+  automatically; the student who moved on is judged by the stamp on his *old* one.
+- ⚠ **This is not the live-state rule `CnpnTargeting` avoids.** That objection is about re-evaluating
+  an existing student's stamp — « année ≤ 2 » selects different people every September. Evaluating
+  once, at creation, preserves the guarantee exactly while removing the need for somebody to remember
+  to run a bulk command each year (which is what leaked on repeaters and on returners).
+- **« et en dessous » is one row per level, never a stored comparison.** A comparison would have to be
+  re-evaluated to be read, and a level added or renumbered later would silently change which
+  promotions a published text binds. Rows say which levels were meant, forever.
+- ⚠ **A rule is the one path allowed to move a *confirmed* student stamp.** It fires on one
+  registration, at creation, from a rule authored for that exact (level, year) — not over a population
+  re-selected each September, which is what the bulk guard exists to stop.
+- **Resolution order** (`RegistrationCnpnStamper`): effectivity rule → the student's stamp → the text
+  on his most recent earlier registration → `CnpnAssignment` from his intake. A registration being
+  created is its own entry evidence, so a genuine new entrant needs no prior save.
+- **Deleting a rule is prospective.** Nothing already stamped moves; the count is returned so the
+  confirmation can name it. `ApplyCnpnEffectivityCommand` exists only for the order that actually goes
+  wrong — the réinscription ran in September, the faculty settled the cut in October — and echoes back
+  `ConfirmedMoveCount`, like the déliberation's `ConfirmedDefaultCount` and for the same reason.
+- Uniqueness: `(CnpnVersionId, LevelId)` and `(LevelId, FromAcademicYearId)`. The second is the
+  substantive one — two texts starting to govern one level in one year has no defensible winner.
+
 - **Assignment is by first registration and sticky** — `CnpnAssignment` in `Application/Stages/Cnpn/`.
   Never by the level a student currently sits in: those agree only for students who never repeated,
   and 2,635 have. `Student.CnpnVersionId` is written solely by `Student.AssignCnpnVersion`, which
-  refuses to move a confirmed stamp without `overrideExisting`.
+  refuses to move a confirmed stamp without `overrideExisting` — or by an effectivity rule, above.
 - **Who a text binds is authored, not inferred** — `Cnpn/Targeting/`. A rule
   (`programme + année ≤ N + as-of year`) is previewed, reviewed, then frozen onto
   `Student.CnpnVersionId`. Preview and apply share `CnpnTargetPlanner`, so the dry run *is* the plan —
@@ -176,6 +233,9 @@ registered *before* that year under arrêté 2174.18 in its pre-2175.22 form. Fr
     different set of people, and the whole point of the stamp is that a student's text does not move
     under them. What survives is the membership plus the command's audit entry (`IAuditableCommand`
     records the criteria, author and date) — that is why there is no `CnpnTargetRule` entity.
+    ⚠ Do not read this as an argument against `CnpnLevelEffectivity`: what must never be re-evaluated
+    is an *existing* stamp. A rule read once, at the creation of a registration, and frozen onto it
+    moves nobody's text under them — which is why the two mechanisms coexist rather than compete.
   - ⚠ **A selector covers only students who already exist.** Future intakes are the version's
     `AppliesToEntrantsFromAcademicYearId`. A text needs *both* halves or next year's first-years land
     under nothing.
@@ -287,6 +347,82 @@ Lₛ = P · kₛ / T      partitions concurrently in stage s — must be a whole
   weeks stay calendar-exact (a monthly axis must land on the 1st); only `WorkingDays` lays each column
   to a fixed count of worked days, and it is the **only** unit under which two columns are the same
   amount of stage — février and mars are not.
+
+### A service holds who is standing in it, so the balance is per **column**
+`RotationArranger` builds the capacity-weighted service queue over the cohorts of **one period**, and
+indexes it by their position *within that period*. Not over the cohorts of the call: the two coincide
+only when the caller scoped to a `ConcurrencyBlock`, and « auto-répartir ce stage » — every partition,
+every période, one call — is a real button that does not.
+
+- ⚠ **The crossover leaves one partition per column, and the whole partition landed in one service.**
+  Every other cell of the column is refused (the group is already placed in another stage over that
+  window), so a column holds `n/P` cohorts while the queue was built for `n`. Partitions are
+  contiguous in the ordering and each service owns a contiguous run of the queue, so the partition
+  fell *inside* one service's run. Measured on 5MED Psychiatrie 2025-2026 (60 groups, 9 partitions,
+  5 services, 2026-08-18): **all nine columns went to a single service — 69 to 85 students against a
+  capacity of 20 — and two of the five services were never used all year.** Reproduced exactly, 9/9,
+  from `queue[(ci + phase·⌊n/T⌋) mod n]`.
+- ⚠ **Nothing reported it.** 60 cells written, no failure, and the `GroupConflicts` it counted are the
+  ones the crossover is made of — indistinguishable from a correct plan. The printed répartition is
+  the only place it shows, which is where the user found it.
+- **A column's shape cannot be improved on; which services carry the remainder can.** Seven groups
+  over five services is 2,2,1,1,1 whichever way they fall — the column indexes every queue position
+  exactly once, so rotating the queue cannot change the multiset. Only the *leftover* tie-break can,
+  and it was stable: with equal capacities (all 148 imported services carry the same default) the
+  same two leading services carried the pair in every column of the year. `BuildServiceQueue` now
+  breaks ties by the column's phase.
+- **The step is at least 1.** `⌊m/cycleLength⌋` is 0 whenever a column set is smaller than the cycle,
+  which froze a `PerPeriod` run into one service — `SingleService` by accident.
+- **`SingleService` decides once for the run**, over everyone the run touches and from its first
+  phase, so a group still stands in one service for the whole run and two partitions doing the stage
+  in different windows still land differently.
+- ⚠ **A published cell is excluded from its column's balance rather than counted against it.** The
+  free cohorts spread over every service, including one an already-published cohort is sitting in.
+  Harmless today (0 grid-linked periods in the whole base) and worth closing when publication is real.
+
+### Which stage a partition is in is authored; which service it lands in is computed
+Two decisions, two owners, and confusing them is where this area goes wrong.
+
+| decides | owner | evidence |
+|---|---|---|
+| which rosters travel together | `AssignRotationGroupsCommand` | 9 partitions of 6-7 rosters |
+| which partition is in which stage over which columns — **the crossover** | rotation block (`RotationCycle`) / macro matrix | one stage itinerary per partition |
+| which service each cohort gets inside one (stage, column) | `RotationArranger` | 7 distinct service paths inside one partition |
+
+Measured on 5MED 2025-2026: every partition has **one** stage itinerary and **6-7** service paths.
+A roster's year is its partition's; its services are not, and must not be — a partition sharing a
+service is the whole-partition-in-one-service defect above.
+
+- ⚠ **`RotationArranger` cannot invent the crossover.** It has no notion of `kₛ`, so an unscoped
+  arrange writes a cell for every (cohort × column) it is not refused. On a stage nothing has crossed
+  into yet that is the whole promotion in one stage all year, and every stage arranged afterwards
+  gets nothing — refused now as `StageWouldFillEveryColumn`, the `PerPeriod` counterpart of
+  `SingleServiceRunNotScoped`. Two conditions narrow it and both matter: it fires only on the call
+  that names *neither* a partition *nor* a window (naming either is authored targeting — « A →
+  Médecine P1-P2 » is the faculty's own layout), and only when another stage of the promotion
+  declares the same windows (a stage that *is* the whole axis starves nobody).
+- **The unscoped arrange is a fill, not a plan, and its correctness is borrowed.** Psychiatrie was
+  arrangeable in one click only because the other six stages already held every group in 8 of its 9
+  columns: 480 of the 540 candidate cells refused, 60 free, one per roster — no freedom over columns
+  at all, only over services. Pressed first, the same button decides the year.
+- ⚠ **The caller's stage order is the first partition's year.** `RotationTiling.Enumerate` walks the
+  stages as given, so `schedules[0]` is that order laid end to end and partition A takes the
+  lowest-index schedule that fits. Entering Gynéco(3), Neuro, ORL… puts A in Gynéco P1-3, Neuro P4,
+  ORL P5 — confirmed against the applied 5MED block. Preferred, not guaranteed: where no complete
+  arrangement contains it, a later schedule wins over failing.
+- **A block is read back from the axis, not from the request** — `GetRotationCycleQuery`
+  (`GET levels/{id}/rotation-cycle`). Stages whose slots carry the identical window list *are* a
+  block, so a date corrected afterwards on one stage's own grid shows through instead of being
+  papered over, and a stage that drifted correctly falls out of the block.
+  - ⚠ **The axis cannot state `kₛ`** — every stage of a block carries a slot on *every* column, which
+    is exactly what makes the crossover possible. Recovered in order: the apply's audit entry → the
+    widest run a cohort actually holds → nothing. `RotationPeriodsSource` says which, for the same
+    reason `OutcomeSource` and `CnpnSource` do: a duration deduced from an empty grid is not one
+    somebody entered.
+  - The audit metadata is **not** filtered by year: it carries the *request's* `AcademicYearId`,
+    which is null whenever the caller left it to the resolver. The stage set is matched against the
+    slots on disk instead — a stronger check, since an apply for another year cannot match a block
+    that is not there.
 
 ### Several périodes is not several services — `Stage.RotationMode` says which
 A stage occupying `kₛ` columns can spend them moving S1 → S2 → … with an evaluation each, or standing
@@ -632,6 +768,141 @@ filled from the PV de déliberation and uploaded — `Application/Students/Regis
   rollover can simply be re-run once the odd verdicts are fixed. Keep both properties.
 - **They are two acts, months apart** (July / September), and not every admis comes back. Never fuse
   them.
+
+#### The canvas is a list of exceptions, and silence is the verdict
+A PV names the students the year went badly for; it does not restate 641 admissions. So
+`DeliberationScope.DefaultUnlistedToAdmis` inverts what the file is — everyone not named is **Admis** —
+and the scope is the **academic year**, with `LevelId` narrowing it to one promotion rather than
+defining it.
+
+- ⚠ **Year-wide is safe here, and it is not the widening-on-absence defect.** The *year* is still
+  resolved to exactly one; a student holds at most one registration per year (unique index), so a CNE
+  is as unambiguous across every level of one year as within one promotion. Matching across **years**
+  is what makes a row ambiguous, and that remains impossible.
+- ⚠ **The default promotes; it never graduates** — and "is this his last year?" is asked per
+  *student*, from his own `CnpnVersion.TotalYears`, never per level. From 2026-2027 one 6ᵉ année
+  Médecine holds both students whose text ends there (1650.25) and students who go on to a 7ᵉ
+  (2174.18), so the level alone cannot answer it. Anyone who **may** be in his last year is counted
+  (`FinalYearUndecided`) and left untouched.
+  - **Why, measured 2026-08-18 on the real base:** *855 of the 1 657* students in 7ᵉ année Médecine had
+    been in the 7ᵉ année before — 132 of them four times — and 74 of 356 in 6ᵉ Pharmacie. The final
+    year is the **thesis year**: students sit in it until they defend, PGSH holds no record of a
+    defence, and so "still there" and "finished" are *both* ordinary. Reading silence as diplômé
+    graduated **~930 people who were simply still enrolled**. An exceptions file only works where the
+    exception is rare; in a final year that is reversed, so the rule inverts there.
+  - The faculty names its graduates instead — the **defence roll** is the document it actually holds,
+    and a row reading `Diplômé` still records one.
+  - ⚠ This is also why an absent CNPN stamp needs no special case any more. It used to *block* the
+    file; now nobody in a possible final year is decided for either way, so the unstamped student
+    falls into the same bucket and `DefaultIssues` is gone entirely.
+- ⚠ **The default never overwrites a verdict already recorded** — not even an inferred one. Otherwise
+  re-uploading last week's exceptions file, after twelve verdicts were corrected by hand, silently
+  flips all twelve back to admis. It is also what makes the import safely re-runnable, the way the
+  réinscription is. Changing a recorded verdict is explicit: name the student, or use the single-row
+  path below.
+- ⚠ **`Level.IsPromotion` is checked here too.** « Retrait » has no year to clear, and a year-wide
+  default would otherwise promote the withdrawn.
+- ⚠ **A boolean confirmation would not do.** The whole risk is the student nobody named, and a
+  registration created *between the preview and the apply* adds one. `ApplyDeliberationCommand.
+  ConfirmedDefaultCount` carries the number the operator was shown and refuses on a mismatch
+  (`DefaultsNotConfirmed`). All-or-nothing still holds: a mistyped CNE means the student it was meant
+  for is admitted by silence, so one bad row refuses the file.
+- **Reports are bounded.** A year-wide file is whatever was uploaded and the reply is a single object —
+  the exact shape that hides an unbounded collection. `Rows` is capped (`MaxReportedRows`) with
+  `RowsTruncated`; the counts stay exact, and `ByLevel` is one entry per level. The réinscription orders
+  its rows **attention-first** for the same reason: the cap must never hide a row somebody has to act on.
+
+#### One student at a time — because a promotion's file cannot be the only way in
+`Registrations/Outcome/` — `RecordRegistrationOutcomeCommand`, `ReopenRegistrationYearCommand`
+(`POST registrations/{id}/outcome[/reopen]`). A late jury, a PV corrected for one name, an abandon
+notified in November. Under an exceptions file this path is *required*: re-uploading the promotion's
+file is precisely what must not be needed to fix one row.
+
+- ⚠ **`UpdateRegistrationCommand` used to write `Status` directly**, leaving `OutcomeSource` null — so
+  the edit form showed « Admis » while the réinscription reported « aucune décision enregistrée » and
+  refused to carry the student over. Neither was wrong about what it read. `Student.UpdateRegistration`
+  now routes a year-outcome status through `RecordYearOutcome` and a return to `Active`/`Pending`
+  through `ReopenYear`.
+- ⚠ **Reopening does not undo what the verdict caused.** The réinscription may already have created
+  next year's registration, and that row can carry a group, cohorts and published périodes. It is
+  **reported** (`LaterRegistrationExists`), never deleted — deleting it would take a student's
+  rotations with it.
+- The single-row path stands aside on an absent CNPN stamp exactly as the canvas does: one student at a
+  time must not be stricter than five hundred at once.
+
+#### Joining a roster is not transferring between two
+`AcademicGroups/Join/` — `AssignStudentToGroupCommand` (`POST groups/assign-student`). The ordinary
+September case: the déliberation is applied, the groups are cut, the schedule is published, and then
+somebody registers.
+
+- ⚠ **The transfer path silently did nothing for him.** Every step of `TransferStudentCommand` filters
+  on assignments the newcomer does not have, so he landed on the roster with no cohorte and no période
+   — a student the planning had never heard of, in a group that looked correct. Refused now
+  (`AlreadyInAGroup` guards the mirror case), because the two acts differ in what they must carry.
+- **Only windows that have not closed are materialised** (`LateArrivalScheduler`). A stage the roster
+  finished in October gives him an `InternshipAssignment` — he owes it, and it shows unserved on his
+  dossier — but no `ServicePeriod` claims he stood in a service on days he was not enrolled, and the
+  count is reported (`StagesAlreadyOver`) so somebody decides between a délocalisation, a revalidation
+  and next year. This is the opposite choice from `MaterializeAtTargetAsync`, which *does* materialise
+  closed cells — rightly, since a transferred student really did serve them, with another group.
+- A period is never back-dated before the day he joined, and a cell the roster has already **started**
+  (read from its périodes, not from the calendar) gives him a started one, so he appears on the chef's
+  screen the same day.
+
+### The last year does not begin until everything below it is validated
+`Stages/Progression/` — `OutstandingStageFinder` (what a student still owes, cursus-wide) and
+`FinalYearGuard` (whether that stops him). Enforced by `ReinscriptionPlanner`,
+`CreateRegistrationCommand` and `CreateManyRegistrationsCommand` alike.
+
+- **The rule is the faculty's**: a 7ᵉ année under arrêté 2174.18, a 6ᵉ under 1650.25, cannot be
+  entered while a stage from an earlier year is unvalidated. Asked per **student** from his own
+  `TotalYears` — from 2026-2027 one 6ᵉ année Médecine holds students of both texts, so the level alone
+  cannot answer "is this his last year?".
+- ⚠ **The existing déliberation check cannot answer it.** `StudentsWithUnvalidatedStagesAsync` is
+  scoped to `a.Registration.AcademicYearId == yearId` — stages of the year being deliberated. A 6ᵉ
+  année student owing a 4ᵉ année stage is invisible to it. The debt has to be read across every
+  registration, which is what `OutstandingStageFinder` does.
+- **Owed = every attempt came back `NonValidé`** — the same test `DossierStageState.ToRevalidate`
+  uses, deliberately, because two screens disagreeing about what a student owes is worse than either
+  being slightly wrong.
+  - ⚠ **`NonÉvalué` is not owed.** An unmarked stage is one nobody graded, not one he failed, and this
+    base holds almost no marks — counting it would block the whole faculty on missing data.
+  - ⚠ **Nor is a stage never attempted.** Reading "owes" from the CNPN's requirement set would be
+    stricter and today wrong: 1650.25's requirements are not entered, so every six-year student would
+    owe everything. Widen *there* when the sets are complete, not at each call site.
+- ⚠ **`TryGetValue`, never `GetValueOrDefault`, on a `Dictionary<Guid, int>` of final years.** The
+  default is `0`, not null, and a 0 read as "his text runs 0 years" makes *every* year his last —
+  which blocked every student with no CNPN on record, i.e. the one case the guard must stand aside
+  for. It fired hardest exactly where it should not have fired at all.
+- **Enforced on the manual paths too.** A guard the bulk rollover applies and the registration form
+  does not is a guard anyone steps around by using the other button.
+- **The exception is a row, not a flag** — `FinalYearEntryWaiver`, keyed (student, year), with a
+  required reason and a **snapshot of what was owed** at the moment it was granted. By the time it is
+  read back the stage may have been revalidated or dropped by a new text, and a waiver that cannot say
+  what it excused is not a record. Refused when nothing is owed (it would assert an exception that
+  never happened) and **irrevocable once the registration it permitted exists** — removing it would
+  leave a student in a final year with nothing on record saying who allowed it.
+- `ReinscriptionReport` counts `FinalYearBlocked` **and** `FinalYearWaived`: an override nobody sees
+  is an override nobody reviews.
+
+### Revalidation is the escape valve, and it is deliberately loose
+`Stages/Revalidation/` — `RevalidateStageCommand` re-opens a failed stage on the registration the
+student holds **now**, as a fresh `InternshipAssignment`; the failed one stays as history.
+
+- **Not constrained to the registration's own level** — a 6ᵉ année student redoing a 1ʳᵉ année stage is
+  the case it was built for. The real constraint is that a failed attempt exists.
+- **Served where he failed it**: the original service is reused unless overridden, as an **ad-hoc
+  placement outside the published grid** (`CohortSlotAssignmentId` stays null, like a délocalisation).
+  It is one student making good one stage, not a cell in his group's rotation.
+- Placement is all-or-nothing and **optional**: create the assignment now, schedule it later.
+  `CohortId` slots him into any cohort currently running the stage.
+- Guards: scolarité only · a stage validated on *any* registration is never re-opened · **every** prior
+  attempt must be settled `NonValidé` (one still pending blocks, so two attempts can never run at once).
+- ⚠ **Gap:** it requires a prior *failed* attempt (`NothingToRevalidate`), so there is no way to hand a
+  student a stage he never attempted — a legacy record never entered, a case somebody has to fix by
+  hand. And no generic "assign this student to this cohort" command exists: every other creation path
+  is bulk (`GenerateSchedule`, `StudentAffectationService`) or specific (`Delocalize`,
+  `LateArrivalScheduler`). That is the flexibility hole to close next.
 
 ### The year is constitutive, not an attribute — know which side a table is on
 - **Year-constituted** — `AcademicGroup`, `Cohort`, `Registration`, `Curriculum`, `StageSlot`. Remove
