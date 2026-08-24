@@ -361,6 +361,22 @@ public static class StageErrors
         + "serait affecté à un seul service pour la totalité des périodes du stage.");
 
     /// <summary>
+    /// Nothing has crossed over into this stage yet, so an unscoped arrange would give every roster
+    /// every column of it — the whole promotion in one stage for the whole year, written silently,
+    /// after which every stage arranged next gets nothing because everyone is busy everywhere.
+    ///
+    /// <para>The counterpart of <see cref="SingleServiceRunNotScoped"/> for a per-période stage. Which
+    /// partition takes which columns is the crossover, and the crossover is authored — by the rotation
+    /// block or the macro matrix — never inferred from an empty grid.</para>
+    /// </summary>
+    public static Error StageWouldFillEveryColumn(string stageName, int slotCount) => Error.Validation(
+        "Schedule.StageWouldFillEveryColumn",
+        $"Aucun autre stage n'occupe encore ces groupes : répartir « {stageName} » sans préciser de période "
+        + $"placerait chaque groupe dans ses {slotCount} périodes, soit la promotion entière dans ce seul "
+        + "stage toute l'année — et les stages répartis ensuite n'obtiendraient plus aucun créneau. "
+        + "Établissez d'abord le croisement (bloc de rotation, ou plan macro), puis répartissez.");
+
+    /// <summary>
     /// The run handed to the arranger is not a contiguous block of the axis. A single stay cannot
     /// have a hole in it, and the dates of the resulting period would silently span the gap.
     /// </summary>

@@ -137,6 +137,11 @@ public class GroupScheduleConflictTests
         // The realistic mistake: Médecine is arranged for every partition across the shared axis,
         // then Chirurgie is arranged the same way. Every group is already busy, so nothing is
         // written — and the count says why rather than leaving a silently empty grid.
+        //
+        // ⚠ Both calls name their partitions. Naming neither partition nor window is now refused
+        // outright on a shared axis (StageWouldFillEveryColumn) — the first run here is exactly the
+        // call that decides the year by accident. Stating « toutes les partitions » is a different
+        // act: deliberate, and still allowed to produce this outcome, which is what is under test.
         await using var db = TestHarness.NewContext("group-conflict-arrange");
         var (medecine, chirurgie) = SeedTwoStagesOnOneAxis(db);
 
@@ -156,14 +161,14 @@ public class GroupScheduleConflictTests
         var arranger = db.Arranger();
 
         var medecineRun = await arranger.ArrangeAsync(
-            TestHarness.StageId, TestHarness.CurrentYearId, null, null, null, default);
+            TestHarness.StageId, TestHarness.CurrentYearId, ["A", "B"], null, null, default);
 
         medecineRun.IsSuccess.Should().BeTrue();
         medecineRun.Value.Assigned.Should().Be(4, "2 groups × 2 periods");
         medecineRun.Value.GroupConflicts.Should().Be(0);
 
         var chirurgieRun = await arranger.ArrangeAsync(
-            ChirurgieId, TestHarness.CurrentYearId, null, null, null, default);
+            ChirurgieId, TestHarness.CurrentYearId, ["A", "B"], null, null, default);
 
         chirurgieRun.IsSuccess.Should().BeTrue();
         chirurgieRun.Value.Assigned.Should().Be(0);
@@ -227,7 +232,9 @@ public class GroupScheduleConflictTests
 
         var arranger = db.Arranger();
 
-        await arranger.ArrangeAsync(TestHarness.StageId, TestHarness.CurrentYearId, null, null, null, default);
+        // Both partitions named: the bare unscoped call is refused on a shared axis, and what this
+        // test is about is the removal running ahead of the refusal, not the scoping.
+        await arranger.ArrangeAsync(TestHarness.StageId, TestHarness.CurrentYearId, ["A", "B"], null, null, default);
         (await db.CohortSlotAssignments.CountAsync()).Should().Be(4);
 
         // Group 2 also sits in Chirurgie P1, which shares Médecine P1's window. Seeded directly
@@ -238,7 +245,7 @@ public class GroupScheduleConflictTests
         await db.SaveChangesAsync();
 
         var rerun = await arranger.ArrangeAsync(
-            TestHarness.StageId, TestHarness.CurrentYearId, null, null, null, default);
+            TestHarness.StageId, TestHarness.CurrentYearId, ["A", "B"], null, null, default);
 
         rerun.Value.GroupConflicts.Should().Be(1, "group 2 is busy in Chirurgie over Médecine P1");
 
@@ -318,8 +325,8 @@ public class GroupScheduleConflictTests
 
         var arranger = db.Arranger();
 
-        await arranger.ArrangeAsync(TestHarness.StageId, TestHarness.CurrentYearId, null, null, null, default);
-        var again = await arranger.ArrangeAsync(TestHarness.StageId, TestHarness.CurrentYearId, null, null, null, default);
+        await arranger.ArrangeAsync(TestHarness.StageId, TestHarness.CurrentYearId, ["A"], null, null, default);
+        var again = await arranger.ArrangeAsync(TestHarness.StageId, TestHarness.CurrentYearId, ["A"], null, null, default);
 
         again.IsSuccess.Should().BeTrue();
         again.Value.Assigned.Should().Be(2);

@@ -26,6 +26,21 @@ public sealed class RotationCycleEndpoint : IEndpoint
 
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
+        // What this promotion is laid out on right now, so reopening the screen shows the block
+        // instead of an empty form. Read from the axis on disk, not from the last request.
+        app.MapGet("levels/{levelId:int}/rotation-cycle", async (
+            int levelId,
+            int? academicYearId,
+            ISender sender,
+            CancellationToken ct) =>
+        {
+            var result = await sender.Send(new GetRotationCycleQuery(levelId, academicYearId), ct);
+            return result.Match(Results.Ok, CustomResults.Problem);
+        })
+        .WithName("GetRotationCycle")
+        .WithTags(Tags.Stages)
+        .RequireAuthorization();
+
         app.MapPost("levels/{levelId:int}/rotation-cycle/preview", async (
             int levelId,
             Request request,

@@ -68,8 +68,15 @@ internal static class RotationTiling
     private const int NodeBudget = 2_000_000;
 
     /// <summary>
-    /// Deterministic: schedules are enumerated in a fixed order and taken greedily-highest first, so the
-    /// same block always produces the same plan. A published répartition must not change shape on a re-run.
+    /// Deterministic: schedules are enumerated in a fixed order and taken lowest-index first, so the same
+    /// block always produces the same plan. A published répartition must not change shape on a re-run.
+    ///
+    /// <para><b>The caller's stage order is the first partition's year.</b> <see cref="Enumerate"/> walks
+    /// the stages in the order they were given, so <c>schedules[0]</c> is that order laid end to end, and
+    /// the first partition takes the lowest-index schedule that fits. Entering Gynéco(3), Neuro, ORL…
+    /// therefore gives partition A columns 1-3 in Gynéco, 4 in Neuro, 5 in ORL — which is what the
+    /// authored order means, and what the reopened form has to show back. Preferred, not guaranteed:
+    /// where no complete arrangement contains it, a later schedule wins over failing.</para>
     /// </summary>
     public static TilingResult Solve(
         IReadOnlyList<StageTiling> stages,
