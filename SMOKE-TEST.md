@@ -1663,9 +1663,21 @@ période et **sans** choisir de partition.
 
 ## 23 · Poser, corriger et supprimer une année universitaire (8 min) — session 26
 
-> **Status: built and unit-tested (24 tests: 14 handler, 10 endpoint), never run against the real
-> base.** No migration. ⚠ **This is the step the in-memory suite cannot stand in for**: every delete
-> guard here exists to keep the user away from a foreign key, and `UseInMemoryDatabase` has none.
+> **Status: ✅ executed against the real base 2026-08-25**, except **23d** (needs a second login).
+> 24 unit tests behind it (14 handler, 10 endpoint). No migration. ⚠ **This is the step the in-memory
+> suite cannot stand in for**: every delete guard here exists to keep the user away from a foreign
+> key, and `UseInMemoryDatabase` has none.
+>
+> **It found one defect the tests could not see** — every refusal printed **two** toasts, « Conflit »
+> and « Erreur », with identical text. `errorMiddleware` already surfaces every rejected mutation in
+> the server's own words, so the page's own `notify.error` was a second copy of the same sentence.
+> Fixed by removing the page-level error toasts; the success ones stay, because they carry what the
+> middleware cannot know (the year that stood down, the périodes left outside the span, the rosters
+> the cascade took). ⚠ **The same double-toast is pre-existing in `CnpnEffectivityPanel`,
+> `CnpnTargetingPanel`, `CnpnVersionsPanel`, `ScheduleGridModal` and `GroupsPage`** — same shape, not
+> touched here.
+>
+> Baseline before, and restored after: **22 years, exactly 1 current, 0 overlapping pairs.**
 
 *Admin → Académique → Années universitaires.*
 
@@ -1684,6 +1696,13 @@ SELECT COUNT(*) FROM public."AcademicYears" WHERE "IsCurrent";   -- must be exac
    is what proves the index is really there and that the demote precedes the promote.
 3. Designate the year that already holds it → refused (`AcademicYears.AlreadyCurrent`), count still 1.
 4. Put 2025-2026 back before continuing. **Everything below assumes it is current again.**
+
+**✅ Executed.** The badge followed both moves, `COUNT(*) FILTER (WHERE "IsCurrent")` read **1** after
+each, and the reply named the year that stood down. Two `ACADEMIC_YEAR_SET_CURRENT` audit rows.
+⚠ **Step 3 was not exercised end-to-end**: the UI *disables* the control on the year that already
+holds it (tooltip « Déjà l'année en cours ») rather than letting the call fail — the same choice
+`DeleteCnpnVersionCommand` makes. The refusal itself is covered by
+`AcademicYearManagementTests.Designating_the_year_that_already_holds_it_is_refused`.
 
 ### 23b — deleting
 
@@ -1708,6 +1727,21 @@ SELECT "Id","Label","IsCurrent" FROM public."AcademicYears" ORDER BY "Id";
    reports `rostersRemoved` — the number is the point, because it is the only thing destroyed and the
    only thing that cannot be read back.
 
+**✅ Executed, steps 2-4.** Deleting **2024-2025** was refused with all four counts in one sentence —
+« 4971 inscription(s), 1682 cohorte(s), 1 règle(s) d'entrée en vigueur CNPN, 1 CNPN dont c'est l'année
+d'entrée » — and the year, its 4 971 registrations **and its 395 rosters** were all still there
+afterwards, which is the assertion: `AcademicGroups` cascades, so a guard ordered after the delete
+would have taken them silently. The control passed: a throwaway year created and deleted cleanly,
+back to 22.
+
+⚠ **Step 1 was not exercised end-to-end** — the delete control is disabled on the current year, same
+as above; covered by `The_current_year_is_never_deleted` and `The_current_year_survives_a_delete`.
+
+⚠ **« 2099-2100 » cannot be entered.** A pre-existing client guard in the create form caps the start
+year at *this year + 1* (« L'année de début ne peut pas dépasser 2027 ») and disables « Créer ». Use a
+year inside the cap — **2027-2028** was used here. The cap is client-side only; the server has no such
+rule, so it is a UX limit, not an invariant.
+
 ### 23c — the calendar rule that was never enforced
 
 1. Edit 2026-2027 to start **01/06/2026** → refused, `AcademicYears.OverlapsAnotherYear`, naming
@@ -1731,10 +1765,28 @@ JOIN public."AcademicYears" b
    reply must report `slotsOutsideSpan`. Refusing would block the ordinary case (a year corrected while
    its axis is still a draft); saying nothing would hide périodes that no longer sit in their own year.
 
+**✅ Executed, steps 1-4.** Moving 2027-2028's start to 01/06/2027 was refused naming both years
+(« chevaucherait « 2026-2027 » »), and the table still read 1 sept. 2027 — nothing written. The
+overlap query is empty on all 22 years. Re-saving the same year unchanged went through, so a year
+does not collide with itself. Renaming it to « 2025-2026 » was refused as a duplicate.
+⚠ **Step 5 not executed** — it needs a year carrying `StageSlot`s that is neither current nor holding
+registrations, which the base has none of. Covered by
+`Narrowing_a_year_reports_the_periodes_it_leaves_outside` and its endpoint twin.
+
+**The edit form restores correctly**: label and both dates come back, and the « année actuelle »
+checkbox is replaced by a line saying the current year is changed from the list — designating is a
+distinct act, with its own guard.
+
 ### 23d — who may
 
 Every route above, as a **professeur** → 403 `AcademicYears.NotAllowed`, and nothing changed. With no
 session at all → 401. The year is the one setting that moves every screen at once.
+
+⚠ **Not executed** — it needs a second Keycloak account, and the admin session was the one under test.
+`AcademicYearEndpointTests` covers both through the real pipeline (`Only_the_administrative_side_may_move_the_current_year`,
+`An_anonymous_caller_never_reaches_the_handler`), with the role emitted as Keycloak's `realm_access`
+so `KeycloakRoleTransformer` is exercised rather than bypassed. Worth doing by hand once a second
+account exists.
 
 
 ---
