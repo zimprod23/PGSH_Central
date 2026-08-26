@@ -7,58 +7,41 @@
 > | # | Do this | Why it is not done |
 > |---|---|---|
 > | 1 | **Enter 1650.25's requirement sets — the stage list per level — *before* opening 2026-2027 for registrations.** ⚠ **Awaiting the list from the faculty.** | `RegistrationCnpnStamper` reads the effectivity rule once, at the creation of a registration. Open the year first and every 3ᵉ année of 2026-2027 gets a stamp pointing at a text that requires nothing — `CohortProvisioner` then stands aside silently and the promotion plans as if it owed no stage. `PHASES.md` §15.2. |
-> | 2 | **Decide whether `LateArrivalScheduler` should materialise périodes for an *unpublished* grid.** | It materialises every open cell of the roster whether or not the répartition was published, so a newcomer can hold périodes for a plan nobody published — and `SchedulePublisher` will then skip his assignment as `SkippedAlreadyServed`. The coverage half of this was fixed in session 26; this half is a design question, not a bug. |
-> | 3 | **Sweep the pre-existing double-toast** in `CnpnEffectivityPanel`, `CnpnTargetingPanel`, `CnpnVersionsPanel`, `ScheduleGridModal`, `GroupsPage` and the student dossier's « Ajouter une inscription » (seen 2026-08-26). | `errorMiddleware` already toasts every rejected mutation in the server's own words, so each page-level `notify.error` beside it prints the same sentence twice. Found running §23; fixed there, untouched elsewhere. |
-> | 4 | **Review three 6MED service calls** on the Stage page — *Pédiatrie CCP*, *Urgences (Moulay Youssef)*, and everything at *Azzamouri*. | All three were excluded by the recency rule and all three are arguable. `SMOKE-TEST.md` §22c.5 names them and the one-line undo. |
-> | 5 | **Close 2025-2026 for real** — Clôture & réinscription, exceptions canvas, confirm, apply. | 6 057 verdicts with no undo but a restore. It is the user's click, not ours. **Take a `pg_dump -Fc` first.** |
-> | 6 | **Walk the defence roll** — name a handful of 7ᵉ année students « Diplômé » and check they graduate while the rest stay put. | The 14.3e rule is verified by tests and by the preview's numbers; nobody has used the flow it now depends on. |
-> | 7 | **Phase 16 — the Access re-import** (`LEGACY-` CNEs, and 16.2's open question). | Specified and measured in session 24, not started. |
-> | 8 | **Testcontainers.** | Carried since session 22, and no longer theoretical: an untranslatable query took down the Med6 macro plan on 2026-08-26 with 1 004 tests green. `SqlTranslationTests` now catches the *translation* half without a database; what still needs a real PostgreSQL is whether the SQL returns the right rows, plus FK/unique-index behaviour. Sweep the macro-plan path (`StudentAffectationService`, `RotationArranger`, `SchedulePublisher`) — only `CohortProvisioner` has been proven to compile. |
-> | 9 | **Sweep other screens for stale data** — `loadingMiddleware`'s re-entrant dispatch (fixed, `SMOKE-TEST.md` §20f) silently staled whichever query settled *last* on any page, for the whole life of the middleware. | The bug is fixed; nobody has checked what else it was quietly breaking. |
-> | 10 | **Decide on the 56 programme-mismatched stamps** — Médecine registrations governed by `PHARM-LEGACY`. `SMOKE-TEST.md` §20g has the query. | Pre-existing, from the original CNPN backfill. One of the 57 was corrected incidentally by the 2ème année rule. |
-> | 11 | **Finish the final-year gate's walk-through** — `SMOKE-TEST.md` §21 steps 2, 3, 5, 6, 7, 9. | The rule itself was run against the real base 2026-08-26 (§24): 60 of the 686 6ᵉ année Médecine owe a stage and all 60 are refused entry to the 7ᵉ. What nobody has exercised on real data is the déliberation/réinscription legs, the unstamped student, the dérogation and the revalidation. |
-> | 12 | **Close the revalidation flexibility hole** — no way to hand a student a stage he never attempted, and no generic "assign this student to this cohort". | Identified in session 24. `RevalidateStageCommand` needs a prior *failed* attempt; every other creation path is bulk or specific. |
-> | 13 | **Year-segregation audit, académic-year update/delete, Inscriptions screen.** | Session 24 was scoped to the CNPN alone, by agreement. |
-> | 14 | **Give RTK Query a request timeout.** | A hung API is today indistinguishable from an empty year: `fetchBaseQuery` sets no `timeout`, so a request that never answers leaves every screen on a skeleton with no error — `errorMiddleware` never fires, because nothing rejects. Seen 2026-08-26, when the API sat paused on a breakpoint and the frontend showed nothing at all. ⚠ Not a blanket value: `stages/macro-plan` legitimately runs for minutes, and aborting a mutation client-side does not stop the server writing. A generous global default with explicit per-endpoint overrides for the heavy writes. |
-> | 15 | **Fold `ReinscriptionPlanner`'s own copy of the final-year decision into `FinalYearGuard`.** | The planner builds its `FinalYearGate` from three lookups of its own rather than from the guard, so one rule now has two implementations. Deliberate for now: the planner is scoped by the *predicate* that selects the promotion — 8 077 registrations — and the guard's batch takes a list of ids, which is exactly what must not be shipped down for a promotion. Folding them means teaching the guard to take a predicate. |
+> | 2 | **Click « Supprimer le bloc » once, in a foreground tab** — `SMOKE-TEST.md` §25 step 7. | The only thing built in session 27 that no human path has exercised. Server side is covered by ten tests; what is unverified is the confirmation dialog, its counts, and that the promotion's other block survives. ⚠ Do it on a block whose loss costs nothing, or be ready to re-apply and re-plan — Med6's 1 000 cells are one *Générer le plan* away, but they are not free. |
+> | 3 | **Decide whether `LateArrivalScheduler` should materialise périodes for an *unpublished* grid.** | It materialises every open cell of the roster whether or not the répartition was published, so a newcomer can hold périodes for a plan nobody published — and `SchedulePublisher` will then skip his assignment as `SkippedAlreadyServed`. The coverage half of this was fixed in session 26; this half is a design question, not a bug. |
+> | 4 | **Sweep the pre-existing double-toast** in `CnpnEffectivityPanel`, `CnpnTargetingPanel`, `CnpnVersionsPanel`, `ScheduleGridModal`, `GroupsPage` and the student dossier's « Ajouter une inscription » (seen 2026-08-26). | `errorMiddleware` already toasts every rejected mutation in the server's own words, so each page-level `notify.error` beside it prints the same sentence twice. Found running §23; fixed there, untouched elsewhere. |
+> | 5 | **Review three 6MED service calls** on the Stage page — *Pédiatrie CCP*, *Urgences (Moulay Youssef)*, and everything at *Azzamouri*. | All three were excluded by the recency rule and all three are arguable. `SMOKE-TEST.md` §22c.5 names them and the one-line undo. |
+> | 6 | **Close 2025-2026 for real** — Clôture & réinscription, exceptions canvas, confirm, apply. | 6 057 verdicts with no undo but a restore. It is the user's click, not ours. **Take a `pg_dump -Fc` first.** |
+> | 7 | **Walk the defence roll** — name a handful of 7ᵉ année students « Diplômé » and check they graduate while the rest stay put. | The 14.3e rule is verified by tests and by the preview's numbers; nobody has used the flow it now depends on. |
+> | 8 | **Phase 16 — the Access re-import** (`LEGACY-` CNEs, and 16.2's open question). | Specified and measured in session 24, not started. |
+> | 9 | **Testcontainers.** | Carried since session 22, and no longer theoretical: an untranslatable query took down the Med6 macro plan on 2026-08-26 with 1 004 tests green. `SqlTranslationTests` now catches the *translation* half without a database; what still needs a real PostgreSQL is whether the SQL returns the right rows, plus FK/unique-index behaviour. Sweep the macro-plan path (`StudentAffectationService`, `RotationArranger`, `SchedulePublisher`) — only `CohortProvisioner` has been proven to compile. |
+> | 10 | **Sweep other screens for stale data** — `loadingMiddleware`'s re-entrant dispatch (fixed, `SMOKE-TEST.md` §20f) silently staled whichever query settled *last* on any page, for the whole life of the middleware. | The bug is fixed; nobody has checked what else it was quietly breaking. |
+> | 11 | **Decide on the 56 programme-mismatched stamps** — Médecine registrations governed by `PHARM-LEGACY`. `SMOKE-TEST.md` §20g has the query. | Pre-existing, from the original CNPN backfill. One of the 57 was corrected incidentally by the 2ème année rule. |
+> | 12 | **Finish the final-year gate's walk-through** — `SMOKE-TEST.md` §21 steps 2, 3, 5, 6, 7, 9. | The rule itself was run against the real base 2026-08-26 (§24): 60 of the 686 6ᵉ année Médecine owe a stage and all 60 are refused entry to the 7ᵉ. What nobody has exercised on real data is the déliberation/réinscription legs, the unstamped student, the dérogation and the revalidation. |
+> | 13 | **Close the revalidation flexibility hole** — no way to hand a student a stage he never attempted, and no generic "assign this student to this cohort". | Identified in session 24. `RevalidateStageCommand` needs a prior *failed* attempt; every other creation path is bulk or specific. |
+> | 14 | **Year-segregation audit, académic-year update/delete, Inscriptions screen.** | Session 24 was scoped to the CNPN alone, by agreement. |
+> | 15 | **Give RTK Query a request timeout.** | A hung API is today indistinguishable from an empty year: `fetchBaseQuery` sets no `timeout`, so a request that never answers leaves every screen on a skeleton with no error — `errorMiddleware` never fires, because nothing rejects. Seen 2026-08-26, when the API sat paused on a breakpoint and the frontend showed nothing at all. ⚠ Not a blanket value: `stages/macro-plan` legitimately runs for minutes, and aborting a mutation client-side does not stop the server writing. A generous global default with explicit per-endpoint overrides for the heavy writes. |
+> | 16 | **Fold `ReinscriptionPlanner`'s own copy of the final-year decision into `FinalYearGuard`.** | The planner builds its `FinalYearGate` from three lookups of its own rather than from the guard, so one rule now has two implementations. Deliberate for now: the planner is scoped by the *predicate* that selects the promotion — 8 077 registrations — and the guard's batch takes a list of ids, which is exactly what must not be shipped down for a promotion. Folding them means teaching the guard to take a predicate. |
 >
-> **▶ SESSION 27 — the gate is asked once for the batch.**
+> **▶ SESSION 27e — the frontend backlog is committed, and one click is owed.**
 >
-> Suite **993 green** (990 + 3). All three new tests proven to bite: skipping the batched gate fails the
-> two refusal tests, reading a missing text as 0 years fails the stand-aside test, and letting the
-> student's stamp outrank his registration's text fails the third.
+> The frontend repo had been carrying sessions 23-26 uncommitted: the year-closure screen, the CNPN
+> effectivity panel, academic-year management, the dossier's outcome recording and group join, the
+> `loadingMiddleware` ordering fix and the verdict vocabulary. Reviewed and committed as **eight**
+> commits, `tsc` clean, every screen loaded against the live API before committing.
 >
-> **The finding** (from the session-26 review). `CreateManyRegistrationsCommandHandler` called
-> `EnsureMayEnterAsync` per student *inside* the loop, and each call is four round-trips — the level's
-> year, his text, his whole cursus through `OutstandingStageFinder.ForStudentAsync`, and his waiver.
-> Enrolling a promotion of 700 by hand was ~2 800 queries, fifteen lines above a `StampAsync` that had
-> already learned to take the batch in one pass.
+> ⚠ **Two things left exactly as found**, because changing them while committing somebody's pending
+> work is the wrong move: an eslint `react-hooks/set-state-in-effect` error in
+> `AdminStudentDetailPage` (verified present at HEAD too, so the backlog did not introduce it), and
+> that page's `notify.error` double-toast, already queued.
 >
-> **What was built.** `FinalYearGuard.EnsureMayEnterManyAsync` — the batch is now the implementation and
-> the single-student call delegates to it, so the two cannot drift. Only the refused students appear in
-> the result; an absent student may enter. Supporting halves: `OutstandingStageFinder.ForStudentsAsync`
-> (with `ForStudentAsync` delegating) and a batched `TotalYearsAsync`.
->
-> ⚠ **The narrowing is what makes it cheap, and it is also what keeps the single call no dearer than it
-> was**: the cursus is read only for the students this level is actually the last year of, and the
-> waivers only for those who then turn out to owe something. A batch where nobody is in his final year —
-> the ordinary case — is **two queries whatever its size**.
->
-> **Run against the live base the same day** (`SMOKE-TEST.md` §24), and it ended with the base exactly
-> as it started: 0 inscriptions en 2026-2027, 0 dérogations. 60 of the 686 6ᵉ année Médecine of
-> 2025-2026 still owe a stage; one call refused all 60 and wrote nothing, a mixed call refused one and
-> created the other, and the refused student went into the **6ᵉ** année without objection. The
-> narrowing shows in the wall clock: **722 ms** into the final year, **56 ms** into the year below,
-> where neither the cursus nor the waivers are read. The manual path from the dossier refuses with the
-> same sentence.
->
-> ⚠ **`Contains` is right here and wrong in `ForPromotionAsync`**, and the distinction is now written on
-> both: a caller-supplied list is bounded by what somebody selected; a promotion is 8 077 rows nobody
-> enumerated. Reach for the predicate whenever the set is *described* rather than *listed*.
->
-> Two things the rewrite had to preserve, and both are now tests rather than only comments:
-> `TryGetValue` over a `Dictionary<Guid, int>` (its default is 0, which makes every year somebody's
-> last), and the registration's text outranking the student's stamp.
+> ⚠ **`« Supprimer le bloc »` has never been clicked by a human.** The server side is covered — four
+> pipeline tests and six handler tests — but the UI path is not. An hour went into what looked like a
+> broken modal and was **browser automation driving a background tab**: Mantine's `Modal` mounts
+> through a transition scheduled on `requestAnimationFrame`, which is paused when the tab is hidden,
+> so the dialog's root renders with zero children and no error anywhere. A control modal known to work
+> failed identically in the same tab, which is what settled it. `NOTES.md` (2026-08-26) has the
+> diagnostic; `SMOKE-TEST.md` §25 step 7 has what is owed.
 >
 > **▶ SESSION 27d — the 6ᵉ année has its crossover.**
 >
@@ -160,6 +143,44 @@
 > **Also:** the apply and the preview now say how many planned cells the replacement destroys — they
 > cascade, and the number was nowhere on screen. `TestHarness.SeedCoverage` exists so no future test
 > can claim a cell is published by setting the FK alone.
+>
+> **▶ SESSION 27 — the gate is asked once for the batch.**
+>
+> Suite **993 green** (990 + 3). All three new tests proven to bite: skipping the batched gate fails the
+> two refusal tests, reading a missing text as 0 years fails the stand-aside test, and letting the
+> student's stamp outrank his registration's text fails the third.
+>
+> **The finding** (from the session-26 review). `CreateManyRegistrationsCommandHandler` called
+> `EnsureMayEnterAsync` per student *inside* the loop, and each call is four round-trips — the level's
+> year, his text, his whole cursus through `OutstandingStageFinder.ForStudentAsync`, and his waiver.
+> Enrolling a promotion of 700 by hand was ~2 800 queries, fifteen lines above a `StampAsync` that had
+> already learned to take the batch in one pass.
+>
+> **What was built.** `FinalYearGuard.EnsureMayEnterManyAsync` — the batch is now the implementation and
+> the single-student call delegates to it, so the two cannot drift. Only the refused students appear in
+> the result; an absent student may enter. Supporting halves: `OutstandingStageFinder.ForStudentsAsync`
+> (with `ForStudentAsync` delegating) and a batched `TotalYearsAsync`.
+>
+> ⚠ **The narrowing is what makes it cheap, and it is also what keeps the single call no dearer than it
+> was**: the cursus is read only for the students this level is actually the last year of, and the
+> waivers only for those who then turn out to owe something. A batch where nobody is in his final year —
+> the ordinary case — is **two queries whatever its size**.
+>
+> **Run against the live base the same day** (`SMOKE-TEST.md` §24), and it ended with the base exactly
+> as it started: 0 inscriptions en 2026-2027, 0 dérogations. 60 of the 686 6ᵉ année Médecine of
+> 2025-2026 still owe a stage; one call refused all 60 and wrote nothing, a mixed call refused one and
+> created the other, and the refused student went into the **6ᵉ** année without objection. The
+> narrowing shows in the wall clock: **722 ms** into the final year, **56 ms** into the year below,
+> where neither the cursus nor the waivers are read. The manual path from the dossier refuses with the
+> same sentence.
+>
+> ⚠ **`Contains` is right here and wrong in `ForPromotionAsync`**, and the distinction is now written on
+> both: a caller-supplied list is bounded by what somebody selected; a promotion is 8 077 rows nobody
+> enumerated. Reach for the predicate whenever the set is *described* rather than *listed*.
+>
+> Two things the rewrite had to preserve, and both are now tests rather than only comments:
+> `TryGetValue` over a `Dictionary<Guid, int>` (its default is 0, which makes every year somebody's
+> last), and the registration's text outranking the student's stamp.
 >
 > **▶ SESSION 26 — the year is a thing you can set, correct and remove.**
 >

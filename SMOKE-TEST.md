@@ -1843,7 +1843,8 @@ cohortes, alors que les axes existants sont sur 2025-2026.
    que l'étendue calendaire varie de 60 à 67 jours.
 3. **Le modifier** : corriger une date ou un kₛ, re-simuler, « Appliquer l'axe ». Le toast dit
    « N créneaux écrits, N remplacés » — et, s'il y avait des cellules réparties, combien sont à refaire.
-4. **Le supprimer** : « Supprimer le bloc », dans le bandeau de restauration. La confirmation nomme les
+4. **Le supprimer** ⚠ *pas encore fait à la main — voir la note en fin de section* : « Supprimer le
+   bloc », dans le bandeau de restauration. La confirmation nomme les
    stages et les colonnes ; le toast, les créneaux et les cellules supprimés. ⚠ Vérifier ensuite que la
    promotion n'a plus de créneaux **pour ces stages seulement** — un autre bloc du même niveau (deux
    semestres) doit rester debout.
@@ -1860,7 +1861,14 @@ cohortes, alors que les axes existants sont sur 2025-2026.
    - ⚠ Le dépassement d'effectif reste : 88 des 510 couples (service × colonne), au pire 30 étudiants
      pour 20. Ce n'est pas l'arrangeur — les 148 services portent le même 20 importé et aucun quota
      n'est saisi.
-7. ⚠ **La garde lit la table de couverture, pas la clé étrangère.** Sous `SingleService` une période
+7. ⚠ **L'étape 4 n'a jamais été cliquée par un humain.** Le serveur est couvert : quatre tests de
+   pipeline (`RotationCycleEndpointTests`) passent la route de bout en bout — les `stageIds` répétés
+   dans la query string, le refus sans stage, le 404 sur un bloc absent, le 401 anonyme — et six tests
+   de handler couvrent les gardes. Ce qui reste à voir, c'est le bouton : ouvrir la confirmation,
+   lire les nombres qu'elle annonce, et vérifier que l'autre bloc de la promotion tient debout.
+   ⚠ **À faire dans l'onglet au premier plan** : la modale de Mantine se monte via `requestAnimationFrame`,
+   qui est suspendu dans un onglet en arrière-plan — voir `NOTES.md` (2026-08-26).
+8. ⚠ **La garde lit la table de couverture, pas la clé étrangère.** Sous `SingleService` une période
    couvre toute une série et `ServicePeriod.CohortSlotAssignmentId` ne nomme que la **première**
    cellule. Le test `A_published_run_protects_every_cell_it_covers_not_only_the_first` en fait foi ;
    sur base réelle, cela ne se voit pas encore (tous les stages de 6ᵉ sont `PerPeriod`, 0 période liée

@@ -1094,6 +1094,37 @@ minutes, and aborting a mutation client-side does not stop the server writing.
 
 ---
 
+## A modal that "does not open" in a background tab (2026-08-26)
+
+Verifying « Supprimer le bloc » from browser automation, the confirmation dialog never appeared. The
+state was right and the component was mounted — the trap is worth knowing before anyone spends an
+hour on it, as this did.
+
+What the DOM said, after the button was clicked programmatically:
+
+- the React state flipped correctly — walking the fiber's hook chain, `confirmingDelete` went
+  `false → true` (it sits at hook **175 of 220**: RTK Query hooks are hook-heavy, so a walk capped at
+  40 or 120 finds nothing and looks like proof the hook does not exist);
+- `.mantine-Modal-root` **was** in the DOM — with **zero children** and height 0;
+- no console error, no failed request.
+
+**Cause: Mantine's `Modal` mounts its content through `<Transition>`, which schedules on
+`requestAnimationFrame` — and rAF is paused in a hidden/background tab.** Clicking through
+`javascript_tool` does not bring the tab to the front, so the transition never runs and the root stays
+empty forever. Nothing is wrong with the component.
+
+**The control is what settles it, and it should be the first move, not the last:** drive a modal that
+is already known to work (the dossier's « Ajouter une inscription »). It failed identically in the
+same tab, which proves the fault is the *context*, not the code under test. A control costs one call;
+reasoning about a component from an empty DOM node costs an hour.
+
+**Rule for browser verification:** anything that renders through a transition, an animation or an
+`IntersectionObserver` must be driven with real input events in the **foreground** tab (the `computer`
+tool activates it), not with `element.click()` from an evaluated script. Reading state is safe from
+the background; asserting that something *appeared* is not.
+
+---
+
 ## Open Questions / Things to Verify
 
 - **`GenerateScheduleCommandHandler`**: Does it correctly handle the case where students are transferred between cohorts mid-year? The `CohortMembership` model supports it but the handler logic needs review.
