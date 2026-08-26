@@ -4,6 +4,7 @@ using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
 using PGSH.Application.AcademicYears;
 using PGSH.Application.Calendar;
+using PGSH.Application.Stages.Planning;
 using PGSH.Domain.Calendar;
 using PGSH.Domain.Registrations;
 using PGSH.Domain.Stages;
@@ -42,6 +43,9 @@ public sealed record RotationCyclePreview(
     // Slots these stages already hold for the year, which applying would replace.
     int ExistingSlots,
     int PublishedCells,
+    // Planned, unpublished cells hanging off those slots. Applying takes them with it — they cascade
+    // — and an arrange rebuilds them from the matrix, but the number has to be on screen first.
+    int PlannedCells,
     bool CanApply,
     // What the windows actually give each stage, in jours ouvrables, against what it says it needs.
     IReadOnlyList<StageDurationCheck> DurationChecks,
@@ -132,6 +136,7 @@ internal sealed class PreviewRotationCycleQueryHandler(
             layout.Value,
             resolved.Value.ExistingSlots,
             resolved.Value.PublishedCells,
+            resolved.Value.PlannedCells,
             CanApply: resolved.Value.PublishedCells == 0,
             DurationChecks: Check(request.Stages, resolved.Value.Stages, layout.Value, calendar),
             CalendarIsEmpty: calendar.HolidaysBetween(span.From, span.To).Count == 0);
@@ -216,7 +221,11 @@ internal sealed class RotationCycleContext(IApplicationDbContext dbContext)
         IReadOnlyList<RotationCycleStage> Stages,
         IReadOnlyList<string> PartitionLabels,
         int ExistingSlots,
-        int PublishedCells);
+        int PublishedCells,
+        // Cells on those slots that nothing has published. They are not an obstacle — but the slots
+        // cascade to them, so replacing or removing the axis destroys them, and a destructive act
+        // that cannot name its count is one nobody can consent to.
+        int PlannedCells);
 
     public async Task<Result<Resolution>> ResolveAsync(
         int levelId, IReadOnlyList<int> stageIds, int academicYearId, CancellationToken ct)
@@ -270,10 +279,19 @@ internal sealed class RotationCycleContext(IApplicationDbContext dbContext)
         int existingSlots = await dbContext.StageSlots
             .CountAsync(s => stageIds.Contains(s.StageId) && s.AcademicYearId == academicYearId, ct);
 
-        int publishedCells = await dbContext.ServicePeriods
-            .CountAsync(p => p.CohortSlotAssignmentId != null
-                          && stageIds.Contains(p.CohortSlotAssignment!.StageSlot.StageId)
-                          && p.CohortSlotAssignment.StageSlot.AcademicYearId == academicYearId, ct);
+        // ⚠ Through the coverage table, never through ServicePeriod.CohortSlotAssignmentId. That FK
+        // names the *first* cell of a run, so under SingleService the trailing cells of a published
+        // run read as free — and this is the guard that lets the apply delete the slots underneath
+        // them. GetRotationCycleQuery already asks it this way; the write path had drifted.
+        var cellIds = await dbContext.CohortSlotAssignments
+            .AsNoTracking()
+            .Where(a => stageIds.Contains(a.StageSlot.StageId)
+                     && a.StageSlot.AcademicYearId == academicYearId)
+            .Select(a => a.Id)
+            .ToListAsync(ct);
+
+        var published = await dbContext.PublishedAmongAsync(cellIds, ct);
+        int publishedCells = published.Count;
 
         // Kept in the order the caller listed them: that order *is* the rotation, so reordering here
         // would silently change which stage a partition starts in.
@@ -286,6 +304,7 @@ internal sealed class RotationCycleContext(IApplicationDbContext dbContext)
                   .ToList(),
             partitionLabels.OrderBy(l => l).ToList(),
             existingSlots,
-            publishedCells);
+            publishedCells,
+            cellIds.Count - publishedCells);
     }
 }

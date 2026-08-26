@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using NSubstitute;
 using PGSH.Application.Abstractions.Authentication;
 using PGSH.Application.Employees.MyServices;
@@ -44,6 +44,25 @@ public static class TestHarness
     public static ApplicationDbContext NewContext(string name) =>
         new(new DbContextOptionsBuilder<ApplicationDbContext>()
             .UseInMemoryDatabase($"{name}-{Guid.NewGuid()}")
+            .Options);
+
+    /// <summary>
+    /// A context on the <b>Npgsql</b> provider that never opens a connection — for asking whether a
+    /// query can be turned into SQL at all.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ The in-memory provider runs LINQ against objects and translates nothing, so an untranslatable
+    /// query is invisible to every other test in this project until it throws on the real base.
+    /// Translation happens at query <i>compile</i> time, before any connection is opened, so this
+    /// context needs no database and no Testcontainer: build the query, call <c>ToQueryString()</c>,
+    /// and either SQL comes back or the provider says why not. See <c>SqlTranslationTests</c>.
+    ///
+    /// <para>The connection string is deliberately unusable. Anything that actually executes against
+    /// this context is a test that has misunderstood what it is for.</para>
+    /// </remarks>
+    public static ApplicationDbContext NewNpgsqlContext() =>
+        new(new DbContextOptionsBuilder<ApplicationDbContext>()
+            .UseNpgsql("Host=127.0.0.1;Port=1;Database=translation-only;Username=none;Password=none")
             .Options);
 
     /// <summary>A caller identified by <paramref name="keycloakId"/> holding exactly <paramref name="roles"/>.</summary>
@@ -403,6 +422,35 @@ public static class TestHarness
         };
         db.CohortSlotAssignments.Add(assignment);
         return assignment;
+    }
+
+    /// <summary>
+    /// Marks <paramref name="cell"/> as published by <paramref name="period"/> — both the foreign key
+    /// and the coverage row, which is what a real publish writes.
+    ///
+    /// <para>⚠ The two are not interchangeable. <c>ServicePeriod.CohortSlotAssignmentId</c> names the
+    /// <b>first</b> cell of a run; <c>ServicePeriodSlotCoverage</c> carries one row per covered cell,
+    /// and it is the one every guard reads. A test that sets only the FK proves nothing about a run
+    /// under <c>SingleService</c>, where the trailing cells have no FK pointing at them.</para>
+    /// </summary>
+    public static ServicePeriodSlotCoverage SeedCoverage(
+        this ApplicationDbContext db, ServicePeriod period, CohortSlotAssignment cell, bool leadCell = true)
+    {
+        if (leadCell)
+        {
+            period.CohortSlotAssignmentId = cell.Id;
+            period.CohortSlotAssignment = cell;
+        }
+
+        var coverage = new ServicePeriodSlotCoverage
+        {
+            ServicePeriodId = period.Id, ServicePeriod = period,
+            CohortSlotAssignmentId = cell.Id, CohortSlotAssignment = cell,
+        };
+
+        period.SlotCoverage.Add(coverage);
+        db.ServicePeriodSlotCoverage.Add(coverage);
+        return coverage;
     }
 
     public static StageObjective SeedObjective(

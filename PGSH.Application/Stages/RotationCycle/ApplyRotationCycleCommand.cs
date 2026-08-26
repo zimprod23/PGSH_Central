@@ -44,6 +44,10 @@ public sealed record ApplyRotationCycleCommand(
 public sealed record RotationCycleResult(
     int SlotsCreated,
     int SlotsReplaced,
+    // Planned cells the replaced slots took with them. Nothing is lost that an arrange cannot rebuild
+    // from the matrix below — but the count is reported for the same reason every other cascade in
+    // this codebase reports one: a number nobody is shown is a number nobody agreed to.
+    int PlannedCellsRemoved,
     RotationCycleLayout Layout,
     // Feed this to GenerateMacroPlanCommand to actually place the cohorts.
     IReadOnlyList<PartitionStagePlan> Matrix);
@@ -126,6 +130,10 @@ internal sealed class ApplyRotationCycleCommandHandler(
         await dbContext.SaveChangesAsync(cancellationToken);
 
         return new RotationCycleResult(
-            created.Count, obsolete.Count, layout.Value, layout.Value.Matrix);
+            created.Count,
+            obsolete.Count,
+            resolved.Value.PlannedCells,
+            layout.Value,
+            layout.Value.Matrix);
     }
 }

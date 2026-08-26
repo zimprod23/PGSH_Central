@@ -172,8 +172,7 @@ public class RotationCycleHandlerTests
         var assignment = db.SeedAssignment(registration, cohort);
         var period = db.SeedPeriod(assignment, service,
             new DateOnly(2025, 10, 1), new DateOnly(2025, 10, 31));
-        period.CohortSlotAssignmentId = cell.Id;
-        period.CohortSlotAssignment = cell;
+        db.SeedCoverage(period, cell);
         await db.SaveChangesAsync();
 
         var result = await ApplyHandler(db).Handle(
@@ -205,8 +204,7 @@ public class RotationCycleHandlerTests
         var assignment = db.SeedAssignment(registration, cohort);
         var period = db.SeedPeriod(assignment, service,
             new DateOnly(2025, 10, 1), new DateOnly(2025, 10, 31));
-        period.CohortSlotAssignmentId = cell.Id;
-        period.CohortSlotAssignment = cell;
+        db.SeedCoverage(period, cell);
         await db.SaveChangesAsync();
 
         var preview = await PreviewHandler(db).Handle(
@@ -290,5 +288,241 @@ public class RotationCycleHandlerTests
         (await db.StageSlots.CountAsync()).Should().Be(8);
         (await db.StageSlots.CountAsync(s => s.StageId == TestHarness.StageId)).Should().Be(2);
         second.Value.SlotsReplaced.Should().Be(0);
+    }
+
+    /// <summary>
+    /// ⚠ The case the coverage table exists for, and the one this guard used to miss.
+    ///
+    /// <para>Under <c>SingleService</c> one période spans a whole run, and
+    /// <c>ServicePeriod.CohortSlotAssignmentId</c> names only its <b>first</b> cell. Asked through that
+    /// foreign key, the trailing cells of a published run read as free — so the apply would delete the
+    /// slots underneath students who are standing in them. Asked through
+    /// <c>ServicePeriodSlotCoverage</c>, both cells are published and the axis is frozen.</para>
+    /// </summary>
+    [Fact]
+    public async Task A_published_run_protects_every_cell_it_covers_not_only_the_first()
+    {
+        await using var db = TestHarness.NewContext(nameof(A_published_run_protects_every_cell_it_covers_not_only_the_first));
+        var stage = db.SeedCatalog();
+        db.SeedStage(ChirurgieId, "Chirurgie");
+        var group = db.SeedGroup(groupId: 1, groupNumber: 1, rotationGroup: "A");
+        db.SeedGroup(groupId: 2, groupNumber: 2, rotationGroup: "B");
+
+        var service = db.SeedService(3, "Cardiologie");
+        var cohort = db.SeedCohortFor(stage, group, cohortId: 30);
+        var first = db.SeedSlot(stage, slotId: 1, periodNumber: 1,
+            new DateOnly(2025, 10, 1), new DateOnly(2025, 10, 31));
+        var second = db.SeedSlot(stage, slotId: 2, periodNumber: 2,
+            new DateOnly(2025, 11, 1), new DateOnly(2025, 11, 30));
+
+        var leadCell = db.SeedSlotAssignment(id: 1, cohort, first, service);
+        var trailingCell = db.SeedSlotAssignment(id: 2, cohort, second, service);
+
+        var registration = db.SeedRegistration("Sara", "Bennani", group);
+        var assignment = db.SeedAssignment(registration, cohort);
+
+        // One stay over both columns, exactly as SchedulePublisher writes it for a single-service stage.
+        var period = db.SeedPeriod(assignment, service,
+            new DateOnly(2025, 10, 1), new DateOnly(2025, 11, 30));
+        db.SeedCoverage(period, leadCell);
+        db.SeedCoverage(period, trailingCell, leadCell: false);
+        await db.SaveChangesAsync();
+
+        var preview = await PreviewHandler(db).Handle(
+            new PreviewRotationCycleQuery(
+                TestHarness.LevelId, [new RotationStage(TestHarness.StageId, 2), new RotationStage(ChirurgieId, 2)], Months(4)),
+            default);
+
+        // Two, not one: the trailing cell is the one the foreign key cannot see.
+        preview.Value.PublishedCells.Should().Be(2);
+        preview.Value.CanApply.Should().BeFalse();
+
+        var applied = await ApplyHandler(db).Handle(
+            new ApplyRotationCycleCommand(
+                TestHarness.LevelId, [new RotationStage(TestHarness.StageId, 2), new RotationStage(ChirurgieId, 2)], Months(4)),
+            default);
+
+        applied.IsFailure.Should().BeTrue();
+        (await db.StageSlots.CountAsync()).Should().Be(2, "nothing was written");
+    }
+
+    /// <summary>
+    /// Cells cascade with the slots they hang off. Rebuilding them is one arrange away — but a
+    /// destructive act that cannot say how much it destroys is one nobody can consent to.
+    /// </summary>
+    [Fact]
+    public async Task Replacing_an_axis_says_how_many_planned_cells_it_took_with_it()
+    {
+        await using var db = TestHarness.NewContext(nameof(Replacing_an_axis_says_how_many_planned_cells_it_took_with_it));
+        var stage = db.SeedCatalog();
+        db.SeedStage(ChirurgieId, "Chirurgie");
+        var group = db.SeedGroup(groupId: 1, groupNumber: 1, rotationGroup: "A");
+        db.SeedGroup(groupId: 2, groupNumber: 2, rotationGroup: "B");
+
+        var service = db.SeedService(3, "Cardiologie");
+        var cohort = db.SeedCohortFor(stage, group, cohortId: 30);
+        var slot = db.SeedSlot(stage, slotId: 1, periodNumber: 1,
+            new DateOnly(2025, 10, 1), new DateOnly(2025, 10, 31));
+        db.SeedSlotAssignment(id: 1, cohort, slot, service);
+        await db.SaveChangesAsync();
+
+        var preview = await PreviewHandler(db).Handle(
+            new PreviewRotationCycleQuery(
+                TestHarness.LevelId, [new RotationStage(TestHarness.StageId, 2), new RotationStage(ChirurgieId, 2)], Months(4)),
+            default);
+
+        preview.Value.PlannedCells.Should().Be(1);
+        preview.Value.PublishedCells.Should().Be(0, "planned is not published — it is not an obstacle");
+        preview.Value.CanApply.Should().BeTrue();
+
+        var applied = await ApplyHandler(db).Handle(
+            new ApplyRotationCycleCommand(
+                TestHarness.LevelId, [new RotationStage(TestHarness.StageId, 2), new RotationStage(ChirurgieId, 2)], Months(4)),
+            default);
+
+        applied.Value.PlannedCellsRemoved.Should().Be(1);
+    }
+
+    // =============================================================================================
+    // Removing a block — replacing an axis is not undoing one
+    // =============================================================================================
+
+    private static DeleteRotationCycleCommandHandler DeleteHandler(ApplicationDbContext db) =>
+        new(db, new AcademicYearResolver(db), new RotationCycleContext(db));
+
+    [Fact]
+    public async Task Deleting_a_block_removes_its_axis_and_names_the_cells_it_cost()
+    {
+        await using var db = TestHarness.NewContext(nameof(Deleting_a_block_removes_its_axis_and_names_the_cells_it_cost));
+        var stage = db.SeedCatalog();
+        db.SeedStage(ChirurgieId, "Chirurgie");
+        var group = db.SeedGroup(groupId: 1, groupNumber: 1, rotationGroup: "A");
+        db.SeedGroup(groupId: 2, groupNumber: 2, rotationGroup: "B");
+        await db.SaveChangesAsync();
+
+        await ApplyHandler(db).Handle(
+            new ApplyRotationCycleCommand(
+                TestHarness.LevelId, [new RotationStage(TestHarness.StageId, 2), new RotationStage(ChirurgieId, 2)], Months(4)),
+            default);
+
+        var service = db.SeedService(3, "Cardiologie");
+        var cohort = db.SeedCohortFor(stage, group, cohortId: 30);
+        var slot = await db.StageSlots.FirstAsync(s => s.StageId == TestHarness.StageId);
+        db.SeedSlotAssignment(id: 1, cohort, slot, service);
+        await db.SaveChangesAsync();
+
+        var result = await DeleteHandler(db).Handle(
+            new DeleteRotationCycleCommand(
+                TestHarness.LevelId, [TestHarness.StageId, ChirurgieId]),
+            default);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.SlotsRemoved.Should().Be(8);
+        result.Value.PlannedCellsRemoved.Should().Be(1);
+        (await db.StageSlots.CountAsync()).Should().Be(0);
+    }
+
+    /// <summary>
+    /// ⚠ One promotion holds several blocks — the new CNPN's 3ᵉ année is two semesters — so a removal
+    /// scoped to the level would take the other semester with it.
+    /// </summary>
+    [Fact]
+    public async Task Deleting_one_block_leaves_the_other_semester_standing()
+    {
+        await using var db = TestHarness.NewContext(nameof(Deleting_one_block_leaves_the_other_semester_standing));
+        SeedBlock(db);
+        db.SeedStage(3, "Pédiatrie");
+        db.SeedStage(4, "Gynécologie");
+        await db.SaveChangesAsync();
+
+        var semester2 = Enumerable.Range(0, 2)
+            .Select(i =>
+            {
+                var start = new DateOnly(2026, 2, 1).AddMonths(i);
+                return new DateWindow(start, start.AddMonths(1).AddDays(-1));
+            })
+            .ToList();
+
+        await ApplyHandler(db).Handle(
+            new ApplyRotationCycleCommand(
+                TestHarness.LevelId, [new RotationStage(TestHarness.StageId, 1), new RotationStage(ChirurgieId, 1)], Months(2)), default);
+        await ApplyHandler(db).Handle(
+            new ApplyRotationCycleCommand(
+                TestHarness.LevelId, [new RotationStage(3, 1), new RotationStage(4, 1)], semester2), default);
+
+        var result = await DeleteHandler(db).Handle(
+            new DeleteRotationCycleCommand(TestHarness.LevelId, [3, 4]), default);
+
+        result.Value.SlotsRemoved.Should().Be(4);
+        (await db.StageSlots.CountAsync()).Should().Be(4, "the first semester is untouched");
+        (await db.StageSlots.CountAsync(s => s.StageId == TestHarness.StageId)).Should().Be(2);
+    }
+
+    [Fact]
+    public async Task A_published_block_cannot_be_deleted()
+    {
+        await using var db = TestHarness.NewContext(nameof(A_published_block_cannot_be_deleted));
+        var stage = db.SeedCatalog();
+        db.SeedStage(ChirurgieId, "Chirurgie");
+        var group = db.SeedGroup(groupId: 1, groupNumber: 1, rotationGroup: "A");
+        db.SeedGroup(groupId: 2, groupNumber: 2, rotationGroup: "B");
+
+        var service = db.SeedService(3, "Cardiologie");
+        var cohort = db.SeedCohortFor(stage, group, cohortId: 30);
+        var slot = db.SeedSlot(stage, slotId: 1, periodNumber: 1,
+            new DateOnly(2025, 10, 1), new DateOnly(2025, 10, 31));
+        var cell = db.SeedSlotAssignment(id: 1, cohort, slot, service);
+
+        var registration = db.SeedRegistration("Sara", "Bennani", group);
+        var assignment = db.SeedAssignment(registration, cohort);
+        var period = db.SeedPeriod(assignment, service,
+            new DateOnly(2025, 10, 1), new DateOnly(2025, 10, 31));
+        db.SeedCoverage(period, cell);
+        await db.SaveChangesAsync();
+
+        var result = await DeleteHandler(db).Handle(
+            new DeleteRotationCycleCommand(
+                TestHarness.LevelId, [TestHarness.StageId, ChirurgieId]),
+            default);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be("RotationCycle.CannotDeletePublished");
+        (await db.StageSlots.CountAsync()).Should().Be(1, "the refusal precedes the delete");
+    }
+
+    /// <summary>
+    /// « Supprimé » on a promotion that never had a block reads as though something was undone.
+    /// </summary>
+    [Fact]
+    public async Task Deleting_a_block_that_does_not_exist_says_so()
+    {
+        await using var db = TestHarness.NewContext(nameof(Deleting_a_block_that_does_not_exist_says_so));
+        SeedBlock(db);
+        await db.SaveChangesAsync();
+
+        var result = await DeleteHandler(db).Handle(
+            new DeleteRotationCycleCommand(
+                TestHarness.LevelId, [TestHarness.StageId, ChirurgieId]),
+            default);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be("RotationCycle.NoBlockToDelete");
+    }
+
+    /// <summary>A stage of another promotion cannot be reached through the removal either.</summary>
+    [Fact]
+    public async Task Deleting_cannot_reach_a_stage_of_another_level()
+    {
+        await using var db = TestHarness.NewContext(nameof(Deleting_cannot_reach_a_stage_of_another_level));
+        SeedBlock(db);
+        db.SeedLevel(9, "Autre promotion", year: 5);
+        db.SeedStage(7, "Stage d'ailleurs", levelId: 9);
+        await db.SaveChangesAsync();
+
+        var result = await DeleteHandler(db).Handle(
+            new DeleteRotationCycleCommand(TestHarness.LevelId, [7]), default);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be("RotationCycle.StageNotOfLevel");
     }
 }

@@ -102,6 +102,18 @@ Scalar UI at `/scalar/v1`, Swagger UI at `/swagger`. Both are configured with Ke
 - ⚠ **Known blind spot:** `UseInMemoryDatabase` ignores FK constraints, unique indexes, `OnDelete` behaviour and
   SQL translatability — constraint and query-translation defects remain invisible. **Testcontainers is still
   not built**; do not read a green suite as proof that a query runs on PostgreSQL.
+  - ⚠ **It bit for real on 2026-08-26.** `CohortProvisioner` projected
+    `g.Registrations.Select(r => r.CnpnVersionId ?? r.Student.CnpnVersionId).Distinct().ToList()`
+    *inside* a `Select(g => new { … })`. The subquery's element is a computed value carrying no key,
+    so Npgsql cannot correlate it — « Unable to translate a collection subquery in a projection… » —
+    and the macro plan died on the first real request with the whole suite green. Reach for a **flat,
+    top-level query** keyed on the parent id and fold in memory.
+  - **Half of that hole closes without a database** — `SqlTranslationTests` +
+    `TestHarness.NewNpgsqlContext()`. Translation happens when a query is *compiled*, before any
+    connection opens, so a context on the Npgsql provider pointing at nothing answers
+    "does this become SQL?" via `ToQueryString()`. It proves nothing about the *rows*; it does stop a
+    500. Add a case whenever a query takes a shape a provider might refuse (collection subquery in a
+    projection, `Distinct`/`GroupBy` over a computed element, a client-side call in a predicate).
 
 ### `PGSH.Tests/Integration/` — the half of an endpoint that is not the handler
 `ApiFactory` (`WebApplicationFactory<Program>`) hosts the **real** `Program.cs` in-process, so a test
@@ -337,6 +349,20 @@ Lₛ = P · kₛ / T      partitions concurrently in stage s — must be a whole
   réinscription, and it keeps cohort provisioning, arranging and publishing on their existing path.
 - **The axis is replaced wholesale, never merged** — half-old, half-new columns are the exact
   misalignment the feature removes — and is **refused outright while any cell is published**.
+  - ⚠ **Cells cascade with the slots** (`CohortSlotAssignments → StageSlots` is `CASCADE`), so both the
+    preview and the apply state the count (`PlannedCells` / `PlannedCellsRemoved`). Nothing is lost that
+    an arrange cannot rebuild from the returned matrix, but a destructive act nobody is shown a number
+    for is one nobody agreed to — the same rule as `RostersRemoved` and `PlannedCellsAffected`.
+- **Removing a block is its own act** — `DeleteRotationCycleCommand`
+  (`DELETE levels/{id}/rotation-cycle?stageIds=…`). Replacing an axis is not undoing one: a block
+  entered by mistake could only be written over, never taken back, short of deleting each stage's slots
+  by hand from its own grid. Same shape as `ClearRotationGroupsCommand` beside « Redécouper ».
+  - ⚠ **Scoped to the stages named, never to the level.** One promotion legitimately holds several
+    blocks — the new CNPN's 3ᵉ année is two semesters — so a removal keyed on the level would take the
+    other semester with it.
+  - Refused while anything on it is published (`CannotDeletePublished`; unpublish first, that path is
+    guarded and says what it costs), and `NoBlockToDelete` rather than a cheerful success on a
+    promotion that never had one.
 - The new CNPN's 3rd year is **two blocks** (three stages per semester), not one block of six. The 6th
   year is **one** block of six with mixed durations: `k = [2,2,2,2,1,1]`, `T = 10`, `P = 10`,
   `L = [2,2,2,2,1,1]` — which is exactly the ten monthly columns of `Med6.png`. Blocks of one level
@@ -464,9 +490,15 @@ from the grid?", which is all ~25 call sites ask. It cannot answer "is *this cel
 them or `DeleteStageSlot` would drop a column out from under a running stage.
 
 - One coverage row **per covered cell under both modes**, so the guards read one table, not two.
-- The four callers go through `PublishedCells` (`PublishedAmongAsync`, `IsCellPublishedAsync`,
+- The five callers go through `PublishedCells` (`PublishedAmongAsync`, `IsCellPublishedAsync`,
   `SlotHasPublishedCellAsync`) rather than reading the FK: `RotationArranger`, `DeleteStageSlot`,
-  `ClearCohortSlotAssignment`, `ClearSlotAssignments`.
+  `ClearCohortSlotAssignment`, `ClearSlotAssignments`, `RotationCycleContext`.
+  - ⚠ **`RotationCycleContext` was the one that drifted**, and it is the worst place for it: it is the
+    guard the rotation-cycle *apply* and *delete* stand on, so a run published under `SingleService`
+    would have had its trailing columns deleted out from under it while the lead cell alone read as
+    locked. `GetRotationCycleQuery` had it right from the start — the read was correct and the write
+    guard was not, which is the dangerous way round. Latent only because every 6ᵉ année stage is
+    `PerPeriod` and the base holds 0 grid-linked periods.
 - The migration back-fills one row per existing grid-linked period — correct because nothing can have
   been published in `SingleService` mode before the mode existed.
 
@@ -876,6 +908,19 @@ somebody registers.
   for. It fired hardest exactly where it should not have fired at all.
 - **Enforced on the manual paths too.** A guard the bulk rollover applies and the registration form
   does not is a guard anyone steps around by using the other button.
+- **Asked once for a batch** — `EnsureMayEnterManyAsync`, which is the implementation; the
+  single-student call delegates to it, so the two paths cannot drift. Per student it is four queries —
+  the level's year, his text, his whole cursus, his waiver — i.e. ~2,800 round-trips to enrol a
+  promotion of 700 through `CreateManyRegistrationsCommand`. Narrowed twice so the batch stays cheap
+  *and* the single call gets no dearer: the cursus is read only for the students this level is the last
+  year of, the waivers only for those who then owe something, so a batch where nobody is in his final
+  year is two queries whatever its size.
+  - ⚠ **`Contains` is right on a list and wrong on a promotion.** `ForStudentsAsync` takes the ids the
+    caller named — bounded by what somebody selected; `ForPromotionAsync` is scoped by the predicate
+    that selects the promotion, because 8,077 registrations is a set nobody enumerated. Reach for the
+    predicate whenever the set is *described* rather than *listed*.
+  - `ReinscriptionPlanner` still carries its own copy of the decision, for exactly that reason: it is
+    predicate-scoped. Folding it in means teaching the guard to take a predicate, not handing it ids.
 - **The exception is a row, not a flag** — `FinalYearEntryWaiver`, keyed (student, year), with a
   required reason and a **snapshot of what was owed** at the moment it was granted. By the time it is
   read back the stage may have been revalidated or dropped by a new text, and a waiver that cannot say

@@ -70,30 +70,26 @@ internal sealed class CohortProvisioner(IApplicationDbContext dbContext)
                      && levelIds.Contains(g.LevelId.Value)
                      && g.RotationGroup != null
                      && partitionKeys.Contains(g.RotationGroup))
-            .Select(g => new
-            {
-                g.Id,
-                g.Label,
-                g.RotationGroup,
-                g.LevelId,
-                // Auto-arrange keeps a group to one text; a hand-built one might not, so take the
-                // distinct set and only trust it when there is exactly one.
-                //
-                // ⚠ The registration's stamp first, the student's only as a fallback. A group is a
-                // roster of one year, so what its members owe is what the text governing *that* year
-                // required — which is exactly what the registration records and what the student's
-                // own stamp stops being the moment an effectivity rule moves him. Null on both is the
-                // legacy row nobody has resolved; it simply does not join the set.
-                CnpnVersionIds = g.Registrations
-                    .Where(r => r.CnpnVersionId != null || r.Student.CnpnVersionId != null)
-                    .Select(r => r.CnpnVersionId ?? r.Student.CnpnVersionId!.Value)
-                    .Distinct()
-                    .ToList(),
-            })
+            .Select(g => new { g.Id, g.Label, g.RotationGroup, g.LevelId })
             .ToListAsync(ct);
 
         if (groups.Count == 0)
             return Result.Success(new CohortProvisionResult(0, 0, 0));
+
+        var matchedGroupIds = groups.Select(g => g.Id).ToList();
+
+        // Which text(s) each roster follows. Auto-arrange keeps a group to one; a hand-built one might
+        // not, so take the distinct set and only trust it when there is exactly one.
+        //
+        // ⚠ The registration's stamp first, the student's only as a fallback. A group is a roster of
+        // one year, so what its members owe is what the text governing *that* year required — which is
+        // exactly what the registration records and what the student's own stamp stops being the
+        // moment an effectivity rule moves him. Null on both is the legacy row nobody has resolved; it
+        // simply does not join the set.
+        //
+        var textsByGroup = (await GroupTextsQuery(dbContext, matchedGroupIds).ToListAsync(ct))
+            .GroupBy(x => x.GroupId)
+            .ToDictionary(x => x.Key, x => x.Select(v => v.CnpnVersionId).ToList());
 
         // (text, level) → the stages it requires. Absent from this map means nothing was recorded for
         // that pair, which is the "stand aside" case rather than "requires nothing".
@@ -109,10 +105,9 @@ internal sealed class CohortProvisioner(IApplicationDbContext dbContext)
                 .ToListAsync(ct))
             .ToDictionary(c => (c.CnpnVersionId, c.LevelId), c => c.StageIds.ToHashSet());
 
-        var groupIds = groups.Select(g => g.Id).ToList();
         var existingSet = (await dbContext.Cohorts
             .AsNoTracking()
-            .Where(c => groupIds.Contains(c.AcademicGroupId) && stageIds.Contains(c.StageId))
+            .Where(c => matchedGroupIds.Contains(c.AcademicGroupId) && stageIds.Contains(c.StageId))
             .Select(c => new { c.AcademicGroupId, c.StageId })
             .ToListAsync(ct))
             .Select(p => (p.AcademicGroupId, p.StageId))
@@ -130,11 +125,13 @@ internal sealed class CohortProvisioner(IApplicationDbContext dbContext)
 
             foreach (var group in partitionGroups)
             {
+                var texts = textsByGroup.GetValueOrDefault(group.Id, []);
+
                 // Only a group settled on one text can be checked against it. A mixed or unstamped
                 // group is left to the existing level rule — flagging it here would report the same
                 // problem twice, and auto-arrange is where it gets prevented.
-                if (group.CnpnVersionIds.Count == 1
-                    && required.TryGetValue((group.CnpnVersionIds[0], level), out var stagesOfText)
+                if (texts.Count == 1
+                    && required.TryGetValue((texts[0], level), out var stagesOfText)
                     && !stagesOfText.Contains(mapping.StageId))
                 {
                     notRequired++;
@@ -165,4 +162,35 @@ internal sealed class CohortProvisioner(IApplicationDbContext dbContext)
 
         return Result.Success(new CohortProvisionResult(created, skipped, groups.Count, notRequired));
     }
+
+    /// <summary>One (roster, governing text) pair per row.</summary>
+    internal sealed record GroupText(int GroupId, int CnpnVersionId);
+
+    /// <summary>
+    /// Which text(s) each roster follows — the registration's stamp first, the student's only as a
+    /// fallback (a group is a roster of <em>one year</em>, so what its members owe is what the text
+    /// governing that year required).
+    /// </summary>
+    /// <remarks>
+    /// ⚠ <b>Flat and top-level, never a collection subquery inside the roster projection.</b> Written
+    /// as <c>g.Registrations.Select(r => r.CnpnVersionId ?? r.Student.CnpnVersionId).Distinct()</c>
+    /// inside <c>Select(g => new { … })</c>, the element is a computed value carrying no key, so Npgsql
+    /// cannot correlate the subquery to its parent and throws <i>"Unable to translate a collection
+    /// subquery in a projection…"</i> when the query is compiled. It did exactly that on the real base,
+    /// with the whole suite green: <c>UseInMemoryDatabase</c> never translates anything.
+    ///
+    /// <para>Kept as a named query so it can be compiled against the Npgsql provider in a test — see
+    /// <c>SqlTranslationTests</c>, which needs no database to catch this class of defect.</para>
+    /// </remarks>
+    internal static IQueryable<GroupText> GroupTextsQuery(
+        IApplicationDbContext dbContext, IReadOnlyList<int> groupIds) =>
+        dbContext.Registrations
+            .AsNoTracking()
+            .Where(r => r.AcademicGroupId != null
+                     && groupIds.Contains(r.AcademicGroupId.Value)
+                     && (r.CnpnVersionId != null || r.Student.CnpnVersionId != null))
+            .Select(r => new GroupText(
+                r.AcademicGroupId!.Value,
+                r.CnpnVersionId ?? r.Student.CnpnVersionId!.Value))
+            .Distinct();
 }

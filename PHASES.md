@@ -1071,6 +1071,41 @@ is the same row), but every plan built in between was built against an empty req
 
 ---
 
+### ✅ Phase 15.10 — a block you can take back, and the queries nobody had translated
+
+**Done 2026-08-26.** Three things, in the order they were found.
+
+**Removing a rotation block** — `DeleteRotationCycleCommand`, `DELETE levels/{id}/rotation-cycle?stageIds=…`.
+The page restored a block and could replace it; it could not *undo* one, so a block entered by mistake
+could only be written over. Scoped to the stages of the block (a promotion holds several — the new
+CNPN's 3ᵉ année is two semesters), refused while anything on it is published, reporting `SlotsRemoved`
+and `PlannedCellsRemoved`. The apply and the preview now report the cascaded cells too: they were
+being destroyed silently.
+
+⚠ **`RotationCycleContext` was reading the wrong table.** It counted published cells through
+`ServicePeriod.CohortSlotAssignmentId` — the FK that names only the *first* cell of a run — so under
+`SingleService` the trailing columns of a published run read as free, and that is the guard the apply
+and the delete both stand on. `GetRotationCycleQuery` had asked `ServicePeriodSlotCoverage` correctly
+since 15.09: the read was right and the write guard was not. Latent (every 6ᵉ année stage is
+`PerPeriod`, 0 grid-linked périodes) and now the fifth caller of `PublishedCells`.
+
+⚠ **`CohortProvisioner` had a query PostgreSQL cannot compile** — a collection subquery in a
+projection whose element was `r.CnpnVersionId ?? r.Student.CnpnVersionId` followed by `Distinct()`,
+written in 15.x when the CNPN moved onto the registration. It killed the macro plan on the real base
+with the whole suite green. Rewritten flat and top-level; `SqlTranslationTests` +
+`TestHarness.NewNpgsqlContext()` now catch that class **without a database**, since translation
+happens at query-compile time. See `NOTES.md` (2026-08-26) — Testcontainers is still owed for
+everything that needs rows.
+
+**The final-year gate is asked once per batch** (`FinalYearGuard.EnsureMayEnterManyAsync`); the
+single-student call delegates to it, so the two paths cannot drift. `CreateManyRegistrationsCommand`
+was spending four queries per student inside its loop — ~2 800 to enrol a promotion of 700.
+
+**The 6ᵉ année is planned end to end** on real data: 10 columns, 10 partitions, 1 000 cells, 0 rosters
+double-booked, every service used in every column. `PLANNING.md` §9 has the numbers.
+
+---
+
 ## 🔲 Phase 16 — Re-importing the Access base, cleanly
 
 **Raised 2026-08-18 by the user, measured the same day against the live base.** The import of

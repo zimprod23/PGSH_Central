@@ -35,6 +35,18 @@ internal sealed class CreateManyRegistrationsCommandHandler(
         var existingSet = new HashSet<Guid>(existingRegistrationIds);
         var validSet = new HashSet<Guid>(validStudentIds);
 
+        // One pass for the whole batch, like the stamp below. Asked inside the loop it pulled the
+        // student's entire cursus per student — ~2 800 round-trips to enrol a promotion of 700.
+        // Only the students still in the running are handed over: the rest are already refused, and
+        // an id nobody recognises has no cursus to read.
+        var gated = request.StudentIds
+            .Distinct()
+            .Where(id => validSet.Contains(id) && !existingSet.Contains(id))
+            .ToList();
+
+        var finalYearRefusals = await finalYear.EnsureMayEnterManyAsync(
+            gated, request.LevelId, request.AcademicYearId, cancellationToken);
+
         var itemResults = new List<BulkItemResult<Guid, Guid>>();
         var newRegistrations = new List<Registration>();
 
@@ -54,15 +66,12 @@ internal sealed class CreateManyRegistrationsCommandHandler(
                 continue;
             }
 
-            // Same gate as the single-registration path. Per student rather than per batch: whether
+            // Same gate as the single-registration path, and still answered per student — whether
             // this is somebody's last year is a question about his own text, and the answer differs
-            // inside one promotion since 1650.25.
-            var gate = await finalYear.EnsureMayEnterAsync(
-                studentId, request.LevelId, request.AcademicYearId, cancellationToken);
-
-            if (gate.IsFailure)
+            // inside one promotion since 1650.25. Only the *asking* is batched.
+            if (finalYearRefusals.TryGetValue(studentId, out var blocked))
             {
-                itemResults.Add(new BulkItemResult<Guid, Guid>(studentId, default, gate.Error));
+                itemResults.Add(new BulkItemResult<Guid, Guid>(studentId, default, blocked));
                 continue;
             }
 

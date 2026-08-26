@@ -218,8 +218,8 @@ Order matters: the rotation cycle reads the partition labels, so they must exist
 - **Rosters exist** — *Académique → Groupes → Répartition automatique* distributes students who have
   no group. Groups are created per (year, promotion) and numbered from 1.
 - **Each stage has allowed services** — *Formation → Stages → «stage» → Services autorisés*. Without
-  them the plan refuses with `Schedule.NoAllowedServices`. ⚠ As of 2026-08-13 all six 6th-year stages
-  have none, so the 6th year cannot be planned yet.
+  them the plan refuses with `Schedule.NoAllowedServices`. The 6th year's 51 were authored 2026-08-24
+  and it has been planned end to end since (see §9).
 - **The navbar year is the year you mean.** There is one year selector and it scopes everything.
 
 ### 1 · Cut the promotion into partitions
@@ -255,7 +255,16 @@ The count must satisfy §3. Get it wrong and step 2 refuses, naming the valid mu
      as a range because partitions take different runs. Informative, **never blocking**.
    - Warnings about provisional religious holidays: the dates will move if the décret does.
 4. ***Appliquer l'axe*** — writes the créneaux. Replaces any existing axis **wholesale**, and is
-   refused outright if any cell of the block is already published.
+   refused outright if any cell of the block is already published. ⚠ The cells hanging off the
+   replaced créneaux go with them (they cascade); the preview and the toast both name how many, and an
+   arrange rebuilds them from the returned matrix.
+
+⚠ **Reopening the page shows the block in force**, restored from the axis on disk — stages, `kₛ` and
+the windows — with the date it was applied and where `kₛ` was recovered from. So **modifier** a block
+is: correct the form, re-simuler, ré-appliquer. **Supprimer** it is its own button in that banner:
+replacing an axis is not undoing one, and without it a block entered by mistake could only be written
+over. It is scoped to the stages on screen (a promotion can hold two semesters), refused while
+anything on it is published, and it names the créneaux and the cells it removed.
 
 ### 3 · Run the plan
 
@@ -264,6 +273,18 @@ The count must satisfy §3. Get it wrong and step 2 refuses, naming the valid mu
 ⚠ **Read the toast.** It reports cells written *and* cells refused. A refusal count means groups were
 already placed elsewhere over those dates; a plan missing columns is what that looks like. It also
 reports combinations skipped because a group's CNPN does not require that stage.
+
+⚠ **…and then read the base, because the toast is not evidence.** The session-25 defect wrote 60 cells,
+reported no failure, and put a whole promotion in one service. What to check, and what the 6ᵉ année
+gave on 2026-08-26 (1 000 cells):
+
+| check | expected | measured |
+|---|---|---|
+| every roster visits every stage | `kₛ` columns each | 2·2·2·2·1·1, min = max |
+| partitions at once in a stage | `Lₛ` in every column | 2·2·2·2·1·1 |
+| a roster in two stages at once | 0 | 0 |
+| services used per column | all of them | 13/13, 5/5, 13/13, 7/7, 7/7, 6/6 |
+| spread inside one column | ≤ 1 roster | ≤ 1 (Gynéco exactly 4·4·4·4·4) |
 
 ### 4 · Publish the document
 
@@ -282,6 +303,8 @@ than the service count), confirm the legend names the partitions you cut, then *
 | `RotationCycle.PartitionCountIncompatible` | `P` is not a multiple of `T/gcd(kₛ)` | re-cut to a named multiple |
 | `RotationCycle.NoFeasibleArrangement` | the duration mix cannot tile (§3) | change a `kₛ` |
 | `RotationCycle.CannotReplacePublished` | a cell of the block is published | nothing — the axis is frozen |
+| `RotationCycle.CannotDeletePublished` | same, on *Supprimer le bloc* | dépubliez le planning d'abord (§8) |
+| `RotationCycle.NoBlockToDelete` | those stages carry no créneau for the year | nothing to undo — check the navbar year |
 | `Schedule.NoAllowedServices` | the stage has no services | add them on the stage page |
 | `Schedule.NoServicesAdmitLevel` | services exist but their quotas exclude this promotion | add a `ServiceLevelCapacity` row |
 | `Schedule.NoSlots` | the axis is not authored yet | do step 2 |
@@ -314,6 +337,9 @@ dépublier la cohorte   →  vider les cellules       →  supprimer le créneau
   evaluations that no longer exist is what had to be walked back.
 - To change a partitioning instead, see §6 step 1: *Redécouper* or *Supprimer les partitions*, both
   refused while published.
+- To remove the **axis** itself: *Bloc de rotation* → *Supprimer le bloc*. It takes the block's
+  créneaux and the cells planned on them, is refused while anything on it is published, and is scoped
+  to the stages of that block — the promotion's other semester stays standing.
 
 ⚠ **Re-publishing does not re-do a stage a student has already served.** Any assignment that already
 holds a period is skipped and counted (`skippedAlreadyServed`). This is what stops the new répartition
@@ -324,3 +350,29 @@ period per stage.
 
 ⚠ **An empty répartition has two causes and they need opposite acts**: no créneaux (author an axis) or
 créneaux nobody is in (run the plan). `DeclaredSlotCount` on the response is what separates them.
+
+---
+
+## 9 · The 6ᵉ année, end to end (measured 2026-08-26)
+
+The first promotion planned through the whole chain on real data, and the reference the arithmetic of
+§3 can be checked against.
+
+| | |
+|---|---|
+| stages | CHIRURGIE, GYNÉCO, MÉDECINE, PÉDIATRIE (44 j.) · ANES RÉA, URGENCES (22 j.) |
+| `kₛ` at 22 jours ouvrables per column | 2·2·2·2·1·1 |
+| `T = Σkₛ` | **10** columns, 01/09/2025 → 17/06/2026 |
+| `P` | **10** partitions (A–J) of 10 rosters |
+| `Lₛ = P·kₛ/T` | 2·2·2·2·1·1 |
+| written | 60 créneaux, **1 000 cellules**, 0 double-booked |
+| printed | 51 rows × 10 columns, 0 empty cells, 510 document cells |
+
+⚠ **Authoring the axis in *jours ouvrables* is what makes the durations land**: every stage got
+exactly its catalogue figure (44/44/44/44/22/22) while its calendar span swung 60–67 days. In calendar
+months it would have been the other way round.
+
+⚠ **What the plan does not fix: 88 of the 510 (service × colonne) pairs are over capacity, worst 30
+against 20.** That is not the arranger — all 148 services carry the same imported default of 20 and
+not one quota is authored. It is the soft, waivable half of the rule, and it is what publishing will
+ask you to override.

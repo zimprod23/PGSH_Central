@@ -71,6 +71,24 @@ public sealed class RotationCycleEndpoint : IEndpoint
         .WithTags(Tags.Stages)
         .RequireAuthorization();
 
+        // Removing the block, as its own act. Replacing an axis is not undoing one, so a block entered
+        // by mistake had no way back except deleting each stage's slots by hand.
+        app.MapDelete("levels/{levelId:int}/rotation-cycle", async (
+            int levelId,
+            int[] stageIds,
+            int? academicYearId,
+            ISender sender,
+            CancellationToken ct) =>
+        {
+            var result = await sender.Send(
+                new DeleteRotationCycleCommand(levelId, stageIds, academicYearId), ct);
+
+            return result.Match(Results.Ok, CustomResults.Problem);
+        })
+        .WithName("DeleteRotationCycle")
+        .WithTags(Tags.Stages)
+        .RequireAuthorization();
+
         // Lays the axis out from one start date. Server-side because the working-day count needs the
         // holiday table, which no browser has.
         app.MapGet("stages/axis-windows", async (

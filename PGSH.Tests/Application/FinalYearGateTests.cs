@@ -4,6 +4,7 @@ using PGSH.Application.Abstractions.Authentication;
 using PGSH.Application.Stages.Cnpn;
 using PGSH.Application.Stages.Progression;
 using PGSH.Application.Students.Registrations.Create;
+using PGSH.Application.Students.Registrations.CreateMany;
 using PGSH.Application.Students.Registrations.FinalYear;
 using PGSH.Application.Students.Registrations.Reinscription;
 using PGSH.Domain.Registrations;
@@ -336,6 +337,109 @@ public class FinalYearGateTests
         result.Error.Code.Should().Be("Registrations.FinalYearBlocked");
         (await db.Registrations.CountAsync(r => r.AcademicYearId == Year2026)).Should().Be(0);
     }
+
+    // =============================================================================================
+    // The bulk path — the same rule, asked once for the batch
+    // =============================================================================================
+
+    /// <summary>
+    /// ⚠ Batching the question must not batch the answer. Three students, three different verdicts:
+    /// the gate is asked in one pass and still decides per student, because whether this is somebody's
+    /// last year is a fact about his own text.
+    /// </summary>
+    [Fact]
+    public async Task The_bulk_path_refuses_only_the_students_the_gate_names()
+    {
+        await using var db = Seed(nameof(The_bulk_path_refuses_only_the_students_the_gate_names));
+
+        var blocked = SeedAdmis(db, "Ouazzani");
+        SeedAttempt(db, blocked, mark: 7);
+
+        var waived = SeedAdmis(db, "Sqalli");
+        SeedAttempt(db, waived, mark: 7);
+
+        // The control: same promotion, same batch, nothing owed. A refusal test with no control
+        // passes just as well when the whole call fails.
+        var clear = SeedAdmis(db, "Tazi");
+        SeedAttempt(db, clear, mark: 14);
+        await db.SaveChangesAsync();
+
+        await GrantHandler(db).Handle(
+            new GrantFinalYearWaiverCommand(waived.StudentId, Year2026, "PV du conseil"), default);
+
+        var result = await BulkHandler(db).Handle(
+            new CreateManyRegistrationsCommand(
+                [blocked.StudentId, waived.StudentId, clear.StudentId], Year2026, Level4),
+            default);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.SuccessCount.Should().Be(2);
+
+        var refused = result.Value.Items.Single(i => !i.IsSuccess);
+        refused.Identifier.Should().Be(blocked.StudentId);
+        refused.Error!.Code.Should().Be("Registrations.FinalYearBlocked");
+
+        // ⚠ The refusal has to precede the write, and the two others still have to land.
+        var written = await db.Registrations
+            .Where(r => r.AcademicYearId == Year2026)
+            .Select(r => r.StudentId)
+            .ToListAsync();
+
+        written.Should().BeEquivalentTo(new[] { waived.StudentId, clear.StudentId });
+    }
+
+    /// <summary>
+    /// The batched lookup returns a <c>Dictionary&lt;Guid, int&gt;</c> of final years, whose default is
+    /// <b>0</b> — read as "his text runs 0 years" it makes every year somebody's last, and blocks
+    /// hardest the one student the gate must stand aside for.
+    /// </summary>
+    [Fact]
+    public async Task The_bulk_path_stands_aside_for_a_student_with_no_cnpn_on_record()
+    {
+        await using var db = Seed(nameof(The_bulk_path_stands_aside_for_a_student_with_no_cnpn_on_record));
+
+        var unstamped = db.SeedRegistration("Amine", "Fassi");
+        SeedAttempt(db, unstamped, mark: 7);
+        await db.SaveChangesAsync();
+
+        var result = await BulkHandler(db).Handle(
+            new CreateManyRegistrationsCommand([unstamped.StudentId], Year2026, Level4), default);
+
+        result.Value.SuccessCount.Should().Be(1);
+        (await db.Registrations.CountAsync(r => r.AcademicYearId == Year2026)).Should().Be(1);
+    }
+
+    /// <summary>
+    /// How long a cursus runs is read from the text on his most recent registration first, and only
+    /// then from the stamp he happens to carry now — the order every reader has used since the text
+    /// became a property of the registration. Here the two disagree and only the registration's answer
+    /// makes the 4ᵉ année his last.
+    /// </summary>
+    [Fact]
+    public async Task The_bulk_path_reads_the_text_that_governed_the_year_he_is_leaving()
+    {
+        await using var db = Seed(nameof(The_bulk_path_reads_the_text_that_governed_the_year_he_is_leaving));
+
+        var admis = db.SeedRegistration("Amine", "Zniber");
+        admis.Student.AssignCnpnVersion(TestHarness.NewCnpnId, isInferred: false);
+        admis.StampCnpnVersion(OldText, RegistrationCnpnSource.Backfilled);
+        admis.RecordYearOutcome(
+            RegistrationStatus.Validated, RegistrationOutcomeSource.Declared, null, DateTime.UtcNow);
+        SeedAttempt(db, admis, mark: 7);
+        await db.SaveChangesAsync();
+
+        var result = await BulkHandler(db).Handle(
+            new CreateManyRegistrationsCommand([admis.StudentId], Year2026, Level4), default);
+
+        result.Value.SuccessCount.Should().Be(0);
+        result.Value.Items.Single().Error!.Code.Should().Be("Registrations.FinalYearBlocked");
+        (await db.Registrations.CountAsync(r => r.AcademicYearId == Year2026)).Should().Be(0);
+    }
+
+    private static CreateManyRegistrationsCommandHandler BulkHandler(ApplicationDbContext db) =>
+        new(db,
+            new RegistrationCnpnStamper(db, new CnpnAssignment(db)),
+            new FinalYearGuard(db, new OutstandingStageFinder(db)));
 
     private static GrantFinalYearWaiverCommandHandler GrantHandler(ApplicationDbContext db) =>
         new(db,

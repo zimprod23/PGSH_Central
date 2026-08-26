@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Domain.Stages;
 
@@ -62,12 +62,21 @@ public sealed class OutstandingStageFinder(IApplicationDbContext dbContext)
         return Fold(attempts);
     }
 
-    /// <summary>The same question for one student — the single-registration paths and the dossier.</summary>
-    public async Task<IReadOnlyList<Debt>> ForStudentAsync(Guid studentId, CancellationToken ct)
+    /// <summary>Everything a named set of students still owes. Students owing nothing are absent.</summary>
+    /// <remarks>
+    /// ⚠ <c>Contains</c> is right here and wrong in <see cref="ForPromotionAsync"/>, and the difference
+    /// is not stylistic: this list is the caller's own — the students named in one bulk registration —
+    /// so it is bounded by what somebody selected, while a promotion is 8 077 rows nobody enumerated.
+    /// Reach for the predicate whenever the set is <em>described</em> rather than <em>listed</em>.
+    /// </remarks>
+    public async Task<Dictionary<Guid, IReadOnlyList<Debt>>> ForStudentsAsync(
+        IReadOnlyCollection<Guid> studentIds, CancellationToken ct)
     {
+        if (studentIds.Count == 0) return [];
+
         var attempts = await dbContext.InternshipAssignments
             .AsNoTracking()
-            .Where(a => a.Registration.StudentId == studentId)
+            .Where(a => studentIds.Contains(a.Registration.StudentId))
             .Select(a => new Attempt(
                 a.Registration.StudentId,
                 a.Cohort.StageId,
@@ -77,8 +86,12 @@ public sealed class OutstandingStageFinder(IApplicationDbContext dbContext)
                 a.Result))
             .ToListAsync(ct);
 
-        return Fold(attempts).GetValueOrDefault(studentId, []);
+        return Fold(attempts);
     }
+
+    /// <summary>The same question for one student — the single-registration paths and the dossier.</summary>
+    public async Task<IReadOnlyList<Debt>> ForStudentAsync(Guid studentId, CancellationToken ct) =>
+        (await ForStudentsAsync([studentId], ct)).GetValueOrDefault(studentId, []);
 
     private sealed record Attempt(
         Guid StudentId,

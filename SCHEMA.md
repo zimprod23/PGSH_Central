@@ -447,6 +447,123 @@ Grid cells — maps one Cohort to one Service for one StageSlot. Unique per (Coh
 
 ---
 
+### `ServicePeriodSlotCoverage` — which grid cells a période actually covers
+
+| Column | Type | Notes |
+|---|---|---|
+| `Id` | int (PK) | |
+| `ServicePeriodId` | uuid (FK) | the published période |
+| `CohortSlotAssignmentId` | int (FK) | one row **per covered cell** |
+
+**Indexes:** `(CohortSlotAssignmentId, ServicePeriodId)`
+
+⚠ **This is the only correct answer to "is this cell published?"** `ServicePeriod.CohortSlotAssignmentId`
+names the **first** cell of a run; under `StageRotationMode.SingleService` one période covers a whole
+run, so reading that FK reports the lead cell locked and every trailing cell free. Everything that
+rewrites, clears or deletes part of the grid goes through `PublishedCells` (`RotationArranger`,
+`DeleteStageSlot`, `ClearCohortSlotAssignment`, `ClearSlotAssignments`, `RotationCycleContext`).
+
+---
+
+### `ServiceLevelCapacities` — a service's intake rules
+
+| Column | Type | Notes |
+|---|---|---|
+| `Id` | int (PK) | |
+| `ServiceId` | int (FK) | |
+| `LevelId` | int (FK) | a `Level` is already (programme × année) |
+| `Capacity` | int | how many of *that* promotion the service takes at once |
+
+**Indexes:** `(ServiceId, LevelId)` unique
+
+⚠ **No rows means the service admits everyone**, capped by `Service.Capacity` — that is a service
+nobody has restricted, not an unconfigured one. The **first** row closes the service to every level
+without one, and from then on `Service.Capacity` is dead data for it: quotas *replace* the total, they
+do not sit under it. Read it through `Service.CapacityFor(levelId)`, never field by field.
+
+---
+
+### `Holidays` — the entered half of the calendar
+
+| Column | Type | Notes |
+|---|---|---|
+| `Id` | int (PK) | |
+| `StartDate` / `EndDate` | date | inclusive; the ones that matter span days (Aïd is two, vacances two weeks) |
+| `Name` | varchar | |
+| `Kind` | varchar | `National`, `Religious`, `Academic` |
+| `IsConfirmed` | bool | a provisional lunar date still blocks its days, but every window laid over one is flagged |
+
+**Indexes:** `(StartDate, Name)` unique, `EndDate`
+
+⚠ **National dates are law; religious dates are observation.** The ten fixed Gregorian days are
+generated (`MoroccanPublicHolidays.FixedFor`); Aïd, Moharram and Mawlid follow the Hijri calendar and
+are announced by decree — they can only be **entered**. An empty table is not a neutral one: « jours
+ouvrables » then quietly means "minus weekends".
+
+---
+
+### `FinalYearEntryWaivers` — the exception to the final-year rule, as a row
+
+| Column | Type | Notes |
+|---|---|---|
+| `Id` | uuid (PK) | |
+| `StudentId` | uuid (FK) | CASCADE |
+| `AcademicYearId` | int (FK) | RESTRICT |
+| `Reason` | varchar(1000) | required — an override nobody can explain is not a record |
+| `OutstandingAtGrant` | int | **snapshot** of what was owed the day it was granted |
+| `OutstandingSummary` | varchar(1000) | « Cardiologie (3ème année), … » |
+| `GrantedByUserId` | uuid? | |
+| `GrantedOn` | timestamptz | |
+
+**Indexes:** `(StudentId, AcademicYearId)` unique
+
+⚠ The snapshot is the point: by the time it is read back the stage may have been revalidated or
+dropped by a new text, and a waiver that cannot say what it excused is not a record. Refused when
+nothing is owed, and **irrevocable once the registration it permitted exists**.
+
+---
+
+### `CnpnLevelEffectivities` — « ce texte régit ce niveau à partir de cette année »
+
+| Column | Type | Notes |
+|---|---|---|
+| `Id` | int (PK) | |
+| `CnpnVersionId` | int (FK) | CASCADE |
+| `LevelId` | int (FK) | RESTRICT |
+| `FromAcademicYearId` | int (FK) | RESTRICT |
+| `Note` | varchar? | |
+| `RecordedOn` | timestamptz | |
+
+**Indexes:** `(CnpnVersionId, LevelId)` unique, `(LevelId, FromAcademicYearId)` unique
+
+⚠ The second index is the substantive one: two texts starting to govern one level in one year has no
+defensible winner. « et en dessous » is **one row per level**, never a stored comparison — a
+comparison would have to be re-evaluated to be read, and a level renumbered later would silently
+change which promotions a published text binds. Read once, at the creation of a registration, then
+frozen onto it (`RegistrationCnpnStamper`).
+
+---
+
+### `AuditLogs`
+
+| Column | Type | Notes |
+|---|---|---|
+| `Id` | uuid (PK) | |
+| `PerformedByUserId` | uuid? | |
+| `Action` | varchar | `ROTATION_CYCLE_APPLIED`, `ROTATION_CYCLE_DELETED`, `STUDENT_TRANSFERRED`… |
+| `EntityType` / `EntityId` | varchar | |
+| `Metadata` | jsonb-as-text | the command's own payload |
+| `CreatedAt` | timestamptz | |
+
+**Indexes:** `IX_AuditLog_CreatedAt`, `IX_AuditLog_PerformedBy`, `IX_AuditLog_Entity (EntityType, EntityId)`
+
+Written by the pipeline for any `IAuditableCommand`. ⚠ `GetRotationCycleQuery` **reads** it: the axis
+cannot state `kₛ`, so the apply's own audit entry is where an authored period count is recovered from.
+The metadata carries the *request's* `AcademicYearId`, which is null whenever the caller left it to
+the resolver — the stage set is matched against the slots on disk instead.
+
+---
+
 ### `TodoItems` *(template placeholder — no active endpoints)*
 
 | Column | Type | Constraints |
@@ -488,6 +605,14 @@ Grid cells — maps one Cohort to one Service for one StageSlot. Unique per (Coh
 | Center → Hospital | RESTRICT | Cannot delete a center with hospitals |
 | Service (chef/staff) → Employee | RESTRICT | Cannot delete an employee assigned to a service |
 | CohortSlotAssignment → Service | RESTRICT | Cannot delete a service that is referenced in the schedule grid |
+| ServicePeriod → ServicePeriodSlotCoverage | CASCADE | Coverage describes a période that no longer exists |
+| CohortSlotAssignment → ServicePeriodSlotCoverage | CASCADE | …and a cell that no longer exists |
+| Service → ServiceLevelCapacity | CASCADE | Quotas are part of the service's own intake rules |
+| Level → ServiceLevelCapacity | RESTRICT | A promotion a service has a quota for cannot vanish under it |
+| Student → FinalYearEntryWaiver | CASCADE | The waiver is about that student and nobody else |
+| AcademicYear → FinalYearEntryWaiver | RESTRICT | The year it permitted entry to must stay nameable |
+| CnpnVersion → CnpnLevelEffectivity | CASCADE | The rule is part of the text that states it |
+| Level / AcademicYear → CnpnLevelEffectivity | RESTRICT | The (level, year) the rule names must stay nameable |
 
 ---
 

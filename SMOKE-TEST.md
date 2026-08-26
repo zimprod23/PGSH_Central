@@ -1404,8 +1404,10 @@ WHERE v."AcademicProgram" <> l."AcademicProgram" GROUP BY 1,2,3;
 
 ## 21 · La dernière année ne commence pas sur un stage non validé (10 min) — session 24
 
-> **Status: built and unit-tested (11 tests), never run against the real base.** Migration
-> `FinalYearEntryWaiver` creates one table and changes no data.
+> **Status: the rule itself was run against the real base 2026-08-26** — steps 1, 4 and 8, plus the
+> bulk route below (§24). The déliberation/réinscription legs (2, 3), the unstamped student (5), the
+> dérogation (6, 7) and the revalidation (9) are **still owed**. Migration `FinalYearEntryWaiver`
+> creates one table and changes no data.
 
 *Admin → Académique → « Clôture & réinscription »*, plus the student dossier.
 
@@ -1788,6 +1790,89 @@ session at all → 401. The year is the one setting that moves every screen at o
 so `KeycloakRoleTransformer` is exercised rather than bypassed. Worth doing by hand once a second
 account exists.
 
+
+---
+
+---
+
+## 24 · La porte de dernière année, demandée une fois pour tout un lot (6 min) — session 27
+
+> Run against the live base 2026-08-26. **Everything it writes is deleted at step 4** — the base ended
+> the pass exactly as it started it: 0 inscriptions en 2026-2027, 0 dérogations.
+
+The gate used to be asked per student *inside* `CreateManyRegistrationsCommandHandler`'s loop, and each
+ask reads that student's whole cursus. This checks that batching the question did not batch the answer.
+
+1. **Find the population.** 686 étudiants de 6ᵉ année Médecine de 2025-2026 sans inscription en
+   2026-2027; **60 doivent encore un stage**, 626 non, tous sur 2174.18 — donc la 7ᵉ est leur dernière.
+   The query is §21's, with `bool_and(coalesce(a."Result",'') = 'NonValidé')` — `bool_and` skips NULLs,
+   so without the `coalesce` a stage nobody marked counts as failed and the candidate list is wrong.
+2. **The batch that writes nothing.** `POST /registrations/bulk` with the 60 owing ids,
+   `academicYearId` 2026-2027, `levelId` 7ᵉ année → **200, 60 refusals, 0 created**, one call, 470 ms.
+   Each refusal names the stages: « La 7ᵉ année est la dernière de ce cursus… Faites-les revalider, ou
+   accordez une dérogation nominative. » ⚠ Check `SELECT count(*) … WHERE "AcademicYearId" = <target>`
+   is still 0 — a refusal reported *after* the write looks identical from the response.
+3. **The control, in the same call.** Two ids — one owing, one clear — into the 7ᵉ année: **1 refused,
+   1 created**. A batch that refuses everybody proves nothing.
+4. **The same debt, one year lower.** The refused student, alone, into the **6ᵉ** année: **created**.
+   Carrying an unvalidated stage forward is legal everywhere except into the last year — and it is the
+   narrowing in the wall clock too: 722 ms for the final-year call, **56 ms** for this one, because
+   nobody in it is in his final year so neither the cursus nor the waivers are read at all.
+5. **Clean up**: delete the two registrations by id (they carry no cohorte, no période, no groupe —
+   check before deleting), and confirm the count is back to 0.
+6. **The manual path, from the dossier.** *Étudiants → dossier → « Ajouter une inscription »* →
+   2026-2027 + 7ᵉ année → « Créer ». Refused with the same sentence, naming 8 stages here. Nothing
+   created. ⚠ Two toasts appear — the server's sentence and a page-level « Impossible de créer
+   l'inscription ». That is the pre-existing double-toast, and this page is one more offender.
+
+---
+
+## 25 · Le bloc de rotation d'une promotion : le voir, le modifier, le supprimer (8 min) — session 27
+
+*Admin → Formation → Bloc de rotation.* ⚠ **La barre de navigation choisit l'année** que cette page
+écrit — vérifiez-la avant tout : 2026-2027 est l'année en cours et ne contient encore ni groupes ni
+cohortes, alors que les axes existants sont sur 2025-2026.
+
+1. **Le voir.** Choisir *Sixième Année Médecine* sur 2025-2026 : le bloc en vigueur est restauré depuis
+   l'axe sur disque — « 6 stage(s) sur 10 colonne(s), appliqué le 13/08/2026 », les kₛ (2+2+2+2+1+1) et
+   les dix fenêtres pré-remplies. La source des kₛ est dite : *authored* (l'apply), *derived* (les
+   cellules) ou *unknown*.
+2. **Le simuler.** « Simuler » : `T = 10`, multiples de 10 acceptés, 2 partitions simultanées dans les
+   quatre stages longs. ⚠ Le tableau « Durée réelle par stage » doit donner **44/44/44/44/22/22 jours
+   ouvrables** contre les mêmes chiffres annoncés — un axe posé en jours ouvrables tombe juste, alors
+   que l'étendue calendaire varie de 60 à 67 jours.
+3. **Le modifier** : corriger une date ou un kₛ, re-simuler, « Appliquer l'axe ». Le toast dit
+   « N créneaux écrits, N remplacés » — et, s'il y avait des cellules réparties, combien sont à refaire.
+4. **Le supprimer** : « Supprimer le bloc », dans le bandeau de restauration. La confirmation nomme les
+   stages et les colonnes ; le toast, les créneaux et les cellules supprimés. ⚠ Vérifier ensuite que la
+   promotion n'a plus de créneaux **pour ces stages seulement** — un autre bloc du même niveau (deux
+   semestres) doit rester debout.
+5. ⚠ **Le refus.** Sur un bloc dont une cellule est publiée, le bouton est désactivé et dit pourquoi.
+   Côté serveur, `CannotDeletePublished` — et il faut le vérifier là aussi : un bouton grisé n'est pas
+   une garde.
+6. **Le plan macro, et ce qu'il faut vérifier ensuite** (mesuré sur la 6ᵉ année, 2026-08-26 —
+   1 000 cellules). Le toast ne suffit pas : relisez la base.
+   - chaque roster passe par les 6 stages, `kₛ` colonnes chacun (2·2·2·2·1·1), min = max ;
+   - chaque colonne de chaque stage porte exactement `Lₛ` partitions ;
+   - **0 roster en double** sur une colonne ;
+   - **tous** les services de chaque stage sont utilisés à chaque colonne, écart ≤ 1 roster — c'est la
+     correction de la session 25 ; un service qui rafle toute une partition est le défaut d'alors.
+   - ⚠ Le dépassement d'effectif reste : 88 des 510 couples (service × colonne), au pire 30 étudiants
+     pour 20. Ce n'est pas l'arrangeur — les 148 services portent le même 20 importé et aucun quota
+     n'est saisi.
+7. ⚠ **La garde lit la table de couverture, pas la clé étrangère.** Sous `SingleService` une période
+   couvre toute une série et `ServicePeriod.CohortSlotAssignmentId` ne nomme que la **première**
+   cellule. Le test `A_published_run_protects_every_cell_it_covers_not_only_the_first` en fait foi ;
+   sur base réelle, cela ne se voit pas encore (tous les stages de 6ᵉ sont `PerPeriod`, 0 période liée
+   à la grille).
+
+> ⚠ **Si une page reste vide ou un bouton tourne sans fin, regardez Visual Studio avant de suspecter
+> les données.** Réglé sur « arrêter quand l'exception est levée », le débogueur fige le processus *à
+> l'endroit du throw*, avant que `ExceptionHandlerMiddlewareImpl` ne le transforme en 500 : la requête
+> HTTP ne se termine jamais, aucun toast n'apparaît, et l'API ne répond plus à rien — pas même à un
+> `GET /api/levels` anonyme. Signature : **CPU à plat, connexions Postgres au repos, 0 réponse**.
+> C'est ainsi que le plan macro de la 6ᵉ année a « planté » deux fois le 2026-08-26 ; la deuxième fois
+> c'était une vraie exception de traduction SQL, trouvée dans la pile d'appels.
 
 ---
 

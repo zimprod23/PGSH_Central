@@ -34,32 +34,80 @@ public sealed class FinalYearGuard(IApplicationDbContext dbContext, OutstandingS
     public async Task<Result> EnsureMayEnterAsync(
         Guid studentId, int levelId, int academicYearId, CancellationToken ct)
     {
+        var refusals = await EnsureMayEnterManyAsync([studentId], levelId, academicYearId, ct);
+
+        return refusals.TryGetValue(studentId, out var error) ? Result.Failure(error) : Result.Success();
+    }
+
+    /// <summary>
+    /// The same question for a named set of students, in a fixed number of round-trips. Only the
+    /// students who are refused appear in the result; an absent student may enter.
+    /// </summary>
+    /// <remarks>
+    /// <para>The single-student overload delegates here rather than the other way round, so there is
+    /// one implementation of the decision. Asked per student it costs four queries each — the level's
+    /// year, his text, his whole cursus and his waiver — which is ~2 800 round-trips to enrol a
+    /// promotion of 700 through <c>CreateManyRegistrationsCommand</c>.</para>
+    ///
+    /// <para>The narrowing is what keeps the batch cheap and keeps the single call no dearer than it
+    /// was: the cursus is read only for the students this level is actually the last year of, and the
+    /// waivers only for those who turn out to owe something. A batch where nobody is in his final year
+    /// — the ordinary case — is two queries whatever its size.</para>
+    /// </remarks>
+    public async Task<IReadOnlyDictionary<Guid, Error>> EnsureMayEnterManyAsync(
+        IReadOnlyCollection<Guid> studentIds, int levelId, int academicYearId, CancellationToken ct)
+    {
+        var ids = studentIds.Distinct().ToList();
+        if (ids.Count == 0) return NoRefusals;
+
         int levelYear = await dbContext.Levels
             .AsNoTracking()
             .Where(l => l.Id == levelId)
             .Select(l => l.Year)
             .FirstOrDefaultAsync(ct);
 
-        if (levelYear <= 0) return Result.Success();
+        if (levelYear <= 0) return NoRefusals;
 
-        int? totalYears = await TotalYearsAsync(studentId, ct);
-        if (totalYears is not { } total || levelYear < total)
-            return Result.Success();
+        var totalYears = await TotalYearsAsync(ids, ct);
 
-        var owed = (await finder.ForStudentAsync(studentId, ct))
-            .Where(d => d.LevelYear < levelYear)
+        // ⚠ TryGetValue, not GetValueOrDefault: the dictionary holds `int`, so a student with no text
+        // on record would read as "his cursus runs 0 years" and every year would be his last — which
+        // blocked hardest exactly where the guard must stand aside.
+        var entrants = ids
+            .Where(id => totalYears.TryGetValue(id, out int total) && levelYear >= total)
             .ToList();
 
-        if (owed.Count == 0) return Result.Success();
+        if (entrants.Count == 0) return NoRefusals;
 
-        bool waived = await dbContext.FinalYearEntryWaivers
-            .AsNoTracking()
-            .AnyAsync(w => w.StudentId == studentId && w.AcademicYearId == academicYearId, ct);
+        var debts = await finder.ForStudentsAsync(entrants, ct);
 
-        return waived
-            ? Result.Success()
-            : Result.Failure(RegistrationErrors.FinalYearBlocked(
-                levelYear, owed.Count, OutstandingStageFinder.Summarize(owed)));
+        var owing = new List<(Guid StudentId, List<OutstandingStageFinder.Debt> Owed)>();
+
+        foreach (var id in entrants)
+        {
+            var owed = debts.GetValueOrDefault(id, [])
+                .Where(d => d.LevelYear < levelYear)
+                .ToList();
+
+            if (owed.Count > 0) owing.Add((id, owed));
+        }
+
+        if (owing.Count == 0) return NoRefusals;
+
+        var owingIds = owing.Select(x => x.StudentId).ToList();
+        var waived = (await dbContext.FinalYearEntryWaivers
+                .AsNoTracking()
+                .Where(w => w.AcademicYearId == academicYearId && owingIds.Contains(w.StudentId))
+                .Select(w => w.StudentId)
+                .ToListAsync(ct))
+            .ToHashSet();
+
+        return owing
+            .Where(x => !waived.Contains(x.StudentId))
+            .ToDictionary(
+                x => x.StudentId,
+                x => RegistrationErrors.FinalYearBlocked(
+                    levelYear, x.Owed.Count, OutstandingStageFinder.Summarize(x.Owed)));
     }
 
     /// <summary>
@@ -67,21 +115,49 @@ public sealed class FinalYearGuard(IApplicationDbContext dbContext, OutstandingS
     /// falling back to his stamp — the order used everywhere since the text became a property of the
     /// registration rather than of the student.
     /// </summary>
-    public async Task<int?> TotalYearsAsync(Guid studentId, CancellationToken ct)
+    public async Task<int?> TotalYearsAsync(Guid studentId, CancellationToken ct) =>
+        (await TotalYearsAsync([studentId], ct)).TryGetValue(studentId, out int total) ? total : null;
+
+    /// <summary>
+    /// The same, for a set of students. Absent means PGSH holds no text for him, which is not zero:
+    /// ~2 200 enrolled students carry no stamp at all.
+    /// </summary>
+    private async Task<Dictionary<Guid, int>> TotalYearsAsync(
+        IReadOnlyCollection<Guid> studentIds, CancellationToken ct)
     {
-        int? fromRegistration = await dbContext.Registrations
+        // The registration rows are folded here rather than in SQL: "the latest registration carrying
+        // a text, per student" is a grouped top-1, and each student holds at most a handful of them.
+        var fromRegistrations = await dbContext.Registrations
             .AsNoTracking()
-            .Where(r => r.StudentId == studentId && r.CnpnVersionId != null)
-            .OrderByDescending(r => r.AcademicYear.StartDate)
-            .Select(r => (int?)r.CnpnVersion!.TotalYears)
-            .FirstOrDefaultAsync(ct);
+            .Where(r => studentIds.Contains(r.StudentId) && r.CnpnVersionId != null)
+            .Select(r => new
+            {
+                r.StudentId,
+                r.AcademicYear.StartDate,
+                r.CnpnVersion!.TotalYears
+            })
+            .ToListAsync(ct);
 
-        if (fromRegistration is not null) return fromRegistration;
+        var byStudent = fromRegistrations
+            .GroupBy(r => r.StudentId)
+            .ToDictionary(
+                g => g.Key,
+                g => g.OrderByDescending(r => r.StartDate).First().TotalYears);
 
-        return await dbContext.Students
+        var fromStamps = await dbContext.Students
             .AsNoTracking()
-            .Where(s => s.Id == studentId && s.CnpnVersionId != null)
-            .Select(s => (int?)s.CnpnVersion!.TotalYears)
-            .FirstOrDefaultAsync(ct);
+            .Where(s => studentIds.Contains(s.Id) && s.CnpnVersionId != null)
+            .Select(s => new { s.Id, s.CnpnVersion!.TotalYears })
+            .ToListAsync(ct);
+
+        // The registration wins where both are present: it is the text that governs the year he is
+        // coming out of, and the stamp is only what he happens to be on now.
+        foreach (var stamp in fromStamps)
+            byStudent.TryAdd(stamp.Id, stamp.TotalYears);
+
+        return byStudent;
     }
+
+    private static readonly IReadOnlyDictionary<Guid, Error> NoRefusals =
+        new Dictionary<Guid, Error>();
 }

@@ -1013,6 +1013,87 @@ against a fresh one gets migrations plus three login accounts and nothing else.
 `GetStageScheduleQuery` also now substitutes the current year silently when none is given, with no way
 to ask for all years and no field in the response saying which year was applied.
 
+## A query that never ran on Postgres, and a debugger that hid it (2026-08-26, session 27)
+
+The 6ᵉ année macro plan hung three times before anyone knew why, and neither half of the answer was
+where we looked first.
+
+### The query
+
+`CohortProvisioner` asked, *inside* a projection:
+
+```csharp
+.Select(g => new {
+    …,
+    CnpnVersionIds = g.Registrations
+        .Where(r => r.CnpnVersionId != null || r.Student.CnpnVersionId != null)
+        .Select(r => r.CnpnVersionId ?? r.Student.CnpnVersionId!.Value)
+        .Distinct().ToList(),
+})
+```
+
+Npgsql refuses it: *"Unable to translate a collection subquery in a projection since either parent or
+the subquery doesn't project necessary information required to uniquely identify it…"*. The element of
+the subquery is a **computed value carrying no key** — `??` across a navigation — and `Distinct()`
+then leaves nothing to correlate the rows back to their roster with.
+
+- It was written in **session 24**, when the CNPN moved onto the registration. Before that the line
+  read `r.Student.CnpnVersionId`: a plain property access, which translates.
+- **1 004 tests were green the whole time.** `UseInMemoryDatabase` executes LINQ against objects and
+  never translates anything — the blind spot CLAUDE.md has warned about since session 22, biting for
+  the first time in a way that cost a working feature.
+- The fix is a **flat, top-level query** keyed on the roster id, folded in memory
+  (`CohortProvisioner.GroupTextsQuery`) — and cheaper than the subquery it replaces, since it is one
+  round trip instead of a correlated per-roster one.
+- A sweep of the Application layer found seven candidates of the same shape; six were in-memory LINQ
+  over already-materialised lists. This was the only EF-side one.
+
+### Half the blind spot closes with no database at all
+
+Translation happens when a query is **compiled**, before any connection is opened. So a context on the
+Npgsql provider pointing at nothing answers "does this become SQL?":
+
+```csharp
+public static ApplicationDbContext NewNpgsqlContext() =>
+    new(new DbContextOptionsBuilder<ApplicationDbContext>()
+        .UseNpgsql("Host=127.0.0.1;Port=1;Database=translation-only;Username=none;Password=none")
+        .Options);
+```
+
+`SqlTranslationTests` then calls `ToQueryString()`: SQL comes back, or the provider says why not. Two
+cases live there — the fixed query compiles, and **the shape that broke it still does not**, kept
+executable because a comment does not fail a build. It is not Testcontainers (nothing here proves the
+SQL returns the right *rows*, or that a FK or unique index behaves) but it is the half that costs a
+500.
+
+### Why nothing surfaced — the diagnosis worth keeping
+
+Visual Studio was set to break on **thrown** CLR exceptions, so it paused the process *at the throw*,
+before `ExceptionHandlerMiddlewareImpl` — right there in the stack — could turn it into a 500. The
+consequences are not obvious from the browser:
+
+- the HTTP request never completes, so the button spins forever and **no toast ever appears**;
+- the whole API stops answering — an anonymous `GET /api/levels` hangs too, because the *process* is
+  frozen, not the endpoint;
+- restarting the stack "fixes" it, which makes it read like a data or cache problem.
+
+**The signature, and it is unambiguous:** CPU flat across a several-second sample, Postgres
+connections all idle, zero HTTP responses. Measured on the hang: 21.6 s of CPU before and after a
+5-second sample, five idle connections, 6½ minutes with no response. Compare a genuine deadlock (also
+flat, but the DB usually shows an open transaction or a lock wait) and a slow query (DB active).
+
+⚠ **This is almost certainly what "the frontend showed nothing until I reloaded the stack" was**, days
+earlier — same freeze, whatever query was running then. Without a debugger attached the same bug is a
+fast, visible 500 with an error toast. The debugger did not cause it; it converted a loud failure into
+a silent one.
+
+⚠ **And the UI cannot tell the two apart**: `fetchBaseQuery` sets no `timeout`, so a request that never
+answers never rejects, `errorMiddleware` has nothing to toast, and every screen sits on a skeleton.
+That is a queue item, and deliberately not a blanket value — `stages/macro-plan` legitimately runs for
+minutes, and aborting a mutation client-side does not stop the server writing.
+
+---
+
 ## Open Questions / Things to Verify
 
 - **`GenerateScheduleCommandHandler`**: Does it correctly handle the case where students are transferred between cohorts mid-year? The `CohortMembership` model supports it but the handler logic needs review.

@@ -75,6 +75,19 @@ public static class RotationCycleErrors
         $"Seules {laid} colonne(s) sur {requested} ont pu être placées : le calendrier ne contient pas "
         + "assez de jours ouvrables. Vérifiez les jours fériés et les vacances enregistrés.");
 
+    public static Error CannotDeletePublished(int publishedCells) => Error.Conflict(
+        "RotationCycle.CannotDeletePublished",
+        $"{publishedCells} créneau(x) de ce bloc sont déjà publiés — des étudiants y ont été envoyés. "
+        + "Dépubliez leur planning avant de supprimer l'axe.");
+
+    /// <summary>
+    /// Distinguished from a successful removal of nothing: « supprimé » on a promotion that never had a
+    /// block reads as though something was undone, and the next question is always « quoi ? ».
+    /// </summary>
+    public static readonly Error NoBlockToDelete = Error.NotFound(
+        "RotationCycle.NoBlockToDelete",
+        "Ces stages ne portent aucun créneau pour cette année — il n'y a pas de bloc à supprimer.");
+
     public static Error CannotReplacePublished(int publishedCells) => Error.Conflict(
         "RotationCycle.CannotReplacePublished",
         $"{publishedCells} créneau(x) de ce bloc sont déjà publiés — des étudiants y ont été envoyés. "
