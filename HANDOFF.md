@@ -14,7 +14,7 @@
 > | 6 | **Close 2025-2026 for real** — Clôture & réinscription, exceptions canvas, confirm, apply. | 6 057 verdicts with no undo but a restore. It is the user's click, not ours. **Take a `pg_dump -Fc` first.** |
 > | 7 | **Walk the defence roll** — name a handful of 7ᵉ année students « Diplômé » and check they graduate while the rest stay put. | The 14.3e rule is verified by tests and by the preview's numbers; nobody has used the flow it now depends on. |
 > | 8 | **Phase 16 — the Access re-import** (`LEGACY-` CNEs, and 16.2's open question). | Specified and measured in session 24, not started. |
-> | 9 | **Testcontainers.** | Carried since session 22, and no longer theoretical: an untranslatable query took down the Med6 macro plan on 2026-08-26 with 1 004 tests green. `SqlTranslationTests` now catches the *translation* half without a database; what still needs a real PostgreSQL is whether the SQL returns the right rows, plus FK/unique-index behaviour. Sweep the macro-plan path (`StudentAffectationService`, `RotationArranger`, `SchedulePublisher`) — only `CohortProvisioner` has been proven to compile. |
+> | 9 | **Testcontainers.** | Carried since session 22. ✅ The macro-plan path is now swept for *translation* (session 28, twelve cases, all compile, no second defect), so what is left is strictly what no amount of compiling can answer: whether the SQL returns the right **rows**, plus FK behaviour, unique indexes (`NULLS NOT DISTINCT` on the roster keys) and `OnDelete` — which is what every delete guard in the system is written against. |
 > | 10 | **Sweep other screens for stale data** — `loadingMiddleware`'s re-entrant dispatch (fixed, `SMOKE-TEST.md` §20f) silently staled whichever query settled *last* on any page, for the whole life of the middleware. | The bug is fixed; nobody has checked what else it was quietly breaking. |
 > | 11 | **Decide on the 56 programme-mismatched stamps** — Médecine registrations governed by `PHARM-LEGACY`. `SMOKE-TEST.md` §20g has the query. | Pre-existing, from the original CNPN backfill. One of the 57 was corrected incidentally by the 2ème année rule. |
 > | 12 | **Finish the final-year gate's walk-through** — `SMOKE-TEST.md` §21 steps 2, 3, 5, 6, 7, 9. | The rule itself was run against the real base 2026-08-26 (§24): 60 of the 686 6ᵉ année Médecine owe a stage and all 60 are refused entry to the 7ᵉ. What nobody has exercised on real data is the déliberation/réinscription legs, the unstamped student, the dérogation and the revalidation. |
@@ -22,6 +22,34 @@
 > | 14 | **Year-segregation audit, académic-year update/delete, Inscriptions screen.** | Session 24 was scoped to the CNPN alone, by agreement. |
 > | 15 | **Give RTK Query a request timeout.** | A hung API is today indistinguishable from an empty year: `fetchBaseQuery` sets no `timeout`, so a request that never answers leaves every screen on a skeleton with no error — `errorMiddleware` never fires, because nothing rejects. Seen 2026-08-26, when the API sat paused on a breakpoint and the frontend showed nothing at all. ⚠ Not a blanket value: `stages/macro-plan` legitimately runs for minutes, and aborting a mutation client-side does not stop the server writing. A generous global default with explicit per-endpoint overrides for the heavy writes. |
 > | 16 | **Fold `ReinscriptionPlanner`'s own copy of the final-year decision into `FinalYearGuard`.** | The planner builds its `FinalYearGate` from three lookups of its own rather than from the guard, so one rule now has two implementations. Deliberate for now: the planner is scoped by the *predicate* that selects the promotion — 8 077 registrations — and the guard's batch takes a list of ids, which is exactly what must not be shipped down for a promotion. Folding them means teaching the guard to take a predicate. |
+>
+> **▶ SESSION 28 — the macro-plan path compiles, and one of its ends had never run.**
+>
+> Suite **1 017 green** (1 006 + 11 translation cases). No production behaviour changed: twelve queries
+> were lifted out of the private methods that built them into named
+> `internal static IQueryable<T> …Query(IApplicationDbContext, …)` methods beside their callers — the
+> shape `CohortProvisioner.GroupTextsQuery` established when it was fixed — because a query built
+> inside a private `async` method cannot be compiled without being executed.
+>
+> **Swept:** `CohortProvisioner` → `StudentAffectationService` → `RotationArranger` (with
+> `GroupScheduleConflictGuard` and `ServiceOccupancyCalculator`) → `SchedulePublisher`.
+> **Every one compiles. The sweep found no second defect** — which is only knowable by running it,
+> and the alternative was finding out on the first publication.
+>
+> ⚠ **`SchedulePublisher` had never executed against PostgreSQL at all.** Not "untested" — never run:
+> the Med6 rehearsal was `publish: false` and the base holds 0 grid-linked périodes, so the first real
+> publication would have been the first execution of every one of its queries — the per-cohort
+> publish included, which shares nothing with the stage-wide one but the class. The heaviest carries
+> four navigation hops, a null-coalesce over `"niveau " + LevelId` and an enum stored as a string; it
+> becomes `COALESCE(l."Label", 'niveau ' || s."LevelId"::text)`.
+>
+> ⚠ **A projection is not a predicate** — found while proving the new cases bite. A client-side method
+> call in the final `Select` does *not* fail these tests: EF evaluates the top-level projection on the
+> client by design. The same call in a `Where` throws, and both cases on that query went red. So this
+> file catches a query the provider **refuses**; one that quietly client-evaluates is a performance
+> question and still needs a database. `NOTES.md` (2026-08-26, session 28) has it.
+>
+> Docs updated: `CLAUDE.md`, `PHASES.md` §11.4, `NOTES.md`.
 >
 > **▶ SESSION 27e — the frontend backlog is committed, and one click is owed.**
 >

@@ -1094,6 +1094,61 @@ minutes, and aborting a mutation client-side does not stop the server writing.
 
 ---
 
+## Sweeping the macro-plan path for SQL, and what compiling does not prove (2026-08-26, session 28)
+
+Follow-up to the note above. One query on that path had been proven to compile; the other eight had
+not, and the class of defect had already cost a production outage with the suite green. The sweep is
+`CohortProvisioner` → `StudentAffectationService` → `RotationArranger` (with
+`GroupScheduleConflictGuard` and `ServiceOccupancyCalculator`) → `SchedulePublisher`.
+
+**Result: every query compiles. No second defect.** That is worth stating plainly rather than
+quietly — the sweep was worth running because a negative result here is only knowable by running it,
+and the alternative was finding out on the first publication.
+
+### ⚠ `SchedulePublisher` had never executed against PostgreSQL at all
+
+Not "was not covered by a translation test" — had never run. The Med6 rehearsal of the day before was
+`publish: false`, and the base holds 0 grid-linked périodes, so **the first real publication would
+have been the first execution of every one of its queries** — the per-cohort publish included,
+which shares nothing with the stage-wide one but the class. Its `SlotAssignmentsQuery` is the
+heaviest projection on the path: four navigation hops, a null-coalesce over `"niveau " + LevelId`
+(a string concatenated with an `int`), and an enum stored through `HasConversion<string>`. It
+compiles — `COALESCE(l."Label", 'niveau ' || s."LevelId"::text)` — and so does the same shape in
+`GroupScheduleConflictGuard`, which is where it was copied from.
+
+### A query has to be *named* to be testable
+
+Translation is checked by compiling an `IQueryable`, and a query built inside a private `async`
+method cannot be reached without executing it. So each swept query is now an
+`internal static IQueryable<T> …Query(IApplicationDbContext, …)` sitting beside its caller, which
+executes it — the shape `CohortProvisioner.GroupTextsQuery` established when it was fixed. The cost
+is one indirection per query; the benefit is that the shape is compiled on every `dotnet test`.
+
+Two of them are compiled **twice**, in both their forms: `StageCohortsQuery` with and without
+partition labels (a `Contains` over `string` is not the `int` translation used everywhere else), and
+`SlotAssignmentsQuery` with and without a period window — the windowed form being the one a real
+publication of a concurrency block actually takes.
+
+### ⚠ A projection is not a predicate — measured while proving the tests bite
+
+Breaking a query on purpose to watch its test fail is where this turned up. A **client-side method
+call in the final `Select` does not fail the test**: EF Core evaluates the top-level projection on the
+client by design, so `ToQueryString()` returns SQL for it quite happily. The same call in a `Where`
+throws *"could not be translated"*, and both of that query's cases went red.
+
+So the boundary this file guards is: **the provider refusing a query**, not every query that reaches
+the database in a shape somebody would want. A projection that silently client-evaluates costs
+round-trips, not a 500, and finding those still needs a real database.
+
+### What Testcontainers is still owed for
+
+Narrower than it was, and the narrowing is the point. Not translation on this path any more —
+**rows** (does the SQL return what the handler assumes?), FK behaviour, unique indexes and
+`OnDelete`. The `NULLS NOT DISTINCT` roster indexes and the `CASCADE`/`RESTRICT` asymmetries the
+delete guards are written against are all invisible to both InMemory and `ToQueryString()`.
+
+---
+
 ## A modal that "does not open" in a background tab (2026-08-26)
 
 Verifying « Supprimer le bloc » from browser automation, the confirmation dialog never appeared. The

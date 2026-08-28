@@ -347,11 +347,21 @@ Employee shell + routing exists. `EmployeeDashboardPage`, `EmployeeProfilePage`,
 
 ## 🔲 Phase 11.4 — Test infrastructure (integration + functional)
 
-**Status: unit suite done (260 tests, `PGSH.Tests`); integration + functional NOT started**
+**Status: unit suite done (1 017 tests, `PGSH.Tests`); functional done (`Integration/ApiFactory`);
+Testcontainers NOT started — but the *translation* half of its case is now closed on the macro-plan path.**
 
-The current suite is 100% unit-level over `UseInMemoryDatabase`, which ignores FK constraints, unique indexes,
-`OnDelete` behaviour and SQL translatability — so a whole class of defect is invisible, and authorization cannot
-be covered at all. Two additions, in order:
+The suite runs over `UseInMemoryDatabase`, which ignores FK constraints, unique indexes,
+`OnDelete` behaviour and SQL translatability — so a whole class of defect is invisible.
+
+⚠ **Translation no longer needs a database, and the macro-plan path is swept** (2026-08-26).
+`SqlTranslationTests` compiles each named query against the Npgsql provider through
+`ToQueryString()`; twelve cases cover `CohortProvisioner`, `StudentAffectationService`,
+`RotationArranger`, `GroupScheduleConflictGuard`, `ServiceOccupancyCalculator` and
+`SchedulePublisher`, plus the shape that broke the plan, asserted still-refused. All of them compile:
+the sweep found no second defect. It narrows what Testcontainers is still owed for — **rows, FKs,
+unique indexes and `OnDelete`** — rather than replacing it.
+
+Two additions, in order:
 
 1. **Integration — Testcontainers over real Postgres.** Spin up `postgres:17.2`, run the real migrations, move
    the handler tests off InMemory. Catches FK/constraint/translation defects. Would have caught the chef

@@ -114,6 +114,23 @@ Scalar UI at `/scalar/v1`, Swagger UI at `/swagger`. Both are configured with Ke
     "does this become SQL?" via `ToQueryString()`. It proves nothing about the *rows*; it does stop a
     500. Add a case whenever a query takes a shape a provider might refuse (collection subquery in a
     projection, `Distinct`/`GroupBy` over a computed element, a client-side call in a predicate).
+    - **The whole macro-plan path is swept** (2026-08-26): `CohortProvisioner` →
+      `StudentAffectationService` → `RotationArranger` (+ `GroupScheduleConflictGuard`,
+      `ServiceOccupancyCalculator`) → `SchedulePublisher`. All twelve compile; the sweep found no
+      second defect. ⚠ **`SchedulePublisher` had never executed against PostgreSQL at all** — the
+      Med6 rehearsal ran `publish: false` and the base holds 0 grid-linked périodes, so the first real
+      publication would have been its first run. Every query on that class is named, the per-cohort
+      publish included: it shares nothing with the stage-wide one but the class, so sweeping only the
+      path the macro plan takes would have left the human's own button uncovered.
+    - **A query is testable here only if it is *named*.** Each one is an
+      `internal static IQueryable<T> …Query(IApplicationDbContext, …)` beside its caller, which the
+      handler then executes — the shape `CohortProvisioner.GroupTextsQuery` established. A query
+      buried in a private async method cannot be compiled without running it.
+    - ⚠ **A projection is not a predicate.** A client-side call in the final `Select` does **not**
+      fail here — EF evaluates the top-level projection on the client by design and `ToQueryString()`
+      returns SQL for it. The same call in a `Where` throws. This file catches what the provider
+      *refuses*; a projection that quietly client-evaluates is a performance question and belongs to
+      the half that needs a real database.
 
 ### `PGSH.Tests/Integration/` — the half of an endpoint that is not the handler
 `ApiFactory` (`WebApplicationFactory<Program>`) hosts the **real** `Program.cs` in-process, so a test

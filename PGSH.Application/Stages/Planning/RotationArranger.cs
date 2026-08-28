@@ -123,17 +123,7 @@ internal sealed class RotationArranger(
         // All cohorts of the stage participate in the queue/rotation so the cycle stays
         // consistent across runs. Cohorts whose cells in the window are already published
         // are not dropped here — only their published cells are protected below.
-        var cohorts = await dbContext.Cohorts
-            .AsNoTracking()
-            .Where(c => c.StageId == stageId && c.AcademicGroup.AcademicYearId == academicYearId)
-            .OrderBy(c => c.AcademicGroup.GroupNumber)
-            .Select(c => new CohortInfo(
-                c.Id,
-                c.AcademicGroupId,
-                c.AcademicGroup.GroupNumber,
-                c.AcademicGroup.RotationGroup,
-                c.Assignments.Count))
-            .ToListAsync(cancellationToken);
+        var cohorts = await CohortsQuery(dbContext, stageId, academicYearId).ToListAsync(cancellationToken);
 
         if (cohorts.Count == 0)
             return Result.Success(new RotationArrangeResult(0, 0, 0, totalCapacity));
@@ -530,6 +520,31 @@ internal sealed class RotationArranger(
             : services.Select(_ => (double)n / services.Count).ToList();
     }
 
+    /// <summary>
+    /// The stage's cohorts for one year, each carrying how many students stand in it — which is what
+    /// the service queue is weighted by.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ <c>c.Assignments.Count</c> is an aggregate over a navigation collection inside the
+    /// projection. It translates to a correlated <c>COUNT</c>, but the query that took down the macro
+    /// plan on 2026-08-26 was a navigation collection in a projection too — the line between the two
+    /// is the provider's, not one that can be reasoned about from the C#. Named so
+    /// <c>SqlTranslationTests</c> can compile it.
+    /// </remarks>
+    internal static IQueryable<CohortInfo> CohortsQuery(
+        IApplicationDbContext dbContext, int stageId, int academicYearId) =>
+        dbContext.Cohorts
+            .AsNoTracking()
+            .Where(c => c.StageId == stageId && c.AcademicGroup.AcademicYearId == academicYearId)
+            .OrderBy(c => c.AcademicGroup.GroupNumber)
+            .Select(c => new CohortInfo(
+                c.Id,
+                c.AcademicGroupId,
+                c.AcademicGroup.GroupNumber,
+                c.AcademicGroup.RotationGroup,
+                c.Assignments.Count));
+
     private sealed record ServiceInfo(int Id, int Capacity);
-    private sealed record CohortInfo(int Id, int AcademicGroupId, int GroupNumber, string? RotationGroup, int StudentCount);
+
+    internal sealed record CohortInfo(int Id, int AcademicGroupId, int GroupNumber, string? RotationGroup, int StudentCount);
 }

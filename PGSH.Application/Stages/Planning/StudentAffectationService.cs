@@ -16,7 +16,7 @@ namespace PGSH.Application.Stages.Planning;
 /// </summary>
 internal sealed class StudentAffectationService(IApplicationDbContext dbContext)
 {
-    private sealed record CohortTarget(int CohortId, int AcademicGroupId, int LevelId);
+    internal sealed record CohortTarget(int CohortId, int AcademicGroupId, int LevelId);
 
     public async Task<Result<BulkResponse<Guid, Guid>>> AssignToCohortAsync(int cohortId, CancellationToken ct)
     {
@@ -41,16 +41,7 @@ internal sealed class StudentAffectationService(IApplicationDbContext dbContext)
     public async Task<BulkResponse<Guid, Guid>> AssignByStageAsync(
         int stageId, int academicYearId, IReadOnlyCollection<string>? partitionLabels, CancellationToken ct)
     {
-        var query = dbContext.Cohorts
-            .AsNoTracking()
-            .Where(c => c.StageId == stageId && c.AcademicGroup.AcademicYearId == academicYearId);
-
-        if (partitionLabels is { Count: > 0 })
-            query = query.Where(c => c.AcademicGroup.RotationGroup != null
-                                  && partitionLabels.Contains(c.AcademicGroup.RotationGroup));
-
-        var cohorts = await query
-            .Select(c => new CohortTarget(c.Id, c.AcademicGroupId, c.Stage.LevelId))
+        var cohorts = await StageCohortsQuery(dbContext, stageId, academicYearId, partitionLabels)
             .ToListAsync(ct);
 
         return await AssignAsync(cohorts, ct);
@@ -112,6 +103,33 @@ internal sealed class StudentAffectationService(IApplicationDbContext dbContext)
         }
 
         return created;
+    }
+
+    /// <summary>
+    /// The stage's cohorts for one year, optionally narrowed to some partitions — each with the level
+    /// whose registrations are the ones to affect.
+    /// </summary>
+    /// <remarks>
+    /// Named so <c>SqlTranslationTests</c> can compile it. The shape is plain (navigation properties
+    /// into a constructor projection), and it has run on the real base; the case exists because this
+    /// is on the macro-plan path, and what makes a query untranslatable is a fact about the provider
+    /// rather than about how complicated the C# looks.
+    /// </remarks>
+    internal static IQueryable<CohortTarget> StageCohortsQuery(
+        IApplicationDbContext dbContext,
+        int stageId,
+        int academicYearId,
+        IReadOnlyCollection<string>? partitionLabels)
+    {
+        var query = dbContext.Cohorts
+            .AsNoTracking()
+            .Where(c => c.StageId == stageId && c.AcademicGroup.AcademicYearId == academicYearId);
+
+        if (partitionLabels is { Count: > 0 })
+            query = query.Where(c => c.AcademicGroup.RotationGroup != null
+                                  && partitionLabels.Contains(c.AcademicGroup.RotationGroup));
+
+        return query.Select(c => new CohortTarget(c.Id, c.AcademicGroupId, c.Stage.LevelId));
     }
 
     private async Task<BulkResponse<Guid, Guid>> AssignAsync(IReadOnlyList<CohortTarget> cohorts, CancellationToken ct)

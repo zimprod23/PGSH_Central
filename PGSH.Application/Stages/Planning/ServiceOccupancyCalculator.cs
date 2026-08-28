@@ -63,7 +63,23 @@ internal sealed class ServiceOccupancyCalculator(IApplicationDbContext dbContext
         if (serviceIds.Count == 0)
             return new ServiceOccupancyLookup([]);
 
-        var entries = await dbContext.CohortSlotAssignments
+        var entries = await EntriesQuery(dbContext, serviceIds).ToListAsync(ct);
+
+        return new ServiceOccupancyLookup(entries);
+    }
+
+    /// <summary>
+    /// Every planned cell targeting these services, whatever stage or year it belongs to — the load
+    /// half of every capacity decision.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ Named so <c>SqlTranslationTests</c> can compile it: the projection aggregates a navigation
+    /// collection (<c>a.Cohort.Assignments.Count</c>) across three hops, and a projection over a
+    /// navigation collection is the shape that took the macro plan down on 2026-08-26.
+    /// </remarks>
+    internal static IQueryable<OccupancyEntry> EntriesQuery(
+        IApplicationDbContext dbContext, IReadOnlyCollection<int> serviceIds) =>
+        dbContext.CohortSlotAssignments
             .AsNoTracking()
             .Where(a => serviceIds.Contains(a.ServiceId))
             .Select(a => new OccupancyEntry(
@@ -73,9 +89,5 @@ internal sealed class ServiceOccupancyCalculator(IApplicationDbContext dbContext
                 a.StageSlotId,
                 a.StageSlot.StartDate,
                 a.StageSlot.EndDate,
-                a.Cohort.Assignments.Count))
-            .ToListAsync(ct);
-
-        return new ServiceOccupancyLookup(entries);
-    }
+                a.Cohort.Assignments.Count));
 }

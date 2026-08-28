@@ -50,7 +50,25 @@ internal sealed class GroupScheduleConflictGuard(IApplicationDbContext dbContext
         if (academicGroupIds.Count == 0)
             return new GroupOccupancy([]);
 
-        var placements = await dbContext.CohortSlotAssignments
+        var placements = await PlacementsQuery(dbContext, academicGroupIds, ignoredSlotIds).ToListAsync(ct);
+
+        return new GroupOccupancy(placements);
+    }
+
+    /// <summary>
+    /// Where these rosters already stand, outside the slots being rewritten — read across every
+    /// stage, because the clash that matters is one roster in two services on the same morning.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ Named so <c>SqlTranslationTests</c> can compile it. Four navigation hops and a
+    /// null-coalesce over a string concatenated with an <c>int</c> (<c>"niveau " + LevelId</c>) —
+    /// which the provider must either translate or refuse, and only compiling it says which.
+    /// </remarks>
+    internal static IQueryable<GroupPlacement> PlacementsQuery(
+        IApplicationDbContext dbContext,
+        IReadOnlyCollection<int> academicGroupIds,
+        IReadOnlyCollection<int> ignoredSlotIds) =>
+        dbContext.CohortSlotAssignments
             .AsNoTracking()
             .Where(a => academicGroupIds.Contains(a.Cohort.AcademicGroupId))
             .Where(a => !ignoredSlotIds.Contains(a.StageSlotId))
@@ -62,11 +80,7 @@ internal sealed class GroupScheduleConflictGuard(IApplicationDbContext dbContext
                 a.StageSlot.Stage.Level.Label ?? ("niveau " + a.StageSlot.Stage.LevelId),
                 a.StageSlot.PeriodNumber,
                 a.StageSlot.StartDate,
-                a.StageSlot.EndDate))
-            .ToListAsync(ct);
-
-        return new GroupOccupancy(placements);
-    }
+                a.StageSlot.EndDate));
 
     /// <summary>
     /// Refuses moving a slot's dates when a group already placed in it would then sit in two

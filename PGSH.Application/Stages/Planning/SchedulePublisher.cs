@@ -33,7 +33,7 @@ internal sealed class SchedulePublisher(
         if (!cohortExists)
             return Result.Failure(StageErrors.CohortNotFound(cohortId));
 
-        if (await IsPublishedAsync(cohortId, ct))
+        if (await PublishedAssignmentsQuery(dbContext, cohortId).AnyAsync(ct))
             return Result.Failure(StageErrors.ScheduleAlreadyPublished);
 
         var slotAssignments = await LoadSlotAssignmentsAsync([cohortId], null, ct);
@@ -44,10 +44,7 @@ internal sealed class SchedulePublisher(
         // historical rotation, a délocalisation, a revalidation. Publishing over it would add a
         // second set of periods for the same stage, which the score then averages and the lifecycle
         // then waits on. Publication materialises a plan; it never re-materialises a past.
-        var assignmentIds = await dbContext.InternshipAssignments
-            .Where(a => a.CurrentCohortId == cohortId && !a.ServicePeriods.Any())
-            .Select(a => a.Id)
-            .ToListAsync(ct);
+        var assignmentIds = await UnservedAssignmentIdsQuery(dbContext, cohortId).ToListAsync(ct);
 
         if (assignmentIds.Count == 0)
             return Result.Failure(StageErrors.NoPlannedAssignments);
@@ -70,39 +67,24 @@ internal sealed class SchedulePublisher(
         bool allowOverCapacity,
         CancellationToken ct)
     {
-        var cohortQuery = dbContext.Cohorts
-            .AsNoTracking()
-            .Where(c => c.StageId == stageId && c.AcademicGroup.AcademicYearId == academicYearId);
-
-        if (partitionLabels is { Count: > 0 })
-            cohortQuery = cohortQuery.Where(c => c.AcademicGroup.RotationGroup != null
-                                              && partitionLabels.Contains(c.AcademicGroup.RotationGroup));
-
-        var cohortIds = await cohortQuery.Select(c => c.Id).ToListAsync(ct);
+        var cohortIds = await CohortIdsQuery(dbContext, stageId, academicYearId, partitionLabels)
+            .ToListAsync(ct);
         if (cohortIds.Count == 0)
             return Result.Success(new PublishResult(0, 0, 0));
 
-        var publishedCohortIds = (await dbContext.InternshipAssignments
-            .Where(a => cohortIds.Contains(a.CurrentCohortId)
-                     && a.ServicePeriods.Any(p => p.CohortSlotAssignmentId != null))
-            .Select(a => a.CurrentCohortId)
-            .Distinct()
-            .ToListAsync(ct))
-            .ToHashSet();
+        var publishedCohortIds =
+            (await PublishedCohortIdsQuery(dbContext, cohortIds).ToListAsync(ct)).ToHashSet();
 
         // Already-served assignments are excluded, not skipped as whole cohorts: a cohort routinely
         // mixes students who have the stage behind them (repeaters, délocalisés) with students who
         // do not, and the latter still need their schedule. See PublishCohortAsync for why.
-        var candidates = await dbContext.InternshipAssignments
-            .Where(a => cohortIds.Contains(a.CurrentCohortId))
-            .Select(a => new { a.Id, a.CurrentCohortId, AlreadyServed = a.ServicePeriods.Any() })
-            .ToListAsync(ct);
+        var candidates = await CandidateAssignmentsQuery(dbContext, cohortIds).ToListAsync(ct);
 
         int skippedAlreadyServed = candidates.Count(a => a.AlreadyServed);
 
         var assignmentsByCohort = candidates
             .Where(a => !a.AlreadyServed)
-            .GroupBy(a => a.CurrentCohortId)
+            .GroupBy(a => a.CohortId)
             .ToDictionary(g => g.Key, g => g.Select(a => a.Id).ToList());
 
         var slotAssignmentsByCohort = (await LoadSlotAssignmentsAsync(cohortIds, periodNumbers, ct))
@@ -141,13 +123,102 @@ internal sealed class SchedulePublisher(
         return Result.Success(new PublishResult(published, newPeriods.Count, skipped, skippedAlreadyServed));
     }
 
-    private Task<bool> IsPublishedAsync(int cohortId, CancellationToken ct) =>
-        dbContext.InternshipAssignments
-            .Where(a => a.CurrentCohortId == cohortId)
-            .AnyAsync(a => a.ServicePeriods.Any(p => p.CohortSlotAssignmentId != null), ct);
+    private Task<List<SlotAssignmentInfo>> LoadSlotAssignmentsAsync(
+        IReadOnlyCollection<int> cohortIds, IReadOnlyCollection<int>? periodNumbers, CancellationToken ct) =>
+        SlotAssignmentsQuery(dbContext, cohortIds, periodNumbers).ToListAsync(ct);
 
-    private async Task<List<SlotAssignmentInfo>> LoadSlotAssignmentsAsync(
-        IReadOnlyCollection<int> cohortIds, IReadOnlyCollection<int>? periodNumbers, CancellationToken ct)
+    /// <summary>The cohorts a stage-wide publish is being asked to cover.</summary>
+    /// <remarks>
+    /// ⚠ Every query on this class is named so <c>SqlTranslationTests</c> can compile it against the
+    /// Npgsql provider. <b>Nothing here has ever run against PostgreSQL</b>: the Med6 rehearsal of
+    /// 2026-08-26 was <c>publish: false</c>, and the base holds 0 grid-linked périodes, so the first
+    /// real publication would be the first execution. A translation failure surfaces there — the act
+    /// with the least appetite in the system for a 500.
+    /// </remarks>
+    internal static IQueryable<int> CohortIdsQuery(
+        IApplicationDbContext dbContext,
+        int stageId,
+        int academicYearId,
+        IReadOnlyCollection<string>? partitionLabels)
+    {
+        var query = dbContext.Cohorts
+            .AsNoTracking()
+            .Where(c => c.StageId == stageId && c.AcademicGroup.AcademicYearId == academicYearId);
+
+        if (partitionLabels is { Count: > 0 })
+            query = query.Where(c => c.AcademicGroup.RotationGroup != null
+                                  && partitionLabels.Contains(c.AcademicGroup.RotationGroup));
+
+        return query.Select(c => c.Id);
+    }
+
+    /// <summary>
+    /// The assignments of one cohort that already hold a period which came from the grid — i.e. the
+    /// evidence that this cohort's schedule has been published.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ The caller wraps this in <c>AnyAsync</c>, so the SQL it runs is an <c>EXISTS</c> rather than
+    /// the <c>SELECT</c> the test compiles. That is not a hole: what fails to translate is the
+    /// <em>predicate</em> — measured 2026-08-26, a client-side call in a projection is evaluated on
+    /// the client and compiles fine, while the same call in a <c>Where</c> throws — and the predicate
+    /// is identical either way.
+    /// </remarks>
+    internal static IQueryable<InternshipAssignment> PublishedAssignmentsQuery(
+        IApplicationDbContext dbContext, int cohortId) =>
+        dbContext.InternshipAssignments
+            .Where(a => a.CurrentCohortId == cohortId
+                     && a.ServicePeriods.Any(p => p.CohortSlotAssignmentId != null));
+
+    /// <summary>
+    /// The assignments of one cohort that nobody has served yet — the only ones a publish may
+    /// materialise. See <see cref="PublishCohortAsync"/> for why an already-served one is left alone.
+    /// </summary>
+    internal static IQueryable<Guid> UnservedAssignmentIdsQuery(
+        IApplicationDbContext dbContext, int cohortId) =>
+        dbContext.InternshipAssignments
+            .Where(a => a.CurrentCohortId == cohortId && !a.ServicePeriods.Any())
+            .Select(a => a.Id);
+
+    /// <summary>
+    /// Which cohorts already hold a period that came from the grid — the ones a stage-wide publish
+    /// must leave alone.
+    /// </summary>
+    internal static IQueryable<int> PublishedCohortIdsQuery(
+        IApplicationDbContext dbContext, IReadOnlyCollection<int> cohortIds) =>
+        dbContext.InternshipAssignments
+            .Where(a => cohortIds.Contains(a.CurrentCohortId)
+                     && a.ServicePeriods.Any(p => p.CohortSlotAssignmentId != null))
+            .Select(a => a.CurrentCohortId)
+            .Distinct();
+
+    /// <summary>
+    /// Every student assignment of these cohorts, each carrying whether it has already been served.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ <c>AlreadyServed</c> is a correlated <c>Any()</c> inside the projection, which is the family
+    /// the <c>CohortProvisioner</c> defect came from — an <c>EXISTS</c> subquery translates where a
+    /// collection of computed elements does not, and only compiling it proves which side of that line
+    /// it falls on. Named for <c>SqlTranslationTests</c>.
+    /// </remarks>
+    internal static IQueryable<CandidateAssignment> CandidateAssignmentsQuery(
+        IApplicationDbContext dbContext, IReadOnlyCollection<int> cohortIds) =>
+        dbContext.InternshipAssignments
+            .Where(a => cohortIds.Contains(a.CurrentCohortId))
+            .Select(a => new CandidateAssignment(a.Id, a.CurrentCohortId, a.ServicePeriods.Any()));
+
+    /// <summary>
+    /// The planning cells of these cohorts, with everything publication needs to shape a period out
+    /// of them: the window, the service, and the level the intake rules are read against.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ The heaviest projection on the publish path — four navigation hops, a null-coalesce over a
+    /// concatenation (<c>"niveau " + LevelId</c>) and an enum with a string conversion. Named for
+    /// <c>SqlTranslationTests</c>.
+    /// </remarks>
+    internal static IQueryable<SlotAssignmentInfo> SlotAssignmentsQuery(
+        IApplicationDbContext dbContext,
+        IReadOnlyCollection<int> cohortIds,
+        IReadOnlyCollection<int>? periodNumbers)
     {
         var query = dbContext.CohortSlotAssignments
             .AsNoTracking()
@@ -156,14 +227,13 @@ internal sealed class SchedulePublisher(
         if (periodNumbers is { Count: > 0 })
             query = query.Where(a => periodNumbers.Contains(a.StageSlot.PeriodNumber));
 
-        return await query
+        return query
             .Select(a => new SlotAssignmentInfo(
                 a.Id, a.CohortId, a.ServiceId, a.StageSlot.StartDate, a.StageSlot.EndDate,
                 a.StageSlot.PeriodNumber, a.Service.Name,
                 a.Cohort.Stage.LevelId,
                 a.Cohort.Stage.Level.Label ?? ("niveau " + a.Cohort.Stage.LevelId),
-                a.Cohort.Stage.RotationMode))
-            .ToListAsync(ct);
+                a.Cohort.Stage.RotationMode));
     }
 
     /// <summary>
@@ -343,7 +413,10 @@ internal sealed class SchedulePublisher(
     private sealed record Stay(
         IReadOnlyList<SlotAssignmentInfo> Cells, int ServiceId, DateOnly StartDate, DateOnly EndDate);
 
-    private sealed record SlotAssignmentInfo(
+    /// <summary>One student assignment of a cohort, and whether it already holds a période.</summary>
+    internal sealed record CandidateAssignment(Guid Id, int CohortId, bool AlreadyServed);
+
+    internal sealed record SlotAssignmentInfo(
         int Id, int CohortId, int ServiceId, DateOnly StartDate, DateOnly EndDate,
         int PeriodNumber, string ServiceName, int LevelId, string LevelLabel,
         StageRotationMode RotationMode);
