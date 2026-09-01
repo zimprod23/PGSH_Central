@@ -703,7 +703,7 @@ public class ServiceLevelCapacityTests
             .Handle(new PGSH.Application.Stages.Schedule.GetStageScheduleQuery(TestHarness.StageId), default);
 
         result.IsSuccess.Should().BeTrue();
-        var cell = result.Value.Cohorts.Single().Cells.Single()!;
+        var cell = result.Value.Cohorts.Items.Single().Cells.Single()!;
         cell.Capacity.Should().Be(10, "the quota governs, not the service's 20");
         cell.OccupiedSeats.Should().Be(8);
         cell.IsLevelQuota.Should().BeTrue();
@@ -723,7 +723,7 @@ public class ServiceLevelCapacityTests
                 new ServiceIntakeCalculator(db))
             .Handle(new PGSH.Application.Stages.Schedule.GetStageScheduleQuery(TestHarness.StageId), default);
 
-        var cell = result.Value.Cohorts.Single().Cells.Single()!;
+        var cell = result.Value.Cohorts.Items.Single().Cells.Single()!;
         cell.Capacity.Should().Be(20);
         cell.OccupiedSeats.Should().Be(8);
         cell.IsLevelQuota.Should().BeFalse();

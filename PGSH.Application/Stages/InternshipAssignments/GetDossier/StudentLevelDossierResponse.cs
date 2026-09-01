@@ -52,7 +52,18 @@ public sealed record DossierAttempt(
     string AcademicYearLabel,
     InternshipStatus Status,
     decimal? FinalScore,
-    StageAssignmentResult? Result);
+    StageAssignmentResult? Result,
+
+    /// <summary>The verdict pronounced on the year this attempt was served in.</summary>
+    RegistrationStatus YearOutcome,
+
+    /// <summary>
+    /// True when the year was failed, so this attempt establishes nothing — the student repeats it
+    /// from scratch, stages included. It stays in the list because it happened, and the screen says
+    /// so: « validé — année redoublée » is a different thing from « validé », and reading a row that
+    /// counts and one that does not as the same badge is what made the two indistinguishable.
+    /// </summary>
+    bool AnnulledByFailedYear);
 
 /// <summary>
 /// What a student still owes on one stage of the level. Derived from the attempts' stored
@@ -67,7 +78,11 @@ public enum DossierStageState
     /// <summary>An attempt exists that has not reached a verdict yet; nothing to decide.</summary>
     InProgress,
 
-    /// <summary>Passed on some registration. A stage once acquired is never repeated.</summary>
+    /// <summary>
+    /// Passed on some registration whose year still stands. A stage once acquired is never repeated
+    /// — but a pass inside a year the faculty failed is not an acquisition, because the redoublant
+    /// serves that year again in full.
+    /// </summary>
     Validated,
 
     /// <summary>Every attempt came back <c>NonValidé</c> — this is what revalidation re-opens.</summary>

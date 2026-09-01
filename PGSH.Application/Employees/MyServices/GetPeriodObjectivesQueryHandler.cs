@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using PGSH.Application.Abstractions.Authorization;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
 using PGSH.Domain.Stages;

@@ -208,7 +208,9 @@ public class YearScopingTests
 
         result.IsSuccess.Should().BeTrue();
         result.Value.Slots.Should().ContainSingle().Which.StartDate.Should().Be(Start);
-        result.Value.Cohorts.Should().ContainSingle().Which.CohortId.Should().Be(seeded.Current.Id);
+        result.Value.Cohorts.Items.Should().ContainSingle().Which.CohortId.Should().Be(seeded.Current.Id);
+        result.Value.Cohorts.TotalCount.Should().Be(1, "the count is the year's, not the page's");
+        result.Value.Summary.TotalCohorts.Should().Be(1);
     }
 
     // ── Slot authoring ───────────────────────────────────────────────────────
@@ -404,6 +406,132 @@ public class YearScopingTests
 
         result.IsSuccess.Should().BeTrue();
         result.Value.TotalCount.Should().Be(2, "the global search must still reach every promotion");
+    }
+
+    // ── Student list, filtered by promotion ──────────────────────────────────
+
+    private const int OtherLevelId = 7;
+
+    /// <summary>
+    /// The whole point of the filter, and the one way it can quietly be wrong.
+    /// </summary>
+    /// <remarks>
+    /// Asked as two independent conditions — « inscrit cette année » and « a été en 3ᵉ année » — a
+    /// student who <em>was</em> in the 3ᵉ année years ago and sits in the 7ᵉ today satisfies both, on
+    /// two different registrations. On the real base 2 635 students have repeated at least once, so
+    /// this is the ordinary case rather than an edge one. The pair must hold on a single row.
+    /// </remarks>
+    [Fact]
+    public async Task A_level_and_a_year_must_be_satisfied_by_the_same_registration()
+    {
+        await using var db = TestHarness.NewContext("students-level-same-registration");
+        db.SeedCatalog();
+        db.SeedAcademicYear(TestHarness.PreviousYearId, "2024-2025",
+            new DateOnly(2024, 9, 1), new DateOnly(2025, 8, 31));
+        db.SeedLevel(OtherLevelId, "7ème année", 7);
+
+        // In the 3ème année last year, in the 7ème this year: matches each condition once, and the
+        // conjunction never.
+        var repeater = db.SeedRegistration("Yassine", "Idrissi", null, TestHarness.PreviousYearId);
+        db.Registrations.Add(new Registration
+        {
+            Id = Guid.NewGuid(), AcademicYearId = TestHarness.CurrentYearId, LevelId = OtherLevelId,
+            StudentId = repeater.StudentId,
+        });
+
+        db.SeedRegistration("Sara", "Bennani");
+        await db.SaveChangesAsync();
+
+        var result = await new GetStudentsQueryHandler(db).Handle(
+            new GetStudentsQuery(null, null, null, null,
+                LevelId: TestHarness.LevelId, AcademicYearId: TestHarness.CurrentYearId), default);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Items.Should().ContainSingle(
+            "only the student whose *this year's* registration is at that level belongs to the promotion")
+            .Which.LastName.Should().Be("Bennani");
+    }
+
+    [Fact]
+    public async Task Filtering_by_level_keeps_only_that_promotion()
+    {
+        await using var db = TestHarness.NewContext("students-level-filter");
+        db.SeedCatalog();
+        db.SeedLevel(OtherLevelId, "7ème année", 7);
+
+        db.SeedRegistration("Sara", "Bennani");
+        db.SeedRegistration("Ali", "Amrani");
+        db.SeedRegistration("Nadia", "Fassi", null, TestHarness.CurrentYearId, OtherLevelId);
+        await db.SaveChangesAsync();
+
+        var result = await new GetStudentsQueryHandler(db).Handle(
+            new GetStudentsQuery(null, null, null, null,
+                LevelId: OtherLevelId, AcademicYearId: TestHarness.CurrentYearId), default);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.TotalCount.Should().Be(1);
+        result.Value.Items.Should().ContainSingle().Which.LastName.Should().Be("Fassi");
+    }
+
+    /// <summary>The control: without it, a filter that returns nothing for every level would pass
+    /// the two tests above.</summary>
+    [Fact]
+    public async Task Omitting_the_level_keeps_the_whole_promotion()
+    {
+        await using var db = TestHarness.NewContext("students-no-level-filter");
+        db.SeedCatalog();
+        db.SeedLevel(OtherLevelId, "7ème année", 7);
+
+        db.SeedRegistration("Sara", "Bennani");
+        db.SeedRegistration("Ali", "Amrani");
+        db.SeedRegistration("Nadia", "Fassi", null, TestHarness.CurrentYearId, OtherLevelId);
+        await db.SaveChangesAsync();
+
+        var result = await new GetStudentsQueryHandler(db).Handle(
+            new GetStudentsQuery(null, null, null, null,
+                AcademicYearId: TestHarness.CurrentYearId), default);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.TotalCount.Should().Be(3);
+    }
+
+    /// <summary>
+    /// A level with no year is the cross-year read, and it is deliberately left reachable: the same
+    /// thing an omitted year already means for the list as a whole.
+    /// </summary>
+    [Fact]
+    public async Task A_level_without_a_year_reaches_every_year_of_that_level()
+    {
+        await using var db = TestHarness.NewContext("students-level-all-years");
+        db.SeedCatalog();
+        db.SeedAcademicYear(TestHarness.PreviousYearId, "2024-2025",
+            new DateOnly(2024, 9, 1), new DateOnly(2025, 8, 31));
+
+        db.SeedRegistration("Sara", "Bennani");
+        db.SeedRegistration("Ali", "Amrani", null, TestHarness.PreviousYearId);
+        await db.SaveChangesAsync();
+
+        var result = await new GetStudentsQueryHandler(db).Handle(
+            new GetStudentsQuery(null, null, null, null, LevelId: TestHarness.LevelId), default);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.TotalCount.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task An_unknown_level_returns_nobody_rather_than_everybody()
+    {
+        await using var db = TestHarness.NewContext("students-unknown-level");
+        db.SeedCatalog();
+        db.SeedRegistration("Sara", "Bennani");
+        await db.SaveChangesAsync();
+
+        var result = await new GetStudentsQueryHandler(db).Handle(
+            new GetStudentsQuery(null, null, null, null,
+                LevelId: 4242, AcademicYearId: TestHarness.CurrentYearId), default);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.TotalCount.Should().Be(0);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────

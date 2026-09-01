@@ -1,7 +1,7 @@
 using FluentValidation;
+using PGSH.Application.Abstractions.Authorization;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
-using PGSH.Application.Employees.MyServices;
 using PGSH.Domain.Stages;
 using PGSH.SharedKernel;
 
@@ -99,8 +99,7 @@ internal sealed class ApplyCnpnEffectivityCommandHandler(
             return Result.Failure<CnpnEffectivityApplyPreview>(
                 CnpnErrors.EffectivityMoveCountNotConfirmed(request.ConfirmedMoveCount, preview.WillMove));
 
-        var stamp = await planner.StampAsync(plan.Value.Work, ct);
-        if (stamp.IsFailure) return Result.Failure<CnpnEffectivityApplyPreview>(stamp.Error);
+        await planner.StampAsync(plan.Value.Work, ct);
 
         await dbContext.SaveChangesAsync(ct);
         return preview;

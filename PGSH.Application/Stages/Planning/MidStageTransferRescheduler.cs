@@ -166,8 +166,8 @@ internal sealed class MidStageTransferRescheduler(IApplicationDbContext dbContex
 
         var openSlotIds = (await dbContext.ServicePeriods
             .AsNoTracking()
-            .Where(p => p.CohortSlotAssignment!.CohortId == targetCohortId
-                     && p.IsStarted && !p.IsComplete && !p.IsInterrupted)
+            .Where(p => p.CohortSlotAssignment!.CohortId == targetCohortId)
+            .Where(ServicePeriodLifecycle.Underway)
             .Select(p => p.CohortSlotAssignmentId!.Value)
             .Distinct()
             .ToListAsync(ct))
@@ -183,7 +183,7 @@ internal sealed class MidStageTransferRescheduler(IApplicationDbContext dbContex
         // period — otherwise the student would land in a not-yet-started void; keep the old period
         // running in that case (the future materialisation below still rehomes everything else).
         foreach (var running in assignment.ServicePeriods
-                     .Where(p => p.IsStarted && !p.IsComplete && !p.IsInterrupted
+                     .Where(p => ServicePeriodLifecycle.IsUnderway(p)
                               && p.CohortSlotAssignment != null)
                      .ToList())
         {
@@ -196,7 +196,7 @@ internal sealed class MidStageTransferRescheduler(IApplicationDbContext dbContex
         }
 
         foreach (var stale in assignment.ServicePeriods
-                     .Where(p => !p.IsStarted && !p.IsComplete && !p.IsInterrupted)
+                     .Where(ServicePeriodLifecycle.IsPlanned)
                      .ToList())
             assignment.ServicePeriods.Remove(stale);
 

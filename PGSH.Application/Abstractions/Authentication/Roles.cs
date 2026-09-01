@@ -1,3 +1,4 @@
+using PGSH.Application.Abstractions.Authorization;
 namespace PGSH.Application.Abstractions.Authentication;
 
 /// <summary>

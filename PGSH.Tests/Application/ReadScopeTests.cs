@@ -1,6 +1,6 @@
 ﻿using FluentAssertions;
 using PGSH.Application.Abstractions.Authentication;
-using PGSH.Application.Employees.MyServices;
+using PGSH.Application.Abstractions.Authorization;
 using PGSH.Application.Stages.Delocalization;
 using PGSH.Application.Stages.Evaluations.GetByPeriod;
 using PGSH.Application.Stages.InternshipAssignments.Fiche;

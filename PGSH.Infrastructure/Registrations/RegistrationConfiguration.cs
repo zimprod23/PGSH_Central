@@ -73,7 +73,7 @@ internal sealed class RegistrationConfiguration : IEntityTypeConfiguration<Regis
 
         // Relationship with Student
         builder.HasOne(r => r.Student)
-               .WithMany(s => s.registrations)
+               .WithMany(s => s.Registrations)
                .HasForeignKey(r => r.StudentId)
                .OnDelete(DeleteBehavior.Cascade);
 
@@ -215,5 +215,35 @@ internal sealed class FinalYearEntryWaiverConfiguration : IEntityTypeConfigurati
         builder.HasIndex(w => new { w.StudentId, w.AcademicYearId })
                .IsUnique()
                .HasDatabaseName("IX_FinalYearEntryWaiver_Student_Year");
+    }
+}
+
+/// <summary>
+/// The équivalence a student entered the faculty on. See <see cref="PriorEnrolment"/> for why it is a
+/// row rather than an assumption.
+/// </summary>
+internal sealed class PriorEnrolmentConfiguration : IEntityTypeConfiguration<PriorEnrolment>
+{
+    public void Configure(EntityTypeBuilder<PriorEnrolment> builder)
+    {
+        builder.HasKey(p => p.Id);
+
+        builder.Property(p => p.Institution).HasMaxLength(200).IsRequired();
+        builder.Property(p => p.Country).HasMaxLength(100);
+        builder.Property(p => p.EquivalenceReference).HasMaxLength(200).IsRequired();
+        builder.Property(p => p.Note).HasMaxLength(1000);
+
+        // Cascade from the registration it justifies: an équivalence attached to an entry that no
+        // longer exists explains nothing. Same bargain as the waiver's cascade from the student.
+        builder.HasOne(p => p.Registration)
+               .WithMany()
+               .HasForeignKey(p => p.RegistrationId)
+               .OnDelete(DeleteBehavior.Cascade);
+
+        // One per registration. A student enters the faculty once on a given inscription, and a
+        // second row would leave two answers to "what was recognised" with no way to choose.
+        builder.HasIndex(p => p.RegistrationId)
+               .IsUnique()
+               .HasDatabaseName("IX_PriorEnrolment_Registration");
     }
 }

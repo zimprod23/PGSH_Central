@@ -1,7 +1,8 @@
 using Microsoft.EntityFrameworkCore;
+using PGSH.Application.Abstractions.Authorization;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
-using PGSH.Application.Employees.MyServices;
+using PGSH.Domain.Registrations;
 using PGSH.Domain.Stages;
 using PGSH.Domain.Students;
 using PGSH.SharedKernel;
@@ -77,6 +78,8 @@ internal sealed class GetStudentLevelDossierQueryHandler(
                 a.Registration.AcademicYearId,
                 YearLabel = a.Registration.AcademicYear.Label,
                 YearStart = a.Registration.AcademicYear.StartDate,
+                // …and its verdict, which decides whether the attempt counts at all.
+                YearOutcome = a.Registration.Status,
             })
             .ToListAsync(cancellationToken);
 
@@ -99,7 +102,9 @@ internal sealed class GetStudentLevelDossierQueryHandler(
                     a.YearLabel,
                     a.Status,
                     a.FinalScore,
-                    a.Result))
+                    a.Result,
+                    a.YearOutcome,
+                    a.YearOutcome.AnnulsItsStages()))
                 .ToList();
 
             return new DossierStage(
@@ -146,15 +151,22 @@ internal sealed class GetStudentLevelDossierQueryHandler(
     // A stage is owed until some attempt comes back Validé — one pass at any registration settles it
     // for good. Everything short of a NonValidé verdict is still live: an attempt sitting at
     // NonÉvalué may yet pass, so it must not be re-opened as a retake underneath the running one.
+    //
+    // ⚠ Attempts served in an annulled year are dropped first, and the same rule drives
+    // OutstandingStageFinder — the two screens must not disagree about what a student owes. A stage
+    // whose only attempts were annulled reads NotAttempted, not ToRevalidate: the redoublant is
+    // serving the year again and carries no debt from it.
     private static DossierStageState DeriveState(IReadOnlyList<DossierAttempt> attempts)
     {
-        if (attempts.Count == 0)
+        var counted = attempts.Where(a => !a.AnnulledByFailedYear).ToList();
+
+        if (counted.Count == 0)
             return DossierStageState.NotAttempted;
 
-        if (attempts.Any(a => a.Result == StageAssignmentResult.Validé))
+        if (counted.Any(a => a.Result == StageAssignmentResult.Validé))
             return DossierStageState.Validated;
 
-        return attempts.All(a => a.Result == StageAssignmentResult.NonValidé)
+        return counted.All(a => a.Result == StageAssignmentResult.NonValidé)
             ? DossierStageState.ToRevalidate
             : DossierStageState.InProgress;
     }

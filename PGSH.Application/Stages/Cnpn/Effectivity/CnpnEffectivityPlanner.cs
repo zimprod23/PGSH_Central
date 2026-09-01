@@ -65,11 +65,7 @@ internal sealed class CnpnEffectivityPlanner(
 
         // Tracked: the apply writes through the aggregate, and the preview must plan against the same
         // objects it would mutate — the guarantee CnpnTargetPlanner and the évaluation import make.
-        var inScope = await dbContext.Registrations
-            .Where(r => r.LevelId == rule.LevelId
-                     && r.AcademicYear.StartDate >= rule.From
-                     && (nextFrom == null || r.AcademicYear.StartDate < nextFrom))
-            .ToListAsync(ct);
+        var inScope = await InScopeQuery(dbContext, rule.LevelId, rule.From, nextFrom).ToListAsync(ct);
 
         string levelLabel = rule.LevelLabel ?? $"niveau {rule.LevelId}";
 
@@ -77,16 +73,12 @@ internal sealed class CnpnEffectivityPlanner(
             return new Plan(
                 Empty(rule.Id, rule.Code, levelLabel, rule.YearLabel), []);
 
-        var detail = await LoadDetailAsync(inScope.Select(r => r.Id).ToList(), ct);
-
         var work = new List<Registration>();
-        var sample = new List<CnpnEffectivityRow>();
+        var sampled = new List<(Registration Registration, CnpnEffectivityRowStatus Status, string Message)>();
         int already = 0, willMove = 0, frozen = 0;
 
         foreach (var registration in inScope.OrderBy(r => r.AcademicYearId))
         {
-            detail.TryGetValue(registration.Id, out var row);
-
             if (registration.CnpnVersionId == rule.CnpnVersionId)
             {
                 already++;
@@ -96,8 +88,8 @@ internal sealed class CnpnEffectivityPlanner(
             if (registration.OutcomeSource is not null)
             {
                 frozen++;
-                if (sample.Count < SampleSize)
-                    sample.Add(Row(registration, row, CnpnEffectivityRowStatus.FrozenByOutcome,
+                if (sampled.Count < SampleSize)
+                    sampled.Add((registration, CnpnEffectivityRowStatus.FrozenByOutcome,
                         $"Année déjà prononcée ({registration.Status}) — le CNPN qui l'a régie ne "
                         + "peut plus changer."));
                 continue;
@@ -106,10 +98,21 @@ internal sealed class CnpnEffectivityPlanner(
             willMove++;
             work.Add(registration);
 
-            if (sample.Count < SampleSize)
-                sample.Add(Row(registration, row, CnpnEffectivityRowStatus.WillMove,
+            if (sampled.Count < SampleSize)
+                sampled.Add((registration, CnpnEffectivityRowStatus.WillMove,
                     $"Sera rattachée au CNPN {rule.Code}."));
         }
+
+        // ⚠ Read for the rows that will actually be printed, never for the whole scope. The scope is
+        // a *described* set — one level over a window of years, ~900 registrations for a single
+        // promotion — and the report shows at most SampleSize of them; the ids here are the ones the
+        // loop just chose, so this is the bounded list `Contains` is the right tool for.
+        var detail = await RowDetailQuery(dbContext, [.. sampled.Select(s => s.Registration.Id)])
+            .ToDictionaryAsync(d => d.RegistrationId, ct);
+
+        var sample = sampled
+            .Select(s => Row(s.Registration, detail.GetValueOrDefault(s.Registration.Id), s.Status, s.Message))
+            .ToList();
 
         int studentsMoved = work
             .Select(r => r.StudentId)
@@ -135,13 +138,27 @@ internal sealed class CnpnEffectivityPlanner(
     /// resolves it as <c>Effectivity</c> and advances each student's own stamp — one implementation
     /// of the resolution, used by creation and by re-stamping alike.
     /// </summary>
-    public Task<Result<RegistrationCnpnStamper.StampReport>> StampAsync(
+    public Task<RegistrationCnpnStamper.StampReport> StampAsync(
         IReadOnlyList<Registration> work, CancellationToken ct) =>
         stamper.StampAsync(work, ct);
 
-    private async Task<Dictionary<Guid, RowDetail>> LoadDetailAsync(
-        IReadOnlyList<Guid> registrationIds, CancellationToken ct) =>
-        await dbContext.Registrations
+    /// <summary>
+    /// The registrations a rule reaches: one level, from the year it takes effect up to the year the
+    /// <i>next</i> rule on that level does. Named and static so <c>SqlTranslationTests</c> can compile
+    /// it — a query buried in a private async method cannot be handed to <c>ToQueryString()</c>, and
+    /// the in-memory provider translates nothing.
+    /// </summary>
+    internal static IQueryable<Registration> InScopeQuery(
+        IApplicationDbContext dbContext, int levelId, DateOnly from, DateOnly? nextFrom) =>
+        dbContext.Registrations
+            .Where(r => r.LevelId == levelId
+                     && r.AcademicYear.StartDate >= from
+                     && (nextFrom == null || r.AcademicYear.StartDate < nextFrom));
+
+    /// <summary>What the report prints beside each sampled registration.</summary>
+    internal static IQueryable<RowDetail> RowDetailQuery(
+        IApplicationDbContext dbContext, IReadOnlyList<Guid> registrationIds) =>
+        dbContext.Registrations
             .AsNoTracking()
             .Where(r => registrationIds.Contains(r.Id))
             .Select(r => new RowDetail(
@@ -150,10 +167,9 @@ internal sealed class CnpnEffectivityPlanner(
                 r.Student.FirstName + " " + r.Student.LastName,
                 r.Student.CNE,
                 r.AcademicYear.Label,
-                r.CnpnVersion != null ? r.CnpnVersion.Code : null))
-            .ToDictionaryAsync(d => d.RegistrationId, ct);
+                r.CnpnVersion != null ? r.CnpnVersion.Code : null));
 
-    private sealed record RowDetail(
+    internal sealed record RowDetail(
         Guid RegistrationId,
         Guid StudentId,
         string FullName,

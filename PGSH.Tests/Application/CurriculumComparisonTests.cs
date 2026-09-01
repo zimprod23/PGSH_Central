@@ -169,7 +169,7 @@ public class CurriculumComparisonTests
         db.SeedCohort(stage, 10, "Groupe 10");
         await db.SaveChangesAsync();
 
-        var handler = new SeedCurriculaFromHistoryCommandHandler(db, new CnpnAssignment(db), db.AdminAuthorizer());
+        var handler = new SeedCurriculaFromHistoryCommandHandler(new CurriculumHistoryReconstructor(db, new CnpnAssignment(db)), db.AdminAuthorizer());
 
         var dryRun = await handler.Handle(new SeedCurriculaFromHistoryCommand(DryRun: true), default);
         dryRun.Value.CurriculaCreated.Should().Be(1);
@@ -191,7 +191,7 @@ public class CurriculumComparisonTests
         Seed(db, 1, TestHarness.NewCnpnId, (TestHarness.StageId, 5, 99));
         await db.SaveChangesAsync();
 
-        var result = await new SeedCurriculaFromHistoryCommandHandler(db, new CnpnAssignment(db), db.AdminAuthorizer())
+        var result = await new SeedCurriculaFromHistoryCommandHandler(new CurriculumHistoryReconstructor(db, new CnpnAssignment(db)), db.AdminAuthorizer())
             .Handle(new SeedCurriculaFromHistoryCommand(DryRun: false), default);
 
         result.Value.CurriculaCreated.Should().Be(0);
@@ -206,7 +206,7 @@ public class CurriculumComparisonTests
         db.SeedCatalog();
         await db.SaveChangesAsync();
 
-        var result = await new SeedCurriculaFromHistoryCommandHandler(db, new CnpnAssignment(db), db.StrangerAuthorizer())
+        var result = await new SeedCurriculaFromHistoryCommandHandler(new CurriculumHistoryReconstructor(db, new CnpnAssignment(db)), db.StrangerAuthorizer())
             .Handle(new SeedCurriculaFromHistoryCommand(DryRun: false), default);
 
         result.IsFailure.Should().BeTrue();

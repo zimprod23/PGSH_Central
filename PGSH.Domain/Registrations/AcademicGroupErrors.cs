@@ -1,4 +1,4 @@
-using PGSH.SharedKernel;
+﻿using PGSH.SharedKernel;
 
 namespace PGSH.Domain.Registrations;
 
@@ -86,4 +86,71 @@ public static class AcademicGroupErrors
     public static Error DuplicateLabelInPromotion(string label, string promotion) => Error.Conflict(
         "AcademicGroups.DuplicateLabel",
         $"Un groupe nommé « {label} » existe déjà en {promotion} pour cette année.");
+
+    /// <summary>
+    /// « Vider le groupe » unhooks <c>Registration.AcademicGroupId</c> and nothing else — but an
+    /// affectation hangs off the <i>cohorte</i>, so every one of them survives the act.
+    /// </summary>
+    /// <remarks>
+    /// <para>⚠ <b>The result is not an empty roster, it is a roster that reads empty.</b> The
+    /// affectations stay in the roster's cohortes, their périodes stay on the chefs' worklists and
+    /// stay counted against the services' occupancy, while the roster page shows 0 étudiants — and
+    /// nothing on either screen says the two disagree.</para>
+    ///
+    /// <para>Worse, it is not undone by putting the students back: a re-découpage sends them to
+    /// <i>other</i> rosters, <c>StudentAffectationService</c> keys its dedupe on (inscription,
+    /// cohorte), and the new cohortes are not the old ones — so each student comes back with a second
+    /// affectation for the same stage, counted twice everywhere.</para>
+    /// </remarks>
+    public static Error RosterHasAffectations(
+        string groupLabel, int assignments, int periods) => Error.Conflict(
+        "AcademicGroups.RosterHasAffectations",
+        $"« {groupLabel} » n'est pas seulement une liste : ses étudiants tiennent {assignments} "
+        + $"affectation(s) et {periods} période(s) de service, qui ne partiraient pas avec eux. Retirer "
+        + "les étudiants sans elles laisserait ces affectations dans les cohortes du groupe — visibles "
+        + "des chefs de service et comptées dans les effectifs — pour un groupe affiché vide. "
+        + "Réinitialisez d'abord les cohortes du stage, ou confirmez la suppression des affectations.");
+
+    /// <summary>
+    /// The same act, once something has actually happened. Not forceable, and deliberately so: the
+    /// destruction of marks and attendance has its own button (« Dépublier »), which names what it
+    /// costs and asks twice. A roster-side act must never become the way round it.
+    /// </summary>
+    public static Error RosterAffectationsUnderway(
+        string groupLabel, int periods, int started, int evaluated, int attendanceDays) => Error.Conflict(
+        "AcademicGroups.RosterAffectationsUnderway",
+        $"Les rotations de « {groupLabel} » sont engagées : sur {periods} période(s), {started} ont "
+        + $"démarré, {evaluated} portent une évaluation et {attendanceDays} journée(s) de présence sont "
+        + "enregistrées. Vider le groupe ne peut pas emporter cela. Arrêtez d'abord les rotations "
+        + "— dépubliez la répartition du stage, qui indique précisément ce qui serait perdu — puis "
+        + "revenez vider le groupe.");
+
+    /// <summary>
+    /// The year-wide « Vider toutes ». It deliberately offers <i>no</i> way to take the affectations
+    /// with it: destroying every affectation of a year is not an act anybody means by "retirer les
+    /// étudiants des groupes", and it has a proper owner per stage (« Réinitialiser les cohortes »).
+    /// </summary>
+    public static Error YearRostersHaveAffectations(
+        string yearLabel, int assignments, int periods) => Error.Conflict(
+        "AcademicGroups.YearRostersHaveAffectations",
+        $"Les groupes de {yearLabel} portent {assignments} affectation(s) et {periods} période(s) de "
+        + "service. Les vider laisserait tout cela en place, rattaché à des groupes affichés vides. "
+        + "Réinitialisez les cohortes des stages concernés — stage par stage, où le coût de chaque "
+        + "suppression est annoncé — avant de vider les groupes de l'année.");
+
+    /// <summary>
+    /// « Supprimer tous les groupes », once something in the year has actually run. The order this
+    /// command enforces — empty the rosters, then delete them — normally leaves nothing to destroy by
+    /// the time it runs; the guard stays because rosters emptied before that rule existed left their
+    /// affectations behind, and this is the act that would have swept them away without a number.
+    /// </summary>
+    public static Error YearRostersUnderway(
+        string yearLabel, int cohorts, int assignments, int periods,
+        int started, int evaluated, int attendanceDays) => Error.Conflict(
+        "AcademicGroups.YearRostersUnderway",
+        $"{yearLabel} est engagée : {cohorts} cohorte(s), {assignments} affectation(s), {periods} "
+        + $"période(s) dont {started} démarrée(s), {evaluated} évaluation(s) et {attendanceDays} "
+        + "journée(s) de présence. Supprimer les groupes effacerait définitivement les évaluations et "
+        + "les présences. Dépubliez puis réinitialisez les cohortes des stages concernés — chacune de "
+        + "ces actions indique ce qu'elle coûte — avant de supprimer les groupes.");
 }

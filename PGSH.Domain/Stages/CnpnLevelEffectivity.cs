@@ -40,30 +40,37 @@ namespace PGSH.Domain.Stages;
 /// l'ancien texte" means — so the shape that expresses the cut is the same shape that expresses
 /// « on ajoute des stages en 3ᵉ année », with one row instead of three.</para>
 /// </summary>
+/// <remarks>
+/// ⚠ <b>Not an aggregate root: it is one sentence of a text.</b> Declare it through
+/// <see cref="CnpnVersion.DeclareEffectivity"/> and withdraw it through
+/// <see cref="CnpnVersion.WithdrawEffectivity"/>, which is where the rules about which levels a text
+/// may speak for live. The <c>init</c> accessors exist so EF, the migration and the test seeds can
+/// still materialise a row; they are not a second way in.
+/// </remarks>
 public sealed class CnpnLevelEffectivity
 {
     public int Id { get; set; }
 
-    public int CnpnVersionId { get; set; }
-    public CnpnVersion CnpnVersion { get; set; } = default!;
+    public int CnpnVersionId { get; init; }
+    public CnpnVersion CnpnVersion { get; init; } = default!;
 
-    public int LevelId { get; set; }
-    public Level Level { get; set; } = default!;
+    public int LevelId { get; init; }
+    public Level Level { get; init; } = default!;
 
     /// <summary>
     /// The first academic year in which this text governs the level. Compared on
     /// <see cref="AcademicYear.StartDate"/>, so resolution is "the row for this level with the
     /// latest start date at or before the registration's year".
     /// </summary>
-    public int FromAcademicYearId { get; set; }
-    public AcademicYear FromAcademicYear { get; set; } = default!;
+    public int FromAcademicYearId { get; init; }
+    public AcademicYear FromAcademicYear { get; init; } = default!;
 
     /// <summary>
     /// Why the faculty drew the line here. Free text, and worth having: the cut is an administrative
     /// decision rather than a reading of the arrêté, so a year later nobody remembers whether « 3ᵉ
     /// année » was the ministry's wording or the outcome of a negotiation.
     /// </summary>
-    public string? Note { get; set; }
+    public string? Note { get; init; }
 
-    public DateTime RecordedOn { get; set; }
+    public DateTime RecordedOn { get; init; }
 }

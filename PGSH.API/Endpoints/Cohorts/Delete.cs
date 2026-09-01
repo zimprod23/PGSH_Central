@@ -15,7 +15,10 @@ public sealed class DeleteCohort : IEndpoint
             CancellationToken ct) =>
         {
             var result = await sender.Send(new DeleteCohortCommand(id), ct);
-            return result.Match(Results.NoContent, CustomResults.Problem);
+
+            // 200 with the counts, not 204: what a delete took away is exactly what the caller needs
+            // to be told, and a no-content body can say nothing.
+            return result.Match(Results.Ok, CustomResults.Problem);
         })
         .WithTags(Tags.Cohorts)
         .RequireAuthorization();

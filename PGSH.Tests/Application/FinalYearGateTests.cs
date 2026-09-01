@@ -43,12 +43,23 @@ public class FinalYearGateTests
         db.SeedLevel(Level4, "4ème année", year: 4);
         db.SeedAcademicYear(Year2026, "2026-2027", new DateOnly(2026, 9, 1), new DateOnly(2027, 8, 31));
 
-        // TotalYears = 4, so entering the 4ᵉ année is entering the last year.
-        var text = db.CnpnVersions.Local.First(v => v.Id == OldText);
-        text.TotalYears = 4;
+        // TotalYears = 4, so entering the 4ᵉ année is entering the last year. Through the aggregate,
+        // not by assignment: a text's span is only movable by the act that checks it does not fall
+        // below a level the text already carries requirements or an effectivity rule for.
+        Reshape(db, totalYears: 4);
 
         db.SaveChanges();
         return db;
+    }
+
+    /// <summary>Moves the seeded text's span, the only way a text's span moves.</summary>
+    private static void Reshape(ApplicationDbContext db, int totalYears)
+    {
+        var text = db.CnpnVersions.Local.First(v => v.Id == OldText);
+
+        text.Correct(text.Code, text.Label, totalYears, text.Reference,
+                text.AppliesToEntrantsFromAcademicYearId, CnpnSpanFloor.None)
+            .IsSuccess.Should().BeTrue();
     }
 
     /// <summary>A student closed « Admis » in the 3ᵉ année, stamped with the four-year text.</summary>
@@ -125,7 +136,7 @@ public class FinalYearGateTests
         await using var db = Seed(nameof(The_same_debt_does_not_block_a_year_that_is_not_the_last));
 
         // Five-year text: the 4ᵉ année is no longer the final one.
-        db.CnpnVersions.Local.First(v => v.Id == OldText).TotalYears = 5;
+        Reshape(db, totalYears: 5);
 
         var admis = SeedAdmis(db, "Alaoui");
         SeedAttempt(db, admis, mark: 7);

@@ -1,7 +1,20 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using PGSH.Application.Employees.MyServices;
+using PGSH.Application.Hospitals.Chefs;
+using PGSH.Domain.Stages;
 using PGSH.Application.Stages.Planning;
+using PGSH.Application.Stages.Cohorts.GetByStage;
+using PGSH.Application.Stages.Schedule;
 using PGSH.Application.Stages.Slots;
+using PGSH.Application.Students.Export;
+using PGSH.Application.Stages.Export;
+using PGSH.Application.Students.Registrations.Inscription;
+using PGSH.Application.Stages.Cnpn;
+using PGSH.Application.Stages.Cnpn.Effectivity;
+using PGSH.Application.Stages.Cnpn.GetCnpnVersions;
+using PGSH.Application.Stages.Cnpn.Targeting;
+using PGSH.Domain.Common.Utils;
 using PGSH.Infrastructure.Database;
 using Xunit;
 
@@ -249,4 +262,427 @@ public class SqlTranslationTests
 
         sql.Should().Contain("PeriodNumber");
     }
+
+    // ─── Chef worklist ────────────────────────────────────────────────────────
+    //
+    // Every slice of a chef worklist, and the four counts beside it, come out of one shared domain
+    // predicate (ServicePeriodLifecycle). Two of the four reach through a one-to-one navigation that
+    // has no row of its own when absent (p.Evaluation == null / != null), which is the shape a
+    // provider is most likely to refuse — and this screen is the one nobody would notice was 500ing
+    // until a chef said so. ⚠ The predicates being Expression<Func<>> handed to Where() rather than
+    // written out inline is exactly what makes them worth compiling here: a plain method call in a
+    // Where is refused by the provider, so this is what proves the shared form is the usable one.
+
+    [Theory]
+    [InlineData(ServicePeriodState.Planned)]
+    [InlineData(ServicePeriodState.Underway)]
+    [InlineData(ServicePeriodState.AwaitingEvaluation)]
+    [InlineData(ServicePeriodState.Settled)]
+    public void Every_chef_worklist_slice_compiles_to_sql(ServicePeriodState state)
+    {
+        using var db = TestHarness.NewNpgsqlContext();
+
+        string sql = GetMyServicePeriodsQueryHandler
+            .OrderedScopedQuery(db, serviceIds: [45, 46], state)
+            .ToQueryString();
+
+        sql.Should().Contain("ServicePeriods");
+        sql.Should().Contain("ORDER BY");
+    }
+
+    /// <summary>
+    /// The search reaches through two navigations into the student and lower-cases both sides, which
+    /// is the other shape on this query a provider could refuse.
+    /// </summary>
+    [Fact]
+    public void The_searched_chef_worklist_compiles_to_sql()
+    {
+        using var db = TestHarness.NewNpgsqlContext();
+
+        string sql = GetMyServicePeriodsQueryHandler
+            .OrderedScopedQuery(
+                db, serviceIds: [45], ServicePeriodState.AwaitingEvaluation, searchTerm: "bennani")
+            .ToQueryString();
+
+        sql.Should().Contain("lower(");
+        sql.Should().Contain("Users", "the student rows live in the shared Users table");
+    }
+
+    /// <summary>
+    /// The year bound reaches the period through two navigations — assignment, then registration —
+    /// which is the shape this file exists to compile. It is deliberately not a date comparison
+    /// against the year's span: the schema states which year a period belongs to (three NOT NULL
+    /// columns and a RESTRICT foreign key), and dates only ever approximated it.
+    /// </summary>
+    [Fact]
+    public void The_year_scoped_chef_worklist_compiles_to_sql()
+    {
+        using var db = TestHarness.NewNpgsqlContext();
+
+        string sql = GetMyServicePeriodsQueryHandler
+            .OrderedScopedQuery(db, serviceIds: [45], ServicePeriodState.Settled, academicYearId: 22)
+            .ToQueryString();
+
+        sql.Should().Contain("Registrations", "the year is read from the registration, not the dates");
+        sql.Should().Contain("AcademicYearId");
+    }
+
+    /// <summary>
+    /// The inscription import's identity lookup: four unique identifiers OR-ed together, each
+    /// lower-cased on both sides. The shape is unusual enough to be worth compiling — a
+    /// <c>Contains</c> over a projected, computed element is exactly what the provider refused in
+    /// <c>CohortProvisioner</c> — and the stake here is higher than a 500: an identifier the query
+    /// fails to match is a <b>second student row</b> carrying a value the unique index will then
+    /// refuse.
+    /// </summary>
+    [Fact]
+    public void The_inscription_identity_lookup_compiles_to_sql()
+    {
+        using var db = TestHarness.NewNpgsqlContext();
+
+        string sql = InscriptionPlanner
+            .StudentsByIdentifierQuery(db, ["r130896"], ["ap2200a"], ["ab12345"], ["a@um5.ac.ma"])
+            .ToQueryString();
+
+        sql.Should().Contain("lower(", "every identifier is compared case-insensitively on both sides");
+        sql.Should().Contain("Users", "the student rows live in the shared Users table");
+    }
+
+    [Fact]
+    public void The_inscription_already_registered_lookup_compiles_to_sql()
+    {
+        using var db = TestHarness.NewNpgsqlContext();
+
+        string sql = InscriptionPlanner
+            .RegisteredInYearQuery(db, academicYearId: 3, [Guid.NewGuid()])
+            .ToQueryString();
+
+        sql.Should().Contain("AcademicYearId");
+    }
+
+    /// <summary>
+    /// <c>EndsWith</c> in a predicate is the kind of client-side-looking call this file exists to
+    /// catch — in a <c>Where</c> the provider either translates it to LIKE or throws.
+    /// </summary>
+    [Fact]
+    public void The_taken_address_lookup_compiles_to_sql()
+    {
+        using var db = TestHarness.NewNpgsqlContext();
+
+        string sql = InscriptionPlanner.TakenEmailsQuery(db, "um5.ac.ma").ToQueryString();
+
+        sql.Should().Contain("Email");
+    }
+
+    /// <summary>
+    /// The three scopes a teardown refusal counts over, and the two aggregates it counts with.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ The period counts fold an aggregate over a collection navigation. Written as extra columns
+    /// on the affectation aggregate — one <c>GroupBy</c> carrying <c>g.Sum(a =&gt; a.ServicePeriods
+    /// .Sum(p =&gt; p.Attendance.Count))</c> — that is a nested aggregate over an uncorrelatable
+    /// element, the family of shape that killed the macro plan. Two flat queries is why there are two
+    /// round trips, so this case is what holds that decision in place.
+    /// </remarks>
+    [Theory]
+    [InlineData("roster")]
+    [InlineData("year")]
+    [InlineData("cohorts")]
+    public void The_affectation_toll_queries_compile_to_sql(string scope)
+    {
+        using var db = TestHarness.NewNpgsqlContext();
+
+        var assignments = scope switch
+        {
+            "roster"  => AffectationTollReader.AssignmentsOfRosterQuery(db, academicGroupId: 10),
+            "year"    => AffectationTollReader.AssignmentsOfYearRostersQuery(db, academicYearId: 1),
+            _         => AffectationTollReader.AssignmentsOfCohortsQuery(db, [1, 2, 3]),
+        };
+
+        AffectationTollReader.AssignmentCountsQuery(assignments).ToQueryString()
+            .Should().ContainEquivalentOf("count(");
+
+        AffectationTollReader.PeriodCountsQuery(assignments).ToQueryString()
+            .Should().Contain("ServicePeriods");
+    }
+
+    /// <summary>
+    /// The roll export. Flat by construction — the promotion, the roster, the statut and both CNPN
+    /// stamps are reached by navigation, never by a collection folded inside the projection.
+    /// </summary>
+    [Fact]
+    public void The_students_export_query_compiles_to_sql()
+    {
+        using var db = TestHarness.NewNpgsqlContext();
+
+        string sql = GetStudentsExportQueryHandler
+            .RegistrationsQuery(db, yearId: 1, levelId: 3, program: null,
+                academicGroupId: null, searchTerm: "ben")
+            .ToQueryString();
+
+        sql.Should().Contain("Registrations");
+        sql.Should().Contain("AcademicGroups");
+    }
+
+    /// <summary>
+    /// The three reads behind the stage export.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ The périodes of an attempt and the objective scores of an évaluation are both collections.
+    /// Folded into the assignments projection — which is the obvious way to write « one row per
+    /// stage, with its périodes » — that is a collection subquery in a projection, the exact family
+    /// that killed the macro plan. Three flat queries joined in memory is why there are three round
+    /// trips, and this case is what holds that decision in place.
+    ///
+    /// <para>The last two reach the scope through an <c>IN (subquery)</c> over the first, so this
+    /// also pins that a subquery of a filtered <c>IQueryable</c> survives translation — the
+    /// alternative being three restatements of the year predicate.</para>
+    /// </remarks>
+    [Fact]
+    public void The_stage_export_queries_compile_to_sql()
+    {
+        using var db = TestHarness.NewNpgsqlContext();
+
+        StageAssignmentExportQueries
+            .AssignmentsQuery(db, yearId: 1, levelId: 3, stageId: null,
+                academicGroupId: null, onlyEvaluated: false)
+            .ToQueryString()
+            .Should().Contain("InternshipAssignments");
+
+        StageAssignmentExportQueries
+            .PeriodsQuery(db, yearId: 1, levelId: 3, stageId: null,
+                academicGroupId: null, onlyEvaluated: false)
+            .ToQueryString()
+            .Should().Contain("ServicePeriods");
+
+        StageAssignmentExportQueries
+            .ObjectiveScoresQuery(db, yearId: 1, levelId: 3, stageId: null,
+                academicGroupId: null, onlyEvaluated: true)
+            .ToQueryString()
+            .Should().Contain("ObjectiveScores");
+
+        // The créneaux a période covers: a fourth flat read rather than a collection folded into the
+        // périodes projection, which is the shape that took down the macro plan.
+        StageAssignmentExportQueries
+            .SlotCoverageQuery(db, yearId: 1, levelId: 3, stageId: null,
+                academicGroupId: null, onlyEvaluated: false)
+            .ToQueryString()
+            .Should().Contain("ServicePeriodSlotCoverage");
+    }
+
+    /// <summary>
+    /// Who leads a service, as the répartition and the stage export both read it.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ The tenures are deliberately <b>not</b> projected inside the services query. A tenure
+    /// becomes a computed element with no key of its own, and a collection of those inside a
+    /// <c>Select</c> is exactly « Unable to translate a collection subquery in a projection ». Two
+    /// top-level reads keyed on the service instead — this pins that they stay that way.
+    /// </remarks>
+    [Fact]
+    public void The_service_chef_queries_compile_to_sql()
+    {
+        using var db = TestHarness.NewNpgsqlContext();
+
+        ServiceChefProvider.ServicesQuery(db, [1, 2, 3])
+            .ToQueryString()
+            .Should().Contain("Services");
+
+        ServiceChefProvider.TenuresQuery(db, [1, 2, 3])
+            .ToQueryString()
+            .Should().Contain("ServiceChefAssignment");
+    }
+
+    /// <summary>
+    /// The four reads behind the planning grid, now that its rows are paged.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ Two of them end in <c>Distinct()</c> over a <b>computed element</b> — a record built in the
+    /// projection rather than an entity carrying a key — which is the same family as the collection
+    /// subquery that took the macro plan down. They exist precisely so the saturation report and the
+    /// partition warning stay whole while the rows are paged, so a provider refusing them would take
+    /// the grid with it.
+    ///
+    /// <para><c>PartitionSlotUseQuery</c> additionally projects a <b>nullable</b> string
+    /// (<c>RotationGroup</c>) into a record — the promotion nobody has cut is the ordinary case, and
+    /// a null there must survive the round trip rather than become a refusal.</para>
+    /// </remarks>
+    [Fact]
+    public void The_planning_grid_queries_compile_to_sql()
+    {
+        using var db = TestHarness.NewNpgsqlContext();
+
+        GetStageScheduleQueryHandler.SlotsQuery(db, stageId: 1, academicYearId: 1)
+            .ToQueryString().Should().Contain("StageSlots");
+
+        GetStageScheduleQueryHandler.ScopedCohortsQuery(db, stageId: 1, academicYearId: 1, rotationGroup: "A")
+            .ToQueryString().Should().Contain("Cohorts");
+
+        GetStageScheduleQueryHandler.ScopedCellPairsQuery(db, stageId: 1, academicYearId: 1, rotationGroup: null)
+            .ToQueryString().Should().Contain("DISTINCT");
+
+        GetStageScheduleQueryHandler.PageCellsQuery(db, [1, 2, 3])
+            .ToQueryString().Should().Contain("CohortSlotAssignments");
+
+        GetStageScheduleQueryHandler.PartitionsQuery(db, stageId: 1, academicYearId: 1)
+            .ToQueryString().Should().Contain("GROUP BY");
+
+        GetStageScheduleQueryHandler.PartitionSlotUseQuery(db, stageId: 1, academicYearId: 1)
+            .ToQueryString().Should().Contain("DISTINCT");
+    }
+
+    /// <summary>
+    /// The columns each cohorte of the list stands in.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ Written the obvious way — <c>c.SlotAssignments.Select(a =&gt; a.StageSlot.PeriodNumber)</c>
+    /// inside the row projection — the element is a computed <c>int</c> with no key, which is the
+    /// family Npgsql refuses. This case pins the flat form that replaced it.
+    /// </remarks>
+    [Fact]
+    public void The_cohort_lists_period_query_compiles_to_sql()
+    {
+        using var db = TestHarness.NewNpgsqlContext();
+
+        GetCohortByStageIdQueryHandler.PeriodNumbersQuery(db, [1, 2, 3])
+            .ToQueryString().Should().Contain("DISTINCT");
+    }
+
+    /// <summary>
+    /// The affectation's candidate read, now that it is asked once for every cohorte of a call
+    /// instead of once per cohorte.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ It dereferences a nullable FK in the projection (<c>r.AcademicGroupId!.Value</c>) after
+    /// testing it in the predicate. The compiler is satisfied by the <c>!</c>; whether the provider
+    /// is, is a fact about the provider — and this query is on the macro-plan path, where the last
+    /// untranslatable projection cost the whole 6ᵉ année.
+    /// </remarks>
+    [Fact]
+    public void The_student_affectation_candidate_query_compiles_to_sql()
+    {
+        using var db = TestHarness.NewNpgsqlContext();
+
+        string sql = StudentAffectationService
+            .EligibleRegistrationsQuery(db, [1, 2, 3], [4])
+            .ToQueryString();
+
+        sql.Should().Contain("Registrations");
+        sql.Should().Contain("AcademicGroupId");
+    }
+
+    // =============================================================================================
+    // The CNPN — which text governs whom
+    // =============================================================================================
+    //
+    // ⚠ This area had no case at all until 2026-09-01, on the strength of its queries looking flat.
+    // « Looks flat » is what was believed about CohortProvisioner too. It is also the area with the
+    // least forgiving failure: the stamper runs inside the réinscription, which creates a whole
+    // promotion's registrations in one act, so an untranslatable read there fails the rollover
+    // rather than one screen.
+
+    /// <summary>
+    /// The stamper's four reads. Every one is deliberately flat — read, then fold in memory — because
+    /// folding the grouping into the projection is the collection-subquery shape the provider
+    /// refuses. Compiling them is what says the shape is still flat.
+    /// </summary>
+    [Fact]
+    public void The_stampers_reads_compile_to_sql()
+    {
+        using var db = TestHarness.NewNpgsqlContext();
+        var students = new[] { Guid.NewGuid() };
+        var pending = new[] { Guid.NewGuid() };
+
+        RegistrationCnpnStamper.AcademicYearsQuery(db)
+            .ToQueryString().Should().Contain("AcademicYears");
+
+        RegistrationCnpnStamper.PriorStampsQuery(db, students, pending)
+            .ToQueryString().Should().Contain("CnpnVersionId");
+
+        RegistrationCnpnStamper.PriorRegistrationsQuery(db, students, pending)
+            .ToQueryString().Should().Contain("Registrations");
+
+        RegistrationCnpnStamper.StampProgramsQuery(db, [1, 2])
+            .ToQueryString().Should().Contain("CnpnVersions");
+    }
+
+    /// <summary>
+    /// The effectivity rules, joined to the year they start in. Compared on <c>StartDate</c> rather
+    /// than on year ids — « la règle en vigueur » is the latest one at or before the registration's
+    /// year, and ids carry no order — so the projection reaches through a navigation.
+    /// </summary>
+    [Fact]
+    public void The_effectivity_rule_lookup_compiles_to_sql()
+    {
+        using var db = TestHarness.NewNpgsqlContext();
+
+        string sql = RegistrationCnpnStamper.EffectivityRulesQuery(db, [1, 2, 3]).ToQueryString();
+
+        sql.Should().Contain("CnpnLevelEffectivities");
+        sql.Should().Contain("StartDate");
+    }
+
+    [Fact]
+    public void The_effectivity_planners_scope_and_detail_queries_compile_to_sql()
+    {
+        using var db = TestHarness.NewNpgsqlContext();
+
+        CnpnEffectivityPlanner
+            .InScopeQuery(db, levelId: 3, from: new DateOnly(2026, 9, 1), nextFrom: null)
+            .ToQueryString().Should().Contain("Registrations");
+
+        // The open-ended form and the bounded one compile separately: the second parameter reaches
+        // the predicate as a nullable compared against a navigation's column.
+        CnpnEffectivityPlanner
+            .InScopeQuery(db, levelId: 3, from: new DateOnly(2026, 9, 1), nextFrom: new DateOnly(2028, 9, 1))
+            .ToQueryString().Should().Contain("Registrations");
+
+        // Joins to Users, not to a "Students" table: Student is a TPH discriminator on Users, which
+        // is the sort of thing an assertion naming the C# type would quietly get wrong.
+        CnpnEffectivityPlanner.RowDetailQuery(db, [Guid.NewGuid()])
+            .ToQueryString().Should().Contain("Users");
+    }
+
+    /// <summary>
+    /// ⚠ The targeting selector is composed into three other queries as a subquery, which is the
+    /// shape that actually needed pinning: it must become <c>IN (SELECT …)</c> rather than a
+    /// materialised list of Guids. A promotion is 833 students on the live base, and the rule this
+    /// codebase follows is that a set which is <i>described</i> reaches the store as a predicate.
+    /// </summary>
+    [Fact]
+    public void The_targeting_selector_compiles_as_a_subquery()
+    {
+        using var db = TestHarness.NewNpgsqlContext();
+
+        var matched = CnpnTargetPlanner.MatchedStudentIdsQuery(
+            db, AcademicProgram.Medecine, asOfYearId: 1, maxLevelYear: 2);
+
+        matched.ToQueryString().Should().Contain("DISTINCT");
+
+        string composed = db.Students.Where(s => matched.Contains(s.Id)).ToQueryString();
+
+        composed.Should().Contain("SELECT", "the selector must ride along as a subquery");
+        composed.Should().Contain("Registrations", "…not be replaced by ids fetched beforehand");
+    }
+
+    /// <summary>
+    /// Both CNPN read screens carry a correlated <c>Count</c> in the projection. A scalar subquery is
+    /// translatable where a collection subquery over a computed element is not, and the distinction
+    /// is exactly the one this file exists to hold on to.
+    /// </summary>
+    [Fact]
+    public void The_cnpn_read_screens_counts_compile_to_sql()
+    {
+        using var db = TestHarness.NewNpgsqlContext();
+
+        GetCnpnVersionsQueryHandler.VersionRowsQuery(db, program: null)
+            .ToQueryString().Should().Contain("CnpnVersions");
+
+        GetCnpnVersionsQueryHandler.VersionRowsQuery(db, AcademicProgram.Medecine)
+            .ToQueryString().Should().Contain("CnpnVersions");
+
+        GetCnpnEffectivitiesQueryHandler.EffectivityRowsQuery(db, cnpnVersionId: null, program: null)
+            .ToQueryString().Should().Contain("CnpnLevelEffectivities");
+    }
 }
+

@@ -4,13 +4,21 @@ using PGSH.Application.Abstractions.Data;
 using PGSH.Domain.Stages;
 using PGSH.SharedKernel;
 
-namespace PGSH.Application.Employees.MyServices;
+namespace PGSH.Application.Abstractions.Authorization;
 
 /// <summary>
 /// Single source of truth for "each chef controls only his own services". A service
 /// period (and its evaluation) may be acted on by an administrative role or by the
 /// chef of that period's service — nobody else. Shared by the execution write handlers
 /// so the rule lives in one place.
+///
+/// <para>⚠ <b>It lived in <c>Employees/MyServices/</c> until 2026-09-01, and 48 files outside
+/// <c>Employees/</c> imported it</b> — every CNPN, stage, group and academic-year handler among
+/// them, each carrying a <c>using PGSH.Application.Employees.MyServices;</c> that said nothing
+/// about what it needed. A cross-cutting rule filed inside one feature folder reads as that
+/// feature's, which is how the next person comes to write a second copy rather than reach across
+/// for this one. It answers « qui a le droit d'agir ici ? » for the whole application, so it sits
+/// with the other abstractions.</para>
 /// </summary>
 internal sealed class ExecutionAuthorizer(IApplicationDbContext dbContext, IUserContext userContext)
 {

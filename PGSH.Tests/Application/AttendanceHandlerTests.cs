@@ -1,7 +1,7 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Authentication;
-using PGSH.Application.Employees.MyServices;
+using PGSH.Application.Abstractions.Authorization;
 using PGSH.Application.Stages.Attendance.GetByPeriod;
 using PGSH.Application.Stages.Attendance.Record;
 using PGSH.Domain.Employees;

@@ -1,9 +1,12 @@
-using PGSH.Application.Abstractions.Authentication;
+﻿using PGSH.Application.Abstractions.Authentication;
 using PGSH.Application.Abstractions.Data;
+using PGSH.Application.Exports;
 using PGSH.Application.Stages.Evaluations.Import;
 using PGSH.Application.Students.Registrations.Deliberation;
+using PGSH.Application.Students.Registrations.Inscription;
 using PGSH.Infrastructure.Authentication;
 using PGSH.Infrastructure.Evaluations;
+using PGSH.Infrastructure.Exports;
 using PGSH.Infrastructure.Registrations;
 using PGSH.Infrastructure.Authorization;
 using PGSH.Infrastructure.Database;
@@ -33,6 +36,8 @@ public static class DependencyInjection
         // Adapters for the Application's sheet ports — stateless, so singletons.
         services.AddSingleton<IEvaluationSheetParser, ClosedXmlEvaluationSheetParser>();
         services.AddSingleton<IDeliberationSheetParser, ClosedXmlDeliberationSheetParser>();
+        services.AddSingleton<IInscriptionSheetParser, ClosedXmlInscriptionSheetParser>();
+        services.AddSingleton<IExportWorkbookWriter, ClosedXmlExportWorkbookWriter>();
         return services;
     }
 

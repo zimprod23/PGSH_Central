@@ -6,6 +6,14 @@
 >
 > | # | Do this | Why it is not done |
 > |---|---|---|
+> | 0 | **Finish `SMOKE-TEST.md` §28 f/g**, then remove `SMOKETEST01`/`SMOKETEST02` from the base (SQL is in §28). | The session expired mid-step on 2026-08-30. **`PriorEnrolments` is still 0 rows**, so the équivalence — the whole reason the table exists, and the row a future widening of « ce qu'il doit » will depend on — has never been written outside a test. Everything else in §28 passes. |
+> | 0d | **Fill the 90 empty 4ᵉ MED rosters of 2026-2027, or re-cut them** — auto-arrange for that promotion. | Measured 2026-08-31: the year holds 90 rosters carrying partition labels A-F and **0 inscriptions rattachées, 0 cohortes**, plus 0 affectations and 0 slots. Nothing is broken — the promotion is cut and unpopulated — but no plan can be generated until the students are in the rosters. |
+> | 0e | **Audit roster creation, rotation-group assignment and « vider les groupes ».** | `PARTITIONS_CLEARED` is recorded and the acts that *create* a cut are not, so « qui a découpé cette promotion, et quand ? » is unanswerable — which is exactly the question the empty 2026-2027 rosters raised, and it could not be answered. The destructive act leaves a trace and the constructive one does not: the wrong way round. |
+> | 0c | **Restart the API and re-check one caption** — the exports' « N inscription(s) » printed « 5.932 » because `:N0` used the host's `CurrentCulture`. Fixed to `ExportLabels.Fr`, but the running process predates the fix. | Cosmetic and confined to the caption row — the cells are typed values, not formatted strings — but it is a document that leaves the system, and « 5.932 » reads as five-point-nine-three-two. |
+> | 0b | **Click « Supprimer le bloc » once** (same as item 2), and re-check the two cosmetic fixes from §29 in a browser. | `SMOKE-TEST.md` §29 ran 2026-08-30: steps 0-6 **pass** against the live base, store provably unchanged after every refusal. Step 7 was **not** run — the base holds 0 published cells, so it would *succeed* and destroy a real axis. The double-toast removal and the « nomme l'année » fix are type-clean but were not re-driven through the UI (the year picker stopped responding to automation). |
+> | 1c | **Author `AllowedServices` for the four new 3ᵉ année stages** (Cardiologie, Pneumologie, Dermatologie - Endocrinologie, Rhumatologie - Radiologie) — Stages page, service picker. ⚠ **Faculty data: it cannot be inferred — but it can be *copied*.** | `RotationArranger` refuses outright on an empty list, so no MED3 plan can be generated until it is filled. ⚠ **The earlier guess in this row was wrong.** Measured 2026-09-01 on the live base: the 4ᵉ année counterparts of all four **do** carry service lists — Cardiologie 3, Dermatologie Endocrinologie 4, Pneumologie 3, Rhumatologie Radiologie 7, **17 rows in all** — so this is a copy, not fresh entry. « 25 of 27 carry none » was true of the *catalogue as a whole* and false of exactly these four, which is the class of mistake that comes from measuring a population and reading the answer onto a subset. The arrêté moves these stages down a year unchanged, so the services that took them in 4ᵉ are the founded starting point — and **no service in the base carries a `ServiceLevelCapacity` row**, so `AddAllowedServiceCommand`'s admissibility check refuses none of them. Still the faculty's call to ratify. |
+> | 1b | ~~Apply `Cnpn1650Med3CatalogueAlignment`~~ — **applied and verified 2026-09-01.** | Applied by `MigrationService` on Aspire startup; it did **not** raise, i.e. no grid-published période locked the mode change. Verified on the base: all six MED3 stages now read **30 j.o. / `SingleService`**, and 2174.18's own 3ᵉ année requirement set preserves Chirurgie and Médecine at **66 j.o., coefficient 3** — that curriculum already existed (« Reconstitué depuis les stages effectivement servis »), so only the two missing rows were inserted and no authored figure was overwritten, which is the path the migration was written for. |
+> | 1a | ~~Apply migration `Cnpn1650Med3Stages` to the live base~~ — **applied and verified 2026-09-01.** | The six 3ᵉ année stages and the 1650.25 / MED3 requirement set are on disk. ⚠ **Coefficient 1 throughout is still the documented placeholder**, and it is now a *live* disagreement rather than a predicted one: the catalogue says Chirurgie 3 and Médecine 3 while 1650.25's requirement set says 1, and the Stages page renders the catalogue value. That is `PHASES.md` §15.1's second bullet arriving on real rows — see the note under it. |
 > | 1 | **Enter 1650.25's requirement sets — the stage list per level — *before* opening 2026-2027 for registrations.** ⚠ **Awaiting the list from the faculty.** | `RegistrationCnpnStamper` reads the effectivity rule once, at the creation of a registration. Open the year first and every 3ᵉ année of 2026-2027 gets a stamp pointing at a text that requires nothing — `CohortProvisioner` then stands aside silently and the promotion plans as if it owed no stage. `PHASES.md` §15.2. |
 > | 2 | **Click « Supprimer le bloc » once, in a foreground tab** — `SMOKE-TEST.md` §25 step 7. | The only thing built in session 27 that no human path has exercised. Server side is covered by ten tests; what is unverified is the confirmation dialog, its counts, and that the promotion's other block survives. ⚠ Do it on a block whose loss costs nothing, or be ready to re-apply and re-plan — Med6's 1 000 cells are one *Générer le plan* away, but they are not free. |
 > | 3 | **Decide whether `LateArrivalScheduler` should materialise périodes for an *unpublished* grid.** | It materialises every open cell of the roster whether or not the répartition was published, so a newcomer can hold périodes for a plan nobody published — and `SchedulePublisher` will then skip his assignment as `SkippedAlreadyServed`. The coverage half of this was fixed in session 26; this half is a design question, not a bug. |
@@ -19,9 +27,583 @@
 > | 11 | **Decide on the 56 programme-mismatched stamps** — Médecine registrations governed by `PHARM-LEGACY`. `SMOKE-TEST.md` §20g has the query. | Pre-existing, from the original CNPN backfill. One of the 57 was corrected incidentally by the 2ème année rule. |
 > | 12 | **Finish the final-year gate's walk-through** — `SMOKE-TEST.md` §21 steps 2, 3, 5, 6, 7, 9. | The rule itself was run against the real base 2026-08-26 (§24): 60 of the 686 6ᵉ année Médecine owe a stage and all 60 are refused entry to the 7ᵉ. What nobody has exercised on real data is the déliberation/réinscription legs, the unstamped student, the dérogation and the revalidation. |
 > | 13 | **Close the revalidation flexibility hole** — no way to hand a student a stage he never attempted, and no generic "assign this student to this cohort". | Identified in session 24. `RevalidateStageCommand` needs a prior *failed* attempt; every other creation path is bulk or specific. |
-> | 14 | **Year-segregation audit, académic-year update/delete, Inscriptions screen.** | Session 24 was scoped to the CNPN alone, by agreement. |
-> | 15 | **Give RTK Query a request timeout.** | A hung API is today indistinguishable from an empty year: `fetchBaseQuery` sets no `timeout`, so a request that never answers leaves every screen on a skeleton with no error — `errorMiddleware` never fires, because nothing rejects. Seen 2026-08-26, when the API sat paused on a breakpoint and the frontend showed nothing at all. ⚠ Not a blanket value: `stages/macro-plan` legitimately runs for minutes, and aborting a mutation client-side does not stop the server writing. A generous global default with explicit per-endpoint overrides for the heavy writes. |
+> | 14 | ~~The Inscriptions screen~~ — **done, session 30**, backend and UI. What is left of this item is the **year-segregation audit** and **académic-year update/delete**, which were always separate concerns filed under one number. | Session 24 was scoped to the CNPN alone, by agreement. |
+> | 15 | **Give RTK Query a request timeout.** | A hung API is today indistinguishable from an empty year: `fetchBaseQuery` sets no `timeout`, so a request that never answers leaves every screen on a skeleton with no error — `errorMiddleware` never fires, because nothing rejects. Seen 2026-08-26, when the API sat paused on a breakpoint and the frontend showed nothing at all. ⚠ Not a blanket value: `stages/macro-plan` legitimately runs long, and aborting a mutation client-side does not stop the server writing — though since session 33 it is at least *atomic*, so an abort costs the run rather than leaving half a plan. A generous global default with explicit per-endpoint overrides for the heavy writes. |
 > | 16 | **Fold `ReinscriptionPlanner`'s own copy of the final-year decision into `FinalYearGuard`.** | The planner builds its `FinalYearGate` from three lookups of its own rather than from the guard, so one rule now has two implementations. Deliberate for now: the planner is scoped by the *predicate* that selects the promotion — 8 077 registrations — and the guard's batch takes a list of ids, which is exactly what must not be shipped down for a promotion. Folding them means teaching the guard to take a predicate. |
+> | 17 | ~~Wire the two exports into the frontend~~ — **done, session 32b**, and smoke-tested through the real buttons against the live base (`SMOKE-TEST.md` §30). | — |
+> | 19 | **Give « Dépublier toutes » a single command**, the way « Publier tout » now has one. | It still loops one `UnpublishCohortSchedule` per cohorte, so a stage where several rotations have begun answers with one red toast per cohorte. Not a copy of the publish fix: each refusal names what *that* cohorte would lose — périodes démarrées, notes entrées, jours de présence — and an aggregate has to be designed before it can replace them. Session 33. |
+> | 18 | **The pre-validation export.** | Agreed with the user as a second document: the same population without the note/verdict columns, showing where everyone *is going*. `onlyEvaluated` is already the switch and `ExportWorkbook` already the shape, so it is a column set and a caption, not a second pipeline. Deferred deliberately — the post-validation one was the ask. |
+>
+> **▶ SESSION 35 — the CNPN area audited against clean code / clean architecture / DDD, and fixed.**
+>
+> Suite **1 278 green** (was 1 257). No migration, no schema change, no API change — routes and
+> response shapes are identical. The live base was **not** touched.
+>
+> **Findings that were real defects, not style:**
+> 1. `CnpnAssignment.ResolveAsync` had **no production callers** (7 tests kept it alive) and its
+>    `asOfAcademicYearId` was never read in the body, while the doc comment described what it
+>    anchored. Deleted; its cases moved onto `SelectVersionAsync` + the new `EntryYearDeduction`.
+> 2. The entry walk-back — the single assumption the ~2,200-student backfill rests on — was written
+>    **twice**, with a duplicated `YearRef` in each file. Now one pure type.
+> 3. `RegistrationCnpnStamper.StampAsync` returned `Result<StampReport>` with **no failure path**, so
+>    `if (stamp.IsFailure)` in five callers was unreachable.
+> 4. Two stale `<see cref="CnpnResolver"/>` references to a type that does not exist (renamed long
+>    ago). Silent because `GenerateDocumentationFile` is off.
+> 5. `CnpnEffectivityPlanner` loaded display detail for **every** in-scope registration (~900 for one
+>    promotion) when the preview prints at most 50, keyed by an `IN (…)` of Guids over a *described*
+>    set. Now: classify first, then read detail for the sampled ids only.
+> 6. `CnpnTargetPlanner` materialised a whole promotion's ids and used them in three `Contains`.
+>    Now one reusable predicate composed as a subquery.
+> 7. `ExecutionAuthorizer` — a cross-cutting rule — lived in `Application/Employees/MyServices/` with
+>    **48 files outside `Employees/` importing it**. Moved to `Abstractions/Authorization/`.
+>
+> **The DDD half.** `CnpnVersion` was a property bag with public setters while `Curriculum` in the
+> same namespace was a proper aggregate. It is now `Entity` + `init` accessors (the `AcademicYear`
+> shape) with `Correct` / `DeclareEffectivity` / `WithdrawEffectivity`, two new domain events, and
+> the four rules a text can decide alone moved off the handlers — including the span rule that was
+> being stated twice, from opposite sides, in two different files.
+>
+> ⚠ **Two things worth carrying forward, both measured this session:**
+> - **`AsNoTracking()` on a shared subquery reaches its host query.** Reusing the targeting selector
+>   made the *apply* stamp detached students and write nothing — preview right, apply reporting
+>   success, zero rows moved. Caught by two tests. A shared query must state no tracking behaviour.
+> - **A forgotten `Include` cannot be caught by this suite.** Deleting the `Include` from
+>   `UpdateCnpnVersionCommandHandler` left all 23 of its tests green: the in-memory provider fixes
+>   navigations up from the change tracker, while PostgreSQL would hand back an empty collection.
+>   That is why `Correct` takes a `CnpnSpanFloor` read from the store instead of counting its own
+>   children — the guard has no unique index behind it, so the failure would be silent data loss.
+>
+> **Then the adjacent item, on request.** `Student.registrations` / `Student.history` — lowercase
+> public `ICollection` with open setters, on an aggregate whose CNPN fields are correctly
+> `private set` — became `Registrations` / `HistoryEntries` with `private set`. Nothing ever
+> assigned them, and `UserConfiguration` already declared `PropertyAccessMode.Field`, so the intent
+> had been recorded and the naming had simply never followed. `HistoryEntries` rather than
+> `History`: a property carrying its own element type's name compiles but shadows the type inside
+> the class. Also removed a commented-out `//public Guid Id`.
+>
+> ⚠ **No migration, but the model snapshot did need a hand.** Navigations are CLR metadata, not
+> database objects, so the rename generates no SQL — but
+> `ApplicationDbContextModelSnapshot` records navigation *names*, and a stale snapshot means the
+> next `migrations add` silently carries the rename inside an unrelated migration. The four strings
+> were updated and `dotnet ef migrations has-pending-model-changes` now answers **« No changes have
+> been made to the model since the last migration »**. The per-migration `*.Designer.cs` snapshots
+> are history and were deliberately left alone.
+>
+> **No API change from this either**: both handlers project the navigation into `StudentResponse` /
+> `StudentRegistrationSummary`, so no JSON field moved. (Noted in passing, not fixed: those two
+> handlers still call `.Include(...)` on a query that then projects, which EF ignores.)
+>
+> **Then the CNPN of the new text, dictated by the faculty during the session.** Three migrations,
+> **none applied** — items 1a/1b/1c above:
+> - `Cnpn1650Med3Stages` — the 3ᵉ année is **six** stages: Chirurgie and Médecine (already at that
+>   level, reused) plus four brought down from the 4ᵉ année, two of which are pairings the new text
+>   makes — *Dermatologie - Endocrinologie* and *Rhumatologie - Radiologie*. 30 j.o. (six weeks),
+>   coefficient 1, `SingleService`. It refuses if the resulting requirement set is not exactly 6.
+> - `Cnpn1650ImmersionStages` — 1ʳᵉ année *Stage d'immersion*, 2ᵉ année *Stage d'immersion soins
+>   infirmiers*, 15 j.o. Those two promotions had never had a stage on record.
+> - `Cnpn1650Med3CatalogueAlignment` — Chirurgie and Médecine still read **66 j.o. / PerPeriod** from
+>   the legacy catalogue. It preserves those figures into 2174.18's own 3ᵉ année set *first*, then
+>   aligns the catalogue. It raises on the same condition the UI refuses on.
+>
+> ⚠ **Why new rows and not shared ones.** In 2026-2027 both promotions run this material at once —
+> the 3ᵉ année under 1650.25 and the 4ᵉ année still under 2174.18, whose Pédiatrie rotation is already
+> published for that year. Sharing one `Stage` row is refused in **four** places
+> (`SaveCurriculumCommandHandler`, `CreateCohortCommandHandler`, `SlotOverlapGuard`, and `StageSlot`
+> carrying no level at all). Repointing the old rows would have changed the meaning of 4MED's
+> published history. This is `Stage.LevelId → advisory` (Phase 15.1) becoming **due** rather than
+> deferred: it will recur for every level the new text lands on.
+>
+> **And the rule the faculty settled while we were in there:** a failed year is annulled, stages
+> included — `RegistrationStatus.AnnulsItsStages()`, read by both `OutstandingStageFinder` and the
+> dossier so the two cannot disagree. Six tests, guard proven to bite. The frontend states it on the
+> parcours; the level-dossier endpoint carries it explicitly and still has no consumer.
+>
+> **Left open on purpose:** `AllowedServices` for the four new stages is faculty data and cannot be
+> inferred — item 1c, and it blocks MED3 auto-arrange.
+>
+> ---
+
+> **▶ SESSION 34 — the export was faithful and unreadable in two places.**
+> Both reported against a file that was correct in every cell, which is the pattern this project
+> keeps hitting: *a true statement that leaves out the fact the reader came for.*
+>
+> 1. **« On ne voit qu'une période alors qu'on en a trois. »** Under `SingleService`
+>    `SchedulePublisher` folds the `kₛ` cells of a run into **one** `ServicePeriod` — right, the
+>    student stands in one service and is marked once — so the Périodes sheet showed one row where
+>    the grid authored three columns. The fold stays; the document now states what it folded:
+>    `Nb créneaux` (numeric), `Créneaux` (« P1-P3 ») and `Détail des créneaux` giving each column its
+>    own window and worked-day count. Read through `ServicePeriodSlotCoverage`, never the lead-cell
+>    FK. New: `CoveredSlotFolder` (pure), `StageAssignmentExportQueries.SlotCoverageQuery`.
+>    ⚠ Still **one row per période** — a run marked once, repeated across three columns, is a note
+>    counted three times by the first pivot anybody builds.
+> 2. **No chef anywhere in the file.** The resolution order existed but lived as a private method in
+>    `GetLevelRepartitionQueryHandler`. Extracted to `Application/Hospitals/Chefs/` —
+>    `ServiceChefDirectory` (pure) + `ServiceChefProvider`, the `WorkingDayCalendar` /
+>    `WorkingDayProvider` split — and both sheets now carry `Chef de service` with
+>    `Origine du chef` beside it. ⚠ That second column is not decoration: 140 of 148 services name
+>    their professor only in an **undated** legacy note, and printing it unqualified claims the
+>    student served under a chef the base cannot date. Linking professors in Personnel upgrades those
+>    rows with no code change — that path is already the top of the order.
+>
+> ⚠ **The as-of date is per période, not per file.** A year of rotations spans months; one date for
+> the whole document prints the wrong name on half of it. That is why the tenure trail is loaded
+> whole rather than filtered in SQL.
+>
+> Measured on the live base: **5 831 grid-linked périodes over 7 497 cells**; 833 of them (5MED
+> Gynécologie Obstétrique) cover **3** créneaux each. 1 253 tests green (+22); three guards proved to
+> bite by breaking them — the coverage read narrowed to the lead cell, the source-note flag forced
+> false, and the consecutive-only merge removed.
+
+> **▶ SESSION 33 — three slow screens, and every one of them was a correctness bug underneath.**
+>
+> Reported as performance: the planning grid takes seconds to open **and to close**, « Publier » without
+> the over-capacity checkbox produces *dozens* of errors that will not stop, and « Générer le plan »
+> takes a long time with no feedback — during which a lost connection or a closed tab could leave
+> damaged data. All three were real, and none of them was only about speed.
+>
+> **1 — The grid. Closing was slow, and closing does no server work.** That is what settled where the
+> cost was: the SQL behind the grid measures ~40 ms on the live base, while the response carried
+> **105 cohortes × 10 colonnes = ~1 000 cells**, and the browser was mounting and unmounting a
+> thousand cell components. `GetStageScheduleQuery` now returns **a page of 25 rows plus a
+> `StageScheduleSummary`**, the partition filter runs server-side, and the modal drops its exit
+> transition.
+>
+> ⚠ **Paging a matrix creates a new failure mode, and closing it was most of the work.** Every number
+> on that screen drives an act on the *whole* selection — « Publier tout (N) » sends one stage-wide
+> call — so an N counted from the visible rows would promise 25 and publish 90. The summary carries
+> the counts, the deduplicated saturation report (bounded by columns × services, not by cohortes),
+> `OccupiedSlotIds` for « nouveaux créneaux uniquement », and `PartitionUsage` **read across the whole
+> stage** for the « la partition B est déjà là » warning — a question about exactly the rows the
+> filter has removed. `AssignmentsPage` needed the same treatment: it folded « which periods does this
+> cohorte run in » out of the grid's cells, so past page 1 every cohorte would have read as running in
+> no period at all. That fact moved onto `CohortResponse.PeriodNumbers`.
+>
+> **2 — The « dozens of errors » was a client-side loop.** `StageDetailPage.handlePublishAll` fired one
+> `PublishCohortSchedule` per cohorte, sequentially; `errorMiddleware` toasts every rejected mutation,
+> so an over-capacity plan produced one red toast per cohorte, arriving one at a time as the loop
+> ground on. One `PublishStageSchedule` now, like the grid modal already did — **and that one call had
+> to stop refusing on the first cell**: `EnsureIntakeAsync` collects every breach and returns a single
+> `Schedule.PublishRefusedByIntake` naming the count, the unforceable admissibility half, and the
+> heaviest three. A single breach still gets its own specific sentence.
+>
+> **3 — « Générer le plan » was ~700 round trips, and it was not atomic.**
+> `StudentAffectationService` read the eligible registrations **once per cohorte**, and the macro plan
+> walks that loop once per concurrency block: 105 rosters × 7 stages. One read now, keyed on
+> **(roster, niveau) together** — the pair is the guard, not an optimisation detail, and there is a
+> test that fails when it is broken. Measured server-side: 92 ms of loop against 4 ms batched, for one
+> stage, before EF and the network.
+>
+> ⚠ **The damaged-data worry was correct and is now closed.** The handler committed after every step —
+> cohortes, then affectations and cells stage by stage — so cancelling the request between two commits
+> left a plan built for the first three stages and nothing for the rest. Indistinguishable from a plan
+> somebody meant. `IApplicationDbContext.ExecuteAtomicallyAsync` wraps the whole matrix in one
+> transaction, through `CreateExecutionStrategy()` because Aspire enables retry-on-failure and a
+> retrying strategy refuses user-initiated transactions outright. The rotation-cycle page now says
+> what is being written and that interrupting costs the run but damages nothing — which is only
+> truthful because of that transaction.
+>
+> **Tests:** 1 223 green (17 new). `PlanningPerformanceTests` covers the paged grid, the whole-selection
+> counts, the unfiltered partition list and usage, the deduplicated saturation, the aggregated publish
+> refusal (asserting the store is untouched after it), the admissibility half surviving the override,
+> the affectation pair, and `CohortResponse.PeriodNumbers`. Four of them were **proved to bite** by
+> breaking the guard and watching them fail. Three new `SqlTranslationTests` cases: two `Distinct()`
+> over computed elements and a nullable FK dereferenced in a projection, all on the macro-plan or grid
+> path.
+>
+> ⚠ **What was deliberately not done: « Dépublier toutes » is still a client-side loop** with the same
+> toast-storm shape. Each of its per-cohorte refusals *names what that cohorte would lose* — périodes
+> démarrées, notes, jours de présence — and an aggregate would have to be designed before it can
+> replace them. It is item 19 below.
+>
+> ⚠ **Not verified in a browser.** Everything here is type-clean, the suite is green and the SQL was
+> measured against the live base, but no human has opened the grid, paged it, or pressed « Publier
+> tout » since the change. `SMOKE-TEST.md` §31 is the walk-through.
+
+> **▶ SESSION 32d — « je ne vois toujours pas les groupes » : the export was never the problem, the roster list was.**
+>
+> Followed the report into the app instead of arguing from queries, and it settled in two clicks:
+> **Groupe 1 — Quatrième Année Médecine, 2026-2027 → « 0 étudiant(s) · Aucun étudiant dans ce
+> groupe. »** All 90 rosters of that promotion are empty, and the export was right the whole time.
+>
+> ⚠ **The defect was one screen earlier.** `GroupsPage` listed the 90 rosters with N°, Libellé,
+> Niveau, Rotation, Année — **and no population**. So « la 4ᵉ année a des groupes » read as true, and
+> the only way to learn otherwise was to open all 90 one at a time. `AcademicGroupResponse` has
+> carried `studentCount` since it was written, with a comment saying it was there « so the list can
+> show it without loading any student ». The list never rendered it.
+>
+> One column added, orange at 0 and teal above. Verified live: 2026-2027 → every row **0**;
+> 2025-2026 → 12, 15, 13, 3, 7 … and « Non réparti » at **4 725**, the figure `CLAUDE.md` already
+> records for that bucket. The contrast is immediate, which is the whole point.
+>
+> **The rule, now in `PGSH.Frontend/CLAUDE.md` §1b-bis:** *a list of containers must show how full
+> each one is.* A roster, cohorte, service or partition list without a count cannot distinguish
+> « découpé et rempli » from « découpé et vide », and those call for opposite next acts. Zero is a
+> state, not an error — colour it, never hide it.
+>
+> **Worth noticing about this session and the two before it:** the same failure was found three times
+> in three places — the export's blank column (32c), the roster list's missing count (32d), and the
+> `RepartitionSummary.DeclaredSlotCount` / `OutsideYearCount` pair that already existed to prevent
+> exactly it. **An absence has to announce itself.** It is written down twice in the backend
+> `CLAUDE.md` and it was still not applied to either new surface.
+>
+> No backend change. Frontend only: `GroupsPage` + `CLAUDE.md` §1b-bis + `PHASES.md` 3.7.
+> **`NOTES.md`, `PLANNING.md`, `SCHEMA.md`, backend `PHASES.md` unchanged — nothing moved on the
+> server.** `SMOKE-TEST.md` §30 gains the roster-count check.
+
+> **▶ SESSION 32c — the first user remark on the export, and it was right about the symptom and wrong about the cause.**
+>
+> « Le 4MED a des groupes et je ne les vois pas dans l'export 2026-2027 — il manque peut-être d'autres
+> choses. » Audited column by column against the live base: **the file was faithful in every cell.**
+> `Groupe` / `N° groupe` / `Partition` / `Source de la décision` / `Convention` are blank on all 5 932
+> lines because **0 inscriptions carry a roster pointer**, nobody has deliberated a year that has just
+> opened, and `AgreementType` is `None` for all 10 206 students in the base. `CIN` 5 904/5 932, `Sexe`
+> 5 005/5 932 (927 rows carry `Gender = None`), `Date de naissance` 5 930/5 932 — all true.
+>
+> **The real state of 2026-2027:** 90 `AcademicGroup` rows for the 4ᵉ année Médecine, numbered 1-90
+> with partition labels A-F interleaved, **all empty** — 0 inscriptions, 0 cohortes — and 0
+> affectations, 0 slots for the whole year. The Groupes page shows the 90 rosters and *0 étudiants* on
+> each (it counts `g.Registrations.Count`), so it and the export agree. Queue item 0d.
+>
+> ⚠ **`AutoArrangeGroupsCommandHandler` cannot have produced this** — it refuses when nothing is
+> unassigned and sets `reg.AcademicGroupId` in the same unit of work. The state is reachable by
+> cutting and then emptying, but **the audit trail cannot say**: roster creation, rotation-group
+> assignment and « vider les groupes » are all unaudited while `PARTITIONS_CLEARED` is recorded. The
+> destructive act leaves a trace and the constructive one does not. Queue item 0e.
+>
+> **What was actually wrong was the document, not the reads.** A column empty on every row is
+> indistinguishable from a column the export forgot — the same « one state standing in for two » that
+> `RepartitionSummary.DeclaredSlotCount` and `OutsideYearCount` already exist to prevent, and the
+> export was built without applying it. `ExportNotes` now prints above every sheet's header:
+> - the columns carrying no value in **any** row, computed from the exported rows so a column added
+>   later is covered without anyone remembering;
+> - and when the roster columns are among them, **which of the two causes it is** — « aucun groupe
+>   n'existe encore » (découper) or « 90 groupe(s) existent mais aucune inscription n'y est rattachée »
+>   (répartir). The roster count is queried only when it will be printed.
+>
+> ⚠ **A note that fires whatever the data says is noise, and noise is dismissed** — which puts the real
+> one back out of sight. That control is a test (`A_column_that_carries_a_value_somewhere_is_not_
+> reported_as_empty`), and the empty-column guard was proven to bite. **1 206 tests green.**
+>
+> ⚠ **Restart the API to see any of this** — and it also carries the fr-FR caption fix from item 0c.
+>
+> Docs: `CLAUDE.md`, `NOTES.md`, `SMOKE-TEST.md` §30, `PHASES.md`, this file. **`PLANNING.md` and
+> `SCHEMA.md` unchanged — no planning arithmetic moved and there is still no migration.**
+
+> **▶ SESSION 32b — the exports get their buttons, and the smoke test finds the defect the docs invited.**
+>
+> **Frontend built** (separate repo), type-clean, lint unchanged from baseline (16 pre-existing
+> problems before and after).
+>
+> - `common/utils/downloadBlob.ts` — `fileNameFromDisposition` + `downloadBlob`. ⚠ The file name comes
+>   from `Content-Disposition`, never rebuilt on the client: the server names the file after the scope
+>   it actually *resolved*, and an omitted year resolves to the current one.
+> - `common/utils/problemMessage.ts` — reads `errors[]` **and** `detail`. It replaced **four** private
+>   copies of `detailOf`, none of which read `errors[]`, so every validation refusal had been showing
+>   its useless half in `InscriptionSection`, `AdminStudentDetailPage`, `YearClosurePage` and
+>   `EvaluationImportModal`.
+> - `common/components/ExportButton.tsx` and `features/admin/components/StageRecordExportMenu.tsx`.
+>   Two named menu items rather than a checkbox, because « état des lieux » vs « PV » is what the
+>   document *is*, not a filter on it.
+> - Wired into **three** screens, each passing its own scope: `StudentListPage`, `RepartitionPage`
+>   (per promotion) and `AssignmentsPage` (per stage, beside « Importer les notes » — one puts the
+>   verdicts in, the other takes the record out).
+> - RTK: two lazy queries whose `responseHandler` **branches on `response.ok`**. Reading `.blob()`
+>   unconditionally turns a problem-details refusal into an opaque Blob and loses every message. ⚠ The
+>   three older template endpoints still have the unguarded shape — worth fixing when next touched.
+>
+> **Smoke test §30 executed against the live base** — full results in `SMOKE-TEST.md`. The headlines:
+> 5 932 registrations and **all 13 per-level counts exact**; 5ᵉ MED 2026-2027 = **833**, reproducing
+> the figure the one-`Any` rule was measured at; 3ᵉ MED 2025-2026 = 1 872 affectations / 3 744
+> périodes / 936+936; and the multi-période rule proved on the only 293 rows in the base that exercise
+> it (4ᵉ MED 2018-2019 Pédiatrie): **two spans, not one**, because 24 worked days separate the windows,
+> with `Jours ouvrables` 44 against a calendar span of 82.
+>
+> ⚠ **Two things the base cannot show.** The *contiguous* merge has **no instance** anywhere (91 894
+> single-période, 293 single-service-multi, 6 367 two-service, 1 three-plus), so that branch rests on
+> `StagePeriodFolderTests` alone. And `Export.TooManyRows` is unreachable — the biggest year is 15 542
+> against a cap of 25 000 — so it was exercised with a stubbed 400 in the browser instead.
+>
+> **The defect that stub found, and why it is worth a rule.** Every refusal toasted **twice**:
+> `errorMiddleware` in orange, the component's own `notify.error` in red, same sentence. It is item 4
+> of this queue and session 31b already removed it from four teardown handlers — and I wrote it again
+> the same day. The reason is in the docs: `PGSH.Frontend/ARCHITECTURE.md` said 400/422 were
+> « handled at the form level, **not** by the global middleware », which is the opposite of what
+> `errorMiddleware` does. Corrected there, and the rule is now `CLAUDE.md` §1e: **a component must not
+> toast a rejected request**, the single exception being a 404 on a *query*, which the middleware
+> deliberately swallows and which a download button has no empty state to render for
+> (`isReportedByErrorMiddleware`). Re-verified in the browser: one toast, in the server's words.
+>
+> ⚠ **The year picker is unreliable under automation** — it reverts silently and froze the renderer
+> twice. Same note session 31b left. Change the year by hand, then automate the rest.
+>
+> Docs: frontend `CLAUDE.md` (§1e, §1f), `ARCHITECTURE.md` (the corrected error table), `API.md` (the
+> two routes, with a banner that the file is otherwise stale), `PHASES.md` (Phase 3.6); backend
+> `SMOKE-TEST.md` (§30 executed) and this file. **Backend `CLAUDE.md`, `NOTES.md`, `PHASES.md`,
+> `PLANNING.md` were written in session 32 and need no change — the contracts did not move.
+> `SCHEMA.md` still untouched: no migration.**
+
+> **▶ SESSION 32 — two Excel exports, and the rule that a merged date span must not lie.**
+>
+> **Built.** Two .xlsx downloads, backend complete, 31 new tests, whole suite green at **1 201**.
+>
+> - `GET students/export` — the roll. One sheet, one row per **registration** of the resolved year.
+>   Nom · Prénom · CNE · Apogée · CIN · Sexe · Date de naissance · E-mail · Programme · Niveau ·
+>   Année · Groupe · N° groupe · Partition · Statut · Source de la décision · CNPN · Origine CNPN ·
+>   Convention. Filters: `academicYearId` (omitted ⇒ current), `levelId`, `program`,
+>   `academicGroupId`, `searchTerm`.
+> - `GET stages/assignments/export` — the post-validation stage record. Three sheets: **Stages** (one
+>   row per attempt, with note and verdict), **Périodes** (one row per période, joined by
+>   `Réf. stage`), **Synthèse** (verdict counts and the class average per stage). Filters:
+>   `academicYearId`, `levelId`, `stageId`, `academicGroupId`, `onlyEvaluated`.
+>
+> **The two design questions the user asked, and the answers.**
+>
+> 1. *Un fichier par (programme, niveau), ou une colonne ?* — **A column, and the filter still cuts the
+>    per-promotion file.** The columns cost nothing and make a row self-describing when two exports are
+>    merged or one is opened a year later; `?levelId=` produces exactly the per-promotion document with
+>    the columns intact. It was a false choice. The real correction underneath it: the export is of
+>    **registrations**, not of students — `Groupe`, `Niveau` and `Statut` are facts about a year, and
+>    2 635 students in this base have sat in more than one.
+> 2. *Comment afficher plusieurs périodes ?* — **Merge on the service, never on the dates.** A *stay*
+>    is a maximal run of périodes in the same service with **no worked day between them**. 01/01→01/02
+>    then 02/02→02/03 in one service is one stay and prints `01/01/2025 – 02/03/2025`; the same two
+>    windows with a real hole print `01/01/2025 – 01/02/2025 · 17/02/2025 – 02/03/2025`; two services
+>    print `Cardiologie → Pneumologie` against the two spans, position by position. **And the
+>    multi-période fact is never carried by the string alone** — `Nb périodes`, `Nb services` and a
+>    `Découpage` label are their own columns, so it is a filter rather than a reading exercise.
+>    `StagePeriodFolder`, pure, ten cases.
+>
+> ⚠ **A gap is measured in *worked* days.** A calendar-day test calls every Friday → Monday hand-over an
+> interruption, which is exactly how one column follows another. A declared holiday between two windows
+> is not a hole either — the calendar is already the single answer to « how long is this really ».
+>
+> ⚠ **Both break conditions matter, and each alone is a different defect.** Breaking only on the service
+> change — which is what `SchedulePublisher.BuildStays` does, correctly, since it works from contiguous
+> grid columns — swallows a real interruption inside one printed span. Breaking only on the gap merges
+> S1 → S2 into one line and loses the second service.
+>
+> **The other decisions worth keeping.**
+> - The stage export is scoped by the **registration's** level, not the stage's: a 6ᵉ année student
+>   revalidating a 3ᵉ année stage belongs on his own promotion's document. Both levels are printed, so
+>   the row reads as a rattrapage instead of appearing in somebody else's file. `GetStudentLevelDossier`
+>   scopes the other way on purpose — different question.
+> - The year is read from `Registration.AcademicYearId`, never approximated from the périodes' dates,
+>   and an omitted year is the current one.
+> - Unmarked attempts are **in** the document by default: a file whose purpose is « où en est la
+>   promotion » must show the holes. `onlyEvaluated=true` is the caller saying it is a PV — and it is
+>   the switch the **pre-validation** export will reuse rather than a second pipeline.
+> - Both exports are capped (`ExportErrors.TooManyRows`) and the refusal names the count *and* the axis
+>   that narrows it. An export is the one read deliberately exempt from pagination.
+> - Three flat queries, joined in memory, with the scope defined once and reached through
+>   `IN (subquery)`. Pinned by two new `SqlTranslationTests` cases — the périodes of an attempt and the
+>   objective scores of an évaluation are both collections, i.e. the family that killed the macro plan.
+> - Nothing recomputed: `StageScoring` for the mark and the verdict, `ServicePeriodLifecycle` for the
+>   state, `WorkingDayCalendar` for the durations.
+>
+> **Both new guards were proven to bite** — the year predicate widened to `>= 0` fails
+> `An_omitted_year_exports_the_current_year_only`; the gap condition removed fails
+> `A_real_gap_in_one_service_prints_two_spans_and_says_so`. Restored, green.
+>
+> ⚠ **No frontend.** Two routes, no buttons — see queue items 17 and 18. Verify meanwhile through
+> Scalar (`/scalar/v1`) or a browser hitting the URL directly.
+>
+> Docs: `CLAUDE.md` (new « An export is a document » section), `NOTES.md`, `PHASES.md` (Phase 15.3),
+> `PLANNING.md` (§8), `SMOKE-TEST.md` (§30). **`SCHEMA.md` untouched — no migration, no new table, no
+> column: both exports are reads over the schema as it stands.**
+
+> **▶ SESSION 31b — §29 run against the live base: the guards hold, and the base cannot reach the middle state.**
+>
+> Dump first: `C:\Users\LEGION\pgsh-pre-smoke29.dump` (20.5 MB, `-Fc`, outside the repo).
+>
+> **Steps 0-6 pass.** Every refusal reached the screen **in the server's own words with true counts** —
+> « sur 8 période(s), 8 ont démarré », « Psychiatrie est engagé en 2025-2026 : 60 cohorte(s), 706
+> affectation(s)… » — and after each one the store was compared against the dump and was **identical**.
+> At the end, test rows removed, the base matched the dump on every table touched.
+>
+> ⚠ **Step 0 found 285 mismatched affectations, and they are not this defect.** All 285 share year *and*
+> group number and differ only in level — the `SplitAcademicGroupsPerLevel` signature (2023-2024
+> « Interne CHU » rows whose cohortes stayed on the « Sixième Année » shard). The double-affectation
+> signature is provably absent: **0** (registration, stage) pairs carry more than one affectation, and
+> **0** affectations belong to a student in no roster. Worth deciding what to do with the 285; they are
+> pre-existing and harmless to the new guards.
+>
+> ⚠ **The base cannot reach the state the `DropAffectations` flow exists for.** All 105 626 périodes
+> carry `IsStarted = true` and 0 are grid-linked — imported history, marked started by the importer —
+> so *every* planned roster is « underway » and the middle state occurs nowhere. Steps 1, 2 and 5 were
+> run against a throwaway roster seeded for it (`ZZ-SMOKE29`, since removed). Consequence: **« Vider le
+> groupe » is now refused for every roster carrying history**, which is right, and rosters with no
+> cohortes still empty freely.
+>
+> **Two defects found and fixed during the run:**
+> 1. Every refusal toasted **twice** — `errorMiddleware` and the page's own `notify.error`, identical
+>    sentence, because this session had just taught the page-level one to print the server's words.
+>    The middleware already toasts every rejected mutation; the page-level call is removed from all
+>    four teardown handlers (item 4's sweep, for these paths).
+> 2. The reset dialog said « pour **l'année en cours** » while the command targets the **navbar** year —
+>    routinely a past one. The refusal then came back saying « engagé en 2025-2026 », naming a different
+>    year from the confirmation just read. It names the year now. A destructive confirmation must name
+>    what it will actually hit.
+>
+> ⚠ Both fixes are type-clean and were **not** re-driven through the UI: the year picker stopped
+> responding to automation near the end of the session.
+>
+> **Step 7 (rotation block) deliberately not run** — 0 published cells means « Supprimer le bloc » would
+> succeed and destroy a real axis. It stays a human click, as item 2 already said.
+>
+> **▶ SESSION 31 — « Vider le groupe » left the whole plan behind, and « Supprimer la cohorte » had no guard at all.**
+>
+> Asked what happens when a roster is emptied while affectations exist, and whether a started stage
+> should block the cohorte/bloc reset. Read the four teardown paths; three of them were wrong.
+>
+> **1. `EmptyGroupCommand` cleared `Registration.AcademicGroupId` and nothing else.** An
+> `InternshipAssignment` is (inscription × **cohorte**), so every affectation and every `ServicePeriod`
+> survived the act: still on the chefs' worklists, still in `ServiceOccupancyCalculator`'s counts,
+> still in the printed répartition — against a roster page reading 0 étudiants, with nothing anywhere
+> saying the two disagreed. ⚠ And it is not undone by putting the students back: a re-découpage sends
+> them to *other* rosters and `StudentAffectationService` dedupes on (inscription, **cohorte**), so
+> each one returns with a **second** affectation for the same stage.
+>
+> **2. `DeleteCohortCommand` had no guard whatsoever**, while its bulk twin refused as soon as one
+> affectation left `Planned`. The safe act was the one touching a hundred cohortes; the unguarded one
+> was the button beside each line. It deleted every `ServicePeriod` — « plan-generated *and* ad-hoc »,
+> its own comment — and `ServiceEvaluation`, `AttendanceRecord`, `PeriodPause` and `Delocalization`
+> cascade from those. A chef's marks and a term of attendance on one click, answered with 204 and no
+> number.
+>
+> **3. `DeleteAllCohortsCommand`'s year was optional and unresolved** — a null meant "every year this
+> stage ever ran", on the one command in the area that deletes rows, against a stage that keeps 563
+> cohortes across six years. Now resolved through `AcademicYearResolver` like everything else.
+>
+> **4. The rotation block was already right.** `RotationCycleContext` counts published cells through
+> `PublishedCells` (coverage table, not the FK), so apply and delete are both refused while anything
+> on the axis is published — and a started rotation is published by construction. Nothing added.
+>
+> **Built:** `AffectationToll` / `AffectationTollReader` (`Stages/Planning/`) — one reader for
+> "what is this about to destroy", over three scopes (cohortes, roster, year's rosters), so the four
+> refusals cannot describe the same rows differently. Its counts are the same four the unpublish
+> refusal already names.
+>
+> **The rule now:** nothing planned → empties silently · merely planned → refused with the count named
+> (`DropAffectations: true` is the caller having read that sentence) · anything underway → refused
+> outright, **not forceable**. The act that destroys marks is « Dépublier », which names its cost and
+> asks twice; a roster-side button must not become the way round it. `EmptyAllYearGroupsCommand` gets
+> no `DropAffectations` at all — a year's affectations are the whole faculty's planning.
+>
+> **Order for taking a promotion apart:** dépublier → réinitialiser les cohortes du stage → vider les
+> groupes → supprimer les groupes / le bloc de rotation. Each step refuses until the one before it is
+> done, and says why in a sentence naming numbers.
+>
+> **Tests:** `RosterTeardownGuardTests` (10) + 3 `SqlTranslationTests` cases. **1 170 green.** Both new
+> `IsUnderway` guards were broken on purpose and the three refusal tests failed, then restored. ⚠ The
+> success path of the two bulk handlers stays uncovered — `ExecuteUpdate`/`ExecuteDelete` are
+> unsupported in-memory; their refusals are pure reads and *are* covered, which is the half that had
+> no guard.
+>
+> **Frontend:** `emptyGroup` takes `dropAffectations` and the modal stays open showing the server's
+> own sentence before the second confirmation — the shape `StageDetailPage`'s unpublish warning
+> already had. Every teardown toast now prints the refusal's `detail` instead of a generic « Impossible
+> de… ». `tsc --noEmit` clean; `npm run lint` adds nothing new.
+>
+> ⚠ **Not verified from a running frontend** — `SMOKE-TEST.md` §29 is the recipe.
+>
+> ⚠ **Rows already stranded by the old behaviour are still stranded.** Nothing back-fills them: an
+> affectation whose registration points at no roster is invisible to every roster screen and visible
+> to every chef. §29 step 0 has the query that counts them.
+>
+> **▶ SESSION 30b — §28 run against the live base, and the two rows it left behind.**
+>
+> Dump first: `C:\Users\LEGION\pgsh-20260830-195550.dump` (20.5 MB, `-Fc`, outside the repo).
+> Migration `PriorEnrolment` was already **applied** — MigrationService took it at startup.
+>
+> **Passes: a, b, c, d, e, h, i, g-bis.** The preview steps wrote nothing; the applies moved
+> `students` 10 204 → 10 206 and `registrations` 49 535 → 49 537, exactly the two rows the
+> confirmation named. What the created rows prove that no test could: the provisional **Apogée**
+> (`SANS-APOGEE-…`, because both identifiers are NOT NULL UNIQUE), the suffixed second address for the
+> homonym, `AcademicProgram` read from the level, and `CnpnSource = Effectivity`. Re-uploading the
+> same file gave `0 à créer` · `2 déjà inscrit(s)` — the idempotence September depends on.
+>
+> The CNE-length guard added after the audit fired on the real stack: a 17-character Apogée is refused
+> with « le code provisoire « SANS-CNE-… » ne serait pas un identifiant enregistrable ». Without it
+> that student would have been created and then unsaveable for ever.
+>
+> **g-bis confirmed the réinscription fix on real data**: `58 bloqué(s) en dernière année`, and the
+> DOM holds 1000 rows — 942 « Aucune décision », **58 « Stage antérieur non validé »**. Counted *and*
+> listed. ⚠ I first reported them missing, off a text capture that truncated at 335 rows; the DOM is
+> the authority when a table is capped at 1000.
+>
+> ⚠ **Not run: f and g.** The Keycloak session expired between ticking the confirmation and pressing
+> *Inscrire*, so the transfer was never applied and **`PriorEnrolments` is still 0 rows** — the one
+> thing that table exists for is the one thing unexercised on real data. Nothing is half-written:
+> counts verified after the fact.
+>
+> ⚠ **Two test students are in the live base** — `SMOKETEST01`/`SMOKETEST02`, Première Année Médecine
+> 2026-2027, carrying 2 registrations and nothing else (0 assignments, 0 group, 0 history).
+> `SMOKE-TEST.md` §28 has the two-statement removal.
+>
+> **▶ SESSION 30 — the third act of the year, and three defects my own tests did not catch.**
+>
+> Suite **1 157 green**. One migration scaffolded and **not applied**: `PriorEnrolment` — one new
+> table, additive, nothing existing touched.
+>
+> Raised by the user: *« la déliberation et la réinscription ne concernent que les étudiants qu'on a
+> déjà dans la base — pour les nouveaux 1MED, ou ceux transférés d'une autre faculté, ça ne marchera
+> pas »*. **Structural, not an edge case.** `DeliberationPlanner` opens with
+> `Registrations.Where(r => r.AcademicYearId == yearId)`; `ReinscriptionPlanner` starts from the
+> closing year's verdicts. Both are right — you cannot deliberate on somebody who was not there — and
+> both are therefore blind to anyone holding no registration. Nor was there anywhere else to go:
+> `PGSH.Application/Students/CreateMany/` was an **empty directory**.
+>
+> Built `Students/Registrations/Inscription/` — the same shape as the déliberation because it is the
+> same kind of act. Four writing actions partitioning on two questions (known to PGSH? same
+> programme?): `NewEntrant` · `TransferIn` · `Returning` · `ProgrammeChange`, plus `AlreadyRegistered`
+> as a **skip** so the file survives being re-sent with the late arrivals appended. `PriorEnrolment`
+> records a transfer's équivalence. `InscribeStudentCommand` is the single-row way in.
+>
+> ⚠ **Three defects found by re-reading the code, not by a test — 1 144 were green at the time.**
+> - **The e-mail was treated as identifying.** A newcomer whose address cell was mistyped to an
+>   existing student's resolved to *that student*, silently giving him a registration under somebody
+>   else's name. CNE and Apogée identify; CIN and e-mail corroborate.
+> - **In-file duplication was keyed on `cne ?? appogee`.** One person on two lines, written once with
+>   his CNE and once with his Apogée, passed — and `IX_Registration_Student_Year` is unique, so that
+>   is a raw constraint violation at `SaveChanges`.
+> - **A manufactured CNE could be one the edit form can never save.** `SANS-CNE-` costs 9 of the 20
+>   characters `CnePattern` allows. Third instance of the validator-vs-existing-rows failure, after
+>   the old CNE regex and `Objectives.NotEmpty()`.
+>
+> ⚠ **Two latent defects, both predating this work.**
+> - **`RegistrationCnpnStamper.Fallback` was programme-blind.** A `CnpnVersion` belongs to exactly one
+>   `AcademicProgram`, so any réorientation — including one done months ago through the ordinary
+>   registration form — stamped the new registration with the text of the cursus the student had just
+>   left, and `TotalYears` read from it answers « est-ce sa dernière année ? » from the wrong arrêté.
+>   Where nothing of the new programme resolves, `Student.ClearCnpnVersion()` removes the stamp: null
+>   means « never resolved », and keeping a false one is worse than saying less.
+> - **`Students.Appogee` is NOT NULL UNIQUE, and `SCHEMA.md` said otherwise.** `IX_Student_Appogee`
+>   carries a `"Appogee" IS NOT NULL` filter that reads as though absence were allowed; the column is
+>   required, so the filter can never be false and `""` is a value the second student without an
+>   Apogée collides on. The doc line has been corrected — it is what I wrote the import against.
+>
+> ⚠ **And the two address generators had already drifted.** `LegacyIdentityMapper` keeps ASCII
+> **letters**; the copy written here kept letters *and digits*. « Mohamed2 Alaoui » would have been
+> `mohamed_alaoui` on the 10 204 imported rows and `mohamed2_alaoui` on every new one — two namespaces
+> for one faculty, and the Phase 16 re-import would have renumbered people who already log in. The
+> rule now lives once, in `StudentIdentifierRules`, and states the behaviour already on disk.
+>
+> **All five new guards proven to bite** (disabled, confirmed red, restored).
+>
+> **The screen shipped too** — a third card on `YearClosurePage`, so the three acts of the year sit on
+> one page, plus a « Un seul étudiant » modal. `tsc` clean, `npm run build` clean, **no new lint
+> error**. ⚠ And it turned up one more: `ReinscriptionAction` was missing `FinalYearBlocked`, added to
+> the backend with the final-year gate and never mirrored — its badge rendered blank and the « à
+> traiter » table filtered on a literal pair, so those rows **never appeared at all**. The count said
+> N and the list showed nothing, on **60 of the 686** 6ᵉ année Médecine. Backlog item 14 is closed.
+>
+> Docs updated: `CLAUDE.md`, `SCHEMA.md`, `PHASES.md` §15.11, `NOTES.md`, `SMOKE-TEST.md` §28,
+> `PGSH.Frontend/PHASES.md` §3.5, `PGSH.Frontend/API.md` (staleness banner — it documents none of the
+> last ~15 sessions of endpoints, which is how a built feature gets written twice).
+>
+> ⚠ **Session 29 (the chef-de-service worklist) has no entry here.** Its work sits uncommitted in the
+> tree beside this one and is documented in `CLAUDE.md` and `SMOKE-TEST.md` §27; I did not write it
+> and will not invent its history.
 >
 > **▶ SESSION 28 — the macro-plan path compiles, and one of its ends had never run.**
 >

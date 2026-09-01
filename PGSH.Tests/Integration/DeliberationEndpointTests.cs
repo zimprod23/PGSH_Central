@@ -1,17 +1,18 @@
+using AcademicProgram = PGSH.Domain.Common.Utils.AcademicProgram;
+using ClosedXML.Excel;
+using FluentAssertions;
+using Level = PGSH.Domain.Common.Utils.Level;
+using Microsoft.EntityFrameworkCore;
+using PGSH.Application.Abstractions.Authentication;
+using PGSH.Application.Abstractions.Authorization;
+using PGSH.Domain.Registrations;
+using PGSH.Domain.Students;
+using PGSH.Infrastructure.Database;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
-using ClosedXML.Excel;
-using FluentAssertions;
-using Microsoft.EntityFrameworkCore;
-using PGSH.Application.Abstractions.Authentication;
-using PGSH.Domain.Registrations;
-using PGSH.Domain.Students;
-using PGSH.Infrastructure.Database;
 using Xunit;
-using AcademicProgram = PGSH.Domain.Common.Utils.AcademicProgram;
-using Level = PGSH.Domain.Common.Utils.Level;
 
 namespace PGSH.Tests.Integration;
 

@@ -1,4 +1,4 @@
-# Smoke test — sessions 11 → 23
+# Smoke test — sessions 11 → 32
 
 Covers the year-scoping lockdown (11), CNPN versioning + targeting + text editing (12–13), per-level
 service quotas and the répartition annuelle (14), the déliberation / réinscription flow (14), the
@@ -22,7 +22,25 @@ list of exceptions plus the single-row outcome (step **19**), the CNPN carried o
 and `CnpnLevelEffectivity` (step **20**) and the final-year gate (step **21**). Session 25 balances a
 service queue per **column** instead of per call, refuses the unscoped arrange on a stage nothing has
 crossed into, and reads the rotation block back into its form (step **22** — **not yet executed**,
-and it carries a data repair: every cell arranged before it needs re-running).
+and it carries a data repair: every cell arranged before it needs re-running). **Session 28 is the
+first real clôture**: 2025-2026 closed and 2026-2027 rolled over on the live base, whole faculty
+(step **26** — *executed*, and it is the record of what a correct run prints). Session 29 bounds the
+chef-de-service worklist on the period's own lifecycle — four slices instead of every period ever —
+and makes a published-but-unstarted rotation visible under « À venir », which is why a whole
+promotion's publication had looked to its chef like nothing had happened (step **27** — **not yet
+executed**, no migration). Session 30 adds the **third act of the year** — inscription, for the people
+the déliberation and the réinscription structurally cannot see: the September intake, transfers
+arriving from another faculty, returners and réorientations — as a sheet **and** as a one-student
+form, with its own card on the clôture screen (step **28** — **executed 2026-08-30 except f/g**, and
+it carries a migration, now applied). ⚠ It is the only act in PGSH that **creates people**, and there
+is no undo — see §28's own header for what the run established and for the two test students it left
+in the base. The same session made the réinscription's `FinalYearBlocked` rows visible: the count was
+shown and the table listing them was empty, measured at **58** of the 8 077 considered.
+Session 32 adds the two Excel exports — the roll and the post-validation stage record — and with them
+the rule that a merged date span may not claim days nobody served (step **30** — **executed
+2026-08-31 through the real buttons**, no migration; it found and fixed a double toast, and it left
+one thing to re-check after an API restart).
+
 **Rollback is at the bottom** — read it before you start, not after.
 
 Prerequisites: `dotnet run --project PGSH.AppHost`, log in as an admin (Scolarité).
@@ -39,6 +57,7 @@ Prerequisites: `dotnet run --project PGSH.AppHost`, log in as an admin (Scolarit
 | `GroupLabelPerPromotion` | ✅ applied — verified 2026-08-14: `IX_AcademicGroup_Year_Level_Label` and `IX_AcademicGroup_Year_Level_Number` both present, the two year-only indexes gone. A pure relaxation: `IX_AcademicGroup_Year_Label` → `IX_AcademicGroup_Year_Level_Label` (`NULLS NOT DISTINCT`). The old key is a superset of the new one, so no existing row can collide; see step **12l** |
 | `RegistrationCnpnAndLevelEffectivity` | ✅ applied — verified 2026-08-24. Adds `Registration.CnpnVersionId` / `CnpnSource` and the `CnpnLevelEffectivity` table, and backfills the six imported years from the student's stamp as `Backfilled` |
 | `FinalYearEntryWaiver` | ✅ applied — verified 2026-08-24. One new table, no data change |
+| `PriorEnrolment` | ✅ applied — verified 2026-08-30 in `__EFMigrationsHistory`; MigrationService applied it at Aspire startup. One new table recording a transfer's équivalence, cascading from the registration that admitted him, unique on it. Additive only. ⚠ Still **0 rows**: step 28 f/g, the only path that writes one, has not been run |
 
 Timings below are the real figures from your data — if you see a different number, that is the bug.
 
@@ -48,7 +67,7 @@ Timings below are the real figures from your data — if you see a different num
 
 ```bash
 rm -rf PGSH.Tests/bin PGSH.Tests/obj          # ⚠ see below
-dotnet test PGSH.Tests/PGSH.Tests.csproj      # expect: 989 passed, 0 failed, ~37 s
+dotnet test PGSH.Tests/PGSH.Tests.csproj      # expect: 1157 passed, 0 failed, ~36 s
 ```
 
 ⚠ **Incremental `dotnet test` runs in this repo have been reporting phantom counts** — the same suite came
@@ -1884,6 +1903,848 @@ cohortes, alors que les axes existants sont sur 2025-2026.
 
 ---
 
+## 26 · La clôture 2025-2026 → 2026-2027, exécutée pour de bon (session 28)
+
+**Executed 2026-08-29 against the real base**, whole faculty, both acts. Not a rehearsal: 8 077
+inscriptions closed and 5 930 créées. The numbers below are what a correct run prints, so a later
+run that disagrees has something to explain.
+
+⚠ **The wrong-year state is what the user actually hit, and the page does say so.** 2026-2027 had been
+created *and* designated « actuelle » before the déliberation, so the closure page read
+« Les décisions du PV, pour **2026-2027** » and the rollover said « Aucune année postérieure n'existe ».
+Downloading the canvas there fails with `PromotionHasNoStudents` — the year holds 0 registrations —
+which is exactly why `GetDeliberationTemplateQuery` refuses instead of emitting an empty sheet. The fix
+is the **top bar**, not the `IsCurrent` flag: the closure page scopes on the navbar selection
+(`YearClosurePage.tsx:97`), and neither act reads `IsCurrent`. Order that works: close 2025-2026 →
+create 2026-2027 → réinscription → *then* designate it.
+
+### 26a — the déliberation (1 692-row exceptions file)
+
+| | |
+|---|---|
+| lignes dans le fichier | 1 692 (619 redoublants, 46 exclus, 30 abandons, 997 diplômés) |
+| admis par défaut | **5 369** |
+| en dernière année, sans décision | **1 015** |
+| déjà décidé / inchangé | 1 (« Retrait ») |
+| avec un stage non validé | 2 (signalé, jamais bloquant) |
+
+1 692 + 5 369 + 1 015 + 1 = **8 077** — the identity to check first, because every mis-scoped run
+breaks it. `ConfirmedDefaultCount = 5369` is in the audit entry.
+
+⚠ **« Diplômé » is refused on a level that is not the last year of the student's own text, and this
+base has 6 registrations that can therefore never be graduated**: 5 in *Septième Année Médecine*
+stamped `PHARM-LEGACY` (spans 6) and 1 in *Interne CHU Médecine* (year 8, text spans 7). A file naming
+any of them refuses **the whole import** — all-or-nothing — so a generated PV must emit « Diplômé »
+only where `level.Year == TotalYears`, never on `>=`. `MayBeAFinalYear` uses `>=` deliberately (they
+must not be promoted either), so the two conditions genuinely differ.
+
+### 26b — the réinscription
+
+| | |
+|---|---|
+| à créer | **5 930** |
+| ignorés | 2 147 (997 diplômés + 46 exclus + 31 abandons + 1 015 sans décision + 58 bloqués) |
+| à traiter | 1 074 (1 015 sans décision + 1 « Retrait » + **58 dernière année bloquée**) |
+
+**The final-year gate fired for real**: 664 Med6 admis, only **606** rolled into the 7ᵉ année — 58
+refused over unvalidated earlier stages. That is the first time `FinalYearBlocked` has been observed
+outside a test. Verified in SQL: 58 Med6 `Validated` rows with no 2026-2027 registration.
+
+Post-conditions, all verified: 619 redoublants back on the **same** `LevelId`; **0** students whose
+cursus ended rolled over; **5 930 / 5 930** carry a `CnpnVersionId` (the stamper ran on every one);
+**0** carry an `AcademicGroupId` — they land in « Non réparti », and `AutoArrangeGroupsCommand` is the
+next act. *Première Année Médecine* = 233, all redoublants: PGSH does not invent an intake.
+
+### 26c — ⚠ the apply is a per-registration N+1 after the commit, and it is minutes long
+
+The write itself is one `SaveChanges` and lands in seconds. What the user then waits on is
+`ApplicationDbContext.PublishDomainEventsAsync`, which publishes **one event per registration
+sequentially**, and `RegistrationYearOutcomeRecordedEventHandler` answers each with a `SELECT`, an
+`INSERT` and its **own `SaveChangesAsync`** — on a context whose change tracker grows by one `History`
+per event.
+
+Measured: **7 061 timeline rows at ~50/s ≈ 2 min 20 s**, during which the button spins with the data
+already committed. A crash in that window leaves the verdicts written and the timeline half-written,
+with nothing to resume from. The réinscription has the same shape (5 930 `StudentRegisteredDomainEvent`).
+
+⚠ **Do not "fix" this by making the handler fire-and-forget** — the timeline is the audit surface. The
+shape that fits is a bulk path: one `AddRange` of `History` rows and a single `SaveChanges`, or an
+`INotificationHandler` over a batched event. Not done here; recorded so the next person does not read
+the spinner as a hang. Signature that tells it apart from a real hang: `Histories` count climbing.
+
+---
+
+## 27 · La liste d'un chef de service : quatre tranches, une année, et « À venir » (12 min) — sessions 29-30
+
+**Not yet executed.** No migration. Two reports, one screen: the chef's « Mes Services » loaded every
+period he had ever had, and the 4MED 2026-2027 rotations he had just published did not appear at all.
+
+Measured on the live base 2026-08-29, chef of Pédiatrie1 + Pédiatrie2 (services 45 and 46):
+
+```sql
+SELECT count(*) FILTER (WHERE NOT sp."IsStarted")                                         AS a_venir,
+       count(*) FILTER (WHERE sp."IsStarted" AND NOT sp."IsComplete")                     AS en_cours,
+       count(*) FILTER (WHERE sp."IsStarted" AND sp."IsComplete" AND ev."Id" IS NULL)     AS a_evaluer,
+       count(*) FILTER (WHERE sp."IsStarted" AND sp."IsComplete" AND ev."Id" IS NOT NULL) AS evalues,
+       count(*) AS total
+FROM "ServicePeriods" sp
+LEFT JOIN "ServiceEvaluation" ev ON ev."ServicePeriodId" = sp."Id"
+WHERE sp."ServiceId" IN (45,46);
+-- 300 | 0 | 683 | 2237 | 3220        ← 3 220 rows, back to 2019, all fetched and mounted at once
+```
+
+The 300 are the 4MED Pédiatrie publication (2 × 150, three windows, `IsStarted = false` on every one)
+and were invisible because the worklist only ever returned started rows.
+
+**a. « À venir » shows the publication.** Log in as the chef → *Mes Services*. The card must open on a
+slice that has something in it, and the segmented control must read four counts.
+
+⚠ **The counts are the current year's**, so they are *not* the 300 / 0 / 683 / 2 237 above — that
+split is the whole history. With 2026-2027 selected expect the 300 under **À venir** and most of the
+2 237 gone, replaced by the notice in step **d**. The year-scoped split is:
+
+```sql
+SELECT y."Label",
+       count(*) FILTER (WHERE NOT sp."IsStarted")                                     AS a_venir,
+       count(*) FILTER (WHERE sp."IsStarted" AND NOT sp."IsComplete")                 AS en_cours,
+       count(*) FILTER (WHERE sp."IsStarted" AND sp."IsComplete" AND ev."Id" IS NULL) AS a_evaluer,
+       count(*) AS total
+FROM "ServicePeriods" sp
+LEFT JOIN "ServiceEvaluation" ev ON ev."ServicePeriodId" = sp."Id"
+JOIN "AcademicYears" y ON y."IsCurrent"
+WHERE sp."ServiceId" IN (45,46)
+  AND sp."StartDate" <= y."EndDate" AND sp."EndDate" >= y."StartDate"
+GROUP BY y."Label";
+```
+Open **À venir**: 4MED Pédiatrie, three windows (07 sep → 06 nov, 07 nov → 31 déc, 07 jan → 06 mar),
+50 students per window per service. Every row says **« À venir » / « Pas encore démarrée »** and
+**carries no button** — visible is not actionable.
+
+**b. One row per student, not one per période.** Pédiatrie 4MED is `SingleService`, so the publisher
+collapsed each run into a single period: 898 périodes for 898 affectations. In the card, a student
+appears **once** per window, and evaluating him once is the whole stage. Check it:
+
+```sql
+SELECT max(n) FROM (SELECT count(*) n FROM "ServicePeriods"
+  WHERE "CohortSlotAssignmentId" IS NOT NULL GROUP BY "InternshipAssignmentId") x;   -- expect 1
+```
+
+**c. Starting is still the administration's act.** As admin → *Stages → Pédiatrie (4ᵉ année)* →
+« Démarrer les affectations » for the first window. Back on the chef's page, those rows move from
+**À venir** to **En cours**, and the two counts move by the same number. ⚠ Nothing on the chef's page
+may start anything: re-loading **À venir** must not change `IsStarted` for a single row.
+
+**d. The year is on every slice — and it says what it hides.** ⚠ This is the step that matters most,
+because year scoping blanked chef worklists twice and both times it was *silent*.
+
+The selector sits beside the four tranches on **every** slice and opens on the current year, which
+the server chose (the request sends no year at all; check the network tab). Then:
+
+- Open **Terminé**. Because almost the whole 2 237-row archive predates 2026-2027, the list is short
+  and a yellow band must appear reading roughly « **2 1xx rotations de cette catégorie en dehors de
+  2026-2027** » with a **Toutes les années** button. ⚠ **If the list is short and the band is absent,
+  stop — that is the exact regression this design exists to prevent.**
+- Press **Toutes les années**. The full archive comes back, paginated 200 at a time; the band
+  disappears (nothing is outside a read that spans everything).
+- Pick **2021-2022** from the selector: the list narrows to rotations that *ran* in that span — the
+  scoping is on the dates, not on the year the registration carries.
+- Switch tranches. The year **stays** where you put it: it is an axis of its own, not a property of
+  the archive. The band's number changes with the tranche, because it counts what *this* slice is
+  missing.
+- ⚠ **The year comes from the registration, not from the dates.** With 2026-2027 selected,
+  **À évaluer** must not list 6ᵉ année Pédiatrie. Those 41 périodes are *registered* 2025-2026; they
+  merely ran 08 jul → 08 sep 2026, and a date predicate filed them under the new year because they
+  finished eight days into it — which is how a promotion with no 2026-2027 planning appeared to have
+  rotations in it. The rule the screen must follow:
+
+```sql
+-- what the screen shows for 2026-2027 (id 22) — the registration is the authority
+SELECT count(*) FROM "ServicePeriods" sp
+JOIN "InternshipAssignments" ia ON ia."Id" = sp."InternshipAssignmentId"
+JOIN "Registrations" r ON r."Id" = ia."RegistrationId"
+WHERE sp."ServiceId" IN (45,46) AND r."AcademicYearId" = 22;      -- expect 0
+
+-- how far apart the two rules are, base-wide: 7 030 of 105 626 (6.7%), registration right each time
+SELECT count(*) FROM "ServicePeriods" sp
+JOIN "InternshipAssignments" ia ON ia."Id" = sp."InternshipAssignmentId"
+JOIN "Registrations" r ON r."Id" = ia."RegistrationId"
+JOIN "AcademicYears" sy ON sp."StartDate" BETWEEN sy."StartDate" AND sy."EndDate"
+WHERE r."AcademicYearId" <> sy."Id";
+```
+
+- ⚠ **The escape must survive a stale calendar.** Temporarily narrow the current year in
+  *Paramètres → Années universitaires* so that it no longer covers the 4MED windows. « À venir »
+  empties — and the band must say « 300 rotations … en dehors de 2026-2027 ». That is the 2026-08
+  incident reproduced on purpose, now visible instead of silent. Widen the year back afterwards.
+
+**e. The search reaches past the page.** In **Historique**, type a surname you know is in 2019.
+It must be found — the search is a server query now (350 ms debounce, from 2 characters), and the four
+counts narrow with it, so the badges answer « où est cet étudiant ? ». ⚠ The old page filtered the
+rows it held: pick a student who is *not* on page 1 and confirm he is still found.
+
+**f. The dashboard number is the server's, and it agrees with the list.** *Tableau de bord* →
+« Évaluations en attente » must read the **current year's** à-évaluer count for this chef — the same
+number the segmented control shows in step **a**, since both default to the same year — and the
+network tab must show **no** request returning thousands of rows to compute it (it asks for
+`state=AwaitingEvaluation&pageSize=1` and reads the count).
+
+**g. The control.** A chef must still see only his own services, and an anonymous request must still be
+refused — `ChefWorklistEndpointTests` covers both, but confirm the page lists exactly Pédiatrie1 and
+Pédiatrie2 and nothing else.
+
+⚠ **What this step does not prove.** The 683 « à évaluer » are older rotations nobody marked; the
+slice is honest, not small. Most now sit *outside* the default year and are reported by the band
+rather than listed — which is the intent, but it means the backlog is still there. If it is not meant
+to be evaluated, that is a data question (close-out, or importing the marks), not a bug in this
+screen.
+
+---
+
+## 28 · Inscription — les gens que la clôture ne voit pas (10 min) — session 30
+
+**Executed 2026-08-30 against the live base, except f and g** — the Keycloak session expired between
+ticking the confirmation and pressing *Inscrire*, so the transfer was never applied. Migration
+`PriorEnrolment` is **applied** (confirmed in `__EFMigrationsHistory`; MigrationService picked it up
+at startup).
+
+The screen is **Clôture de l'année → 3 · Inscription**, the third card beside déliberation and
+réinscription. Steps **a–g** below are that card; **h–j** are the « Un seul étudiant » modal and the
+identifier rules, and are quicker to drive from Scalar (`/scalar/v1`) where a raw body is wanted —
+both paths hit the same planner, so either proves the rule.
+
+⚠ **This is the only act in PGSH that creates people.** Run it on a promotion you are willing to have
+extra students in, or take the dump first. There is no undo: `DELETE` on a `Student` is the only way
+back, and it cascades.
+
+### What the run of 2026-08-30 established
+
+Dump taken first: `C:\Users\LEGION\pgsh-20260830-195550.dump` (20.5 MB, `-Fc`). Kept **outside the
+repo** — it holds real student data.
+
+| step | result |
+|---|---|
+| **a** | Promotion select required; both buttons disabled without it, with the reason shown. ⚠ « Retrait » is **absent** from the picker — `getPromotionLevels` passes `promotionsOnly`, so the `NotAPromotion` refusal is unreachable from the UI and only the API can provoke it |
+| **b** | 1ʳᵉ année Médecine, 2 rows, no e-mail column → `2 lignes` · `2 à créer` · `2 nouveaux`, and the generated-address panel showing `nour_zaimi@um5.ac.ma` / **`nour_zaimi2@um5.ac.ma`**. Store unchanged by the preview |
+| **c** | Applied. `students` 10 204 → **10 206**, `registrations` 49 535 → **49 537** |
+| **e** | Same file re-uploaded → `0 à créer` · **`2 déjà inscrit(s), ignoré(s)`** in grey, nothing written |
+| **d** | 3ᵉ année → amber warning, report cleared; the same rows → `0 à créer` · `2 erreurs` · « Provenance requise » · « Aucun étudiant n'a été créé », **and no apply button at all**. With the three provenance cells → `1 à créer` · `1 transferts` · `1 équivalence(s)` |
+| **h** | Modal opens with **Inscrire** disabled; choosing a 3ᵉ année flips the divider to « Provenance — **obligatoire** », raises the alert and marks « Établissement d'origine » required |
+| **i** | A 17-character Apogée at 1ʳᵉ année → **VALEUR ILLISIBLE**, « le code provisoire « SANS-CNE-AP-000000000000001 » … ne serait pas un identifiant enregistrable ». Without that guard the student would have been created and then unsaveable for ever |
+| **g-bis** | 2025-2026 → 2026-2027: `1074 à traiter` · **`58 bloqué(s) en dernière année`**, and the DOM holds **1000 rows: 942 « Aucune décision », 58 « Stage antérieur non validé »**. Before the fix those 58 were counted and not listed |
+| **f, g** | ⚠ **Not run.** `PriorEnrolments` is still **0 rows** — the one thing that table exists for is the one thing not yet exercised on real data |
+
+The four rules the created rows prove, which no test could:
+
+```
+SMOKETEST01 | SANS-APOGEE-SMOKETEST01 | Nour Zaimi | nour_zaimi@um5.ac.ma  | Medecine | Pending | Cnpn 3 / Effectivity
+SMOKETEST02 | SANS-APOGEE-SMOKETEST02 | Nour Zaimi | nour_zaimi2@um5.ac.ma | Medecine | Pending | Cnpn 3 / Effectivity
+```
+
+the provisional **Apogée** (both identifiers are `NOT NULL UNIQUE`, so each row needed its own), the
+suffixed second address for the homonym, `AcademicProgram` read from the **level** and not from a
+column, and `CnpnSource = Effectivity` — the stamper ran and a rule governed the 1ʳᵉ année.
+
+### ⚠ Two test students are in the live base
+
+`SMOKETEST01` / `SMOKETEST02`, « Nour Zaimi », Première Année Médecine 2026-2027. Verified to carry
+**2 registrations, 0 internship assignments, 0 group, 0 history** — nothing hangs off them, so the
+removal is two statements and cascades nowhere:
+
+```sql
+DELETE FROM public."Registrations"
+ WHERE "StudentId" IN (SELECT "Id" FROM public."Users" WHERE "CNE" LIKE 'SMOKETEST%');
+DELETE FROM public."Users" WHERE "CNE" LIKE 'SMOKETEST%';
+```
+
+Leave them only if you intend to finish **f/g** first — the same file is re-runnable and will report
+them as « déjà inscrit ».
+
+**a. The canvas is cut for its promotion.** `GET /api/inscription/template?levelId=<1MED>` →
+`Inscription` sheet with 18 headers, `Mode d'emploi` saying « PROVENANCE — facultative en 1ʳᵉ année ».
+Ask for a 3ᵉ année instead: the same call must say « ⚠ PROVENANCE — **OBLIGATOIRE** », and the
+provenance block in the header row must be coloured amber rather than grey.
+
+**b. The dry run writes nothing.** Fill two rows (CNE, Nom, Prénom, no e-mail), upload to
+`POST /api/inscription/preview?levelId=<1MED>`. Expect `willCreateStudents: 2`, `newEntrants: 2`,
+`canApply: true`, and **`generatedEmails: 2`** with each row naming its own `prenom_nom@um5.ac.ma`.
+Then check the student count in the base is unchanged — the preview must have written nothing.
+
+⚠ **The generated address is a login.** Put a name in the sheet that already exists in the base
+(`SELECT "FirstName","LastName" FROM public."Users" WHERE "Email" LIKE '%@um5.ac.ma' LIMIT 1`) and
+confirm the preview offers `prenom_nom2@um5.ac.ma`, not the address the existing person holds.
+`SyncUserMiddleware` matches a Keycloak subject on e-mail, so a collision here hands one student
+another's account.
+
+**c. The confirmation is a number.** `POST /api/inscription?levelId=<1MED>` with **no**
+`confirmedStudentCount` → **409 `Inscription.CreationsNotConfirmed`**, and the student count is
+unchanged. Send `confirmedStudentCount=99` → 409 again, unchanged. Send the number the preview
+returned → **200**, and exactly that many students appear.
+
+**d. A transfer cannot enter without its équivalence.** Same two rows against a 3ᵉ année →
+**400 `Inscription.Rejected`**, rows reporting `OriginRequired`, **nothing created**. Add
+« Établissement d'origine », « Dernière année suivie » = 2 and « Référence d'équivalence », re-run →
+200, and:
+
+```sql
+SELECT "Institution", "LastLevelYearCompleted", "EquivalenceReference"
+FROM public."PriorEnrolments";
+```
+
+must show the row, joined to the registration that admitted him. ⚠ Fill only two of the three columns
+and confirm the row is refused (`InvalidValue`) rather than the équivalence being silently dropped.
+
+**e. The file is re-runnable.** Upload the exact same accepted sheet a second time, with **no**
+`confirmedStudentCount`. Expect **200**, `alreadyRegistered` equal to the row count, and the student
+and registration counts unchanged. This is the property the déliberation deliberately does *not* have,
+and it is what lets scolarité append the late arrivals and re-send.
+
+**f. The returner.** Find a student with a registration in an earlier year and none in the current one:
+
+```sql
+SELECT s."CNE", s."FirstName", s."LastName"
+FROM public."Users" s
+JOIN public."Registrations" r ON r."StudentId" = s."Id"
+WHERE NOT EXISTS (SELECT 1 FROM public."Registrations" x
+                  WHERE x."StudentId" = s."Id" AND x."AcademicYearId" = <current>)
+LIMIT 5;
+```
+
+Put his CNE on a one-row sheet. The preview must read `returning: 1`, `willCreateStudents: 0` — **no
+second student record**. This is the case the réinscription cannot carry, because he holds no
+registration in the closing year for it to read a verdict from.
+
+**g. The réorientation.** Take a Médecine student with no current-year registration and inscribe him
+into a **Pharmacie** level. Preview reads `programmeChanges: 1`. After applying:
+
+```sql
+SELECT u."AcademicProgram", u."CnpnVersionId", v."AcademicProgram" AS text_programme
+FROM public."Users" u
+LEFT JOIN public."CnpnVersions" v ON v."Id" = u."CnpnVersionId"
+WHERE u."CNE" = '<cne>';
+```
+
+⚠ `text_programme` must be **Pharmacie or NULL — never Medecine**. A stamp naming the programme he
+has left makes `TotalYears`, and therefore the final-year gate, answer from the wrong arrêté. NULL is
+the correct answer when PGSH holds no Pharmacie text applying at or before his entry.
+
+**g-bis. The réinscription's blocked rows are visible now.** Still on this screen, run
+**2 · Réinscription → Simuler** for 2025-2026 → 2026-2027. ⚠ The « à traiter » table must now list the
+students refused entry to their final year, with a red badge « Stage antérieur non validé » and a red
+count beside it. Measured on the live base: **60 of the 686** 6ᵉ année Médecine. Before session 30 the
+count appeared and **the table was empty** — the filter was a literal pair that never included them.
+If the table is still empty while the count is not, the fix did not land.
+
+**h. One student at a time, without a file.** The November transfer. Either « Un seul étudiant » on
+the card, or `POST /api/inscription/student` with a JSON body — no multipart, no preview, no
+`confirmedStudentCount`:
+
+```json
+{ "levelId": <3MED>, "cne": "T99001", "lastName": "Alaoui", "firstName": "Omar",
+  "dateOfBirth": "03/09/2006",
+  "originInstitution": "FMP Casablanca", "originLastYearCompleted": "2",
+  "equivalenceReference": "Arrêté 12/2026" }
+```
+
+Expect **200** and a single row report reading `"action": "TransferIn"`, `"createsStudent": true`,
+`"recordsOrigin": true`. ⚠ Send the same body **without** the three provenance fields and expect
+**400 `Inscription.OriginRequired`** — note the code names the *field*, not « 1 ligne en erreur »:
+that is the whole reason this path is not just a one-line sheet. Check the student count is unchanged
+after the refusal.
+
+In the modal, the equivalent check is that the **Inscrire** button stays disabled with the tooltip
+naming what is missing, and that the refusal — when it comes from the server — appears *inside* the
+modal rather than only as a toast.
+
+⚠ **The form and the sheet must read a date the same way.** `dateOfBirth` above is `03/09/2006`, the
+French spelling — confirm `SELECT "DateOfBirth" FROM public."Users" WHERE "CNE" = 'T99001'` reads
+**2006-09-03** and not 3 September's American twin. Both paths go through one parser; this is the
+check that they still do.
+
+**i. The identifiers PGSH manufactures are the ones it can still save.** Send a row with **no CNE**
+and an Apogée of 8 digits: the preview must offer `SANS-CNE-<apogee>`. Send one with no CNE and a
+17-character Apogée: **refused** (`InvalidValue`), because `SANS-CNE-` plus that would exceed the 20
+characters `StudentIdentifierRules.CnePattern` allows and the student would be read-only in the edit
+form for ever. ⚠ Then take a student the first sheet created and **open his file in the app and save
+it unchanged** — that is the assertion the pattern check exists for, and it is the one no unit test
+makes.
+
+**j. An identifier that belongs to somebody else.** Take a real student's e-mail from the base, put it
+on a row with a **brand-new** CNE, and preview. Expect `IdentifierConflict` naming the other student —
+**not** a match. Before this check the row silently gave that existing student a registration under
+the newcomer's name.
+
+**k. The control, and « Retrait ».** A `levelId` pointing at the withdrawal marker (`Year = 0`) →
+**400 `Inscription.NotAPromotion`**. Omitting `levelId` entirely → **400** from model binding. An
+anonymous request → **401**; a Professeur → **403 `Inscription.NotAllowed`**. In every case the
+student count must be unchanged — `InscriptionEndpointTests` asserts exactly this, but confirm it
+against the real base, because a guard ordered after the write passes the handler test.
+
+---
+
+## 29 · Défaire une planification — ce que chaque bouton emporte (10 min) — session 31
+
+**Executed 2026-08-30 against the live base — steps 0, 1, 2, 3, 4, 5, 6 pass; step 7 deliberately not
+run** (see below). Dump taken first: `C:\Users\LEGION\pgsh-pre-smoke29.dump` (20.5 MB, `-Fc`), kept
+outside the repo.
+
+### What the run established
+
+| step | result |
+|---|---|
+| **0** | **0 stranded affectations** — the defect never fired on this base. **285 mismatched**, but all 285 share year *and* group number and differ only in level: the `SplitAcademicGroupsPerLevel` signature (2023-2024 « Interne CHU » registrations whose cohortes stayed on the « Sixième Année » shard), **not** the double-affectation bug. That one is provably absent: **0** (registration, stage) pairs carry more than one affectation |
+| **1** | « Vider le groupe » on a roster holding 2 planned affectations → **the dialog stayed open**, its text replaced by the server's own sentence — « … n'est pas seulement une liste : ses étudiants tiennent **2 affectation(s)** et **0 période(s)** … » — and the button became **« Vider et supprimer les affectations »**. Counts match SQL. Store unchanged |
+| **2** | Confirmed again → roster emptied, **2 affectations + 2 memberships removed, cohorte and roster kept**, and the rest of the base untouched (98 558 → 98 556 affectations, exactly the two) |
+| **3** | « Vider le groupe » on *Groupe 29 — Cinquième Année Pharmacie* (2025-2026, 4 affectations / 8 périodes, all started) → refused: « Les rotations de « … » sont engagées : sur **8 période(s), 8 ont démarré** … ». **No second confirmation offered** — it cannot be forced from here, as designed. Store unchanged |
+| **4** | « Vider toutes » on 2025-2026 → refused; the 8 077 registrations of the year kept their rosters. No override anywhere |
+| **5** | « Supprimer la cohorte » on a cohorte holding 1 planned affectation → deleted, affectation and membership with it, **and the student's registration and roster pointer survived** |
+| **6** | « Réinitialiser » on *Psychiatrie* 2025-2026 → refused: « « **Psychiatrie** » est engagé en **2025-2026** : **60 cohorte(s), 706 affectation(s), 706 période(s) dont 706** … ». The old message was « des affectations sont déjà en cours ». ✅ It names **2025-2026**, not the current year — proof the year is resolved from the navbar selection rather than widened |
+| **7** | ⚠ **Not run.** The base holds **0 published cells**, so « Supprimer le bloc » would *succeed* and destroy a real axis. That click is already `HANDOFF` item 2, to be done by a human on a block whose loss costs nothing |
+
+**After every refusal the store was compared against the dump and was identical**; at the end of the
+run — test rows removed — the base matched it on every table touched: 98 556 affectations, 105 626
+périodes, 13 604 cohortes, 87 094 évaluations, 3 797 groupes, 43 605 inscriptions rattachées.
+
+### Two things the run found
+
+1. ⚠ **Every refusal toasted twice** — `errorMiddleware` (« Conflit ») and the page's own
+   `notify.error` (« Erreur »), with the *identical* sentence, because this session had just made the
+   page-level one print the server's words. `errorMiddleware` already toasts every rejected mutation
+   in the server's own words, so the page-level call was redundant: removed from all four teardown
+   handlers. This is `HANDOFF` item 4's sweep, done for these paths only.
+2. ⚠ **The reset dialog said « pour l'année en cours » while the command targets the year selected in
+   the navbar** — routinely a past one. The refusal that came back said « engagé en 2025-2026 »,
+   naming a different year from the confirmation the operator had just read. It now names the year.
+   *A destructive confirmation must name what it will actually hit.*
+
+Both fixes are type-clean; ⚠ neither was re-driven through the browser afterwards — the year picker
+stopped responding to automation near the end of the session.
+
+### ⚠ What this base cannot exercise, and why steps 1/2/5 needed help
+
+**All 105 626 périodes carry `IsStarted = true` and 0 are grid-linked** — they are the imported
+history, and the importer marked them all started. So *every* roster that has ever been planned is in
+the « underway » state, and the middle state (affectations planned, nothing run) does not occur
+anywhere in the base. Steps 1, 2 and 5 were run against a throwaway roster seeded for the purpose
+(`ZZ-SMOKE29`, 2026-2027, since removed).
+
+The consequence worth remembering: **on this base « Vider le groupe » is now refused for every roster
+that carries history**, which is correct — those students really did stand in those services — and
+rosters with no cohortes (« Non réparti », the 2026-2027 rosters) still empty freely.
+
+### The original recipe, for a future run
+
+⚠ **Two of these steps destroy rows on purpose.** Do them on a cohorte whose loss costs nothing, or
+take a `pg_dump -Fc` first. The base holds **0 grid-linked périodes**, so almost nothing is currently
+in the « underway » state — which means the refusals in steps 3 and 5 have to be *provoked* rather
+than stumbled on.
+
+### 0 · What the old behaviour already left behind — run this first
+
+Nothing back-fills it. An affectation whose registration points at no roster is invisible to every
+roster screen and visible to every chef:
+
+```sql
+-- affectations whose student is in NO roster at all
+SELECT COUNT(*)                                   AS stranded_assignments,
+       COUNT(DISTINCT a."RegistrationId")         AS students,
+       COUNT(DISTINCT c."AcademicGroupId")        AS rosters_still_named
+FROM   "InternshipAssignments" a
+JOIN   "Registrations" r ON r."Id" = a."RegistrationId"
+JOIN   "Cohorts"       c ON c."Id" = a."CurrentCohortId"
+WHERE  r."AcademicGroupId" IS NULL;
+
+-- the sharper one: student IS in a roster, but not the roster his affectation's cohorte belongs to
+SELECT COUNT(*) AS mismatched_assignments
+FROM   "InternshipAssignments" a
+JOIN   "Registrations" r ON r."Id" = a."RegistrationId"
+JOIN   "Cohorts"       c ON c."Id" = a."CurrentCohortId"
+WHERE  r."AcademicGroupId" IS NOT NULL
+  AND  r."AcademicGroupId" <> c."AcademicGroupId";
+```
+
+The second query is the double-affectation signature (empty → re-cut → re-assign). If either comes
+back non-zero, decide what to do with them **before** running the rest of §29 — the new guards stop
+more from being made, they do not clean up.
+
+### 1 · « Vider le groupe » on a roster that holds affectations — refused, and it says what it holds
+
+*Groupes* → open any roster of a promotion that has been provisioned (its stages have cohortes) →
+**Vider le groupe**.
+
+- The dialog opens with the ordinary wording.
+- Confirm → **it does not close.** The message is replaced by the server's own sentence:
+  « … ses étudiants tiennent N affectation(s) et M période(s) de service, qui ne partiraient pas avec
+  eux… », and the button now reads **« Vider et supprimer les affectations »**.
+- ✅ N and M must match:
+  ```sql
+  SELECT COUNT(*) AS affectations,
+         (SELECT COUNT(*) FROM "ServicePeriods" p
+          JOIN "InternshipAssignments" a2 ON a2."Id" = p."InternshipAssignmentId"
+          JOIN "Cohorts" c2 ON c2."Id" = a2."CurrentCohortId"
+          WHERE c2."AcademicGroupId" = <groupId>) AS periodes
+  FROM "InternshipAssignments" a
+  JOIN "Cohorts" c ON c."Id" = a."CurrentCohortId"
+  WHERE c."AcademicGroupId" = <groupId>;
+  ```
+- **Cancel here.** Nothing must have been written — re-run the query and confirm the roster still has
+  its students (`SELECT COUNT(*) FROM "Registrations" WHERE "AcademicGroupId" = <groupId>`).
+
+⚠ This is the assertion the whole step exists for: a guard placed *after* the write returns the same
+refusal and looks identical on screen. Only the store tells them apart.
+
+### 2 · The same roster, confirmed twice — it empties and says what it took
+
+Repeat step 1 and press **Vider et supprimer les affectations**.
+
+- ✅ Toast: « N étudiant(s) retiré(s) du groupe — N affectation(s) et M période(s) supprimée(s) ».
+- ✅ The **cohortes survive** (they are structural): the stage page still lists them, now with 0
+  students each.
+- ✅ Both queries from step 0 stay at whatever they were — this path leaves nothing stranded.
+
+### 3 · A roster whose rotation has started — refused outright, no way through
+
+Provoke it: on the stage page, publish a cohorte's planning and press **Démarrer les affectations**,
+then go back to that roster and press **Vider le groupe**.
+
+- ✅ The message is the *underway* one — « Les rotations de « … » sont engagées : sur M période(s),
+  K ont démarré, … » — and the button stays **« Vider »**: no second confirmation is offered, because
+  there is nothing to confirm. It cannot be forced from here.
+- ✅ It names « Dépubliez la répartition du stage » as the way forward.
+- Follow it: *Stage* → **Dépublier** → read *that* refusal's numbers → force it → come back and empty
+  the roster. The chain must work end to end.
+
+### 4 · « Vider toutes » on a year that holds affectations — refused, and offers no override
+
+*Groupes* → **Vider toutes**.
+
+- ✅ Refused with « Les groupes de 2025-2026 portent N affectation(s) et M période(s)… », pointing at
+  the per-stage reset.
+- ✅ There is **no** second confirmation and no flag anywhere that would let it through. A year's
+  affectations are not something a roster button may destroy.
+
+### 5 · « Supprimer la cohorte » — the one that had no guard at all
+
+*Stage* → a cohorte's trash icon.
+
+- On a **planned** cohorte: ✅ toast « Cohorte supprimée — N affectation(s) et M période(s) avec
+  elle ». Before this session it answered 204 with no number.
+- On a **started** one (use the cohorte from step 3): ✅ refused, « La cohorte « … » est engagée : N
+  affectation(s), M période(s) dont K démarrée(s), … », and the périodes are still there afterwards.
+
+### 6 · « Réinitialiser les cohortes » — and the year it must not cross
+
+*Stage* → **Réinitialiser**.
+
+- ✅ On a started stage: refused, naming the **stage**, the **année**, and the five counts. The old
+  message was « des affectations sont déjà en cours » — true, and useless.
+- ✅ Change the navbar year to a **past** one on a stage that ran then, and check the reset touches
+  only that year. Before this session an unresolved year meant *every* year the stage ever ran:
+  ```sql
+  SELECT g."AcademicYearId", COUNT(*) FROM "Cohorts" c
+  JOIN "AcademicGroups" g ON g."Id" = c."AcademicGroupId"
+  WHERE c."StageId" = <stageId> GROUP BY 1 ORDER BY 1;
+  ```
+  Run it before and after: exactly one row's count may change.
+
+### 7 · The rotation block — confirm it was already right
+
+Nothing was changed here; the point is to see that it holds.
+
+- ✅ *Niveau* → **Supprimer le bloc** on a promotion with a **published** cell → refused
+  (`RotationCycle.CannotDeletePublished`), naming the cell count.
+- ✅ Unpublish, then delete: it goes through, reporting `SlotsRemoved` / `PlannedCellsRemoved`.
+- ⚠ Known and deliberate: a cohorte served only by **ad-hoc** périodes (historique importé,
+  délocalisation, revalidation) hangs off no cell — it neither blocks the removal nor is destroyed by
+  it. Removing slots cascades cells, never périodes.
+
+### What would make this section a pass
+
+Every refusal above reaches the screen **in the server's own words**, the store is unchanged after each
+refusal, and the two destructive confirmations name numbers that match the SQL. If any toast reads
+« Impossible de … » with no sentence behind it, the failure is in the page's `catch`, not in the guard
+— see the `errors[]` / `detail` rule in `CLAUDE.md`.
+
+
+## 30 · Les deux exports Excel (8 min) — session 32
+
+**Executed 2026-08-31 against the live base — steps 0-7 pass, through the real buttons.** Nothing
+here writes, so no dump was taken and none was needed. ⚠ Step 8's second half (a past year through
+the navbar) was driven, but the year picker is unreliable under browser automation — see the note at
+the end.
+
+### What the run established
+
+| step | result |
+|---|---|
+| **1** | `GET students/export`, no filters → `etudiants-2026-2027.xlsx`, **5 932 rows**. SQL says 5 932 registrations in the current year, and **every one of the 13 per-level counts matches exactly** (902 / 898 / 895 / 833 / 691 / 606 / 235 / 228 / 207 / 160 / 144 / 98 / 35). ⚠ « 5ᵉ année Médecine » is **833** — the figure `CLAUDE.md` records for the one-`Any` scoping rule, reproduced here independently |
+| **2** | `?levelId=` → `etudiants-cinquieme-annee-medecine-…`, accents folded not dashed, `Programme` and `Niveau` columns still present |
+| **3** | `CNE`/`Apogée` are text (leading zeros intact), `Date de naissance` is a real date cell, `Statut` reads « En cours », `Origine CNPN` is « Inscription » on all 5 932 (the réinscription stamped every one), `CNPN` splits 2174.18 = 3 028 · 1650.25 = 2 032 · PHARM-LEGACY = 872 = 5 932. **`Groupe` / `Partition` blank on every row** — correct: 2026-2027 was rolled over but no roster has been cut yet |
+| **4** | `GET stages/assignments/export?levelId=3` (3ᵉ MED 2025-2026) → **1 872** rows on « Stages » (SQL: 1 872), **3 744** on « Périodes », **2** on « Synthèse » (Chirurgie 936 + Médecine 936 = 1 872). `Réf. stage` matches across the two sheets. `Origine` = « Hors grille » on every période — the base holds 0 grid-linked ones |
+| **5** | The multi-service case, on real data: `Service(s)` = « Chirurgie B → Traumatologie1 », `Période(s)` = « 18/03/2026 – 03/05/2026 · 04/05/2026 – 17/07/2026 », `Nb services` = 2, `Découpage` = « Rotation — 2 services, 2 périodes ». Spans and services correspond position by position |
+| **5b** | **The single-service multi-période case** — 4ᵉ MED 2018-2019, the only place in the base it occurs: **293 rows** read « Service unique — 2 périodes, 1 interruption(s) », against 293 in SQL. `Service(s)` = « Pédiatrie1 » written **once**, and `Période(s)` = « 22/04/2019 – 31/05/2019 · 25/06/2019 – 12/07/2019 » — **not merged**, because 24 worked days separate the two windows. `Jours ouvrables` = **44** (30 + 14) against `Jours calendaires` 58 and an end-to-end span of 82 days |
+| **6** | `onlyEvaluated` — the 2018-2019 file's « Synthèse » carries real verdicts: Cardiologie 556/582 (95,5 % · moyenne 11,29), Dermato-Endocrino 561/582 (96,4 % · 14,23), Pédiatrie 552/582 (94,8 % · 11,06), Pneumologie 554/582 (95,2 % · 13,35), Rhumato-Radio 566/582 (97,3 % · 13,16). `Non évalués` = 0 across the promotion, and 582 × 5 = 2 910 = the Stages sheet |
+| **7** | The rattrapage columns are populated (`Niveau` ≠ `Niveau du stage` where they differ) |
+| **UI** | ⚠ On the Répartition page the stage-record export is **enabled while « Imprimer / PDF » is disabled** — 4ᵉ MED 2018-2019 shows « Aucune période n'est planifiée » and still exports 2 910 affectations. That is the intended split: the répartition is the plan, this is the record, and every imported year has the second without the first |
+
+### Two things the base cannot show you
+
+- **The contiguous merge has no instance in this base.** Across every year: 91 894 affectations with
+  one période, **293** with several in one service (all the 2018-2019 Pédiatrie interruption above),
+  6 367 with two services, 1 with three. So the branch that prints « 2 périodes contiguës » as a
+  single span is covered by `StagePeriodFolderTests` and by nothing on disk. It will first appear the
+  day a `SingleService` stage is published and then edited, or when a second import lands.
+- **`Export.TooManyRows` is unreachable.** The biggest year is 15 542 affectations against a cap of
+  25 000, and 5 932 registrations against 20 000. The refusal was exercised with a stubbed 400 in the
+  browser instead — which is what surfaced the defect below.
+
+### Found during the run
+
+1. ⚠ **Every refusal toasted twice** — `errorMiddleware` (« Données invalides ») and the export
+   component's own `notify.error` (« Erreur »), same sentence. Fixed: components no longer toast, and
+   the frontend `ARCHITECTURE.md` line that said the middleware does *not* toast 400/422 — the
+   sentence that invites exactly this defect — was corrected. Re-verified: one toast, in the server's
+   own words.
+2. ⚠ **The caption number was locale-wrong**: « 5.932 inscription(s) », because `:N0` used the API
+   process's `CurrentCulture`. Now formatted through `ExportLabels.Fr`. **The running API predates
+   the fix — restart it and re-check the caption reads « 5 932 ».** Nothing else in the file is
+   affected; the cells are typed values, not formatted strings.
+
+### ⚠ On driving this from a browser
+
+The navbar year picker is unreliable under automation (it silently reverts, and it froze the renderer
+twice) — the same note session 31b left. Selecting a promotion and clicking the export are fine. To
+reach a past year, change it by hand first, then automate the rest.
+
+
+### 9 · Ce que le document dit de ses propres blancs (added 2026-08-31, session 32c)
+
+⚠ **Needs the API restarted** — the notes were added after the run above.
+
+Re-download the roll for a year whose students are not yet in rosters (2026-2027 today) and read the
+lines **above the header**:
+
+1. « Aucune valeur dans cet export pour : Groupe, N° groupe, Partition, Source de la décision,
+   Convention. Ces colonnes sont vides parce que la donnée n'existe pas encore, pas parce qu'elles
+   n'ont pas été lues. »
+2. « Aucune inscription n'est rattachée à un groupe, alors que **90 groupe(s)** existent pour cette
+   sélection : le découpage est fait, la répartition des étudiants ne l'est pas encore. »
+
+Then check the **controls**, which are what stop the note becoming noise:
+
+- Re-download the same roll for **2025-2026** (8 077 inscriptions, all in rosters): note 1 must not
+  name `Groupe`, and note 2 must be absent entirely.
+- ⚠ A **partly**-filled column must never be reported. 2025-2026 has 8 077 rosters pointers but only
+  3 351 partitions — `Partition` must therefore **not** appear in note 1 for that year.
+- The stage record carries note 1 too: export a promotion with no marks and « Note » should be named.
+
+The numbers to check against:
+
+```sql
+-- rosters that exist for the scope vs inscriptions actually attached to one
+SELECT (SELECT count(*) FROM "AcademicGroups" WHERE "AcademicYearId"=<year> AND ("LevelId"=<level> OR <level> IS NULL)) rosters,
+       count(*) total, count(r."AcademicGroupId") rattachees
+FROM "Registrations" r WHERE r."AcademicYearId"=<year>;
+```
+
+Measured 2026-08-31: 2026-2027 → **90 rosters · 5 932 inscriptions · 0 rattachées**; 2025-2026 →
+8 077 / 8 077. ⚠ Nothing is broken in the first: that promotion is cut and not yet populated, and no
+plan can be generated until it is (`HANDOFF` item 0d).
+
+### 10 · La colonne « Étudiants » de la liste des groupes (session 32d)
+
+Académique → Groupes, sans filtre de niveau.
+
+- **2026-2027** : les 90 groupes de la 4ᵉ année Médecine affichent **0**, en orange.
+- **2025-2026** : des comptes réels en teal — 12, 15, 13, 3, 7 … — et « Non réparti » à **4 725**.
+
+⚠ C'est le contraste qui compte : avant cette colonne, 90 groupes vides et 90 groupes pleins étaient
+indiscernables, et c'est ce qui a fait prendre un export exact pour un export cassé. Un zéro n'est
+pas une erreur — c'est l'état normal entre le découpage et la répartition — mais il ne doit jamais
+ressembler aux autres lignes.
+
+### Where the buttons are
+
+- **Étudiants → Liste des étudiants** → « Exporter (.xlsx) », top right. Carries the année, the
+  programme, la promotion and the search term already on screen.
+- **Formation → Répartition annuelle** → « Dossier de stages (.xlsx) », a menu with « État des lieux
+  — tout » and « PV — stages évalués uniquement ». Scoped to the promotion and the année.
+- **Suivi → Affectations** → « Exporter le dossier (.xlsx) », beside « Importer les notes », scoped
+  to the stage in view.
+
+Both routes require an administrative role; a professor gets 403 and an anonymous caller 401. They
+can also be driven from **Scalar** (`/scalar/v1` → *Students* → `ExportStudents`,
+*InternshipAssignments* → `ExportStageAssignments`).
+
+### The steps, to re-run
+
+### 0 · Le rôle (30 s)
+
+Signed in as scolarité, open `…/api/students/export`. A file downloads.
+Sign in as a professor and open the same URL → **403**, `Export.NotAllowed`, « Seule la scolarité peut
+exporter… ». That refusal is the reason the rest of the run means anything.
+
+### 1 · La liste des étudiants, sans rien préciser (1 min)
+
+```
+GET /api/students/export
+```
+
+- The file name carries the scope: `etudiants-<année>.xlsx`.
+- Row 1 is a caption: « Étudiants — toutes promotions — **2025-2026** — N inscription(s) ».
+- ⚠ **N must be this year's registrations, not the 10 204 students in the base.** Cross-check:
+
+```sql
+SELECT count(*) FROM "Registrations" r
+JOIN "AcademicYears" y ON y."Id" = r."AcademicYearId"
+WHERE y."IsCurrent";
+```
+
+- Header row frozen, auto-filter on, one row per registration.
+- Spot-check a student who repeated: he appears **once**, under the year's level and group — not once
+  per year he has been enrolled.
+
+### 2 · Une promotion (1 min)
+
+```
+GET /api/students/export?levelId=<5ᵉ année Médecine>
+```
+
+- File name becomes `etudiants-cinquieme-annee-medecine-2025-2026.xlsx` (accents folded, not dashed).
+- ⚠ **The `Programme` and `Niveau` columns are still there.** That is the answer to « fichier par
+  promotion ou colonne ? » — both, and the row still says where it came from.
+- Row count must equal the promotion, measured the right way — **one `Any`, not two**:
+
+```sql
+SELECT count(*) FROM "Registrations" r
+WHERE r."LevelId" = <levelId> AND r."AcademicYearId" = <yearId>;
+```
+
+- Add `&academicGroupId=<id>` and check the count drops to that roster; `&searchTerm=ben` and check it
+  matches on nom, prénom, CNE, Apogée and CIN — case-insensitively (try `AP2200A` in lower case).
+- `?levelId=4242` → **400**, not a file. An unknown level must never silently widen to the whole year.
+
+### 3 · Ce que les colonnes doivent dire (2 min)
+
+Open the sheet and check, on a handful of rows:
+
+| column | what to verify |
+|---|---|
+| `CNE`, `Apogée` | left-aligned **text** — a code with leading zeros still has them, and none has become a date |
+| `Date de naissance` | a real date cell: sort by it and the order is chronological, not alphabetical |
+| `Groupe` / `N° groupe` / `Partition` | match the roster on the Groupes page for the same student |
+| `Statut` | French — « Admis », « Redoublant », « En cours » — never `Validated` |
+| `Source de la décision` | blank on every legacy year (nobody pronounced), « Déclarée (PV) » after a déliberation |
+| `CNPN` / `Origine CNPN` | « Inscription » where the registration carries a stamp, « Étudiant » where it fell back, **blank on both for the ~2 200 unstamped** — blank means « jamais résolu », not « rien dû » |
+
+### 4 · Le dossier de stages, une promotion (2 min)
+
+```
+GET /api/stages/assignments/export?levelId=<promotion>
+```
+
+Three sheets, in this order: **Stages**, **Périodes**, **Synthèse**.
+
+- **Stages** — one row per affectation. Check the count against:
+
+```sql
+SELECT count(*) FROM "InternshipAssignments" a
+JOIN "Registrations" r ON r."Id" = a."RegistrationId"
+WHERE r."AcademicYearId" = <yearId> AND r."LevelId" = <levelId>;
+```
+
+- **Périodes** — one row per période of those affectations. On this base every période is imported
+  history, so `Origine` should read **« Hors grille »** on all of them (0 grid-linked périodes in the
+  whole base). A row reading « Répartition » means something has been published since.
+- **Synthèse** — one row per stage. `Effectif` per stage must sum to the Stages sheet's row count, and
+  `Validés + Non validés + Non évalués = Effectif` on every line.
+- Pick one student and follow him across the two sheets by **`Réf. stage`** — the same GUID on both.
+  It is the only join; if it does not match, the detail sheet is unreadable.
+
+### 5 · La question qui a motivé la fonctionnalité : plusieurs périodes (2 min)
+
+Find a 3ᵉ or 4ᵉ année student whose stage was recorded in more than one période:
+
+```sql
+SELECT a."Id", count(*) AS periodes, count(DISTINCT p."ServiceId") AS services
+FROM "ServicePeriods" p
+JOIN "InternshipAssignments" a ON a."Id" = p."InternshipAssignmentId"
+JOIN "Registrations" r ON r."Id" = a."RegistrationId"
+WHERE r."AcademicYearId" = <yearId>
+GROUP BY a."Id" HAVING count(*) > 1
+ORDER BY services DESC, periodes DESC LIMIT 20;
+```
+
+Take one row of each shape and check the Stages sheet:
+
+| the data | `Nb périodes` | `Nb services` | `Découpage` | `Période(s)` |
+|---|---|---|---|---|
+| 2 périodes, 1 service, meeting | 2 | 1 | `Service unique — 2 périodes contiguës` | **one** span, `début – fin` |
+| 2 périodes, 1 service, a gap | 2 | 1 | `Service unique — 2 périodes, 1 interruption(s)` | **two** spans joined by « · » |
+| 2 périodes, 2 services | 2 | 2 | `Rotation — 2 services, 2 périodes` | two spans; `Service(s)` reads `A → B` in the same order |
+
+⚠ **The three things to actually check, because each is a defect the export was written to avoid:**
+
+1. On the contiguous row, `Nb périodes` still says **2**. A merged span that also erased the count
+   would have hidden the multi-période fact entirely.
+2. On the gapped row, the span is **not** merged. `début → fin` there would claim the student stood in
+   a service on days he was not enrolled.
+3. `Jours ouvrables` is the **sum over the périodes**, not `Fin − Début`. On the gapped row it must be
+   clearly less than the calendar distance between the first start and the last end.
+
+Weekends are not gaps: a période ending a Friday followed by one starting the Monday is **contiguous**.
+So is one separated only by a declared `Holiday`. If either prints as an interruption, the calendar is
+not being consulted.
+
+### 6 · PV ou état des lieux (1 min)
+
+```
+GET /api/stages/assignments/export?levelId=<promotion>&onlyEvaluated=true
+```
+
+- The caption gains « — évaluées uniquement » and the row count drops to the affectations carrying a
+  verdict. Without the flag the unmarked rows are **in** the file, reading « Non évalué » — that is
+  deliberate: a document whose purpose is « où en est la promotion » has to show the holes.
+- `Synthèse`'s `Non évalués` column should be **0** in the filtered file and non-zero in the unfiltered
+  one, for the same promotion.
+
+### 7 · Un rattrapage (1 min)
+
+Find a student registered in one promotion holding an affectation on another promotion's stage:
+
+```sql
+SELECT r."LevelId" AS inscrit_en, s."LevelId" AS stage_de, count(*)
+FROM "InternshipAssignments" a
+JOIN "Registrations" r ON r."Id" = a."RegistrationId"
+JOIN "Cohorts" c ON c."Id" = a."CurrentCohortId"
+JOIN "Stages" s ON s."Id" = c."StageId"
+WHERE r."AcademicYearId" = <yearId> AND r."LevelId" <> s."LevelId"
+GROUP BY 1, 2;
+```
+
+⚠ He must appear on the export of the promotion he is **registered in**, with `Niveau` and
+`Niveau du stage` disagreeing — and **not** on the export of the stage's own promotion. That is the
+opposite of how the student dossier scopes, on purpose: this file is « la promotion et ce qu'elle a
+fait », the dossier is « ce que cet étudiant doit à ce niveau ».
+
+### 8 · L'année, lue et jamais devinée (30 s)
+
+Switch the export to a past year (`&academicYearId=<previous>`) and confirm the caption, the file name
+and the rows all move together. Then check the case a date rule gets wrong: a stage registered in
+2025-2026 that ran into September 2026 must be in the **2025-2026** file, never in 2026-2027.
+
+```sql
+SELECT count(*) FROM "ServicePeriods" p
+JOIN "InternshipAssignments" a ON a."Id" = p."InternshipAssignmentId"
+JOIN "Registrations" r ON r."Id" = a."RegistrationId"
+JOIN "AcademicYears" y ON y."Id" = r."AcademicYearId"
+WHERE p."EndDate" > y."EndDate";
+```
+
+Measured 2026-08-30 this is **7 030 of 105 626 périodes (6.7 %)**. Every one of them belongs to the
+year its registration names.
+
+---
+
 # Rollback
 
 Reverse in the order below.
@@ -1961,3 +2822,172 @@ cd PGSH/PGSH.Frontend && git status --short
 
 The backend tree is now clean — everything those sessions added is tracked, so a `git checkout .`
 removes nothing of it. The one untracked path left is `cnpn/`, your PDF; keep it.
+
+## 31 · La grille paginée, la publication en un seul refus, et un plan écrit d'un bloc (12 min) — session 33
+
+⚠ **Nothing here has been run in a browser.** The suite is green (1 223) and the SQL was measured
+against the live base, but the three screens below were changed and no human has opened them since.
+Steps 1-4 write nothing. Steps 5-6 write; **take `pg_dump -Fc` first** if the base matters.
+
+⚠ **Restart the API and reload the frontend first** — the response shape of `GET
+stages/{id}/schedule` changed (`cohorts` is now a paginated envelope, and there is a new `summary`),
+so an old bundle against a new API, or the reverse, shows an empty grid rather than an error.
+
+### 1 · La grille s'ouvre et se ferme (2 min) — le symptôme d'origine
+
+Stages → **Gynécologie Obstétrique** (2026-2027, la promotion la plus large : 105 cohortes) →
+« Grille de planning ».
+
+| attendu | pourquoi |
+|---|---|
+| la modale s'ouvre en moins d'une seconde | 25 lignes rendues au lieu de 105 |
+| **et se ferme instantanément** | c'est la moitié qui prouve où était le coût : fermer n'appelle pas le serveur |
+| sous le tableau : « 1–25 sur 105 cohorte(s) » et une pagination | une liste bornée doit dire ce qu'elle ne montre pas |
+| en haut : « 105 cohorte(s) », et le cas échéant « N publiée(s) » / « N configurée(s) non publiée(s) » | ces nombres viennent du serveur et décrivent **toute** la sélection |
+
+⚠ **Le piège à vérifier explicitement :** le bouton « Publier tout (N) ». **N doit être le nombre de
+la sélection entière, jamais 25.** S'il vaut la taille de page, la publication en publiera bien plus
+que ce qu'elle annonce.
+
+### 2 · Paginer et filtrer (3 min)
+
+1. Page 2, page 3 → des cohortes différentes à chaque fois, jamais deux fois la même ligne.
+2. Chips de partition : chaque chip porte maintenant **son effectif** (« A (11) »). Cliquer « A » →
+   les lignes se réduisent, le compteur passe à « 1–11 sur 11 cohorte(s) — partition A », **et les
+   chips B, C… restent affichées.** Si elles disparaissaient, il n'y aurait plus de retour possible.
+3. Le filtre doit **remettre la page à 1** : depuis la page 3 de « Toutes », cliquer une partition
+   qui n'a qu'une page ne doit pas donner une grille vide.
+4. Ouvrir une cellule (le sélecteur de service), en changer une, la vider : inchangé.
+
+### 3 · Le rapport de saturation (2 min)
+
+Le bandeau rouge, puis « Voir le rapport ».
+
+- Le nombre annoncé est celui de **toute la sélection**, pas de la page — changer de page ne doit pas
+  le faire varier.
+- Un service saturé sur une période apparaît **une fois**, même si dix cohortes y sont : c'est un
+  fait sur le couple (créneau, service).
+- Si le tiroir affiche « N des M sont détaillées ici », le déficit annoncé est celui des N listées et
+  le dit. (M > 100 est improbable sur cette base ; la ligne existe pour ne pas mentir si ça arrive.)
+
+### 4 · « Répartition auto. » — les deux avertissements dérivés (2 min)
+
+Toujours dans la grille :
+
+- Ajouter un créneau vide (« Ajouter créneau »), rouvrir « Répartition auto. » → le bouton
+  « **Nouveaux créneaux uniquement (1)** » doit apparaître et ne cibler que la colonne neuve. ⚠ S'il
+  proposait aussi des colonnes déjà réparties, la répartition existante serait réécrite.
+- Cibler une partition (chip « A ») dont la fenêtre est déjà occupée par B → l'alerte orange
+  « Ces créneaux contiennent déjà les affectations de la partition **B** » doit apparaître. ⚠ C'est
+  précisément la partition que le filtre vient d'enlever de l'écran : si elle ne s'affiche plus,
+  l'avertissement est lu depuis les lignes visibles et il est faux.
+
+### 5 · Publier — un seul refus, qui compte (2 min) · ⚠ écrit
+
+Page du stage → « **Publier toutes** », **sans** cocher « Autoriser le dépassement d'effectif ».
+
+| attendu | pourquoi |
+|---|---|
+| **un seul toast rouge**, pas une dizaine | c'était le symptôme signalé : une requête par cohorte, donc un toast par cohorte |
+| il nomme un **nombre** (« N affectation(s) dépassent… ») et les trois plus lourdes | refuser cellule par cellule sur une base sur-souscrite à 66 % est inactionnable |
+| **rien n'est écrit** — le compteur « publiée(s) » ne bouge pas | le garde passe avant l'écriture |
+| si un service n'accueille pas la promotion, le message dit « ce refus-là ne peut pas être forcé » | la case ne lève que les effectifs |
+
+Puis recocher la case et recommencer : le refus d'effectif disparaît, un refus d'**admissibilité**
+resterait. Le succès annonce « N planning(s) publié(s) — M période(s) ».
+
+### 6 · Générer le plan — long, dit qu'il l'est, et tout ou rien (3 min) · ⚠ écrit
+
+Bloc de rotation → simuler → « Appliquer l'axe » → « **Générer le plan** ».
+
+1. Un panneau bleu apparaît sous les boutons : « Génération du plan en cours… », avec ce qui est
+   écrit et « Ne fermez pas l'onglet ».
+2. Tenter de fermer l'onglet pendant le run → le navigateur demande confirmation.
+3. **Le test qui compte :** relancer, puis fermer l'onglet (ou couper le réseau) au milieu. Rouvrir
+   et regarder la promotion : **soit le plan entier est là, soit rien n'a bougé.** Jamais trois
+   stages planifiés et quatre vides. ⚠ C'est la seule vérification de l'atomicité qui existe — le
+   provider en mémoire n'a pas de transactions, donc la suite de tests ne peut pas la prouver.
+
+```sql
+-- avant / après une interruption volontaire, sur la promotion visée
+SELECT s."Name", count(DISTINCT c."Id") AS cohortes, count(csa."Id") AS cellules
+FROM "Stages" s
+LEFT JOIN "Cohorts" c ON c."StageId" = s."Id"
+LEFT JOIN "AcademicGroups" g ON g."Id" = c."AcademicGroupId" AND g."AcademicYearId" = 22
+LEFT JOIN "CohortSlotAssignments" csa ON csa."CohortId" = c."Id"
+WHERE s."LevelId" = :levelId
+GROUP BY s."Name" ORDER BY s."Name";
+```
+
+Les deux colonnes doivent être **toutes remplies ou toutes vides** — jamais un mélange.
+
+### 7 · Les écrans qui lisent la grille sans être la grille (1 min)
+
+Affectations → choisir un stage → cocher des périodes (P4-P6) : la liste de cohortes doit se
+restreindre correctement. ⚠ Cette page lisait « dans quelles colonnes tourne cette cohorte » depuis
+la grille ; ce fait est passé sur la cohorte elle-même (`CohortResponse.periodNumbers`). **Si elle
+n'affiche plus que quelques cohortes, ou aucune, c'est que la page est restée sur l'ancienne
+source** — les cohortes au-delà de la première page se liraient comme ne tournant nulle part.
+
+---
+
+## §32 — L'export des stages : les créneaux d'une période groupée, et le chef de service
+
+⚠ **Redémarrer l'API suffit** — rien n'a changé côté frontend, l'export est un téléchargement. Aucune
+migration : `ServicePeriodSlotCoverage` et `ServiceChefAssignment` existent déjà.
+
+**Le cas de référence, mesuré sur la base le 31/08/2026 :** 5ᵉ année Médecine, **Gynécologie
+Obstétrique**, `Service unique`, publiée sur **3 créneaux** (P4 08/12→07/01, P5 08/01→07/02,
+P6 08/02→07/03) — 833 périodes, une par étudiant, chacune couvrant ces trois colonnes. Les six autres
+stages de 5MED sont `Rotation par période` et couvrent un créneau chacun : c'est le témoin.
+
+1. **Étudiants / Stages → « Exporter le dossier de stages »**, promotion **5ᵉ année Médecine**, année
+   **2026-2027**. Ouvrir le .xlsx.
+
+2. **Onglet « Stages », ligne Gynécologie Obstétrique.** Les colonnes anciennes n'ont pas bougé —
+   c'est voulu, le regroupement n'était pas le défaut :
+   - `Découpage` = « Période unique », `Nb périodes` = **1**
+   - `Nb services` = 1, `Service(s)` = le service
+   
+   Les nouvelles, juste à côté :
+   - `Nb créneaux` = **3** ⚠ c'est le nombre à vérifier en premier
+   - `Créneaux` = « P4-P6 »
+   - `Chef(s) de service` = un nom, `Origine du chef` = « Note (import) » sur presque toutes les
+     lignes (voir le point 5)
+   - `Détail des périodes` se termine par « … · créneaux P4-P6 »
+
+3. **Témoin sur la même feuille :** une ligne **ORL** ou **Psychiatrie** (`PerPeriod`) doit lire
+   `Nb périodes` = 1 **et** `Nb créneaux` = 1. Si tout le fichier affiche 3, la lecture est fausse ;
+   si tout affiche 1, la couverture n'est pas lue du tout.
+
+4. **Onglet « Périodes », même étudiant.** ⚠ **Toujours une seule ligne** — une période notée une fois
+   reste une ligne, sinon la note est comptée trois fois dans le premier tableau croisé venu. Sur
+   cette ligne :
+   - `Nb créneaux` = 3, `Créneaux` = « P4-P6 »
+   - `Détail des créneaux` = trois lignes dans la cellule, chacune avec **sa** fenêtre et ses jours
+     ouvrables : « P4 · 08/12/2026 – 07/01/2027 · 22 j.o. » etc. Élargir la ligne si Excel la tronque.
+
+5. **Chef de service — les deux moitiés.**
+   - Sur **toutes** les lignes de 2026-2027 : un nom + `Origine du chef` = « **Note (import)** ».
+     Vérifié sur la base — les 29 services que touche cette année n'ont que la note. C'est la
+     vérité — 140 des 148 services ne nomment leur professeur que dans une note de l'ancienne base,
+     **sans date**. Le nom est imprimé (sur 95 % du document c'est le seul disponible) et la colonne
+     d'à côté dit d'où il vient.
+   - Pour vérifier l'autre moitié : **Hôpitaux → un service → rattacher un chef dans Personnel**,
+     puis ré-exporter. La même ligne doit passer à « **Affectation** », et le nom doit être celui du
+     personnel même si la description porte encore l'ancienne note. Aucun changement de code n'est
+     nécessaire : l'affectation datée prime.
+
+6. **Une période hors grille ne ment pas.** Filtrer l'onglet « Périodes » sur `Origine` =
+   « Hors grille » (l'historique Access, les délocalisations, les revalidations) : `Nb créneaux` doit
+   être **vide**, pas `0`. Un `0` se lirait comme un décompte qui a échoué ; ces périodes ne viennent
+   d'aucune grille.
+
+7. **La note de bas de feuille.** Si `Nb créneaux` est vide sur *toutes* les lignes du fichier — un
+   export d'une promotion dont rien n'est publié — la légende sous le titre doit le dire
+   (« Aucune valeur dans cet export pour : … »). Une colonne vide partout sans explication est
+   exactement ce qui a fait remonter le premier export comme cassé.
+
+8. **La répartition n'a pas bougé.** Niveaux → 5ᵉ année Médecine → « Répartition » : les noms de chefs
+   imprimés doivent être identiques à avant. La règle de résolution a déménagé (elle est partagée avec
+   l'export) mais n'a pas changé — c'est le contrôle du refactoring.

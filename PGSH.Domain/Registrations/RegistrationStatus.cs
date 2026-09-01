@@ -60,4 +60,32 @@ public static class RegistrationStatusExtensions
         status is RegistrationStatus.Graduated
                or RegistrationStatus.Excluded
                or RegistrationStatus.Withdrawn;
+
+    /// <summary>
+    /// True when the year is <b>annulled</b>, so the stages served inside it establish nothing —
+    /// neither an acquisition nor a debt. A redoublant repeats the year from scratch, including the
+    /// stages he passed, so an attempt made in it is history and not a fact about what he owes.
+    /// </summary>
+    /// <remarks>
+    /// <para>⚠ <b>It is the year's verdict that annuls, not the stage's.</b> A stage failed in a year
+    /// the student <i>cleared</i> is the ordinary carried credit — it stays owed and is settled by
+    /// <c>RevalidateStageCommand</c>. Only <see cref="RegistrationStatus.Failed"/> wipes the slate,
+    /// which is why this is not simply « the year did not go well »:
+    /// <see cref="RegistrationStatus.Withdrawn"/> and <see cref="RegistrationStatus.Excluded"/> end
+    /// the cursus rather than repeat the year, and nobody has ruled that what was served before an
+    /// abandon never happened.</para>
+    ///
+    /// <para>⚠ <b>An unpronounced year annuls nothing.</b> <see cref="RegistrationStatus.Active"/> is
+    /// what the legacy import wrote on every historical registration — no verdict was ever recorded
+    /// for them — so reading « pas encore validée » as « annulée » would retroactively make the whole
+    /// imported cursus outstanding. Silence is not a failure.</para>
+    ///
+    /// <para><b>The case it exists for.</b> A student passes Chirurgie, fails the year, repeats it and
+    /// fails Chirurgie the second time. Without this he reads as having acquired the stage — on the
+    /// strength of a year that was annulled — and <c>FinalYearGuard</c> lets him into his last year
+    /// owing it. Read through here, the annulled attempt drops out, the surviving one is a failure,
+    /// and he owes it.</para>
+    /// </remarks>
+    public static bool AnnulsItsStages(this RegistrationStatus status) =>
+        status is RegistrationStatus.Failed;
 }

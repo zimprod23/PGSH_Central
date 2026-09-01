@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.AcademicYears;
+using PGSH.Domain.Common.Utils;
 using PGSH.Domain.Students;
 using PGSH.SharedKernel;
 
@@ -68,26 +69,23 @@ internal sealed class CnpnTargetPlanner(
 
         (int asOfYearId, string asOfLabel) = year.Value;
 
-        // Year 0 is "Retrait" — withdrawn students. "année ≤ 2" must not sweep them into a new
-        // programme they are no longer following.
-        var matchedIds = await dbContext.Registrations
-            .AsNoTracking()
-            .Where(r => r.AcademicYearId == asOfYearId
-                     && r.Level.AcademicProgram == criteria.Program
-                     && r.Level.Year >= 1
-                     && r.Level.Year <= criteria.MaxLevelYear)
-            .Select(r => r.StudentId)
-            .Distinct()
-            .ToListAsync(ct);
+        // ⚠ The selection is a *predicate*, not a list of ids, and it is reused as a subquery by the
+        // three reads below. It describes a promotion — 833 students for one (level, year) on the
+        // live base — and shipping that back as an `IN (…)` of Guids is the shape the codebase
+        // reaches for the predicate instead (StageAssignmentExportQueries.Scoped, FinalYearGuard's
+        // ForPromotionAsync). Defining it once is also what stops the three reads describing three
+        // slightly different populations.
+        var matched = MatchedStudentIdsQuery(
+            dbContext, criteria.Program, asOfYearId, criteria.MaxLevelYear);
 
-        if (matchedIds.Count == 0)
+        if (!await matched.AnyAsync(ct))
             return new Plan(
                 Empty(version.Id, version.Code, version.Label, asOfLabel), []);
 
         // Earliest recorded registration per matched student — the entry the arrêté keys on.
         var entries = (await dbContext.Registrations
                 .AsNoTracking()
-                .Where(r => matchedIds.Contains(r.StudentId))
+                .Where(r => matched.Contains(r.StudentId))
                 .Select(r => new { r.StudentId, r.AcademicYear.StartDate, r.AcademicYear.Label })
                 .ToListAsync(ct))
             .GroupBy(r => r.StudentId)
@@ -95,7 +93,7 @@ internal sealed class CnpnTargetPlanner(
 
         var levelLabels = (await dbContext.Registrations
                 .AsNoTracking()
-                .Where(r => r.AcademicYearId == asOfYearId && matchedIds.Contains(r.StudentId))
+                .Where(r => r.AcademicYearId == asOfYearId && matched.Contains(r.StudentId))
                 .Select(r => new { r.StudentId, r.Level.Label })
                 .ToListAsync(ct))
             .GroupBy(r => r.StudentId)
@@ -108,7 +106,7 @@ internal sealed class CnpnTargetPlanner(
         // Tracked: apply writes through the aggregate, and the preview must plan against the same
         // objects it would mutate.
         var students = await dbContext.Students
-            .Where(s => matchedIds.Contains(s.Id))
+            .Where(s => matched.Contains(s.Id))
             .ToListAsync(ct);
 
         var work = new List<PlannedAssignment>();
@@ -173,6 +171,32 @@ internal sealed class CnpnTargetPlanner(
 
         return new Plan(preview, work);
     }
+
+    /// <summary>
+    /// Who the rule selects: the students registered in the as-of year, in this programme, at or
+    /// below the named level year.
+    /// </summary>
+    /// <remarks>
+    /// <para>⚠ <b>Year 0 is « Retrait »</b> — a withdrawal marker wearing a level's clothes.
+    /// « année ≤ 2 » must not sweep the withdrawn into a text they are no longer following, which is
+    /// why the predicate states <c>Year &gt;= 1</c> rather than trusting the upper bound alone.</para>
+    ///
+    /// <para>⚠ <b>No <c>AsNoTracking()</c> here, and that is load-bearing.</b> Tracking is a property
+    /// of the whole compiled query, so a subquery carrying the marker makes its <i>host</i> no-tracking
+    /// too — and the host that matters is the one loading the students the apply then mutates. Marked
+    /// here, the apply stamped detached objects and <c>SaveChanges</c> wrote nothing: the preview was
+    /// right, the apply reported success, and not one student moved. Each caller states its own
+    /// tracking.</para>
+    /// </remarks>
+    internal static IQueryable<Guid> MatchedStudentIdsQuery(
+        IApplicationDbContext dbContext, AcademicProgram program, int asOfYearId, int maxLevelYear) =>
+        dbContext.Registrations
+            .Where(r => r.AcademicYearId == asOfYearId
+                     && r.Level.AcademicProgram == program
+                     && r.Level.Year >= 1
+                     && r.Level.Year <= maxLevelYear)
+            .Select(r => r.StudentId)
+            .Distinct();
 
     private static CnpnTargetRow Row(
         Student student,

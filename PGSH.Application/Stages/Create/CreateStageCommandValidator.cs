@@ -19,10 +19,8 @@ public sealed class CreateStageCommandValidator : AbstractValidator<CreateStageC
         RuleFor(x => x.LevelId)
             .NotEmpty().WithMessage("Level must be specified.");
 
-        // Validation for the collection of Objectives
-        RuleFor(x => x.Objectives)
-            .NotEmpty().WithMessage("At least one stage objective is required.");
-            //.Must(HaveValidTotalWeight).WithMessage("The total weight of objectives must sum up to 100.");
+        // No NotEmpty() — see the note in UpdateStageCommandValidator. Kept off the create path too,
+        // or the form can author a shape it is then forbidden to save back.
 
         // Rule for each individual objective item
         RuleForEach(x => x.Objectives).ChildRules(objective =>

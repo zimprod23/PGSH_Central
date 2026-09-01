@@ -6,16 +6,15 @@ using PGSH.SharedKernel;
 
 namespace PGSH.Domain.Students;
 
-public sealed class Student: User
+public sealed class Student : User
 {
-    //public Guid Id { get; set; }
     public AcademicProgram AcademicProgram { get; set; }
     public string CNE { get; set; }
     public decimal AccessGrade { get; set; } = 10.01M;
     public string Appogee { get; set; }
     public BacSeries BacSeries { get; set; }
     public AgreementType AgreementType { get; set; } = AgreementType.None;
-    public string BacYear { get; set; } 
+    public string BacYear { get; set; }
     /// <summary>
     /// The CNPN this student is governed by, fixed at entry and carried to graduation.
     ///
@@ -38,11 +37,31 @@ public sealed class Student: User
     /// </summary>
     public bool CnpnAssignmentIsInferred { get; private set; }
 
-    public ICollection<Registration> registrations { get; set; } = new List<Registration>();
-    public ICollection<History> history { get; set; } = new List<History>();
+    /// <summary>
+    /// Every year this student has been enrolled, across levels and programmes — 2,635 students in
+    /// the imported history have repeated a level, so this is routinely more than one row per level.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ <b>A registration is created through the paths that stamp it</b> (inscription,
+    /// réinscription, the registration form), never by pushing onto this collection: it has to be
+    /// given its governing CNPN as it is created, which is <c>RegistrationCnpnStamper</c>'s job.
+    /// The setter is closed for that reason, and because nothing ever assigned it — EF populates it
+    /// through the backing field (<c>PropertyAccessMode.Field</c>, set in <c>UserConfiguration</c>).
+    /// </remarks>
+    public ICollection<Registration> Registrations { get; private set; } = new List<Registration>();
+
+    /// <summary>
+    /// The student's recorded lifecycle events — inscription, validation, transfert, délocalisation.
+    /// </summary>
+    /// <remarks>
+    /// Named <c>HistoryEntries</c> rather than <c>History</c>: a property carrying its own element
+    /// type's name compiles, but it shadows the type inside this class, so the first person who needs
+    /// to write <c>History</c> as a type here gets an error with no obvious cause.
+    /// </remarks>
+    public ICollection<History> HistoryEntries { get; private set; } = new List<History>();
     public Academy? Academy { get; set; }
     public Province? Province { get; set; }
-    public int? Ranking {  get; set; }
+    public int? Ranking { get; set; }
 
     /// <summary>
     /// Stamps the governing CNPN. Idempotent for the same version, and a no-op once a confirmed
@@ -71,16 +90,39 @@ public sealed class Student: User
         return Result.Success();
     }
 
+    /// <summary>
+    /// Removes the stamp, for the one case in which keeping it would assert something false: the
+    /// student has moved to another programme and no text of that programme could be resolved for
+    /// him. A <c>CnpnVersion</c> belongs to exactly one <c>AcademicProgram</c>, so the stamp he
+    /// arrived with names a cursus he has left.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ <b>This is not an undo for <see cref="AssignCnpnVersion"/>.</b> It is deliberately not
+    /// reachable as an ordinary edit: the only caller is the réorientation path, which has just
+    /// established that the old text no longer applies. Null here means « never resolved » — the same
+    /// thing it means on the ~2 200 students nobody has stamped — and every reader already falls back
+    /// on it gracefully, which is what makes stating less the honest answer rather than a loss.
+    /// </remarks>
+    public void ClearCnpnVersion()
+    {
+        if (CnpnVersionId is not { } previous) return;
+
+        CnpnVersionId = null;
+        CnpnAssignmentIsInferred = false;
+
+        Raise(new StudentCnpnVersionClearedDomainEvent(Id, previous));
+    }
+
     public Result AddRegistration(Registration registration)
     {
         // Check for duplicate registrations by Year ID instead of DateOnly
-        if (registrations.Any(r => r.AcademicYearId == registration.AcademicYearId))
+        if (Registrations.Any(r => r.AcademicYearId == registration.AcademicYearId))
         {
             // Note: You may want to update RegistrationErrors to accept the Year ID or Label
             return Result.Failure(RegistrationErrors.DuplicateRegistration(this.Id, registration.AcademicYearId));
         }
 
-        registrations.Add(registration);
+        Registrations.Add(registration);
 
         // Event now carries the ID of the Year Entity
         registration.Raise(new StudentRegisteredDomainEvent(
@@ -112,12 +154,12 @@ public sealed class Student: User
         FailureReasons? failure,
         DateTime recordedOn)
     {
-        var registration = registrations.FirstOrDefault(r => r.Id == registrationId);
+        var registration = Registrations.FirstOrDefault(r => r.Id == registrationId);
         if (registration is null) return Result.Failure(RegistrationErrors.NotFound(registrationId));
 
         // Validation: If year is changing, ensure student isn't already registered for that Year ID
         if (registration.AcademicYearId != academicYearId &&
-            registrations.Any(r => r.AcademicYearId == academicYearId))
+            Registrations.Any(r => r.AcademicYearId == academicYearId))
         {
             return Result.Failure(RegistrationErrors.DuplicateRegistration(this.Id, academicYearId));
         }
@@ -153,7 +195,7 @@ public sealed class Student: User
 
     public Result RemoveRegistration(Guid registrationId)
     {
-        var registration = registrations.FirstOrDefault(r => r.Id == registrationId);
+        var registration = Registrations.FirstOrDefault(r => r.Id == registrationId);
 
         if (registration is null)
             return Result.Failure(RegistrationErrors.NotFound(registrationId));
@@ -162,7 +204,7 @@ public sealed class Student: User
         if (registration.Status == RegistrationStatus.Validated)
             return Result.Failure(RegistrationErrors.Conflict("Delete",registrationId));
 
-        registrations.Remove(registration);
+        Registrations.Remove(registration);
 
         return Result.Success();
     }

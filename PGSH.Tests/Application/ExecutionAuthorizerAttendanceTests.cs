@@ -1,8 +1,9 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using NSubstitute;
 using PGSH.Application.Abstractions.Authentication;
-using PGSH.Application.Employees.MyServices;
+using PGSH.Application.Abstractions.Authorization;
 using PGSH.Domain.Employees;
 using PGSH.Domain.Hospitals;
 using PGSH.Domain.Stages;
@@ -24,6 +25,7 @@ public class ExecutionAuthorizerAttendanceTests
     private static ApplicationDbContext NewContext() =>
         new(new DbContextOptionsBuilder<ApplicationDbContext>()
             .UseInMemoryDatabase($"attendance-scope-{Guid.NewGuid()}")
+            .ConfigureWarnings(w => w.Ignore(InMemoryEventId.TransactionIgnoredWarning))
             .Options);
 
     private static IUserContext UserContext(params string[] roles)

@@ -1,7 +1,10 @@
+using AcademicProgram = PGSH.Domain.Common.Utils.AcademicProgram;
+using Level = PGSH.Domain.Common.Utils.Level;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using NSubstitute;
 using PGSH.Application.Abstractions.Authentication;
-using PGSH.Application.Employees.MyServices;
+using PGSH.Application.Abstractions.Authorization;
 using PGSH.Application.Stages.Planning;
 using PGSH.Application.Stages.Slots;
 using PGSH.Domain.Calendar;
@@ -11,8 +14,6 @@ using PGSH.Domain.Registrations;
 using PGSH.Domain.Stages;
 using PGSH.Domain.Students;
 using PGSH.Infrastructure.Database;
-using AcademicProgram = PGSH.Domain.Common.Utils.AcademicProgram;
-using Level = PGSH.Domain.Common.Utils.Level;
 
 namespace PGSH.Tests;
 
@@ -41,9 +42,18 @@ public static class TestHarness
     /// <summary>The six-year text in force, governing entrants from <see cref="CurrentYearId"/>.</summary>
     public const int NewCnpnId = 92;
 
+    /// <remarks>
+    /// ⚠ <b>The warning suppression is a statement, not a workaround.</b> The in-memory store has no
+    /// transactions, so <c>ExecuteAtomicallyAsync</c> — which is how the macro plan stops a dropped
+    /// connection leaving half a plan behind — would throw here rather than run. Ignoring the warning
+    /// makes it a no-op instead, which is the honest reading: <b>this suite cannot prove atomicity</b>,
+    /// exactly as it cannot prove a FK, a unique index or an <c>OnDelete</c>. It can still prove the
+    /// steps inside the unit of work, and that is what the tests here assert.
+    /// </remarks>
     public static ApplicationDbContext NewContext(string name) =>
         new(new DbContextOptionsBuilder<ApplicationDbContext>()
             .UseInMemoryDatabase($"{name}-{Guid.NewGuid()}")
+            .ConfigureWarnings(w => w.Ignore(InMemoryEventId.TransactionIgnoredWarning))
             .Options);
 
     /// <summary>
@@ -315,6 +325,10 @@ public static class TestHarness
             Id = Guid.NewGuid(), FirstName = firstName, LastName = lastName,
             Email = $"{firstName}.{lastName}@etu.ma".ToLowerInvariant(),
             CNE = $"CNE{Guid.NewGuid():N}"[..10], Appogee = $"AP{Guid.NewGuid():N}"[..8], BacYear = "2022",
+            // Stated for the same reason SeedCatalog states the level's: AcademicProgram's zero value
+            // is Master, so a student left to the default silently disagrees with the Médecine level
+            // he is registered in — which reads as a réorientation to anything comparing the two.
+            AcademicProgram = AcademicProgram.Medecine,
         };
         var registration = new Registration
         {

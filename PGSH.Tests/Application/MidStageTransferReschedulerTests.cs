@@ -1,5 +1,6 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using PGSH.Application.Stages.Planning;
 using PGSH.Domain.Common.Utils;
 using PGSH.Domain.Stages;
@@ -23,6 +24,7 @@ public class MidStageTransferReschedulerTests
     private static ApplicationDbContext NewContext() =>
         new(new DbContextOptionsBuilder<ApplicationDbContext>()
             .UseInMemoryDatabase($"reschedule-{Guid.NewGuid()}")
+            .ConfigureWarnings(w => w.Ignore(InMemoryEventId.TransactionIgnoredWarning))
             .Options);
 
     // One StageSlot (period 1) shared by both cohorts; the target group is already running it (a

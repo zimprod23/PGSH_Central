@@ -122,6 +122,12 @@ Scalar UI at `/scalar/v1`, Swagger UI at `/swagger`. Both are configured with Ke
       publication would have been its first run. Every query on that class is named, the per-cohort
       publish included: it shares nothing with the stage-wide one but the class, so sweeping only the
       path the macro plan takes would have left the human's own button uncovered.
+    - **The CNPN area is swept too** (2026-09-01): the stamper's four reads, the effectivity
+      planner's scope and detail queries, the targeting selector, and the two read screens'
+      correlated `Count` projections. It had **no case at all** before, on the strength of its
+      queries looking flat — which is what was believed about `CohortProvisioner`. It is also the
+      least forgiving place for the mistake: the stamper runs inside the réinscription, which
+      creates a whole promotion's registrations in one act.
     - **A query is testable here only if it is *named*.** Each one is an
       `internal static IQueryable<T> …Query(IApplicationDbContext, …)` beside its caller, which the
       handler then executes — the shape `CohortProvisioner.GroupTextsQuery` established. A query
@@ -159,6 +165,13 @@ problem-details mapping. A handler test sees none of that.
   test has many ways to pass for the wrong reason.
 
 ## Application Layer Conventions
+
+⚠ **`AsNoTracking()` on a reusable subquery reaches its host.** Tracking is a property of the whole
+compiled query, so composing a marked selector into another query makes *that* query no-tracking
+too. `CnpnTargetPlanner.MatchedStudentIdsQuery` is composed into the read that loads the students
+the apply then mutates: marked, the apply stamped detached objects and `SaveChanges` wrote nothing —
+preview right, apply reporting success, not one student moved. **A shared query states no tracking
+behaviour; each caller states its own.**
 
 ### Shared helpers — always use these, never inline
 - **Pagination** — `QueryableExtensions.ToPaginatedResponseAsync(pageNumber, pageSize, selector, ct)` in `Application/Extensions/`. Apply after filtering and `OrderBy`. Never manually write `CountAsync + Skip + Take + ToListAsync + new PaginatedResponse`.
@@ -250,6 +263,72 @@ promotions already in the building.
 - Uniqueness: `(CnpnVersionId, LevelId)` and `(LevelId, FromAcademicYearId)`. The second is the
   substantive one — two texts starting to govern one level in one year has no defensible winner.
 
+#### The text is an aggregate, and what it may decide alone is the whole question
+`CnpnVersion` was a property bag until 2026-09-01: no `Entity` base, public setters on every member,
+and every invariant of the text living in whichever handler happened to need it. In the *same*
+namespace `Curriculum : Entity` had `AddStage` / `RemoveStage` / `CopyFrom` and raised events, and
+`Registration.StampCnpnVersion` / `Student.AssignCnpnVersion` were already model aggregates — the
+text was the odd one out, and it had already cost the usual price.
+
+- ⚠ **One rule was written twice, in two directions.** « Un texte ne peut pas régir un niveau
+  au-delà de sa durée » lived in `CreateCnpnEffectivityCommandHandler` as `level.Year >
+  version.TotalYears` **and** in `UpdateCnpnVersionCommandHandler` as `deepestEffective >
+  TotalYears`, with nothing tying them. Both now come from `CnpnVersion`.
+- **It carries `init` accessors over explicit backing fields**, exactly as `AcademicYear` does and
+  for the same reason: the seeder, the migration and the tests still build one with an object
+  initialiser, while nothing changes one *afterwards* except `Correct` / `DeclareEffectivity` /
+  `WithdrawEffectivity`. `AcademicProgram` has no mutator at all — the type now says what the
+  comment used to.
+  - The compiler found the two places that were reaching in (`FinalYearGateTests` assigning
+    `TotalYears` on a seeded text), which is the point of the change.
+- **`DeclareEffectivity` / `WithdrawEffectivity` raise domain events.** Stamping a registration and
+  moving a student both raised one; *the act that decides the text of every registration created at
+  that level from that year on* was silent. It is the widest act in the area and the only one
+  nothing could observe.
+- ⚠ **Three rules stay with the handler, and the line is principled**: a code unique within a
+  programme, an intake year claimed by one text, and a (level, year) a **rival** text already takes
+  effect for. Those are about the *other* texts and no aggregate can see them — the same division
+  `AcademicYear` makes, where « does it end before it starts » is the year's and non-overlap is the
+  handler's.
+
+⚠ **…and one rule deliberately does *not* read the aggregate's own children** — `CnpnSpanFloor`.
+`Correct` is handed the deepest level year already carrying requirements and the deepest one already
+governed, read from the store by the handler, rather than counting `Curricula` and
+`LevelEffectivities` itself.
+
+- **An un-Included collection is indistinguishable from an empty one.** Counted on the aggregate, a
+  caller that forgot an `Include` gets « rien enregistré », the shortening goes through, and every
+  requirement set below the new span is stranded — with no unique index to catch it.
+- ⚠ **And this suite cannot see that mistake.** Measured 2026-09-01: deleting the `Include` from
+  `UpdateCnpnVersionCommandHandler` left **all 23 `CnpnVersionManagementTests` green**, because the
+  in-memory provider fixes navigations up from the change tracker. On PostgreSQL the collection
+  would simply be empty. Same family as the translation blind spot: the store is asked for the fact,
+  the aggregate decides what to do about it.
+- `DeclareEffectivity` *does* read `LevelEffectivities` for « déjà déclaré », and that is a
+  different bargain on purpose: `IX_CnpnLevelEffectivity_Version_Level` is unique, so a missed
+  `Include` degrades to a constraint violation rather than to silent loss — the shape
+  `Curriculum.AddStage` already had.
+
+#### Entry is deduced once, by `EntryYearDeduction`
+« On ne peut pas être en 3ᵉ année sans avoir passé deux ans » — walk back `level - 1` academic years
+from the earliest registration on record. It is the **single assumption the whole backfill rests
+on** (~2,200 students the legacy import caught mid-cursus), and it was written **twice**:
+`CnpnAssignment.DeduceEntryYearId` and `RegistrationCnpnStamper.WalkBack`, each with its own private
+`YearRef`. Pure, no store and no clock, like `PeriodAxis` / `RotationTiling` / `StagePeriodFolder`,
+so the clamping cases are exact rather than approximately seeded.
+
+- `CnpnAssignment` now answers only the half that needs the store — which text governs an intake.
+  Its `ResolveAsync` is gone: it had **no production callers** (seven tests kept it alive) and its
+  `asOfAcademicYearId` parameter was never read in the body while the doc comment described what it
+  supposedly anchored.
+
+#### `RegistrationCnpnStamper` returns a report, not a `Result`
+It has no failure path and never had one: every refusal it can meet is a fact about *one*
+registration — no text could be resolved, or the year is already pronounced — and stopping the batch
+on one of them would refuse the other six hundred. They are counted into `Unresolved` /
+`FrozenByOutcome` instead. The five callers were each testing `stamp.IsFailure` on a `Result` that
+could not fail.
+
 - **Assignment is by first registration and sticky** — `CnpnAssignment` in `Application/Stages/Cnpn/`.
   Never by the level a student currently sits in: those agree only for students who never repeated,
   and 2,635 have. `Student.CnpnVersionId` is written solely by `Student.AssignCnpnVersion`, which
@@ -310,11 +389,15 @@ promotions already in the building.
   because the students who followed it stay.
   - The UI disables the control when `studentCount > 0` rather than letting it fail, and warns that
     removing the only text governing an intake sends new registrations to the previous one.
-- ⚠ **`Stage.Coefficient` / `Stage.DurationInDays` duplicate `CurriculumStage`'s.** The catalogue
-  carries its own weight *and* every text carries one for the same stage. They agree today only
-  because the history reconstruction seeded one from the other; the first text that reweights a stage
-  makes them disagree, and the **Stages page shows the catalogue value** — a number no CNPN
-  necessarily states. The Stages page is also not year- or CNPN-scoped at all: it is the timeless
+- ⚠ **`Stage.Coefficient` / `Stage.DurationInDays` duplicate `CurriculumStage`'s — and as of
+  2026-09-01 they disagree on real rows.** The catalogue carries its own weight *and* every text
+  carries one for the same stage. They agreed only because the history reconstruction seeded one from
+  the other, and **1650.25 is the first text to reweight a stage**: MED3 Chirurgie and Médecine read
+  coefficient **3** in the catalogue and **1** in 1650.25, **30 j.o.** in the catalogue and **66** in
+  2174.18's set. Neither number is wrong *of its text* — a 5ᵉ année student revalidating a 3ᵉ année
+  credit is still under 2174.18, which is why the alignment migration recorded 66 there before
+  overwriting the catalogue. What is wrong is that the **Stages page shows the catalogue value**
+  unqualified — a number no CNPN necessarily states. The Stages page is also not year- or CNPN-scoped at all: it is the timeless
   catalogue, so switching the navbar year changes nothing there. Resolve with Phase 15.1.
 - ⚠ **Still year-based, and shouldn't be:** the new CNPN organises 12 *semesters* with typed
   placements (immersion / nursing / part-time clinical / full-time / family medicine) and credits
@@ -535,6 +618,156 @@ The chain is right and each link is guarded, but ⚠ **deleting a `ServicePeriod
   délocalisation or a revalidation; none came from a répartition and none can be recreated by publishing
   one. Reported as `AdHocPeriodsKept`.
 
+### Taking a plan apart: what each act is allowed to take with it
+Four buttons undo planning, and they used to disagree about what "undo" means — one of them silently,
+one of them not at all. `AffectationToll` / `AffectationTollReader` (`Stages/Planning/`) is the single
+answer to "what is this act about to destroy", read the same way by all of them so two refusals cannot
+describe the same rows differently.
+
+⚠ **An affectation does not hang off the roster pointer.** `InternshipAssignment` is
+(inscription × **cohorte**) and `ServicePeriod` hangs off the affectation, so clearing
+`Registration.AcademicGroupId` leaves every one of them exactly where it was.
+
+- **« Vider le groupe » cleared the pointer and nothing else.** The result was not an empty roster, it
+  was a roster that *reads* empty: the affectations stayed in its cohortes, their périodes stayed on
+  the chefs' worklists and in `ServiceOccupancyCalculator`'s counts, and the printed répartition still
+  named them — against a page showing 0 étudiants, with nothing on either side saying so.
+- ⚠ **…and putting the students back does not undo it.** A re-découpage sends them to *other* rosters,
+  and `StudentAffectationService` dedupes on **(inscription, cohorte)** — the new cohortes are not the
+  old ones, so each student comes back with a **second** affectation for the same stage. Double in the
+  dossier, double against the service quota, two rows for one rotation.
+- **The rule now:** nothing planned → empties silently · affectations merely planned → refused, and the
+  refusal names the count (`RosterHasAffectations`); `DropAffectations: true` is the caller having read
+  that sentence · anything underway → refused outright (`RosterAffectationsUnderway`).
+- ⚠ **That last one is deliberately not forceable.** The act that destroys marks and attendance is
+  « Dépublier », which names its cost and asks twice. A roster-side button must never become the way
+  round it — same reason `AllowOverCapacity` had to stop waiving admissibility.
+- **`EmptyAllYearGroupsCommand` has no `DropAffectations` at all.** A roster's affectations are a
+  handful of rows an admin can be shown a number for; a year's are the whole faculty's planning, and
+  destroying them is not what anybody means by « retirer les étudiants des groupes ». It refuses while
+  any exist and points at the per-stage reset, where the cost is announced stage by stage.
+
+⚠ **`DeleteCohortCommand` had no guard whatsoever**, while its bulk twin `DeleteAllCohortsCommand`
+refused as soon as one affectation left `Planned`. So the *safe* act was the one touching a hundred
+cohortes and the unguarded one was the button beside each line: deleting a cohorte mid-stage removed
+every `ServicePeriod` — « plan-generated **and** ad-hoc » — and `ServiceEvaluation`,
+`AttendanceRecord`, `PeriodPause` and `Delocalization` all cascade from those. A chef's marks and a
+term of attendance, gone on one click, answered with a 204 and no number. Both now share the guard and
+both return what they removed.
+
+- ⚠ **`DeleteAllCohortsCommand`'s year was optional and unresolved**, i.e. null meant "every year this
+  stage ever ran" — on the one command in this area that deletes rows, against a stage that keeps 563
+  cohortes across six years. It resolves through `AcademicYearResolver` like everything else.
+- **`Engaged` is read from the affectation's status as well as from the périodes.** A terminal verdict
+  (`Validated`, `Rejected`) can stand over périodes since removed, and that is still not something a
+  structural act may delete sideways.
+- **Two flat queries, not one.** The period counts fold an aggregate over a collection navigation;
+  nesting that inside a second aggregate over the affectations is the shape Npgsql refuses — the
+  family that killed the macro plan. `SqlTranslationTests` pins both.
+
+**The rotation block was already right, and for the right reason.** `RotationCycleContext` counts
+*published cells* through `PublishedCells` (the coverage table, not the FK), so apply and delete are
+both refused while anything on the axis is published — and a started rotation is published by
+construction. Nothing was added there. ⚠ The one thing it cannot see is a cohorte served only by
+**ad-hoc** périodes (imported history, délocalisations, revalidations): those hang off no cell, so they
+neither block the removal nor are destroyed by it — removing slots cascades cells, never périodes.
+
+**Order, when a promotion has to be taken apart:** dépublier (names what it costs) → réinitialiser les
+cohortes du stage → vider les groupes → supprimer les groupes / supprimer le bloc de rotation. Each
+step refuses until the one before it is done, and each says why in a sentence naming numbers.
+
+### The planning grid is a matrix, and a matrix is not exempt from pagination
+`GetStageScheduleQuery` returns **a page of cohorte rows plus a `StageScheduleSummary`** — never every
+row. Measured 2026-08-31 on the live base: the current year's biggest stage carries **105 cohortes over
+ten columns**, i.e. a thousand cells in one object and a thousand cell components mounted at once.
+
+- ⚠ **The half that proves where the cost was: closing was slow too.** Closing does no server work at
+  all, so the seconds were the browser mounting and unmounting the grid, not the query — the SQL
+  behind it measures ~40 ms. Paging the rows is therefore the fix on both ends; the Mantine `Modal`
+  also drops its exit transition, which kept the whole tree alive while it played.
+- **The partition filter moved to the server with the paging** (`RotationGroup`). Filtering the rows
+  the client happens to hold answers « aucune cohorte » for anyone sitting on page 3, and nothing
+  distinguishes that from a partition nobody has cut — the same reason the chef worklist's search had
+  to move.
+- ⚠ **Everything the screen *states* had to move with it.** A bounded list can only describe itself,
+  and the numbers beside it drive acts on the whole selection: « Publier tout (N) » fires one
+  stage-wide call, so an N counted from 25 visible rows promises 25 and publishes 90. `Summary`
+  carries `TotalCohorts`, `PublishedCohorts`, `ConfiguredUnpublishedCohorts`, the saturation report
+  and the two derived facts below — all measured over the selection, in the store.
+  - **`Partitions` is deliberately *not* narrowed by the filter.** They are the chips the user filters
+    *with*; narrowed by the active filter there is no way back to the others.
+  - **`Saturations` is deduplicated per (créneau, service)**, which is what makes it bounded by
+    columns × services rather than by cohortes — a dozen cohortes in one over-filled service is one
+    problem, not twelve. `SaturatedCellCount` stays exact when the list is capped, and the UI says
+    which of the two it is printing.
+  - **`OccupiedSlotIds`** (the selection) is what « nouveaux créneaux uniquement » reads: off the page
+    it would call a column empty because *this page's* cohortes are not in it, and then rewrite a
+    rotation already arranged.
+  - **`PartitionUsage`** (the **whole** stage, unfiltered) is what warns that partition B already
+    holds the columns A is about to be arranged into. That question is about the rows the filter has
+    just removed, so it can only be answered server-side.
+- **A cohorte carries the columns it stands in** — `CohortResponse.PeriodNumbers`. « Démarrer /
+  clôturer sur P4-P6 » used to fold that out of the grid's cells, which worked only while the grid
+  shipped everything; past page 1 every cohorte would have read as running in no period at all and
+  been dropped from the list silently. Read by a **second flat query** keyed on the page's ids, not by
+  a collection subquery in the row projection — the element would be a computed `int` with no key,
+  which is the shape Npgsql refuses.
+
+### A bulk act is one command, or it is a storm of refusals
+« Publier tout » on the stage page looped: one `PublishCohortSchedule` per cohorte, sequentially, each
+rebuilding the service occupancy from scratch — and since `errorMiddleware` toasts every rejected
+mutation, an over-capacity plan produced **one red toast per cohorte**, arriving one at a time as the
+loop ground on. It now sends `PublishStageSchedule` once, which the grid modal already did.
+
+- ⚠ **…and one call had to stop refusing on the first cell.** `SchedulePublisher.EnsureIntakeAsync`
+  now collects **every** breach and returns one refusal (`Schedule.PublishRefusedByIntake`) naming the
+  count, how many of them are the unforceable admissibility half, and the heaviest three. Refusing on
+  the first meant fixing a stage-wide plan one service at a time, with a full re-publish between each.
+- **A single breach keeps its own sentence** (`Schedule.CapacityExceeded` /
+  `LevelCapacityExceeded` / `LevelNotAdmitted`). The aggregate exists for a promotion; wrapping one
+  cell in « 1 affectation dépasse… » says strictly less than the message it replaced.
+- The guard still runs **before** the write, and the tests assert the store is untouched after a
+  refusal — a handler test alone cannot tell a pre-check from a post-check.
+- ⚠ **« Dépublier toutes » is still a client-side loop**, and has the same shape. It was left alone
+  deliberately: each per-cohorte refusal *names what that cohorte would lose* (périodes démarrées,
+  notes, jours de présence), and an aggregate would have to be designed before it can replace them.
+
+### A multi-step write is one transaction, or a closed tab is a half-built plan
+`IApplicationDbContext.ExecuteAtomicallyAsync` — used by `GenerateMacroPlanCommandHandler`, which
+writes cohortes, then affectations and cells **stage by stage**, committing after each.
+
+- ⚠ **The failure is the browser's, not the database's.** Closing the tab or losing the connection
+  cancels the request; EF abandons the remaining steps and everything already committed stays. What is
+  left is a plan built for the first three stages and nothing for the rest — not obviously broken,
+  simply wrong, and indistinguishable from a plan somebody meant that way.
+- **A `Result` failure rolls back too.** A refusal returned halfway through leaves exactly the same
+  partial state as a dropped connection.
+- ⚠ **Through `Database.CreateExecutionStrategy()`, never straight to `BeginTransaction`.** Aspire's
+  `AddNpgsqlDbContext` enables retry-on-failure, and a retrying strategy refuses a user-initiated
+  transaction outright — which would turn every wrapped handler into a 500. `ChangeTracker.Clear()`
+  opens each attempt, or a retry inserts the failed attempt's entities twice.
+- ⚠ **Domain events still publish from each inner `SaveChangesAsync`, i.e. before the outer commit.**
+  Nothing on the macro-plan path raises one (the entities are built with object initialisers), but a
+  handler wrapped here must raise no event whose handler assumes the write is durable.
+- ⚠ **The in-memory provider has no transactions**, so `TestHarness` and `ApiFactory` ignore
+  `InMemoryEventId.TransactionIgnoredWarning` and the call becomes a no-op. That is the honest reading:
+  **this suite cannot prove atomicity**, exactly as it cannot prove a FK or an `OnDelete`. It proves
+  the steps inside the unit of work.
+
+### Read every cohorte's candidates once, not once per cohorte
+`StudentAffectationService.AssignAsync` issued **one `Registrations` query per cohorte**. The macro
+plan walks that loop once per concurrency block, so a single « Générer le plan » on a promotion of 105
+rosters over seven stages was ~700 round trips. It is now one read for the call, keyed on
+**(roster, niveau) together**.
+
+- ⚠ **The pair is the guard.** Keyed on either half alone, a student registered in this roster at
+  another level is affected to a stage he does not owe — the same trap as filtering by level and year
+  with two independent `Any`s. Measured server-side on the live base: 92 ms of loop against 4 ms
+  batched for one stage, before EF and the network are counted.
+- **A long write still needs to say it is long.** With the round trips gone the run is seconds rather
+  than tens of them, and the rotation-cycle page states what is being written and that interrupting
+  costs the run but damages nothing — which is only truthful because of the transaction above.
+
 ### Publishing never lands on top of a stage already served
 ⚠ **An assignment that already holds any `ServicePeriod` is skipped**, and the count is reported
 (`SkippedAlreadyServed`). Measured 2026-08-14: every one of the 706 5MED assignments of 2025-2026 carries
@@ -544,6 +777,91 @@ waited on by the lifecycle. Publication materialises a plan; it never re-materia
 
 Filtered per **assignment**, not per cohort: a cohort routinely mixes students with the stage behind them
 (repeaters, délocalisés) and students without, and the latter still need their schedule.
+
+### What a chef sees is a slice of his services, and the axis is the period's lifecycle
+`Employees/MyServices/`, sliced by `ServicePeriodState` — the domain's own four-way split (above),
+not a vocabulary invented for this screen. The four **partition** the periods of a service: every row
+falls in exactly one, the counts add up to the whole, and one page of one slice is what the endpoint
+returns.
+
+- ⚠ **A published rotation is `IsStarted = false`, and the worklist only ever showed started rows.**
+  So "the schedule is published" and "there is no schedule" looked identical from the one screen that
+  has to tell them apart: 4MED Pédiatrie 2026-2027 published 898 périodes into six services and its
+  chef was shown nothing at all. `Planned` makes them visible; it does not make them actionable
+  (`ServicePeriodResponse.State` is what the UI refuses to draw a button on). **Starting is still an
+  administrative act** — « Démarrer les affectations » — exactly as closing is.
+- ⚠ **The list must be bounded, and the year is the wrong axis to bound it on.** Measured 2026-08-29,
+  one chef's two services held **3 220 periods back to 2019**, returned unpaginated and mounted at
+  once, which is what took the browser down. Year scoping was tried twice as the fix and blanked live
+  worklists both times — an `AcademicYear` record drifts out of step with the dates rotations really
+  run on. `IsStarted` / `IsComplete` / "has an evaluation" are facts about the rotation itself, so
+  bounding on them can hide nothing that is live. The same 3 220 split 300 / 0 / 683 / 2 237, and only
+  the last is an archive.
+- **The year narrows on top of that, defaults to the current one, and is never silent**
+  (2026-08-30). The state is what makes the list finite; the year is a second axis the chef drives,
+  because « quelle année ? » is a real question on every slice — next year's plan, this year's
+  evaluations, last year's marks — and not only on the archive.
+  - ⚠ **What makes it safe is `OutsideYearCount`, not restraint.** Both previous incidents were
+    silent: rows the filter removed left nothing behind to say they had existed, so an empty screen
+    and an empty service were indistinguishable. The response now says how many further periods
+    *of the slice being shown* the year is holding back, the UI states it, and `AllYears` is one
+    click away. A filter that announces what it removed cannot reproduce that failure; a filter kept
+    away from live work only postpones it.
+  - ⚠ **The year is *read*, never inferred from dates** — `p.InternshipAssignment.Registration.
+    AcademicYearId`. The schema already states it and states it **totally**:
+    `ServicePeriods.InternshipAssignmentId`, `InternshipAssignments.RegistrationId` and
+    `Registrations.AcademicYearId` are all `NOT NULL`, the last behind a `RESTRICT` FK. So the years
+    **partition** the périodes by construction — no row outside every year, none in two — which is
+    the property a date comparison has to approximate and gets wrong.
+  - **Measured 2026-08-30, the two rules disagree on 7 030 of 105 626 périodes (6.7%), and the
+    registration is right every time.** 5 043 are 2019-2020 stages that ran into 2020-2021 because
+    the year was postponed; 1 841 are 2024-2025 stages finishing after 31 août; 145 the same for
+    2023-2024. A date rule cannot tell *a year that ran late* from *the next year's work* — it has
+    no fact to tell them apart with, and the registration is that fact.
+  - ⚠ **This is what the reported defect actually was.** 41 6ᵉ année Pédiatrie périodes, registered
+    2025-2026 and run 08 jul → 08 sep 2026, appeared under 2026-2027 « à évaluer » for a promotion
+    with **no** partitioning, no planning and nothing published that year — because a date predicate
+    saw them finish eight days into the new one. Their registration always said 2025-2026. Reading it
+    does not *fix* the case so much as make it unrepresentable.
+  - **Every path that creates a `ServicePeriod` hangs it off the right year already**, which is why
+    the read needs no fallback: `SchedulePublisher` and `LateArrivalScheduler` use the registration
+    being planned, `RevalidateStageCommand` opens the retake on *the registration the student holds
+    now*, and `Delocalize` / `TransferToCohort` keep the assignment they were given. The old worry —
+    "a retake carries an old year" — is not a thing the code can produce.
+  - ⚠ **Anything unresolvable widens, never empties**: no row flagged `IsCurrent`, or a year id that
+    no longer exists, spans every year. That is why the window is resolved here rather than through
+    `AcademicYearResolver`, whose contract is to *fail* when no year can be named — right for a
+    handler that writes, wrong for the one read that has to survive it. Showing too much is visible
+    and recoverable in a click; showing nothing is neither.
+  - `AllYears` is the explicit widening the "omitted year means the current one" rule demands, and it
+    wins over an explicit `AcademicYearId`: the two together can only come from a caller that has
+    just changed its mind.
+- **One predicate, `ScopedQuery`, answers both the page and the four counts**, so a badge and its list
+  cannot disagree — and the state half of it is `ServicePeriodLifecycle`'s, not this handler's. It is
+  `internal static` and named for the usual reason: a query buried in a private async method cannot be
+  handed to `ToQueryString()`, and the in-memory provider translates nothing.
+- ⚠ **The counts travel with every page, including an empty one.** A bounded list has a failure mode
+  the unbounded one did not — landing on an empty slice reads exactly like "this chef has no work" —
+  so the client opens on the first slice that has something in it and says where the rest is.
+- ⚠ **The search had to move to the server with the pagination.** Filtering the rows the client
+  happens to hold answers « aucun étudiant » for anyone sitting on page 3, and nothing distinguishes
+  that from a real absence. It narrows the counts too, which turns the badges into an answer to
+  "where is this student?" across the four slices.
+- ⚠ **`ToPaginatedResponseAsync` clamps a page size of 0 *upward* to 1.** So `?pageSize=0` would
+  answer a 50-student window with one student and nothing anywhere saying so; the query resolves a
+  non-positive value as "unstated" (`EffectivePageSize`). `[AsParameters]` *does* honour a declared
+  default on .NET 9 — measured, and pinned by `ChefWorklistEndpointTests` — but the fallback is the
+  handler's own so it does not depend on that, nor on the order the enum is written in.
+- **A `SingleService` stage already gives one evaluation for the whole run.** `SchedulePublisher`
+  collapses the `kₛ` cells into one `ServicePeriod` spanning them, so the chef sees one row per
+  student and marks it once. Verified on the live base 2026-08-29: 4MED Pédiatrie is 898 périodes for
+  898 assignments across three windows, and all five 4MED stages are `SingleService`. Nothing extra is
+  needed for that promotion; a `PerPeriod` stage genuinely does want one evaluation per column.
+- ⚠ **`EmployeeDashboardPage` counted the same way and was worse**: it fetched every *closed* period
+  of each chef service — 2 920 rows — to render one number, on the landing page. It reads
+  `counts.awaitingEvaluation` now, and — since the worklist defaults to the current year — that badge
+  and the list it leads to name the same set. The rule from `PGSH.Frontend/CLAUDE.md` applies
+  unchanged: to show a count, ask the server for it.
 
 ### Jours ouvrables — the calendar is entered, and half of it cannot be computed
 `WorkingDayCalendar` in `Domain/Calendar/` is the single answer to "how long is this really": calendar
@@ -841,6 +1159,12 @@ defining it.
     exception is rare; in a final year that is reversed, so the rule inverts there.
   - The faculty names its graduates instead — the **defence roll** is the document it actually holds,
     and a row reading `Diplômé` still records one.
+  - ⚠ **Naming a « Diplômé » is stricter than being left undecided, and the two tests differ on
+    purpose.** A row is refused (`NotAFinalYear`) unless `level.Year == TotalYears`, while
+    `MayBeAFinalYear` stands aside on `>=`. So a registration sitting *above* its text's span can
+    neither be promoted by silence nor graduated by name — measured 2026-08-29, the base holds **6**
+    of them (5 in 7ᵉ année Médecine stamped `PHARM-LEGACY`, 1 in « Interne CHU »). Any generated PV
+    must emit « Diplômé » on `==` only: one such row refuses the whole file.
   - ⚠ This is also why an absent CNPN stamp needs no special case any more. It used to *block* the
     file; now nobody in a possible final year is decided for either way, so the unstamped student
     falls into the same bucket and `DefaultIssues` is gone entirely.
@@ -898,10 +1222,136 @@ somebody registers.
   (read from its périodes, not from the calendar) gives him a started one, so he appears on the chef's
   screen the same day.
 
+#### The third act — inscription, for the people neither of the other two can see
+`Students/Registrations/Inscription/` — `GET inscription/template`, `POST inscription/preview`,
+`POST inscription`. The déliberation writes verdicts onto the closing year's registrations; the
+réinscription reads those verdicts and creates the next year's. **Both begin from a registration the
+student already holds**, which is precisely why neither can reach the September intake, a transfer
+arriving from another faculty, a student coming back after an absence, or a réorientation. They hold
+no registration to be read, and before this there was no bulk path that created a `Student` at all
+(`Students/CreateMany/` was an empty directory; `CreateManyRegistrationsCommand` takes ids).
+
+- **Four writing actions, and they partition on two questions** — does PGSH already hold this person,
+  and is he entering the programme he was already in: `NewEntrant` (unknown, level 1) · `TransferIn`
+  (unknown, above level 1) · `Returning` (known, no registration this year, same programme) ·
+  `ProgrammeChange` (known, the level belongs to another programme).
+  - ⚠ **« Sous convention » is not a fifth.** `Student.AgreementType` says how a place is funded, and
+    an étudiant sous convention is any of the four — a first-year under an agreement is a
+    `NewEntrant`, one arriving in 3ᵉ année a `TransferIn`. Made a kind it would overlap the others and
+    the counts would stop adding up. It is a column any row may carry. Nor is « redoublant » one: he
+    is carried by the réinscription from his own verdict.
+- ⚠ **`LevelId` is required, and it is the guard.** The déliberation may omit it because the year
+  makes an identifier unambiguous on its own; here nobody on the sheet holds a registration the level
+  could be read from, so it has to be stated. Refused outright on a non-promotion
+  (`NotAPromotion`) — « Retrait » has no stages and nobody to rotate.
+- ⚠ **`AlreadyRegistered` is a skip, not an error** — the opposite of the déliberation, and for a
+  stated reason: **this act creates identities**, so the file has to survive being re-sent with the
+  late arrivals appended. The déliberation's file is not stored and cannot be re-sent; a rollover, and
+  this, can. Everything else refuses the whole file.
+- ⚠ **`ConfirmedStudentCount` is a number, never a checkbox**, and the stake is higher than the
+  déliberation's `ConfirmedDefaultCount`. A student row is an *identity* — a CNE, a numéro Apogée, an
+  address `SyncUserMiddleware` matches a Keycloak login against — and nothing puts a wrongly-created
+  promotion back.
+
+##### What a transfer owes is a fact nobody can reconstruct later — `PriorEnrolment`
+One row per entry registration: institution, country, **last level year completed there**, the
+équivalence reference, the date. Same shape as `FinalYearEntryWaiver` — a required reference and a
+snapshot — because a decision that cannot say what it recognised is not a record.
+
+- ⚠ **Required above the first year for a student PGSH has never seen** (`OriginRequired`), and it is
+  not bookkeeping. Today « owed » is *every attempt came back NonValidé*, so a transfer with no
+  attempt owes nothing and `FinalYearGuard` stands aside. That reading holds only while the definition
+  is negative: **the day « owed » widens to the CNPN's requirement set** — the stated plan once
+  1650.25's sets are entered — **a student transferred into 5ᵉ année owes every stage of the four
+  years he did elsewhere.** `LastLevelYearCompleted` is the boundary that widening must not look
+  below, and it cannot be reconstructed from anything else PGSH holds. It has to exist first.
+- **No stages are invented.** Materialising validated `InternshipAssignment`s for the years done
+  elsewhere would make the dossier look complete at the price of rows nobody served — which every
+  count, mean, chef worklist and occupancy figure would then have to learn to exclude.
+- All three of establishment, last year and reference are needed **together**; two of the three is
+  refused rather than silently dropped.
+
+##### Which identifiers name a student, and which only corroborate
+`CNE` and `Appogee` **identify**; `CIN` and `Email` corroborate. All four are unique on `Students`,
+but only the first two are what a row is understood to name.
+
+- ⚠ **A row whose CNE is unknown while its e-mail belongs to somebody is a mistyped cell, not that
+  person registering.** Matched on the e-mail it silently gives an existing student a registration
+  under a newcomer's name; treated as a newcomer it violates the unique index at `SaveChanges` with
+  nothing actionable in the message. It is neither — it is `IdentifierConflict`.
+- ⚠ **In-file duplication is checked on *every* identifier the row carries, plus the student it
+  resolved to** — not on the first one present. `IX_Registration_Student_Year` is unique, so one
+  person on two lines is a raw constraint violation, i.e. a 500; and two lines for one new person,
+  one written with his CNE and one with his Apogée, pass any check keyed on a single column.
+
+##### Manufactured identifiers are never silent, and must survive the edit form
+- ⚠ **`CNE` *and* `Appogee` are both NOT NULL UNIQUE.** `IX_Student_Appogee` carries a
+  « WHERE Appogee IS NOT NULL » filter that reads as though absence were allowed — the column is
+  required, so the filter can never be false, `""` is a *value*, and the second student without an
+  Apogée collides with the first. A row must carry one of the two; whichever is missing is built from
+  the other (`SANS-CNE-…` / `SANS-APOGEE-…`, prefixed so it is readable as provisional) and the row
+  says so.
+- ⚠ **A manufactured CNE is checked against `StudentIdentifierRules.IsValidCne` before it is
+  written.** A validator describes what a *save* must satisfy, so a code the pattern rejects makes the
+  student read-only the day somebody opens his file — the refusal naming a field nobody was editing.
+  The prefix costs 9 of the 20 characters allowed, so a long Apogée really does overflow it. Refusing
+  at creation is the cheap end of the same failure that made 5 646 students unsaveable once already.
+- ⚠ **An e-mail is a login.** `Users.Email` is NOT NULL UNIQUE and an intake list routinely has no
+  address column, so one is generated `prenom_nom@um5.ac.ma`. `SyncUserMiddleware` falls back to
+  matching a Keycloak `sub` on e-mail, so a manufactured address that somebody already holds hands a
+  student **another person's account**: the taken set is read from the store, not merely from the
+  batch, and every generated address is reported per row and counted (`GeneratedEmails`). The lookup
+  is built only when a row will read it.
+- ⚠ **The generation rule lives in `StudentIdentifierRules`, once**, because there are two
+  generators: `LegacyIdentityMapper` manufactured all 10 204 imported addresses and
+  `InscriptionPlanner` manufactures every new one. They had already drifted — one kept letters only,
+  the other letters *and digits*, so « Mohamed2 Alaoui » became `mohamed_alaoui` in the importer and
+  `mohamed2_alaoui` here, for the same person. Two namespaces for one faculty, and the re-import
+  Phase 16 plans would have renumbered people who already log in. **Letters only is what is on disk**,
+  so it is what the rule states.
+
+##### One student at a time — `InscribeStudentCommand`
+`POST inscription/student`, a JSON body, no file. The transfer notified in November, the returner who
+turns up in week three, the réorientation settled after the intake file was sent.
+
+- **Every bulk import owes a single-row way in**, and it matters more here than for the déliberation:
+  an inscription file names people who do not exist yet, so re-sending it to add one late arrival
+  means re-stating a whole promotion to say one thing.
+- **Every value arrives as text, exactly as a sheet cell would**, and is parsed by the same code — so
+  the form and the file cannot disagree about what « 03/09/2006 » or « SM A » means, and a refusal
+  reads identically on both. Typed fields here and strings there is two grammars for one column.
+- **No preview and no confirmation.** `ConfirmedStudentCount` exists because a file has rows nobody
+  read and can be edited between the simulation and the apply; here the request *is* the row.
+- ⚠ **The refusal carries the row's own sentence** (`InscriptionErrors.RowRefused`, code
+  `Inscription.<Action>`). « 1 ligne en erreur » is what a file needs and names nothing a form user
+  can act on.
+- **Both paths share `InscriptionPlanner` *and* `InscriptionApplier`.** Sharing only the planner
+  would leave two copies of the writes, and it is the writes that create identities — same reason
+  `FinalYearGuard.EnsureMayEnterManyAsync` is the implementation and the single-student call
+  delegates to it.
+
+##### A réorientation is the second path allowed to move a confirmed student stamp
+A `CnpnVersion` belongs to exactly one `AcademicProgram`, so carrying a stamp across Médecine →
+Pharmacie leaves `Student.CnpnVersionId` naming a text that governs a cursus the student has left —
+and everything reading `TotalYears` from it (the final-year gate, the déliberation's « est-ce sa
+dernière année ? ») then answers from the wrong arrêté.
+
+- ⚠ **`RegistrationCnpnStamper.Fallback` was programme-blind**, so this was already wrong on any
+  réorientation done through the ordinary registration form. It now refuses a carried stamp whose
+  programme does not match the registration's level and falls through to `ResolveFromEntryAsync`,
+  which resolves from the level's own programme.
+- ⚠ **Unresolved is not « leave it as it was ».** Where PGSH holds no text of the new programme
+  applying at or before his entry, `Student.ClearCnpnVersion()` removes the stamp. Null means « never
+  resolved » — the same thing it means on the ~2 200 students nobody has stamped — and every reader
+  falls back on it gracefully. Keeping the old one asserts something false.
+- This does not contradict `CnpnTargeting`'s rule. What must never be re-evaluated is an *existing*
+  stamp against a population re-selected each September; this fires once, on one named student, at the
+  moment the faculty moves him between programmes.
+
 ### The last year does not begin until everything below it is validated
 `Stages/Progression/` — `OutstandingStageFinder` (what a student still owes, cursus-wide) and
 `FinalYearGuard` (whether that stops him). Enforced by `ReinscriptionPlanner`,
-`CreateRegistrationCommand` and `CreateManyRegistrationsCommand` alike.
+`CreateRegistrationCommand`, `CreateManyRegistrationsCommand` and `InscriptionPlanner` alike.
 
 - **The rule is the faculty's**: a 7ᵉ année under arrêté 2174.18, a 6ᵉ under 1650.25, cannot be
   entered while a stage from an earlier year is unvalidated. Asked per **student** from his own
@@ -914,6 +1364,13 @@ somebody registers.
 - **Owed = every attempt came back `NonValidé`** — the same test `DossierStageState.ToRevalidate`
   uses, deliberately, because two screens disagreeing about what a student owes is worse than either
   being slightly wrong.
+  - ⚠ **…counting only the attempts a year still stands behind** (`RegistrationStatus.AnnulsItsStages`,
+    settled 2026-09-01). A redoublant repeats the year from scratch, stages included, so an attempt
+    served inside a `Failed` year establishes **nothing** — not an acquisition, and not a debt. The
+    case: pass a stage, fail the year, repeat it, fail that stage. Without the filter he reads as
+    having acquired it and enters his final year owing it, while the last thing he did was fail it.
+    Only `Failed` annuls — `Withdrawn`/`Excluded` end the cursus instead — and `Active` annuls
+    nothing, which is what keeps the imported cursus (all `Active`, no verdict ever recorded) intact.
   - ⚠ **`NonÉvalué` is not owed.** An unmarked stage is one nobody graded, not one he failed, and this
     base holds almost no marks — counting it would block the whole faculty on missing data.
   - ⚠ **Nor is a stage never attempted.** Reading "owes" from the CNPN's requirement set would be
@@ -924,7 +1381,9 @@ somebody registers.
   which blocked every student with no CNPN on record, i.e. the one case the guard must stand aside
   for. It fired hardest exactly where it should not have fired at all.
 - **Enforced on the manual paths too.** A guard the bulk rollover applies and the registration form
-  does not is a guard anyone steps around by using the other button.
+  does not is a guard anyone steps around by using the other button. The inscription import asks it of
+  the students PGSH already holds — a returner really can be re-entering a final year owing a stage —
+  and never of a newcomer, who has no cursus here to owe anything from.
 - **Asked once for a batch** — `EnsureMayEnterManyAsync`, which is the implementation; the
   single-student call delegates to it, so the two paths cannot drift. Per student it is four queries —
   the level's year, his text, his whole cursus, his waiver — i.e. ~2,800 round-trips to enrol a
@@ -1029,13 +1488,45 @@ the year cannot see about itself.
   compiler found the one place that was doing it the other way (`LegacyImportPlanner` flipping
   `IsCurrent` on the last year), which is exactly the write the guard exists for.
 
+⚠ **Filtering by level *and* year is one `Any`, never two.** Both predicates have to hold on the
+**same** `Registration`, because a student past his second year satisfies each on a different row —
+and 2 635 students in this base have repeated, so the false positive is the ordinary case, not an
+edge one. `GetStudentsQueryHandler`'s promotion filter is the shape to copy:
+`s.registrations.Any(r => r.LevelId == levelId && (yearId == null || r.AcademicYearId == yearId))`.
+Measured on the live base 2026-08-29: « 5ᵉ année Médecine, 2026-2027 » is **833** students; asked as
+two independent `Any`s it is **2 127** — 2.6×, all of them people who merely *passed through* that
+level. The same trap applies to any (year-invariant key, year) pair reached through a collection.
+
 A global EF query filter was considered and rejected: of ~101 handlers touching year-constituted
 tables, ~15 are *deliberately* cross-year — student parcours, level dossier, curriculum comparison,
 revalidation's cross-level retake — and those are the load-bearing reads, not edge cases.
 `IgnoreQueryFilters()` is also all-or-nothing, so the escape hatch would disable unrelated filters.
   - ⚠ **To show a count, ask for `pageSize: 1` and read `TotalCount`** — never fetch the rows.
 - **Localization mapping** — `LocalizationMapper.FromCoordinates(x, y, z)` in `Application/Hospitals/`. Use for any Center, Hospital, or Service handler that maps GPS coordinates.
+- **Who leads a service** — `ServiceChefDirectory` / `ServiceChefProvider` in
+  `Application/Hospitals/Chefs/`. Tenure open on the date → sitting chef → legacy note, asked
+  **as of a date** the caller names. Never re-derive it: the répartition and the stage export both
+  read this one, and `FromSourceNote` must travel with the name.
 - **Per-period mark / verdict** — `StageScoring.PeriodMark` / `IsPeriodValidated` in `Domain/Stages/`. The single source of truth shared by the domain roll-up and every read handler (student record, fiche). Never recompute a mark inline.
+- **Where a rotation stands** — `ServicePeriodLifecycle` / `ServicePeriodState` in `Domain/Stages/`
+  (`Planned` → `Underway` → `AwaitingEvaluation` → `Settled`). Same rule as `StageScoring`, for the
+  same reason: `IsStarted && !IsComplete && !IsInterrupted` had been written out in four separate
+  files and its not-started twin in two, i.e. six chances to disagree about what « en cours » means
+  with nothing to catch it. Never restate the triple — `Where(ServicePeriodLifecycle.Underway)` in a
+  query, `IsUnderway(p)` in memory, `StateOf(...)` in a projection.
+  - ⚠ **The expressions are the authority and the delegates are compiled from them.** Two hand-written
+    copies, one for EF and one for memory, is the drift the class removes. EF needs an `Expression`
+    (a method call in a `Where` is refused by the provider), so that is what is written.
+  - ⚠ **`Settled` is defined as the *complement* of the other three, not as "closed and marked".**
+    That is what makes the four a partition: a row complete-but-never-started is a state the
+    lifecycle cannot produce and the store can hold, and under a positive definition it would belong
+    to no state — invisible in every list and counted in none. `ServicePeriodLifecycleTests` walks
+    all 16 flag combinations.
+  - ⚠ **`AwaitingEvaluation` / `Settled` read the `Evaluation` navigation**; in memory it must be
+    loaded. `Planned` / `Underway` touch flags only and are always safe.
+  - **The state is sent to the client, never re-derived there.** The chef page had the same four-way
+    split written again in TypeScript — one rule, two sides of a network boundary, nothing able to
+    catch them disagreeing.
 - **Execution scoping** — `ExecutionAuthorizer` in `Application/Employees/MyServices/`. Every handler acting on a period/evaluation/attendance goes through it: `EnsureCanActOnPeriodAsync`, `EnsureCanActOnEvaluationAsync`, `EnsureCanRecordAttendanceAsync` (write), `EnsureCanReadAttendanceAsync` (read — wider, includes the owning student).
 - **Period overlap** — `SlotOverlapGuard` in `Application/Stages/Slots/`. Any handler creating or moving a `StageSlot` must call it; the rule is level-wide, not per-stage.
 - **Service capacity** — two numbers, never one. `ServiceOccupancyCalculator` says how many students are
@@ -1150,6 +1641,218 @@ corrected: 4,695 `LEGACY-nnnnn` placeholders the Access import manufactured, 835
 plus faculty codes like `22FMPR1444` and codes with an internal space (`R 13089613`). PGSH is not the
 authority on the grammar of a national code; **uniqueness is the constraint that protects anything
 here**, and it is enforced separately.
+
+### ⚠ A validator describes what a *save* must satisfy, not what a good record looks like
+Every rule on an update path is applied to rows that already exist. If the imported data does not
+satisfy it, those rows become **read-only** — and the refusal names a field the user was not editing,
+so it reads as a broken button rather than as a rule.
+
+- **It has happened twice.** `StudentIdentifierRules` rejected 5,646 of 10,204 students (above). And
+  `UpdateStageCommandValidator` required `Objectives.NotEmpty()` while the Access import carried no
+  objectives at all — **0 of 27 stages** satisfied it, so the entire stage catalogue could not be
+  saved. Reported as « switching the rotation mode gives an error »; the actual message was
+  *« At least one stage objective is required »*.
+- **Ask where the requirement is really true.** Objectives are needed only by
+  `EvaluationMode.ValidateObjectives`, and that is already enforced by the evaluation validators and
+  `EvaluationObjectiveResolver`. A stage-level `NotEmpty()` asserted it for every stage, in every
+  mode, forever. Validate what *is* supplied — a blank label, a zero weight — never that something
+  optional was supplied at all.
+- ⚠ **Handler tests cannot see any of this.** The validator runs in `ValidationPipelineBehavior`, so
+  a test that calls the handler directly passes a malformed command straight through:
+  `StageRotationModePersistenceTests` passes `[]` for objectives and stayed green the whole time.
+  **A validator rule is covered in `PGSH.Tests/Integration/` or it is not covered**
+  (`StageEndpointTests`).
+- ⚠ **And the message has to reach the screen.** `StagesPage` caught every failure with a bare
+  `catch` and showed « Erreur lors de l'enregistrement », so the one sentence that explained the
+  refusal was discarded at the last step. Validation failures carry their messages in `errors[]`
+  (`detail` is only the generic « One or more validation errors occurred »); every other refusal is
+  in `detail`. Read both — the pattern is `(err as { data?: … })?.data`, as on `GroupsPage`.
+
+### An export is a document, and it leaves the system — `Exports/`
+Two .xlsx downloads: the roll (`students/export`) and the post-validation stage record
+(`stages/assignments/export`). `PGSH.Application/Exports/` holds the format-agnostic workbook model
+(`ExportWorkbook` / `ExportSheet` / `ExportCell`), the French labels and the errors;
+`ClosedXmlExportWorkbookWriter` in Infrastructure is the **only** code that knows what .xlsx is —
+the same split as the three `ClosedXml*SheetParser`s, in the other direction.
+
+- **One writer, or three faculties.** Three handlers each styling their own workbook is three
+  documents that agree on nothing: the header band, the frozen pane, the auto-filter, the date and
+  number formats are decided once. Add a sheet, not a styling pass.
+- ⚠ **Cells are typed, and that is not cosmetic.** A date written as text cannot be sorted and a mark
+  written as text cannot be averaged — which is the first thing anybody does to a post-validation
+  file, and it fails silently. `ExportCell.Day/Numeric/Count/Text/Paragraph` carry the value in its
+  own type. Identifiers stay `Text` on purpose: a CNE that looks like a number must not lose its
+  leading zeros, and « 3-4 » must not become a date.
+- **Every sheet carries a caption naming its scope** — promotion, année, row count. A file whose only
+  statement of scope was its name cannot be audited three months later, and every export here is
+  scoped by a year the caller was allowed to omit. Same reasoning behind `ExportFileName`.
+- ⚠ **An export is the one read deliberately exempt from pagination**, so it is the one read that can
+  pull the base into memory. Both are capped (`ExportErrors.TooManyRows`) and the refusal names the
+  count *and* the axis that narrows it — « trop de lignes » alone sends the user back to the same
+  button. Year-scoped, neither cap can be reached by the real data; they bite only on a caller that
+  has found a way to widen past a year.
+- ⚠ **Flat queries only.** The périodes of an attempt and the objective scores of an évaluation are
+  collections; folded into a projection they are exactly the shape that killed the macro plan. Three
+  top-level reads keyed on the parent id, joined in memory — pinned by `SqlTranslationTests`. The
+  scope is defined **once** (`StageAssignmentExportQueries.Scoped`) and the other two reach it through
+  `IN (subquery)`: two copies of a year filter is how a périodes sheet ends up describing a different
+  population from the stages sheet beside it.
+- **Nothing is recomputed.** `StageScoring` gives the mark and the verdict, `ServicePeriodLifecycle`
+  the state, `WorkingDayCalendar` the durations, `ServiceChefDirectory` the chef. An export that averaged differently from the fiche de
+  validation would be a document contradicting the system it came from.
+
+#### ⚠ A column blank on every row is indistinguishable from a column the export forgot
+`ExportNotes`, printed under the caption of every sheet. **This was reported within minutes of the
+first real download**, against a file that was correct in every cell: the roll of 2026-2027 came out
+with `Groupe`, `N° groupe`, `Partition`, `Source de la décision` and `Convention` empty on all 5 932
+lines, and read as broken. Measured the same day, every one of those blanks was the truth —
+**0 inscriptions carry a roster pointer**, `OutcomeSource` is null across a year nobody has
+deliberated, and `AgreementType` is `None` for **all 10 206 students in the base**.
+
+- **The note is computed from the rows actually exported**, not from a list somebody maintains, so a
+  column added later is covered without anyone remembering to.
+- **It says « aucune valeur dans cet export », never « données manquantes ».** An empty `Convention`
+  means nobody is under one; the note's job is to say the export looked and found nothing, not to
+  accuse the base.
+- ⚠ **The roster columns get a second, specific note, because their emptiness has two causes that
+  call for opposite acts** — no roster exists (cut the promotion) versus rosters holding nobody
+  (assign the students). Same shape as `RepartitionSummary.DeclaredSlotCount` separating « no
+  periods » from « periods nobody is in », and as `OutsideYearCount` saying what a year filter
+  removed. The count of rosters in scope is queried **only when the answer will be printed**.
+- **A note that fires whatever the data says is noise, and noise is dismissed** — which puts the real
+  one back out of sight. A partly-filled column is not an empty one, and an export with no rows has
+  no empty columns to name.
+
+#### The roll is an export of *registrations*, and the promotion is a column
+Nom, prénom, CNE and Apogée belong to a person and never move; niveau, groupe, partition and statut
+are facts about the year — and 2 635 students in this base have sat in more than one. Cut from
+`Students` the row would have to pick a registration and could not say which, so **the row is the
+registration**.
+
+- ⚠ **An omitted year is the current one, never all of them.** A file labelled « liste des étudiants »
+  holding six promotions of history is the évaluation-import defect with a different button on it.
+- **`Programme` and `Niveau` are always columns, and `levelId` still cuts the per-promotion file.**
+  The columns cost nothing and make a row self-describing when two exports are merged or one is
+  opened a year later; a file whose scope lived only in its name cannot do that. Asking for one *or*
+  the other was a false choice — the filter gives the per-promotion document with the columns intact.
+- **The CNPN column follows the read order** `r.CnpnVersionId ?? r.Student.CnpnVersionId`, and
+  « Origine CNPN » says which of the two answered. Blank is « jamais résolu », not « rien dû ».
+
+#### Several périodes is not several stays — `StagePeriodFolder`
+The question the stage export had to answer: 01/01→01/02 then 02/02→02/03 is *one* rotation written
+twice when the service never changed and the windows meet, and *two* when they do not. **The merge is
+decided by the service, never by the dates.**
+
+A **stay** is a maximal run of périodes in the *same service* with *no worked day between them*. One
+stay prints as one span; several print joined by « · », with the services joined by « → » in the same
+order, so the two cells correspond position by position.
+
+| case | Découpage | Service(s) | Période(s) |
+|---|---|---|---|
+| one période | `Période unique` | `Cardiologie` | `01/01/2025 – 01/02/2025` |
+| two, one service, meeting | `Service unique — 2 périodes contiguës` | `Cardiologie` | `01/01/2025 – 02/03/2025` |
+| two, one service, a hole | `Service unique — 2 périodes, 1 interruption(s)` | `Cardiologie` | `01/01/2025 – 01/02/2025 · 17/02/2025 – 02/03/2025` |
+| two services | `Rotation — 2 services, 2 périodes` | `Cardiologie → Pneumologie` | `01/01/2025 – 01/02/2025 · 02/02/2025 – 02/03/2025` |
+
+- ⚠ **The multi-période fact is never carried by the string alone.** `Nb périodes` and `Nb services`
+  are numeric columns, so « montre-moi les stages faits en deux services » is a filter rather than a
+  reading exercise. Merging two windows into one span must not erase that it was recorded in two.
+- ⚠ **A gap is measured in *worked* days.** A calendar-day test calls every Friday → Monday hand-over
+  an interruption — which is exactly how one column follows another, since `WorkingDayCalendar` never
+  lets a window swallow its trailing weekend. A declared holiday between two windows is not a hole
+  either.
+- ⚠ **Both break conditions matter.** Breaking only on the service change (the shape
+  `SchedulePublisher.BuildStays` uses — correctly, since it works from contiguous grid columns) would
+  swallow a real interruption inside one printed span. Breaking only on the gap would merge S1 → S2
+  into one line and lose the second service.
+- ⚠ **Durations are summed over the périodes, never measured end to end.** An interrupted stage's span
+  contains days nobody served, and `Fin − Début` is the number that makes a 22-jour stage read as 60.
+- **Most rows arrive already collapsed**: `SchedulePublisher` folds a `SingleService` run into one
+  `ServicePeriod`, and 5ᵉ/6ᵉ année are `SingleService` in 51 923 of 51 924 imported placements. The
+  folding exists for 3ᵉ and 4ᵉ année, which genuinely rotate, and for the Access history.
+- `StagePeriodFolder` is **pure** — no store, no clock — like `PeriodAxis`, `RotationTiling` and
+  `OccupancyTimeline`, and for the same reason: the cases are exact rather than approximately seeded.
+
+#### A folded run is one période and several créneaux, and the file has to say both
+`CoveredSlotFolder` + `StageAssignmentExportQueries.SlotCoverageQuery`. Under `SingleService`
+`SchedulePublisher` collapses the `kₛ` cells of a run into **one** `ServicePeriod` spanning them —
+correctly, since the student stands in one service and is marked once — so the Périodes sheet showed
+one row where the grid authored three columns, and the axis those columns belong to was nowhere in
+the document. Reported 2026-08-31: « on ne voit qu'une période alors qu'on en a trois ».
+
+- **Both facts are on the row.** « Découpage » still reads « Période unique » and « Nb périodes » is
+  still 1 — the fold was never the defect, the silence about what it folded was. Beside them,
+  **`Nb créneaux`** (a number, so « publiés sur trois créneaux » is a filter), **`Créneaux`**
+  (« P1-P3 ») and, on the Périodes sheet, **`Détail des créneaux`** — one line per column with *its
+  own* window and worked-day count, which is exactly what the folded période's span cannot state.
+- ⚠ **Still one row per période, never one per créneau.** A run is marked once; repeated across its
+  three columns the note is counted three times by the first pivot anybody builds. The unit that
+  carries a verdict stays the unit of the sheet.
+- ⚠ **Read through `ServicePeriodSlotCoverage`, never `ServicePeriod.CohortSlotAssignmentId`.** That
+  FK names only the **first** cell of a run, so the trailing columns — the entire subject here — have
+  nothing pointing at them. Same trap as `RotationCycleContext`'s, and the fixture seeds coverage for
+  every cell or the case proves nothing.
+- **A période with no coverage leaves the cell empty, not `0`.** An ad-hoc période — imported
+  history, a délocalisation, a revalidation — came from no grid, and « 0 » there reads as a count that
+  failed. « Origine » already says « Hors grille » for exactly those rows.
+- **Only consecutive numbers merge** (`P1, P3-P4`), as `GroupNumberRanges` does and for the same
+  reason: « P1-P3 » is a claim that P2 is in the run, and a run that skipped it never held that
+  column. The name is the créneau's authored label, falling back to `P{n}`.
+- Measured on the live base 2026-08-31: **5 831 grid-linked périodes covering 7 497 cells**, the
+  1 666-cell difference being folded runs. 5MED Gynécologie Obstétrique is 833 périodes each covering
+  **3** créneaux (P4 08/12→07/01, P5 08/01→07/02, P6 08/02→07/03); the other six 5MED stages are
+  `PerPeriod` and cover one apiece.
+
+#### Who leads a service is one rule, and both documents ask it — `ServiceChefDirectory`
+`Application/Hospitals/Chefs/`. The resolution order was a private method inside
+`GetLevelRepartitionQueryHandler` until the stage export needed the same answer; two documents of one
+faculty disagreeing about who leads a service is the drift `StageScoring` and
+`ServicePeriodLifecycle` exist to prevent. Pure directory + `ServiceChefProvider` that builds it —
+the same split as `WorkingDayCalendar` / `WorkingDayProvider`.
+
+- **Order is authority order**: the tenure open on the date → the sitting chef → the legacy note
+  (`ServiceChefSourceNote`). Unchanged; only its address is.
+- ⚠ **The as-of date is per question, not per build.** The répartition asks once, at the start of the
+  axis. The export asks **per période**, because a file covering a year of rotations spans months and
+  a chef who took over in January did not lead the students who stood there in October. That is why
+  the whole tenure trail is loaded rather than filtered in SQL — a predicate cannot be pushed down
+  for a date that is not known yet — and the trail is bounded by the services in scope.
+- ⚠ **`Origine du chef` travels beside the name, always.** 140 of the 148 imported services name
+  their professor only in a free-text note the Access base last recorded, and that note is
+  **undated**: printed unqualified it claims this student served under that chef, which nothing in
+  the base supports. « Affectation » / « Note (import) » / « Mixte » — same reasoning as
+  `OutcomeSource` and `CnpnSource`.
+- **Linking the professor in Personnel is what upgrades the rows**, and the export needs no change
+  for it: a tenure or a sitting chef simply outranks the note. Measured 2026-08-31: 2 of 148 services
+  now carry one, against 140 carrying only the note.
+- ⚠ **Two flat queries, not one projection carrying the tenures.** A tenure projects to a computed
+  element with no key, and a collection of those inside a `Select` is the shape Npgsql refuses —
+  the family that killed the macro plan. `SqlTranslationTests` pins both.
+
+#### Three sheets, because two questions are asked at once
+« Stages » is one row per **attempt** — the unit that carries a note and a verdict, and therefore the
+unit a PV is drawn from. « Périodes » is one row per **période** (with the créneaux it covers stated
+on that row — see above). « Synthèse » counts the verdicts per
+stage. Folding the detail into the first sheet would either lose it or make every row a paragraph;
+leaving the first sheet out would hand a reader several lines per student and nowhere to read a
+verdict. **`Réf. stage` is on both sheets and is the join** — a detail nobody can key back to the row
+it belongs to is a detail nobody reads.
+
+- ⚠ **Scoped by the *registration's* level, not the stage's.** The file is « la promotion et ce qu'elle
+  a fait cette année », so a 6ᵉ année student revalidating a 3ᵉ année stage belongs on the 6ᵉ année's
+  document — his own. Both levels are printed, which is what makes the row readable as a rattrapage
+  rather than as one filed in the wrong place. (`GetStudentLevelDossierQuery` scopes the other way, on
+  purpose: it answers « what does this student owe *at this level* ».)
+- ⚠ **The year is read, never inferred from dates** — `a.Registration.AcademicYearId`. The two rules
+  disagree on 7 030 of 105 626 périodes and the registration is right every time.
+- **The unmarked rows are in the document by default.** A file whose whole purpose is « où en est la
+  promotion » must show the holes, or a missing évaluation reads as a student nobody planned.
+  `onlyEvaluated=true` is the caller saying the file is a PV rather than a state of play — and it is
+  the switch a **pre-validation** export will reuse, not a second pipeline.
+- **« Moyenne du stage » is legitimate** — the mean of the students' notes *within one stage* is a
+  class average. It is the mean *across* stages that this project does not have and must not invent.
+  « Taux de validation » is measured over the whole population, not over the evaluated part: a stage
+  with one mark entered is not 100 % validated.
 
 ### Search handlers — one shape
 Always `request.SearchTerm.Trim().ToLower()` and compare against `Field.ToLower().Contains(term)` for **every**

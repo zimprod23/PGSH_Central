@@ -1,48 +1,78 @@
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
-using PGSH.Domain.Common.Utils;
+using PGSH.Application.AcademicYears;
+using PGSH.Application.Stages.Planning;
+using PGSH.Domain.Stages;
 using PGSH.SharedKernel;
 
 namespace PGSH.Application.Stages.Cohorts.DeleteAll;
 
-internal sealed class DeleteAllCohortsCommandHandler(IApplicationDbContext dbContext)
-    : ICommandHandler<DeleteAllCohortsCommand, int>
+/// <summary>
+/// Resets one stage's cohortes for one year.
+/// </summary>
+/// <remarks>
+/// <para>The guard is the same as the single-cohorte delete's, read through the same
+/// <see cref="AffectationTollReader"/> so the two refusals cannot describe the same rows
+/// differently — and it now <b>names</b> what it is refusing over. « des affectations sont déjà en
+/// cours » told the admin nothing about which stage, how far along, or what to do next.</para>
+/// </remarks>
+internal sealed class DeleteAllCohortsCommandHandler(
+    IApplicationDbContext dbContext,
+    AcademicYearResolver yearResolver,
+    AffectationTollReader tollReader)
+    : ICommandHandler<DeleteAllCohortsCommand, DeleteAllCohortsResult>
 {
-    public async Task<Result<int>> Handle(DeleteAllCohortsCommand request, CancellationToken cancellationToken)
+    public async Task<Result<DeleteAllCohortsResult>> Handle(
+        DeleteAllCohortsCommand request, CancellationToken cancellationToken)
     {
+        var year = await yearResolver.ResolveWithLabelAsync(request.AcademicYearId, cancellationToken);
+        if (year.IsFailure)
+            return Result.Failure<DeleteAllCohortsResult>(year.Error);
+
+        (int yearId, string yearLabel) = year.Value;
+
+        var stage = await dbContext.Stages
+            .AsNoTracking()
+            .Where(s => s.Id == request.StageId)
+            .Select(s => new { s.Name })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (stage is null)
+            return Result.Failure<DeleteAllCohortsResult>(StageErrors.NotFound(request.StageId));
+
         var cohortIds = await dbContext.Cohorts
-            .Where(c => c.StageId == request.StageId
-                     && (request.AcademicYearId == null || c.AcademicGroup.AcademicYearId == request.AcademicYearId))
+            .Where(c => c.StageId == request.StageId && c.AcademicGroup.AcademicYearId == yearId)
             .Select(c => c.Id)
             .ToListAsync(cancellationToken);
 
         if (cohortIds.Count == 0)
-            return Result.Success(0);
+            return new DeleteAllCohortsResult(0, 0, 0);
 
-        bool hasActiveAssignments = await dbContext.InternshipAssignments
-            .AnyAsync(a => cohortIds.Contains(a.CurrentCohortId)
-                        && a.Status != InternshipStatus.Planned,
-                      cancellationToken);
+        var toll = await tollReader.ForCohortsAsync(cohortIds, cancellationToken);
 
-        if (hasActiveAssignments)
-            return Result.Failure<int>(Error.Conflict(
-                "Cohorts.HasActiveAssignments",
-                "One or more cohorts in this stage have assignments that have already started. Students must be completed or transferred before resetting."));
+        if (toll.IsUnderway)
+        {
+            return Result.Failure<DeleteAllCohortsResult>(StageErrors.StageCohortsUnderway(
+                stage.Name, yearLabel, cohortIds.Count, toll.Assignments, toll.Periods,
+                toll.Started, toll.Evaluated, toll.AttendanceDays));
+        }
 
         var assignmentIds = await dbContext.InternshipAssignments
             .Where(a => cohortIds.Contains(a.CurrentCohortId))
             .Select(a => a.Id)
             .ToListAsync(cancellationToken);
 
+        int periodsRemoved = 0;
+
         if (assignmentIds.Count > 0)
         {
-            await dbContext.ServicePeriods
+            periodsRemoved = await dbContext.ServicePeriods
                 .Where(p => assignmentIds.Contains(p.InternshipAssignmentId))
                 .ExecuteDeleteAsync(cancellationToken);
 
-            // Delete membership records linked to these assignments (cascade path)
-            // and records that point to these cohorts from transfers (orphan path)
+            // Memberships belonging to these assignments (the cascade path) and those pointing into
+            // these cohortes from assignments elsewhere (the transfer path).
             await dbContext.CohortMembership
                 .Where(m => assignmentIds.Contains(m.InternshipAssignmentId)
                          || cohortIds.Contains(m.CohortId))
@@ -61,6 +91,6 @@ internal sealed class DeleteAllCohortsCommandHandler(IApplicationDbContext dbCon
             .Where(c => cohortIds.Contains(c.Id))
             .ExecuteDeleteAsync(cancellationToken);
 
-        return Result.Success(deleted);
+        return new DeleteAllCohortsResult(deleted, assignmentIds.Count, periodsRemoved);
     }
 }

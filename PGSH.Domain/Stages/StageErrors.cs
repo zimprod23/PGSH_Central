@@ -1,4 +1,4 @@
-﻿using PGSH.Domain.Common.Utils;
+using PGSH.Domain.Common.Utils;
 using PGSH.SharedKernel;
 
 namespace PGSH.Domain.Stages;
@@ -304,6 +304,36 @@ public static class StageErrors
         + "Choisissez un autre service, ou ajoutez un quota pour cette promotion depuis la fiche du service.");
 
     /// <summary>
+    /// One publish, several cells refused at once — the ordinary shape of a stage-wide publication
+    /// on a base that is structurally over-subscribed.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ <b>Why an aggregate exists at all.</b> Refusing on the first breach is correct for a single
+    /// cohorte and useless for a promotion: the admin raises one quota, waits for the whole publish
+    /// again, and is told about the next one. It was worse than that in practice — the stage page
+    /// published cohorte by cohorte, so one press of « Publier tout » produced a refusal per cohorte,
+    /// dozens of red toasts each naming a different service and none of them naming the scale of the
+    /// problem. One refusal, an exact count, and the heaviest few named.
+    /// <para><paramref name="notAdmittedCount"/> is stated separately because that half cannot be
+    /// forced: « autoriser le dépassement » lifts the numbers, never a promotion a service does not
+    /// take.</para>
+    /// </remarks>
+    public static Error PublishRefusedByIntake(
+        int refusedCells, int notAdmittedCount, IReadOnlyList<string> worst) => Error.Conflict(
+        "Schedule.PublishRefusedByIntake",
+        $"La publication est refusée : {refusedCells} affectation(s) dépassent ce que le service accepte"
+        + (notAdmittedCount > 0
+            ? $", dont {notAdmittedCount} sur un service qui n'accueille pas cette promotion — "
+              + "ce refus-là ne peut pas être forcé. "
+            : ". ")
+        + $"Les plus lourdes : {string.Join(" · ", worst)}"
+        + (refusedCells > worst.Count ? $" (+{refusedCells - worst.Count} autre(s))" : "")
+        + ". Ouvrez la grille de planning pour les corriger"
+        + (notAdmittedCount < refusedCells
+            ? ", ou cochez « autoriser le dépassement d'effectif » pour publier malgré les effectifs."
+            : ".")); 
+
+    /// <summary>
     /// Every service the stage allows refuses its level. Raised by auto-arrange rather than
     /// silently producing an empty grid, because "no services" and "no services <i>for you</i>"
     /// send the user to two different screens.
@@ -526,4 +556,39 @@ public static class StageErrors
         "Revalidations.StillOpen",
         $"Le stage {stageId} n'est pas encore soldé sur une inscription précédente : attendez son "
         + "verdict avant d'ouvrir une revalidation.");
+
+    /// <summary>
+    /// Removing a cohorte removes the affectations built on it, and every <c>ServicePeriod</c> hangs
+    /// off an affectation — so <c>ServiceEvaluation</c>, <c>AttendanceRecord</c>, <c>PeriodPause</c>
+    /// and <c>Delocalization</c> cascade away with them.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ Deliberately not forceable. Unpublishing has a <c>Force</c> because it is the declared
+    /// inverse of publishing and its whole subject is the schedule; « supprimer la cohorte » is a
+    /// structural act, and nobody reaching for it means "and destroy the marks". Stop the rotation
+    /// first — the unpublish path is guarded, states its cost and asks twice — then delete.
+    /// </remarks>
+    public static Error CohortAffectationsUnderway(
+        string cohortLabel, int assignments, int periods,
+        int started, int evaluated, int attendanceDays) => Error.Conflict(
+        "Cohorts.AffectationsUnderway",
+        $"La cohorte « {cohortLabel} » est engagée : {assignments} affectation(s), {periods} période(s) "
+        + $"dont {started} démarrée(s), {evaluated} évaluation(s) et {attendanceDays} journée(s) de "
+        + "présence. La supprimer effacerait définitivement les évaluations et les présences. Arrêtez "
+        + "d'abord la rotation — dépubliez la répartition de cette cohorte, qui indique ce qui serait "
+        + "perdu — puis supprimez-la.");
+
+    /// <summary>
+    /// The same refusal for « Réinitialiser les cohortes », which reaches every cohorte of one stage
+    /// in one year. Same rule, same numbers, one message per act rather than a shared « cannot ».
+    /// </summary>
+    public static Error StageCohortsUnderway(
+        string stageName, string yearLabel, int cohorts, int assignments, int periods,
+        int started, int evaluated, int attendanceDays) => Error.Conflict(
+        "Cohorts.StageUnderway",
+        $"« {stageName} » est engagé en {yearLabel} : {cohorts} cohorte(s), {assignments} affectation(s), "
+        + $"{periods} période(s) dont {started} démarrée(s), {evaluated} évaluation(s) et "
+        + $"{attendanceDays} journée(s) de présence. Réinitialiser effacerait définitivement les "
+        + "évaluations et les présences. Dépubliez d'abord la répartition du stage — cette action "
+        + "indique précisément ce qu'elle coûte — puis réinitialisez.");
 }

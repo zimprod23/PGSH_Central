@@ -218,7 +218,7 @@ public class CnpnEffectivityTests
         var registration = AddRegistration(db, student, Level3, Year2026);
         var report = await Stamper(db).StampAsync([registration], default);
 
-        report.IsSuccess.Should().BeTrue();
+        report.Stamped.Should().Be(1);
         registration.CnpnVersionId.Should().Be(OldText);
         registration.CnpnSource.Should().Be(RegistrationCnpnSource.StudentStamp);
     }
@@ -240,7 +240,7 @@ public class CnpnEffectivityTests
         var registration = AddRegistration(db, student, Level4, Year2026);
         var report = await Stamper(db).StampAsync([registration], default);
 
-        report.IsSuccess.Should().BeTrue();
+        report.Stamped.Should().Be(1);
         registration.CnpnVersionId.Should().Be(NewText);
         registration.CnpnSource.Should().Be(RegistrationCnpnSource.CarriedForward);
     }

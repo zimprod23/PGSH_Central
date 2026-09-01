@@ -1,12 +1,12 @@
-using System.Text.Json;
 using FluentValidation;
 using Microsoft.EntityFrameworkCore;
+using PGSH.Application.Abstractions.Authorization;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
-using PGSH.Application.Employees.MyServices;
 using PGSH.Application.Stages.Planning;
 using PGSH.Domain.Registrations;
 using PGSH.SharedKernel;
+using System.Text.Json;
 
 namespace PGSH.Application.AcademicGroups.Join;
 

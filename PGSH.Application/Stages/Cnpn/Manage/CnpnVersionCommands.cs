@@ -1,8 +1,8 @@
 using FluentValidation;
 using Microsoft.EntityFrameworkCore;
+using PGSH.Application.Abstractions.Authorization;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
-using PGSH.Application.Employees.MyServices;
 using PGSH.Domain.Common.Utils;
 using PGSH.Domain.Stages;
 using PGSH.SharedKernel;
@@ -128,37 +128,32 @@ internal sealed class UpdateCnpnVersionCommandHandler(
         if (version is null)
             return Result.Failure(CnpnErrors.VersionNotFound(request.Id));
 
+        // Uniqueness spans the programme's other texts, so it stays here: the aggregate cannot see
+        // them. Everything the text can decide about itself is inside Correct.
         var guard = await CnpnVersionGuards.EnsureCodeAndIntakeAreFreeAsync(
             dbContext, version.AcademicProgram, request.Code,
             request.AppliesToEntrantsFromAcademicYearId, excludingId: version.Id, ct);
         if (guard.IsFailure) return guard;
 
-        // Shortening the degree must not strand a level that already carries requirements.
-        int deepestRecorded = await dbContext.Curriculums
-            .Where(c => c.CnpnVersionId == version.Id)
-            .Select(c => (int?)c.Level.Year)
-            .MaxAsync(ct) ?? 0;
+        // How far down the span is already spoken for. Read from the store rather than counted off
+        // the aggregate's collections — see CnpnSpanFloor: an un-Included collection reads as an
+        // empty one, this rule has no unique index behind it, and the in-memory provider fixes
+        // navigations up, so the mistake would pass every test and only strand data on PostgreSQL.
+        var floor = new CnpnSpanFloor(
+            await dbContext.Curriculums
+                .Where(c => c.CnpnVersionId == version.Id)
+                .Select(c => (int?)c.Level.Year)
+                .MaxAsync(ct) ?? 0,
+            await dbContext.CnpnLevelEffectivities
+                .Where(e => e.CnpnVersionId == version.Id)
+                .Select(e => (int?)e.Level.Year)
+                .MaxAsync(ct) ?? 0);
 
-        if (deepestRecorded > request.TotalYears)
-            return Result.Failure(
-                CnpnErrors.CannotShortenBelowRecordedLevel(request.TotalYears, deepestRecorded));
+        var corrected = version.Correct(
+            request.Code, request.Label, request.TotalYears,
+            request.Reference, request.AppliesToEntrantsFromAcademicYearId, floor);
 
-        // …nor a level the text has been declared to take effect for: the rule would point at a year
-        // the programme no longer has.
-        int deepestEffective = await dbContext.CnpnLevelEffectivities
-            .Where(e => e.CnpnVersionId == version.Id)
-            .Select(e => (int?)e.Level.Year)
-            .MaxAsync(ct) ?? 0;
-
-        if (deepestEffective > request.TotalYears)
-            return Result.Failure(
-                CnpnErrors.CannotShortenBelowEffectiveLevel(request.TotalYears, deepestEffective));
-
-        version.Code       = request.Code.Trim();
-        version.Label      = request.Label.Trim();
-        version.TotalYears = request.TotalYears;
-        version.Reference  = request.Reference?.Trim();
-        version.AppliesToEntrantsFromAcademicYearId = request.AppliesToEntrantsFromAcademicYearId;
+        if (corrected.IsFailure) return corrected;
 
         await dbContext.SaveChangesAsync(ct);
         return Result.Success();

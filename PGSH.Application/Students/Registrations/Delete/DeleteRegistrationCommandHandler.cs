@@ -17,7 +17,7 @@ internal sealed class DeleteRegistrationCommandHandler(IApplicationDbContext dbC
     public async Task<Result> Handle(DeleteRegistrationCommand request, CancellationToken ct)
     {
         var student = await dbContext.Students
-            .Include(s => s.registrations)
+            .Include(s => s.Registrations)
             .FirstOrDefaultAsync(s => s.Id == request.StudentId, ct);
 
         if (student is null) return Result.Failure(StudentErrors.NotFound(request.StudentId));

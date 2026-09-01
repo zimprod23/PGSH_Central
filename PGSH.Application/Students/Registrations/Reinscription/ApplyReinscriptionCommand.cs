@@ -1,11 +1,11 @@
-using System.Text.Json;
 using FluentValidation;
+using PGSH.Application.Abstractions.Authorization;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
-using PGSH.Application.Employees.MyServices;
 using PGSH.Application.Stages.Cnpn;
 using PGSH.Domain.Registrations;
 using PGSH.SharedKernel;
+using System.Text.Json;
 
 namespace PGSH.Application.Students.Registrations.Reinscription;
 
@@ -93,9 +93,7 @@ internal sealed class ApplyReinscriptionCommandHandler(
             // The rollover is where an effectivity rule authored over the summer actually bites: it
             // is the act that creates next year's registrations, and a repeater re-entering the level
             // the rule names is stamped here rather than by anyone remembering to run a command.
-            var stamp = await stamper.StampAsync(created, cancellationToken);
-            if (stamp.IsFailure)
-                return Result.Failure<ReinscriptionReport>(stamp.Error);
+            await stamper.StampAsync(created, cancellationToken);
 
             await dbContext.SaveChangesAsync(cancellationToken);
         }

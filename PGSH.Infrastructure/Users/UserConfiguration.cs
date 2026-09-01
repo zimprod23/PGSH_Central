@@ -101,21 +101,21 @@ internal sealed class StudentConfiguration : IEntityTypeConfiguration<Student>
               .IsRequired();
 
         // --- Collections ---
-        builder.HasMany(s => s.registrations)
+        builder.HasMany(s => s.Registrations)
                .WithOne(r => r.Student)
                .HasForeignKey(r => r.StudentId)
                .OnDelete(DeleteBehavior.Cascade);
 
-        builder.HasMany(s => s.history)
+        builder.HasMany(s => s.HistoryEntries)
                .WithOne(h => h.Student)
                .HasForeignKey(h => h.StudentId)
                .OnDelete(DeleteBehavior.Cascade);
 
         // Optional: access mode for encapsulation
-        builder.Navigation(s => s.registrations)
+        builder.Navigation(s => s.Registrations)
                .UsePropertyAccessMode(PropertyAccessMode.Field);
 
-        builder.Navigation(s => s.history)
+        builder.Navigation(s => s.HistoryEntries)
                .UsePropertyAccessMode(PropertyAccessMode.Field);
     }
 }
@@ -139,7 +139,7 @@ internal sealed class HistoryConfiguration : IEntityTypeConfiguration<History>
              .HasColumnType("jsonb"); // PostgreSQL native type
 
         builder.HasOne(h => h.Student)
-               .WithMany(s => s.history)
+               .WithMany(s => s.HistoryEntries)
                .HasForeignKey(h => h.StudentId)
                .OnDelete(DeleteBehavior.Cascade);
     }

@@ -282,6 +282,14 @@ internal sealed class SchedulePublisher(
             ? null
             : await occupancyCalculator.BuildAsync(serviceIds, ct);
 
+        // ⚠ Every breach, not the first one. This runs over a whole stage — a hundred cohorts and
+        // ten columns — and the base is structurally over-subscribed, so refusing on the first cell
+        // meant the admin fixed one service, waited for the whole publish again, and was told about
+        // the next. Worse, the screen that published cohort by cohort turned that into one refusal
+        // toast per cohorte, dozens of them, none of which was the whole story. One pass, one
+        // refusal, and it names how many cells are involved and the heaviest of them.
+        var breaches = new List<IntakeBreach>();
+
         foreach (var sa in slotAssignments
                      .GroupBy(s => new { s.ServiceId, s.LevelId, s.StartDate, s.EndDate })
                      .Select(g => g.First()))
@@ -290,8 +298,10 @@ internal sealed class SchedulePublisher(
             {
                 // Checked whatever the caller asked for. This is the hard half.
                 if (!intake.Admits(sa.ServiceId, sa.LevelId))
-                    return Result.Failure(StageErrors.LevelNotAdmitted(
-                        sa.PeriodNumber, sa.ServiceName, sa.LevelLabel, sa.StartDate, sa.EndDate));
+                {
+                    breaches.Add(IntakeBreach.NotAdmitted(sa));
+                    continue;
+                }
 
                 if (allowOverCapacity) continue;
 
@@ -300,9 +310,7 @@ internal sealed class SchedulePublisher(
                 int levelLoad = occupancy!.LoadOn(sa.ServiceId, sa.LevelId, sa.StartDate, sa.EndDate);
                 int levelCapacity = intake.CapacityFor(sa.ServiceId, sa.LevelId);
                 if (levelLoad > levelCapacity)
-                    return Result.Failure(StageErrors.LevelCapacityExceeded(
-                        sa.PeriodNumber, sa.ServiceName, sa.LevelLabel,
-                        sa.StartDate, sa.EndDate, levelLoad, levelCapacity));
+                    breaches.Add(IntakeBreach.OverLevelQuota(sa, levelLoad, levelCapacity));
 
                 continue;
             }
@@ -316,11 +324,68 @@ internal sealed class SchedulePublisher(
             int load = occupancy!.LoadOn(sa.ServiceId, sa.StartDate, sa.EndDate);
             int capacity = intake.TotalCapacity(sa.ServiceId);
             if (load > capacity)
-                return Result.Failure(StageErrors.CapacityExceeded(
-                    sa.PeriodNumber, sa.ServiceName, sa.StartDate, sa.EndDate, load, capacity));
+                breaches.Add(IntakeBreach.OverCapacity(sa, load, capacity));
         }
 
-        return Result.Success();
+        if (breaches.Count == 0)
+            return Result.Success();
+
+        // One cell in trouble is the per-cohorte case, and its own sentence already says everything
+        // there is to say about it — including, for an inadmissible promotion, that no checkbox
+        // lifts it. Keep it: an aggregate wrapper around a single breach reads as evasion.
+        if (breaches.Count == 1)
+            return Result.Failure(breaches[0].AsError());
+
+        // Hardest first: an inadmissible service is not negotiable, so it is what the reader has to
+        // act on, and the ordering within each half is by how far over the cell is.
+        var ordered = breaches
+            .OrderByDescending(b => b.IsAdmissibility)
+            .ThenByDescending(b => b.Overflow)
+            .ToList();
+
+        return Result.Failure(StageErrors.PublishRefusedByIntake(
+            ordered.Count,
+            ordered.Count(b => b.IsAdmissibility),
+            ordered.Take(MaxReportedBreaches).Select(b => b.Summary).ToList()));
+    }
+
+    /// <summary>
+    /// How many refused cells a refusal names one by one. The count is always exact; the list is
+    /// what a person can read in a toast.
+    /// </summary>
+    private const int MaxReportedBreaches = 3;
+
+    /// <summary>One cell a publish will not write, and why.</summary>
+    private sealed record IntakeBreach(
+        SlotAssignmentInfo Cell, bool IsAdmissibility, int Load, int Capacity)
+    {
+        public static IntakeBreach NotAdmitted(SlotAssignmentInfo cell) => new(cell, true, 0, 0);
+
+        public static IntakeBreach OverLevelQuota(SlotAssignmentInfo cell, int load, int capacity) =>
+            new(cell, false, load, capacity) { IsLevelQuota = true };
+
+        public static IntakeBreach OverCapacity(SlotAssignmentInfo cell, int load, int capacity) =>
+            new(cell, false, load, capacity);
+
+        private bool IsLevelQuota { get; init; }
+
+        /// <summary>How far over the governing limit the cell is — 0 for an admissibility refusal,
+        /// which is not a matter of degree.</summary>
+        public int Overflow => IsAdmissibility ? 0 : Load - Capacity;
+
+        public string Summary => IsAdmissibility
+            ? $"P{Cell.PeriodNumber} « {Cell.ServiceName} » : {Cell.LevelLabel} non admise"
+            : $"P{Cell.PeriodNumber} « {Cell.ServiceName} » : {Load}/{Capacity}";
+
+        public Error AsError() => IsAdmissibility
+            ? StageErrors.LevelNotAdmitted(
+                Cell.PeriodNumber, Cell.ServiceName, Cell.LevelLabel, Cell.StartDate, Cell.EndDate)
+            : IsLevelQuota
+                ? StageErrors.LevelCapacityExceeded(
+                    Cell.PeriodNumber, Cell.ServiceName, Cell.LevelLabel,
+                    Cell.StartDate, Cell.EndDate, Load, Capacity)
+                : StageErrors.CapacityExceeded(
+                    Cell.PeriodNumber, Cell.ServiceName, Cell.StartDate, Cell.EndDate, Load, Capacity);
     }
 
     /// <summary>

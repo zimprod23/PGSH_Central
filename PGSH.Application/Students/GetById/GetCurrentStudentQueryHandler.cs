@@ -18,8 +18,8 @@ internal sealed class GetCurrentStudentQueryHandler(IApplicationDbContext dbCont
         var userId = userContext.UserId;
         var student = await dbContext.Students
            .AsNoTracking()
-           .Include(s => s.registrations) // Load the collection
-           .Include(s => s.history)       // Load the collection
+           .Include(s => s.Registrations) // Load the collection
+           .Include(s => s.HistoryEntries)       // Load the collection
            .Where(s => s.IdentityProviderId == userId.ToString())
            .Select(s => new StudentResponse(
                s.Id,
@@ -40,7 +40,7 @@ internal sealed class GetCurrentStudentQueryHandler(IApplicationDbContext dbCont
                s.BacYear,
                s.AccessGrade,
                s.Ranking,
-               s.registrations
+               s.Registrations
                     .OrderByDescending(r => r.RegistrationDate)
                     .Select(r => new StudentRegistrationSummary(
                         r.Id,
@@ -55,9 +55,9 @@ internal sealed class GetCurrentStudentQueryHandler(IApplicationDbContext dbCont
                     ))
                     .FirstOrDefault()
            // Map the collections efficiently
-           //s.registrations.Select(r => new RegistrationResponse(
+           //s.Registrations.Select(r => new RegistrationResponse(
            //    r.Id, r.AcademicYear, r.Status, r.Level.ToString())).ToList(),
-           //s.history.Select(h => new HistoryResponse(
+           //s.HistoryEntries.Select(h => new HistoryResponse(
            //    h.Action, h.Date, h.Description)
 
            //).ToList()

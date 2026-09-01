@@ -1,5 +1,6 @@
 using FluentAssertions;
 using PGSH.Application.AcademicYears;
+using PGSH.Application.Hospitals.Chefs;
 using PGSH.Application.Stages.Repartition;
 using PGSH.Domain.Employees;
 using PGSH.Domain.Hospitals;
@@ -28,7 +29,7 @@ public class LevelRepartitionTests
     private static readonly DateOnly P2End   = new(2026, 3, 17);
 
     private static GetLevelRepartitionQueryHandler Handler(ApplicationDbContext db) =>
-        new(db, new AcademicYearResolver(db));
+        new(db, new AcademicYearResolver(db), new ServiceChefProvider(db));
 
     /// <summary>
     /// Groups 1-4 (partition A) rotate through Médecine, groups 5-8 (partition B) through Chirurgie,

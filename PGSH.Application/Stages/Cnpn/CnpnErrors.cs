@@ -1,14 +1,20 @@
 using PGSH.Domain.Common.Utils;
+using PGSH.Domain.Stages;
 using PGSH.SharedKernel;
 
 namespace PGSH.Application.Stages.Cnpn;
 
+/// <summary>
+/// What the CNPN <b>handlers</b> refuse — the rules that need to see more than one text, more than
+/// one student, or the store itself.
+///
+/// <para>⚠ The refusals a text can pronounce from what it holds alone live on the aggregate, in
+/// <see cref="CnpnVersionErrors"/>: its own span against its own requirement sets and effectivity
+/// rules, and which levels it may speak for. Adding one here that the text could have decided is how
+/// an invariant ends up stated twice, in two directions, with nothing tying the two together.</para>
+/// </summary>
 public static class CnpnErrors
 {
-    public static Error NoRegistration(Guid studentId) => Error.Problem(
-        "Cnpn.NoRegistration",
-        $"L'étudiant '{studentId}' n'a aucune inscription — impossible de déterminer son CNPN.");
-
     /// <summary>
     /// No recorded text reaches back to this intake. Deliberately an error rather than a silent
     /// fallback to the newest version: guessing here would put an old student under a CNPN that
@@ -48,23 +54,13 @@ public static class CnpnErrors
 
     /// <summary>
     /// Two texts of one programme claiming the same first intake makes version selection ambiguous:
-    /// <c>CnpnAssignment</c> picks the latest intake at or before a student's entry, and a tie has no
+    /// <see cref="CnpnAssignment"/> picks the latest intake at or before a student's entry, and a tie has no
     /// defensible winner.
     /// </summary>
     public static Error IntakeYearAlreadyTaken(AcademicProgram program, string otherCode) => Error.Conflict(
         "Cnpn.IntakeYearAlreadyTaken",
         $"Le CNPN {otherCode} régit déjà les entrants de cette année en {program} ; deux textes ne "
         + "peuvent pas se disputer une même promotion.");
-
-    /// <summary>
-    /// Shortening a degree below a level that already carries requirements would strand them: the set
-    /// exists, and nothing in the programme's span can serve it.
-    /// </summary>
-    public static Error CannotShortenBelowRecordedLevel(int totalYears, int recordedLevelYear) =>
-        Error.Validation(
-            "Cnpn.CannotShortenBelowRecordedLevel",
-            $"Ce CNPN comporte déjà des exigences pour la {recordedLevelYear}ᵉ année ; il ne peut pas "
-            + $"être ramené à {totalYears} années. Retirez d'abord ces exigences.");
 
     public static readonly Error CloneIntoItself = Error.Validation(
         "Cnpn.CloneIntoItself",
@@ -105,16 +101,6 @@ public static class CnpnErrors
         $"Aucune règle d'entrée en vigueur enregistrée sous l'identifiant {id}.");
 
     /// <summary>
-    /// A text takes effect for a level once. A second row would say it starts governing that level
-    /// twice, which states nothing — correct the existing row instead.
-    /// </summary>
-    public static Error EffectivityAlreadyDeclared(string code, string levelLabel, string yearLabel) =>
-        Error.Conflict(
-            "CnpnEffectivity.AlreadyDeclared",
-            $"Le CNPN {code} régit déjà {levelLabel} à partir de {yearLabel}. Modifiez cette règle "
-            + "plutôt que d'en ajouter une seconde.");
-
-    /// <summary>
     /// Two texts starting to govern one level in one year. Resolution takes the latest start date at
     /// or before the registration's year, so a tie has no defensible winner — the same objection as
     /// two texts claiming one intake.
@@ -124,22 +110,6 @@ public static class CnpnErrors
             "CnpnEffectivity.YearAlreadyTaken",
             $"Le CNPN {otherCode} prend déjà effet pour {levelLabel} en {yearLabel} ; deux textes ne "
             + "peuvent pas entrer en vigueur au même moment pour un même niveau.");
-
-    public static Error EffectivityProgramMismatch(
-        string code, AcademicProgram textProgram, string levelLabel, AcademicProgram levelProgram) =>
-        Error.Validation(
-            "CnpnEffectivity.ProgramMismatch",
-            $"Le CNPN {code} relève de la filière {textProgram} ; {levelLabel} relève de {levelProgram}.");
-
-    /// <summary>
-    /// Shortening a text below a level it takes effect for would leave the rule pointing at a year
-    /// the programme no longer has.
-    /// </summary>
-    public static Error CannotShortenBelowEffectiveLevel(int totalYears, int levelYear) =>
-        Error.Validation(
-            "Cnpn.CannotShortenBelowEffectiveLevel",
-            $"Ce CNPN entre en vigueur pour la {levelYear}ᵉ année ; il ne peut pas être ramené à "
-            + $"{totalYears} années. Retirez d'abord cette règle d'entrée en vigueur.");
 
     /// <summary>
     /// The population moved between the preview and the apply. Same guard as the déliberation's

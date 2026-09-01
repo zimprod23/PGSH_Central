@@ -18,6 +18,7 @@ Center (int)
 AcademicYear (int)
   └── AcademicGroup (int)
         └── Registration (uuid)          ← Student (uuid, TPH)
+              ├── PriorEnrolment (uuid)  [équivalence, only on an entry from outside]
               └── InternshipAssignment (uuid)
                     ├── CohortMembership (uuid)   [transfer history]
                     └── ServicePeriod (uuid)
@@ -72,7 +73,7 @@ Student → History (audit trail)
 | **Student columns** | | Discriminator = `Student` |
 | `AcademicProgram` | varchar | enum: `Medecine`, `Pharmacie`, `Master`, `Doctorat` |
 | `CNE` | varchar(50) | NOT NULL, UNIQUE |
-| `Appogee` | varchar(50) | UNIQUE (nullable filter) |
+| `Appogee` | varchar(50) | **NOT NULL**, UNIQUE — see the warning below |
 | `AccessGrade` | decimal(5,2) | default 10.01 |
 | `BacSeries` | varchar | enum |
 | `AgreementType` | varchar | enum, default `None` |
@@ -90,7 +91,15 @@ Student → History (audit trail)
 | `WorkPlace` | varchar | enum: `Hospital`, `Fmpr`, nullable |
 | `PvSignatureDate` | date | nullable |
 
-**Indexes:** `IX_Users_Email` (unique), `IX_Users_IdentityProviderId` (unique, null filter), `IX_Student_CNE` (unique), `IX_Student_Appogee` (unique, null filter)
+**Indexes:** `IX_Users_Email` (unique), `IX_Users_IdentityProviderId` (unique, null filter), `IX_Student_CNE` (unique), `IX_Student_Appogee` (unique, filtered `"Appogee" IS NOT NULL`)
+
+⚠ **`IX_Student_Appogee`'s filter is vestigial, and it reads as though absence were allowed.**
+The column is `IsRequired()` in the model, so `"Appogee" IS NOT NULL` can never be false — which
+means an empty string is a *value*, and the second student written without an Apogée collides
+with the first. **CNE and Apogée are both NOT NULL UNIQUE**: any path creating a student must
+supply or manufacture both. This line said "nullable" until 2026-08-30 and the inscription import
+was written against it — the in-memory provider caught it, unusually, because it enforces required
+properties even though it enforces no unique index.
 
 ---
 
@@ -523,6 +532,40 @@ nothing is owed, and **irrevocable once the registration it permitted exists**.
 
 ---
 
+### `PriorEnrolments` — what a transfer did before he got here
+
+| Column | Type | Notes |
+|---|---|---|
+| `Id` | uuid (PK) | |
+| `RegistrationId` | uuid (FK) | CASCADE — the registration he entered the faculty on |
+| `Institution` | varchar(200) | required — free text; PGSH is not the register of the world's faculties |
+| `Country` | varchar(100)? | null means Morocco |
+| `LastLevelYearCompleted` | int | **the boundary**: 2 for a student entering our 3ᵉ année |
+| `EquivalenceReference` | varchar(200) | required — the arrêté, PV or décision d'équivalence |
+| `EquivalenceDate` | date? | |
+| `Note` | varchar(1000)? | |
+| `RecordedByUserId` | uuid? | |
+| `RecordedOn` | timestamptz | |
+
+**Indexes:** `IX_PriorEnrolment_Registration` unique — one entry into the faculty, one équivalence
+
+⚠ **Why the row exists before anything reads it.** Today a transfer owes nothing:
+`OutstandingStageFinder` reads « owed » as *every attempt came back NonValidé*, and a student with no
+attempt has no failed one. That holds only while the definition is negative — **the day « owed »
+widens to the CNPN's requirement set** (the stated plan once 1650.25's sets are entered) **a student
+transferred into 5ᵉ année owes every stage of the four years he did elsewhere.**
+`LastLevelYearCompleted` is what that widening must not look below, and it cannot be reconstructed
+from anything else in the base.
+
+⚠ **No `InternshipAssignment`s are invented for the years done elsewhere.** It would make the dossier
+look complete at the price of rows nobody served — which every count, mean, chef worklist and
+occupancy figure would then have to learn to exclude.
+
+Same shape as `FinalYearEntryWaivers`: a required reference and a snapshot, because a decision that
+cannot say what it recognised is not a record.
+
+---
+
 ### `CnpnLevelEffectivities` — « ce texte régit ce niveau à partir de cette année »
 
 | Column | Type | Notes |
@@ -611,6 +654,7 @@ the resolver — the stage set is matched against the slots on disk instead.
 | Level → ServiceLevelCapacity | RESTRICT | A promotion a service has a quota for cannot vanish under it |
 | Student → FinalYearEntryWaiver | CASCADE | The waiver is about that student and nobody else |
 | AcademicYear → FinalYearEntryWaiver | RESTRICT | The year it permitted entry to must stay nameable |
+| Registration → PriorEnrolment | CASCADE | An équivalence attached to an entry that no longer exists explains nothing |
 | CnpnVersion → CnpnLevelEffectivity | CASCADE | The rule is part of the text that states it |
 | Level / AcademicYear → CnpnLevelEffectivity | RESTRICT | The (level, year) the rule names must stay nameable |
 

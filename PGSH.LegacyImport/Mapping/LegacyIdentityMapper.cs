@@ -1,5 +1,5 @@
-using System.Globalization;
-using System.Text;
+﻿using System.Globalization;
+using PGSH.Application.Students;
 using PGSH.Domain.Users;
 
 namespace PGSH.LegacyImport.Mapping;
@@ -18,7 +18,7 @@ namespace PGSH.LegacyImport.Mapping;
 /// </summary>
 public sealed class LegacyIdentityMapper(string emailDomain = LegacyIdentityMapper.DefaultDomain)
 {
-    public const string DefaultDomain = "um5.ac.ma";
+    public const string DefaultDomain = StudentIdentifierRules.DefaultEmailDomain;
 
     /// <summary>Marks a CNE that was manufactured because the source had none — never a real code.</summary>
     public const string SyntheticCnePrefix = "LEGACY-";
@@ -32,15 +32,16 @@ public sealed class LegacyIdentityMapper(string emailDomain = LegacyIdentityMapp
     {
         var (firstName, lastName) = SplitName(student.Nom);
 
-        string local = $"{Slug(firstName)}_{Slug(lastName)}".Trim('_');
-        if (local.Length == 0 || local == "_") local = $"etudiant{student.NoOrdre}";
+        // The slug rule is shared with the inscription import, which manufactures addresses for every
+        // student enrolled from now on: two copies would give one faculty two address namespaces, and
+        // a re-import under the other copy would renumber people who already log in.
+        string local = StudentIdentifierRules.EmailLocalPart(firstName, lastName);
+        if (local.Length == 0) local = $"etudiant{student.NoOrdre}";
 
         int seen = _taken.TryGetValue(local, out int count) ? count : 0;
         _taken[local] = seen + 1;
 
-        string email = seen == 0
-            ? $"{local}@{emailDomain}"
-            : $"{local}{seen + 1}@{emailDomain}";
+        string email = StudentIdentifierRules.EmailCandidate(local, seen, emailDomain);
 
         return new LegacyIdentity(
             FirstName: firstName,
@@ -90,20 +91,6 @@ public sealed class LegacyIdentityMapper(string emailDomain = LegacyIdentityMapp
     private static string Title(string value) =>
         CultureInfo.GetCultureInfo("fr-FR").TextInfo.ToTitleCase(value.ToLowerInvariant());
 
-    /// <summary>Lower-cased, unaccented, letters only — safe as the local part of an address.</summary>
-    private static string Slug(string value)
-    {
-        var decomposed = value.Normalize(NormalizationForm.FormD);
-        var builder = new StringBuilder(decomposed.Length);
-
-        foreach (char c in decomposed)
-        {
-            if (CharUnicodeInfo.GetUnicodeCategory(c) == UnicodeCategory.NonSpacingMark) continue;
-            if (char.IsAsciiLetter(c)) builder.Append(char.ToLowerInvariant(c));
-        }
-
-        return builder.ToString();
-    }
 }
 
 public sealed record LegacyIdentity(

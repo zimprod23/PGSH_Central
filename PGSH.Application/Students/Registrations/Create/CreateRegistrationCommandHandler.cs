@@ -88,8 +88,7 @@ internal sealed class CreateRegistrationCommandHandler(
         // Before the save, so the registration is written with the text that governs it rather than
         // acquiring one in a second round-trip. A student for whom no text can be determined keeps a
         // null stamp; every reader falls back to his own, and a guess here would be worse.
-        var stamp = await stamper.StampAsync([registration], cancellationToken);
-        if (stamp.IsFailure) return Result.Failure<Guid>(stamp.Error);
+        await stamper.StampAsync([registration], cancellationToken);
 
         await dbContext.SaveChangesAsync(cancellationToken);
         return registration.Id;

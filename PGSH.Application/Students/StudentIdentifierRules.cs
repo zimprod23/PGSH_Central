@@ -1,3 +1,6 @@
+using System.Globalization;
+using System.Text;
+using System.Text.RegularExpressions;
 using FluentValidation;
 
 namespace PGSH.Application.Students;
@@ -36,4 +39,59 @@ public static class StudentIdentifierRules
         rule.NotEmpty()
             .Matches(CnePattern)
             .WithMessage(CneMessage);
+
+    /// <summary>
+    /// The same rule, asked directly.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ <b>Any path that <em>manufactures</em> a CNE has to ask this before writing it.</b> A
+    /// validator describes what a <em>save</em> must satisfy, so a student created with a code this
+    /// pattern rejects becomes read-only the moment somebody opens his file — and the refusal names a
+    /// field nobody was editing. That has happened twice already (the old CNE regex, and
+    /// <c>Objectives.NotEmpty()</c> on the stage form). Refusing at creation is the cheap end.
+    /// </remarks>
+    public static bool IsValidCne(string? value) =>
+        !string.IsNullOrWhiteSpace(value) && Regex.IsMatch(value, CnePattern);
+
+    /// <summary>The column width of <c>Students.Appogee</c>, which is NOT NULL UNIQUE like the CNE.</summary>
+    public const int MaxAppogeeLength = 50;
+
+    /// <summary>Where an address PGSH had to manufacture lives.</summary>
+    public const string DefaultEmailDomain = "um5.ac.ma";
+
+    /// <summary>
+    /// The local part of a manufactured address — <c>prenom_nom</c>, lower-cased, unaccented, letters
+    /// only. Empty when the name yields nothing, which the caller answers from whatever identifier it
+    /// has.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ <b>One rule, one place, because there are two generators.</b> <c>LegacyIdentityMapper</c>
+    /// manufactured all 10 204 imported addresses and <c>InscriptionPlanner</c> manufactures every new
+    /// one; a second copy that quietly kept digits as well as letters would give one faculty two
+    /// address namespaces, and re-running the import — which Phase 16 plans — would renumber people
+    /// who already log in. <b>Letters only is the behaviour already on disk</b>, so it is the
+    /// behaviour this states.
+    /// </remarks>
+    public static string EmailLocalPart(string? firstName, string? lastName) =>
+        $"{Slug(firstName)}_{Slug(lastName)}".Trim('_');
+
+    /// <summary>The nᵗʰ candidate address for a local part — <c>n = 0</c> is the unsuffixed one.</summary>
+    public static string EmailCandidate(string localPart, int index, string domain = DefaultEmailDomain) =>
+        index == 0 ? $"{localPart}@{domain}" : $"{localPart}{index + 1}@{domain}";
+
+    private static string Slug(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return "";
+
+        var decomposed = value.Normalize(NormalizationForm.FormD);
+        var builder = new StringBuilder(decomposed.Length);
+
+        foreach (char c in decomposed)
+        {
+            if (CharUnicodeInfo.GetUnicodeCategory(c) == UnicodeCategory.NonSpacingMark) continue;
+            if (char.IsAsciiLetter(c)) builder.Append(char.ToLowerInvariant(c));
+        }
+
+        return builder.ToString();
+    }
 }

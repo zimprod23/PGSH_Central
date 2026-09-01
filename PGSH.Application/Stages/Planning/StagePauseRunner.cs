@@ -23,7 +23,7 @@ internal sealed class StagePauseRunner(IApplicationDbContext dbContext)
         IReadOnlyList<string>? partitionLabels, IReadOnlyList<int>? periodNumbers,
         PauseKind kind, string? reason, CancellationToken ct) =>
         RunAsync(stageId, academicYearId, cohortIds, partitionLabels, periodNumbers,
-            isPending: p => p.IsStarted && !p.IsComplete && !p.IsInterrupted && !p.IsPaused,
+            isPending: p => ServicePeriodLifecycle.IsUnderway(p) && !p.IsPaused,
             apply:     (a, periodId, date) => a.PausePeriod(periodId, date, kind, reason),
             ct);
 

@@ -35,12 +35,23 @@ internal sealed class GetCnpnVersionsQueryHandler(IApplicationDbContext dbContex
     public async Task<Result<IReadOnlyList<CnpnVersionResponse>>> Handle(
         GetCnpnVersionsQuery request, CancellationToken cancellationToken)
     {
-        var query = dbContext.CnpnVersions.AsNoTracking();
+        var versions = await VersionRowsQuery(dbContext, request.Program).ToListAsync(cancellationToken);
 
-        if (request.Program.HasValue)
-            query = query.Where(v => v.AcademicProgram == request.Program.Value);
+        return versions;
+    }
 
-        var versions = await query
+    /// <summary>
+    /// ⚠ Two aggregates ride in the projection — the recorded levels and the students stamped with
+    /// the text. Both compile to correlated scalar subqueries, which the provider accepts (unlike a
+    /// collection subquery over a computed element, the shape that killed the macro plan), and both
+    /// are bounded by the handful of rows this table holds. Named so <c>SqlTranslationTests</c> can
+    /// say so rather than leaving it to the first request.
+    /// </summary>
+    internal static IQueryable<CnpnVersionResponse> VersionRowsQuery(
+        IApplicationDbContext dbContext, AcademicProgram? program) =>
+        dbContext.CnpnVersions
+            .AsNoTracking()
+            .Where(v => program == null || v.AcademicProgram == program)
             .OrderBy(v => v.AcademicProgram)
             .ThenByDescending(v => v.AppliesToEntrantsFromAcademicYear!.StartDate)
             .Select(v => new CnpnVersionResponse(
@@ -56,9 +67,5 @@ internal sealed class GetCnpnVersionsQueryHandler(IApplicationDbContext dbContex
                     : null,
                 v.AppliesToEntrantsFromAcademicYearId != null,
                 v.Curricula.Count,
-                dbContext.Students.Count(s => s.CnpnVersionId == v.Id)))
-            .ToListAsync(cancellationToken);
-
-        return versions;
-    }
+                dbContext.Students.Count(s => s.CnpnVersionId == v.Id)));
 }

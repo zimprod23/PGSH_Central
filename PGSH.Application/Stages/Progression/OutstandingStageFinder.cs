@@ -1,5 +1,6 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
+using PGSH.Domain.Registrations;
 using PGSH.Domain.Stages;
 
 namespace PGSH.Application.Stages.Progression;
@@ -16,6 +17,14 @@ namespace PGSH.Application.Stages.Progression;
 /// <para><b>A stage is outstanding when every attempt at it came back <c>NonValidé</c></b> — the same
 /// test <c>DossierStageState.ToRevalidate</c> uses, and deliberately the same: two screens disagreeing
 /// about what a student owes is worse than either being slightly wrong.</para>
+///
+/// <para>⚠ <b>…counting only the attempts a year still stands behind.</b> A redoublant repeats the
+/// year from scratch, stages included, so what he served inside the annulled year establishes
+/// nothing either way — see <see cref="RegistrationStatusExtensions.AnnulsItsStages"/>. Without that
+/// filter a pass in a failed year cleared the stage for good, and a student whose most recent attempt
+/// was a failure could enter his final year on the strength of a year the faculty had struck out.
+/// The filter never <i>creates</i> a debt: an annulled attempt is dropped, not counted as a
+/// failure.</para>
 ///
 /// <para>⚠ <b><c>NonÉvalué</c> does not count as owed.</b> An attempt with no verdict is a stage
 /// nobody has marked, not a stage the student failed — and this base holds almost no marks, so
@@ -56,7 +65,8 @@ public sealed class OutstandingStageFinder(IApplicationDbContext dbContext)
                 a.Cohort.Stage.Name,
                 a.Registration.Level.Year,
                 a.Registration.Level.Label ?? string.Empty,
-                a.Result))
+                a.Result,
+                a.Registration.Status))
             .ToListAsync(ct);
 
         return Fold(attempts);
@@ -83,7 +93,8 @@ public sealed class OutstandingStageFinder(IApplicationDbContext dbContext)
                 a.Cohort.Stage.Name,
                 a.Registration.Level.Year,
                 a.Registration.Level.Label ?? string.Empty,
-                a.Result))
+                a.Result,
+                a.Registration.Status))
             .ToListAsync(ct);
 
         return Fold(attempts);
@@ -99,16 +110,23 @@ public sealed class OutstandingStageFinder(IApplicationDbContext dbContext)
         string StageName,
         int LevelYear,
         string LevelLabel,
-        StageAssignmentResult? Result);
+        StageAssignmentResult? Result,
+        RegistrationStatus YearOutcome);
 
     /// <summary>
-    /// Groups attempts per (student, stage) and keeps the stages where <b>every</b> attempt failed.
-    /// One validated attempt anywhere clears the stage for good — a stage once acquired is never
+    /// Groups attempts per (student, stage) and keeps the stages where <b>every</b> surviving attempt
+    /// failed. One validated attempt clears the stage for good — a stage once acquired is never
     /// repeated, whichever year earned it — and one attempt still unmarked means the question is open
     /// rather than settled against the student.
     /// </summary>
+    /// <remarks>
+    /// Attempts made in an annulled year are dropped <b>before</b> the grouping, so a stage whose only
+    /// attempts were annulled reads as never attempted rather than as owed. That is the right answer:
+    /// the student is repeating the year and will serve it again, so he carries no debt from it.
+    /// </remarks>
     private static Dictionary<Guid, IReadOnlyList<Debt>> Fold(IReadOnlyList<Attempt> attempts) =>
         attempts
+            .Where(a => !a.YearOutcome.AnnulsItsStages())
             .GroupBy(a => (a.StudentId, a.StageId))
             .Where(g => g.All(a => a.Result == StageAssignmentResult.NonValidé))
             .GroupBy(g => g.Key.StudentId)

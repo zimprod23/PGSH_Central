@@ -376,3 +376,51 @@ months it would have been the other way round.
 against 20.** That is not the arranger — all 148 services carry the same imported default of 20 and
 not one quota is authored. It is the soft, waivable half of the rule, and it is what publishing will
 ask you to override.
+
+⚠ **Publishing states all 88 of them at once, in one refusal** — `Schedule.PublishRefusedByIntake`,
+naming the count, how many are on a service that does not *admit* the promotion (which the
+override does not lift) and the heaviest three. It used to stop at the first cell, so a plan on
+this base was corrected one service at a time with a full re-publish between each — and « Publier
+toutes » on the stage page looped cohorte by cohorte, which turned that into one refusal toast per
+cohorte. Both fixed in session 33; the grid and the stage page now send the same single call.
+
+---
+
+## 10 · Printing what happened — the post-validation export
+
+The répartition (`§6`) is the plan; this is the record. `GET stages/assignments/export` is the .xlsx
+drawn **after** the évaluations are in — three sheets, and it is what a PV is transcribed from.
+
+```
+GET stages/assignments/export?levelId=<promotion>&academicYearId=<year>[&stageId=][&academicGroupId=][&onlyEvaluated=true]
+```
+
+| sheet | one row per | what it answers |
+|---|---|---|
+| **Stages** | attempt (`InternshipAssignment`) | did this student validate this stage, with what note |
+| **Périodes** | `ServicePeriod` | where he actually stood, when, and what each stay was marked |
+| **Synthèse** | (stage) | how the promotion did — validés / non validés / non évalués, taux, moyenne |
+
+`Réf. stage` is on the first two sheets and is the join.
+
+**Reading the « Période(s) » column.** A stage occupying several columns of the axis is one stay or
+several, and the export merges on **the service**, never on the dates:
+
+- `01/01/2025 – 02/03/2025` with `Nb périodes = 2` — two columns, one service, meeting end to end.
+  The span is exactly true; the count is what says it was recorded in two.
+- `01/01/2025 – 01/02/2025 · 17/02/2025 – 02/03/2025` — the same service with worked days nobody
+  served in between. `Découpage` says « 1 interruption(s) ». The merged span would have claimed days
+  the student was not there.
+- `Cardiologie → Pneumologie` against two spans — a real rotation. Services and spans correspond
+  position by position.
+
+⚠ **Durations are summed over the périodes, never `Fin − Début`.** On an interrupted stage the span
+contains days nobody served, which is what turns a 22-jour stage into a 60-jour one on paper.
+
+⚠ **Scoped by the registration's level.** A 6ᵉ année student redoing a 3ᵉ année stage is on the 6ᵉ
+année's document, with `Niveau du stage` naming the year the stage belongs to. Do not go looking for
+him on the 3ᵉ année's file.
+
+**The roll**, for the same promotion, is `GET students/export?levelId=…&academicYearId=…` — one row
+per registration, carrying the groupe and the partition as well as the identifiers. Omit
+`academicYearId` and both exports resolve to the current year, never to every year.

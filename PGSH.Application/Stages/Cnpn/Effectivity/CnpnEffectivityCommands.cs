@@ -1,8 +1,8 @@
 using FluentValidation;
 using Microsoft.EntityFrameworkCore;
+using PGSH.Application.Abstractions.Authorization;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
-using PGSH.Application.Employees.MyServices;
 using PGSH.Domain.Common.Utils;
 using PGSH.Domain.Stages;
 using PGSH.SharedKernel;
@@ -75,77 +75,43 @@ internal sealed class CreateCnpnEffectivityCommandHandler(
         var access = authorizer.EnsureIsAdministrative(StageErrors.AdministrativeOnly);
         if (access.IsFailure) return Result.Failure<int>(access.Error);
 
+        // Tracked, with the rules it already carries: the text decides for itself whether it may
+        // speak for this level, and « il régit déjà ce niveau » is a question about its own children.
         var version = await dbContext.CnpnVersions
-            .AsNoTracking()
-            .Where(v => v.Id == request.CnpnVersionId)
-            .Select(v => new { v.Id, v.Code, v.AcademicProgram, v.TotalYears })
-            .FirstOrDefaultAsync(ct);
+            .Include(v => v.LevelEffectivities)
+            .FirstOrDefaultAsync(v => v.Id == request.CnpnVersionId, ct);
 
         if (version is null)
             return Result.Failure<int>(CnpnErrors.VersionNotFound(request.CnpnVersionId));
 
-        var level = await dbContext.Levels
-            .AsNoTracking()
-            .Where(l => l.Id == request.LevelId)
-            .Select(l => new { l.Id, l.Label, l.Year, l.AcademicProgram })
-            .FirstOrDefaultAsync(ct);
+        var level = await dbContext.Levels.FirstOrDefaultAsync(l => l.Id == request.LevelId, ct);
 
         if (level is null)
             return Result.Failure<int>(LevelErrors.NotFound(request.LevelId));
 
-        string levelLabel = level.Label ?? $"niveau {level.Id}";
-
-        // « Retrait » is a withdrawal marker, not a year of study: no students to govern, no stages,
-        // no cohorts. Same guard as the partition cut and auto-arrange.
-        if (level.Year <= 0)
-            return Result.Failure<int>(LevelErrors.NotAPromotion(levelLabel));
-
-        if (level.AcademicProgram != version.AcademicProgram)
-            return Result.Failure<int>(CnpnErrors.EffectivityProgramMismatch(
-                version.Code, version.AcademicProgram, levelLabel, level.AcademicProgram));
-
-        // A text that stops at six years cannot take effect for a seventh.
-        if (level.Year > version.TotalYears)
-            return Result.Failure<int>(
-                CnpnErrors.CannotShortenBelowEffectiveLevel(version.TotalYears, level.Year));
-
         var year = await dbContext.AcademicYears
-            .AsNoTracking()
-            .Where(y => y.Id == request.FromAcademicYearId)
-            .Select(y => new { y.Id, y.Label })
-            .FirstOrDefaultAsync(ct);
+            .FirstOrDefaultAsync(y => y.Id == request.FromAcademicYearId, ct);
 
         if (year is null)
             return Result.Failure<int>(StageErrors.AcademicYearNotFound(request.FromAcademicYearId));
 
-        bool declared = await dbContext.CnpnLevelEffectivities.AnyAsync(
-            e => e.CnpnVersionId == version.Id && e.LevelId == level.Id, ct);
-
-        if (declared)
-            return Result.Failure<int>(
-                CnpnErrors.EffectivityAlreadyDeclared(version.Code, levelLabel, year.Label));
-
+        // ⚠ The one rule the aggregate cannot decide: it is about the *other* texts. Two of them
+        // starting to govern one level in one year has no defensible winner, since resolution takes
+        // the latest start date at or before the registration's year.
         string? clash = await dbContext.CnpnLevelEffectivities
             .Where(e => e.LevelId == level.Id && e.FromAcademicYearId == year.Id)
             .Select(e => e.CnpnVersion.Code)
             .FirstOrDefaultAsync(ct);
 
         if (clash is not null)
-            return Result.Failure<int>(
-                CnpnErrors.EffectivityYearAlreadyTaken(levelLabel, year.Label, clash));
+            return Result.Failure<int>(CnpnErrors.EffectivityYearAlreadyTaken(
+                level.Label ?? $"niveau {level.Id}", year.Label, clash));
 
-        var effectivity = new CnpnLevelEffectivity
-        {
-            CnpnVersionId      = version.Id,
-            LevelId            = level.Id,
-            FromAcademicYearId = year.Id,
-            Note               = request.Note?.Trim(),
-            RecordedOn         = DateTime.UtcNow,
-        };
+        var declared = version.DeclareEffectivity(level, year, request.Note, DateTime.UtcNow);
+        if (declared.IsFailure) return Result.Failure<int>(declared.Error);
 
-        dbContext.CnpnLevelEffectivities.Add(effectivity);
         await dbContext.SaveChangesAsync(ct);
-        return effectivity.Id;
+        return declared.Value.Id;
     }
 }
 
@@ -160,19 +126,34 @@ internal sealed class DeleteCnpnEffectivityCommandHandler(
         var access = authorizer.EnsureIsAdministrative(StageErrors.AdministrativeOnly);
         if (access.IsFailure) return Result.Failure<int>(access.Error);
 
-        var effectivity = await dbContext.CnpnLevelEffectivities
-            .Include(e => e.FromAcademicYear)
-            .FirstOrDefaultAsync(e => e.Id == request.Id, ct);
+        var rule = await dbContext.CnpnLevelEffectivities
+            .AsNoTracking()
+            .Where(e => e.Id == request.Id)
+            .Select(e => new { e.Id, e.CnpnVersionId, e.LevelId, From = e.FromAcademicYear.StartDate })
+            .FirstOrDefaultAsync(ct);
 
-        if (effectivity is null)
+        if (rule is null)
             return Result.Failure<int>(CnpnErrors.EffectivityNotFound(request.Id));
 
+        // Counted before the write, like every other act here that reports what it leaves behind:
+        // afterwards there is no rule to count against.
         int governed = await dbContext.Registrations.CountAsync(
-            r => r.LevelId == effectivity.LevelId
-              && r.CnpnVersionId == effectivity.CnpnVersionId
-              && r.AcademicYear.StartDate >= effectivity.FromAcademicYear.StartDate, ct);
+            r => r.LevelId == rule.LevelId
+              && r.CnpnVersionId == rule.CnpnVersionId
+              && r.AcademicYear.StartDate >= rule.From, ct);
 
-        dbContext.CnpnLevelEffectivities.Remove(effectivity);
+        var version = await dbContext.CnpnVersions
+            .Include(v => v.LevelEffectivities)
+            .FirstOrDefaultAsync(v => v.Id == rule.CnpnVersionId, ct);
+
+        if (version is null)
+            return Result.Failure<int>(CnpnErrors.VersionNotFound(rule.CnpnVersionId));
+
+        var withdrawn = version.WithdrawEffectivity(rule.Id);
+        if (withdrawn.IsFailure) return Result.Failure<int>(withdrawn.Error);
+
+        dbContext.CnpnLevelEffectivities.Remove(withdrawn.Value);
+
         await dbContext.SaveChangesAsync(ct);
 
         return governed;

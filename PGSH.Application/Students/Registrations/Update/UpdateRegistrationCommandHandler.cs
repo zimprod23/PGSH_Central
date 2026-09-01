@@ -11,7 +11,7 @@ internal class UpdateRegistrationCommandHandler(IApplicationDbContext dbContext)
 {
     public async Task<Result> Handle(UpdateRegistrationCommand request, CancellationToken cancellationToken)
     {
-        var student = await dbContext.Students.Include(s => s.registrations)
+        var student = await dbContext.Students.Include(s => s.Registrations)
             .FirstOrDefaultAsync(s => s.Id == request.StudentId, cancellationToken);
 
         if (student is null) return Result.Failure(StudentErrors.NotFound(request.StudentId));

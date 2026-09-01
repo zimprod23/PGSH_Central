@@ -2,14 +2,15 @@ using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
 using PGSH.Application.AcademicYears;
-using PGSH.Domain.Hospitals;
+using PGSH.Application.Hospitals.Chefs;
 using PGSH.SharedKernel;
 
 namespace PGSH.Application.Stages.Repartition;
 
 internal sealed class GetLevelRepartitionQueryHandler(
     IApplicationDbContext dbContext,
-    AcademicYearResolver yearResolver)
+    AcademicYearResolver yearResolver,
+    ServiceChefProvider chefProvider)
     : IQueryHandler<GetLevelRepartitionQuery, LevelRepartitionResponse>
 {
     public async Task<Result<LevelRepartitionResponse>> Handle(
@@ -83,12 +84,13 @@ internal sealed class GetLevelRepartitionQueryHandler(
                 disagreements);
         }
 
-        var chefs = await ResolveChefsAsync(
-            cells.Select(c => c.ServiceId).Distinct().ToList(),
-            axis[0].StartDate,
-            cancellationToken);
+        // Who led each service when the planning starts, not who leads it today: a répartition
+        // reprinted three years later has to keep naming the chef it was published with, and
+        // ChefHistory is exactly that record.
+        var chefs = await chefProvider.BuildAsync(
+            cells.Select(c => c.ServiceId).Distinct().ToList(), cancellationToken);
 
-        var rows = BuildRows(cells, axis, chefs);
+        var rows = BuildRows(cells, axis, chefs, axis[0].StartDate);
 
         int planned = rows.Sum(r => r.Cells.Count(c => c is not null));
 
@@ -105,63 +107,8 @@ internal sealed class GetLevelRepartitionQueryHandler(
             axis, rows, summary, disagreements);
     }
 
-    /// <summary>
-    /// Who led each service when the planning starts, not who leads it today. A répartition reprinted
-    /// three years later has to keep naming the chef it was published with — <c>ChefHistory</c> is
-    /// exactly that record. Three sources, in descending order of authority:
-    ///
-    /// <list type="number">
-    /// <item>the tenure open on <paramref name="asOf"/> — dated, and the only one that survives a reprint;</item>
-    /// <item>the sitting chef, for services whose tenure trail predates the audit trail;</item>
-    /// <item>the legacy note in the description (<see cref="ServiceChefSourceNote"/>) — undated, and
-    /// the only name available for 140 of 148 services, none of which has a configured chef.</item>
-    /// </list>
-    ///
-    /// The third is flagged rather than blended in: it is the name the Access base last recorded, not
-    /// the name this document was published under, and only the caller can decide whether that
-    /// distinction matters on the page.
-    /// </summary>
-    private async Task<Dictionary<int, ChefAttribution>> ResolveChefsAsync(
-        List<int> serviceIds, DateOnly asOf, CancellationToken cancellationToken)
-    {
-        var resolved = await dbContext.Services
-            .AsNoTracking()
-            .Where(s => serviceIds.Contains(s.Id))
-            .Select(s => new
-            {
-                s.Id,
-                AtPlanningStart = s.ChefHistory
-                    .Where(h => h.StartDate <= asOf && (h.EndDate == null || h.EndDate >= asOf))
-                    .OrderByDescending(h => h.StartDate)
-                    .Select(h => h.Employee.FirstName + " " + h.Employee.LastName)
-                    .FirstOrDefault(),
-                Sitting = s.ServiceChef == null
-                    ? null
-                    : s.ServiceChef.FirstName + " " + s.ServiceChef.LastName,
-                // Parsed in memory, not in SQL: the note is free text with a known prefix, and
-                // there are at most a few hundred services on a level.
-                s.Description,
-            })
-            .ToListAsync(cancellationToken);
-
-        return resolved.ToDictionary(
-            s => s.Id,
-            s =>
-            {
-                string? configured = Normalize(s.AtPlanningStart) ?? Normalize(s.Sitting);
-                if (configured is not null)
-                    return new ChefAttribution(configured, FromSourceNote: false);
-
-                string? fromNote = ServiceChefSourceNote.Read(s.Description);
-                return new ChefAttribution(fromNote, FromSourceNote: fromNote is not null);
-            });
-    }
-
-    private static string? Normalize(string? name) =>
-        string.IsNullOrWhiteSpace(name) ? null : name.Trim();
-
     private static List<RepartitionRow> BuildRows(
-        List<CellRow> cells, IReadOnlyList<PeriodWindow> axis, Dictionary<int, ChefAttribution> chefs)
+        List<CellRow> cells, IReadOnlyList<PeriodWindow> axis, ServiceChefDirectory chefs, DateOnly asOf)
     {
         var columnsBySlot = cells
             .Select(c => (c.SlotId, c.SlotStart, c.SlotEnd))
@@ -198,7 +145,7 @@ internal sealed class GetLevelRepartitionQueryHandler(
 
             int firstOccupied = Array.FindIndex(slots, c => c is not null);
 
-            var chef = chefs.GetValueOrDefault(first.ServiceId);
+            var chef = chefs.For(first.ServiceId, asOf);
 
             rows.Add(new RowDraft(
                 new RepartitionRow(
@@ -237,9 +184,6 @@ internal sealed class GetLevelRepartitionQueryHandler(
 
     private sealed record RowDraft(RepartitionRow Row, (int, int) SortKey);
 
-    /// <summary>A chef's name and where it came from. A default instance is "nobody named", which is
-    /// what <c>GetValueOrDefault</c> yields for a service that somehow escaped the lookup.</summary>
-    private readonly record struct ChefAttribution(string? Name, bool FromSourceNote);
 }
 
 file static class RepartitionEnumerableExtensions

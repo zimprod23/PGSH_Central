@@ -58,7 +58,7 @@ public sealed class Registration : Entity
     /// Records the governing CNPN. The only writer of <see cref="CnpnVersionId"/>.
     /// </summary>
     /// <remarks>
-    /// <para>Called once, by <c>CnpnResolver</c>, as the registration is created. Re-stamping an
+    /// <para>Called once, by <c>RegistrationCnpnStamper</c>, as the registration is created. Re-stamping an
     /// existing registration is a separate administrative act — applying a rule authored after the
     /// réinscription had already run — and it is refused here once the year has been pronounced:
     /// a closed year's requirement set is the record of what the student was judged against, and a

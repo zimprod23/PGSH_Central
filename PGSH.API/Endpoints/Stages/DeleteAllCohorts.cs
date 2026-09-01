@@ -13,7 +13,7 @@ public sealed class DeleteAllCohortsEndpoint : IEndpoint
             async (int stageId, int? academicYearId, ISender sender, CancellationToken ct) =>
             {
                 var result = await sender.Send(new DeleteAllCohortsCommand(stageId, academicYearId), ct);
-                return result.Match(count => Results.Ok(new { deleted = count }), CustomResults.Problem);
+                return result.Match(Results.Ok, CustomResults.Problem);
             })
             .WithTags(Tags.Stages)
             .RequireAuthorization();

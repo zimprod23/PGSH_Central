@@ -436,6 +436,54 @@ namespace PGSH.Infrastructure.Migrations
                     b.ToTable("FinalYearEntryWaivers", "public");
                 });
 
+            modelBuilder.Entity("PGSH.Domain.Registrations.PriorEnrolment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Country")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateOnly?>("EquivalenceDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("EquivalenceReference")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Institution")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<int>("LastLevelYearCompleted")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<Guid?>("RecordedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("RecordedOn")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("RegistrationId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RegistrationId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_PriorEnrolment_Registration");
+
+                    b.ToTable("PriorEnrolments", "public");
+                });
+
             modelBuilder.Entity("PGSH.Domain.Registrations.Registration", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1517,6 +1565,17 @@ namespace PGSH.Infrastructure.Migrations
                     b.Navigation("Student");
                 });
 
+            modelBuilder.Entity("PGSH.Domain.Registrations.PriorEnrolment", b =>
+                {
+                    b.HasOne("PGSH.Domain.Registrations.Registration", "Registration")
+                        .WithMany()
+                        .HasForeignKey("RegistrationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Registration");
+                });
+
             modelBuilder.Entity("PGSH.Domain.Registrations.Registration", b =>
                 {
                     b.HasOne("PGSH.Domain.Registrations.AcademicGroup", "AcademicGroup")
@@ -1542,7 +1601,7 @@ namespace PGSH.Infrastructure.Migrations
                         .IsRequired();
 
                     b.HasOne("PGSH.Domain.Students.Student", "Student")
-                        .WithMany("registrations")
+                        .WithMany("Registrations")
                         .HasForeignKey("StudentId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
@@ -1894,7 +1953,7 @@ namespace PGSH.Infrastructure.Migrations
             modelBuilder.Entity("PGSH.Domain.Students.History", b =>
                 {
                     b.HasOne("PGSH.Domain.Students.Student", "Student")
-                        .WithMany("history")
+                        .WithMany("HistoryEntries")
                         .HasForeignKey("StudentId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
@@ -2087,9 +2146,9 @@ namespace PGSH.Infrastructure.Migrations
 
             modelBuilder.Entity("PGSH.Domain.Students.Student", b =>
                 {
-                    b.Navigation("history");
+                    b.Navigation("HistoryEntries");
 
-                    b.Navigation("registrations");
+                    b.Navigation("Registrations");
                 });
 #pragma warning restore 612, 618
         }

@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using PGSH.Domain.Users;
@@ -73,7 +74,11 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
 
         foreach (var descriptor in doomed) services.Remove(descriptor);
 
-        services.AddDbContext<ApplicationDbContext>(options => options.UseInMemoryDatabase(_databaseName));
+        services.AddDbContext<ApplicationDbContext>(options => options
+            .UseInMemoryDatabase(_databaseName)
+            // The in-memory store has no transactions, so ExecuteAtomicallyAsync would throw
+            // rather than run. See TestHarness.NewContext for what that costs.
+            .ConfigureWarnings(w => w.Ignore(InMemoryEventId.TransactionIgnoredWarning)));
     }
 
     private static void UseTestAuthentication(IServiceCollection services)

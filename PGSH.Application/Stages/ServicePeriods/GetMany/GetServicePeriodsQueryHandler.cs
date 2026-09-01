@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Authentication;
+using PGSH.Application.Abstractions.Authorization;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
 using PGSH.Application.Employees.MyServices;
@@ -72,7 +73,12 @@ internal sealed class GetServicePeriodsQueryHandler(
                     null,
                     p.IsPaused,
                     p.Pauses.Where(x => x.ResumeDate == null).Select(x => x.Reason).FirstOrDefault(),
-                    p.IsInterrupted),
+                    p.IsInterrupted,
+                    // The four facts are translated; the decision over them is made client-side, which
+                    // is what EF does with a top-level projection anyway. Restating the rule inline
+                    // here would be the fifth copy of exactly what ServicePeriodLifecycle removed.
+                    ServicePeriodLifecycle.StateOf(
+                        p.IsStarted, p.IsComplete, p.IsInterrupted, p.Evaluation != null)),
                 cancellationToken);
 
         return Result.Success(response);

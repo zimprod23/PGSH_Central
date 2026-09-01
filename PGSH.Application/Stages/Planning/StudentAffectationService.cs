@@ -132,6 +132,30 @@ internal sealed class StudentAffectationService(IApplicationDbContext dbContext)
         return query.Select(c => new CohortTarget(c.Id, c.AcademicGroupId, c.Stage.LevelId));
     }
 
+    /// <summary>One registration eligible for affectation, with the pair it is eligible under.</summary>
+    internal sealed record EligibleRegistration(Guid RegistrationId, int AcademicGroupId, int LevelId);
+
+    /// <summary>
+    /// Every registration standing in one of these rosters at one of these levels, not withdrawn —
+    /// the candidates of every cohort of the call, read once.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ Named so <c>SqlTranslationTests</c> can compile it: it dereferences a nullable FK inside the
+    /// projection (<c>r.AcademicGroupId!.Value</c>) after testing it in the predicate, and whether a
+    /// provider accepts that is a fact about the provider.
+    /// </remarks>
+    internal static IQueryable<EligibleRegistration> EligibleRegistrationsQuery(
+        IApplicationDbContext dbContext,
+        IReadOnlyCollection<int> academicGroupIds,
+        IReadOnlyCollection<int> levelIds) =>
+        dbContext.Registrations
+            .AsNoTracking()
+            .Where(r => r.AcademicGroupId != null
+                     && academicGroupIds.Contains(r.AcademicGroupId.Value)
+                     && levelIds.Contains(r.LevelId)
+                     && r.Status != RegistrationStatus.Withdrawn)
+            .Select(r => new EligibleRegistration(r.Id, r.AcademicGroupId!.Value, r.LevelId));
+
     private async Task<BulkResponse<Guid, Guid>> AssignAsync(IReadOnlyList<CohortTarget> cohorts, CancellationToken ct)
     {
         if (cohorts.Count == 0)
@@ -147,18 +171,30 @@ internal sealed class StudentAffectationService(IApplicationDbContext dbContext)
             .Select(a => (a.RegistrationId, a.CurrentCohortId))
             .ToHashSet();
 
+        // ⚠ One query for every cohort of the call, not one per cohort. This loop runs over the
+        // cohorts of a whole promotion — 105 on the current year's biggest stage, and the macro plan
+        // walks it once per concurrency block — so a per-cohort read was ~700 round trips for a
+        // single « Générer le plan », which is where its minutes went.
+        //
+        // The pairing is preserved exactly: the rows are fetched for the groups and levels in play
+        // and then keyed on **(group, level) together**, never on either alone. A registration whose
+        // group is in the set and whose level is in the set is not necessarily the one this cohort
+        // wants — that is the same trap as filtering by level and year with two independent Any's.
+        var eligibleByGroupLevel = (await EligibleRegistrationsQuery(
+                    dbContext,
+                    cohorts.Select(c => c.AcademicGroupId).Distinct().ToList(),
+                    cohorts.Select(c => c.LevelId).Distinct().ToList())
+                .ToListAsync(ct))
+            .GroupBy(r => (r.AcademicGroupId, r.LevelId))
+            .ToDictionary(g => g.Key, g => g.Select(r => r.RegistrationId).ToList());
+
         int totalEligible = 0;
         var results = new List<BulkItemResult<Guid, Guid>>();
 
         foreach (var cohort in cohorts)
         {
-            var registrations = await dbContext.Registrations
-                .AsNoTracking()
-                .Where(r => r.AcademicGroupId == cohort.AcademicGroupId
-                         && r.LevelId == cohort.LevelId
-                         && r.Status != RegistrationStatus.Withdrawn)
-                .Select(r => r.Id)
-                .ToListAsync(ct);
+            var registrations = eligibleByGroupLevel.GetValueOrDefault(
+                (cohort.AcademicGroupId, cohort.LevelId), []);
 
             foreach (var registrationId in registrations)
             {

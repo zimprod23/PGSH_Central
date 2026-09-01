@@ -99,9 +99,7 @@ internal sealed class CreateManyRegistrationsCommandHandler(
 
             // One pass for the whole batch: the population's stamps, prior texts and the year's
             // effectivity rules are three lookups, not four per student.
-            var stamp = await stamper.StampAsync(newRegistrations, cancellationToken);
-            if (stamp.IsFailure)
-                return Result.Failure<BulkResponse<Guid, Guid>>(stamp.Error);
+            await stamper.StampAsync(newRegistrations, cancellationToken);
 
             await dbContext.SaveChangesAsync(cancellationToken);
         }

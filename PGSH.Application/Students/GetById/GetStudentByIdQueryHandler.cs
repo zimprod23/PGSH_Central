@@ -13,8 +13,8 @@ internal sealed class GetStudentByIdQueryHandler(IApplicationDbContext context)
     {
         var student = await context.Students
             .AsNoTracking()
-            .Include(s => s.registrations) // Load the collection
-            .Include(s => s.history)       // Load the collection
+            .Include(s => s.Registrations) // Load the collection
+            .Include(s => s.HistoryEntries)       // Load the collection
             .Where(s => s.Id == request.StudentId)
             .Select(s => new StudentResponse(
                 s.Id,
@@ -35,7 +35,7 @@ internal sealed class GetStudentByIdQueryHandler(IApplicationDbContext context)
                 s.BacYear,
                 s.AccessGrade,
                 s.Ranking,
-                s.registrations
+                s.Registrations
                     .OrderByDescending(r => r.RegistrationDate)
                     .Select(r => new StudentRegistrationSummary(
                         r.Id,

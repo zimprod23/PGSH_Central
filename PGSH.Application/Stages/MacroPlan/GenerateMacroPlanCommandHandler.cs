@@ -1,3 +1,4 @@
+using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
 using PGSH.Application.Stages.Planning;
 using PGSH.SharedKernel;
@@ -5,13 +6,26 @@ using PGSH.SharedKernel;
 namespace PGSH.Application.Stages.MacroPlan;
 
 internal sealed class GenerateMacroPlanCommandHandler(
+    IApplicationDbContext dbContext,
     CohortProvisioner provisioner,
     StudentAffectationService affectation,
     RotationArranger arranger,
     SchedulePublisher publisher)
     : ICommandHandler<GenerateMacroPlanCommand, MacroPlanResult>
 {
-    public async Task<Result<MacroPlanResult>> Handle(
+    /// <summary>
+    /// ⚠ <b>One transaction over the whole matrix.</b> Every step below saves for itself — cohorts,
+    /// then affectations and cells stage by stage — so on a promotion of a hundred rosters this
+    /// handler used to commit a dozen times before it was finished. Closing the tab or losing the
+    /// connection cancels the request between two of those commits, and what stayed behind was a
+    /// plan built for the first three stages and nothing for the rest: not obviously broken, simply
+    /// wrong, and indistinguishable from a plan somebody meant that way.
+    /// </summary>
+    public Task<Result<MacroPlanResult>> Handle(
+        GenerateMacroPlanCommand request, CancellationToken cancellationToken) =>
+        dbContext.ExecuteAtomicallyAsync(ct => PlanAsync(request, ct), cancellationToken);
+
+    private async Task<Result<MacroPlanResult>> PlanAsync(
         GenerateMacroPlanCommand request, CancellationToken cancellationToken)
     {
         var cohortResult = await provisioner.EnsureCohortsAsync(

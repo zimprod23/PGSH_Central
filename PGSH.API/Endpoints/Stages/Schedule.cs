@@ -1,4 +1,4 @@
-﻿using MediatR;
+using MediatR;
 using Microsoft.AspNetCore.Mvc;
 using PGSH.API.Extensions;
 using PGSH.API.Infrastructure;
@@ -15,10 +15,18 @@ internal sealed class StageScheduleEndpoints : IEndpoint
 {
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
+        // The rows are paged and the partition is filtered server-side — a grid of a hundred cohortes
+        // over ten columns is a thousand cells, and shipping them all is what made this screen slow
+        // to open and slow to close. `pageNumber`/`pageSize` fall back to the query's own defaults so
+        // an older client keeps working, bounded instead of unbounded.
         app.MapGet("stages/{stageId:int}/schedule",
-            async (int stageId, int? academicYearId, ISender sender, CancellationToken ct) =>
+            async (int stageId, int? academicYearId, string? rotationGroup, int? pageNumber, int? pageSize,
+                   ISender sender, CancellationToken ct) =>
             {
-                var result = await sender.Send(new GetStageScheduleQuery(stageId, academicYearId), ct);
+                var query = new GetStageScheduleQuery(
+                    stageId, academicYearId, rotationGroup,
+                    pageNumber ?? 1, pageSize ?? GetStageScheduleQuery.DefaultPageSize);
+                var result = await sender.Send(query, ct);
                 return result.Match(Results.Ok, CustomResults.Problem);
             })
             .WithTags("Stages")

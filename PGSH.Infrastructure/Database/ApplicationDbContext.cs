@@ -58,6 +58,7 @@ public sealed class ApplicationDbContext : DbContext, IApplicationDbContext
     public DbSet<AuditLog> AuditLogs { get; set; }
     public DbSet<ObjectiveScore> ObjectiveScores { get; set; }
     public DbSet<FinalYearEntryWaiver> FinalYearEntryWaivers { get; set; }
+    public DbSet<PriorEnrolment> PriorEnrolments { get; set; }
     public DbSet<Cohort> Cohorts { get; set; }
     public DbSet<CnpnVersion> CnpnVersions { get; set; }
     public DbSet<CnpnLevelEffectivity> CnpnLevelEffectivities { get; set; }
@@ -82,6 +83,41 @@ public sealed class ApplicationDbContext : DbContext, IApplicationDbContext
         int result = await base.SaveChangesAsync(cancellationToken);
         await PublishDomainEventsAsync();
         return result;
+    }
+
+    /// <inheritdoc />
+    public async Task<Result<T>> ExecuteAtomicallyAsync<T>(
+        Func<CancellationToken, Task<Result<T>>> operation, CancellationToken cancellationToken = default)
+    {
+        // Already inside somebody else's unit of work — joining it is what makes nesting harmless.
+        if (Database.CurrentTransaction is not null)
+            return await operation(cancellationToken);
+
+        // ⚠ Through the execution strategy, not straight to BeginTransaction. Aspire's
+        // AddNpgsqlDbContext enables retry-on-failure, and a retrying strategy refuses a
+        // user-initiated transaction outright ("does not support user-initiated transactions") —
+        // which would turn every wrapped handler into a 500 rather than into an atomic one.
+        var strategy = Database.CreateExecutionStrategy();
+
+        return await strategy.ExecuteAsync(async ct =>
+        {
+            // A retry re-runs the operation from the top, so anything the failed attempt tracked has
+            // to go: left behind, it would be inserted a second time by the attempt that succeeds.
+            ChangeTracker.Clear();
+
+            await using var transaction = await Database.BeginTransactionAsync(ct);
+
+            var result = await operation(ct);
+
+            if (result.IsFailure)
+            {
+                await transaction.RollbackAsync(ct);
+                return result;
+            }
+
+            await transaction.CommitAsync(ct);
+            return result;
+        }, cancellationToken);
     }
 
     private async Task PublishDomainEventsAsync()

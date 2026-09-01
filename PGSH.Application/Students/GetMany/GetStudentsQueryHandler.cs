@@ -31,8 +31,23 @@ internal sealed class GetStudentsQueryHandler(IApplicationDbContext context)
         // while still returning students who have none listed the whole imported history under
         // whichever year was selected, every row blank past the name — and made the dashboard's
         // "étudiants inscrits" a count of everyone ever enrolled rather than of this promotion.
-        if (request.AcademicYearId.HasValue)
-            query = query.Where(s => s.registrations.Any(r => r.AcademicYearId == request.AcademicYearId.Value));
+        int? yearId = request.AcademicYearId;
+
+        if (yearId.HasValue)
+            query = query.Where(s => s.Registrations.Any(r => r.AcademicYearId == yearId.Value));
+
+        // ⚠ **One `Any`, not two.** A level and a year each satisfied by a *different* registration is
+        // not a student of that promotion — and every student past his second year has one. Asked as
+        // two conditions, « inscrit en 2026-2027 » ∧ « a été en 3ᵉ année (un jour) » returns the 7ᵉ
+        // année student who sat in the 3ᵉ in 2021; 2 635 students in this base have repeated, and every
+        // one of them is a false positive. The pair has to hold on a single registration row.
+        //
+        // A level with no year stays meaningful — "everyone who has ever been in the 3ᵉ année" — which
+        // is what the omitted year already means for the list as a whole, so it is left reachable
+        // rather than resolved to the current year here.
+        if (request.LevelId is { } levelId)
+            query = query.Where(s => s.Registrations.Any(r =>
+                r.LevelId == levelId && (yearId == null || r.AcademicYearId == yearId.Value)));
 
         if (!string.IsNullOrWhiteSpace(request.SearchTerm))
         {
@@ -56,18 +71,18 @@ internal sealed class GetStudentsQueryHandler(IApplicationDbContext context)
                     s.Id, s.Email, s.FirstName, s.LastName, s.CNE, s.Appogee, s.AcademicProgram.ToString(), s.CIN,
                     // The selected academic year's registration when a year is given (at most one),
                     // otherwise the most recent registration.
-                    s.registrations
-                        .Where(r => request.AcademicYearId == null || r.AcademicYearId == request.AcademicYearId)
+                    s.Registrations
+                        .Where(r => yearId == null || r.AcademicYearId == yearId)
                         .OrderByDescending(r => r.AcademicYear.StartDate)
                         .Select(r => r.Level.Label)
                         .FirstOrDefault(),
-                    s.registrations
-                        .Where(r => request.AcademicYearId == null || r.AcademicYearId == request.AcademicYearId)
+                    s.Registrations
+                        .Where(r => yearId == null || r.AcademicYearId == yearId)
                         .OrderByDescending(r => r.AcademicYear.StartDate)
                         .Select(r => r.AcademicGroup != null ? r.AcademicGroup.Label : null)
                         .FirstOrDefault(),
-                    s.registrations
-                        .Where(r => request.AcademicYearId == null || r.AcademicYearId == request.AcademicYearId)
+                    s.Registrations
+                        .Where(r => yearId == null || r.AcademicYearId == yearId)
                         .OrderByDescending(r => r.AcademicYear.StartDate)
                         .Select(r => r.Status.ToString())
                         .FirstOrDefault()),

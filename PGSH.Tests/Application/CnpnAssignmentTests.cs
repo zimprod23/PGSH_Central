@@ -39,31 +39,30 @@ public class CnpnAssignmentTests
         db.SeedCnpnVersion(NewText, "1650.25", totalYears: 6, appliesFromAcademicYearId: Year2024);
     }
 
-    private static int LevelFor(ApplicationDbContext db, int year)
-    {
-        var level = new Level
-        {
-            Id = 50 + year, Label = $"{year}e année", Year = year,
-            AcademicProgram = AcademicProgram.Medecine,
-        };
-        db.Levels.Add(level);
-        return level.Id;
-    }
+    /// <summary>
+    /// The three years above, ordered by start date — what <see cref="EntryYearDeduction"/> walks.
+    /// </summary>
+    private static readonly EntryYearDeduction.AcademicYearRef[] Years =
+    [
+        new(Year2023, new DateOnly(2023, 9, 1)),
+        new(Year2024, new DateOnly(2024, 9, 1)),
+        new(TestHarness.CurrentYearId, new DateOnly(2025, 9, 1)),
+    ];
+
+    // -- Which text governs an intake -----------------------------------------
 
     [Fact]
     public async Task An_entrant_of_the_year_the_new_text_took_effect_is_governed_by_it()
     {
         await using var db = TestHarness.NewContext("cnpn-new-entrant");
         SeedTexts(db);
-        var reg = db.SeedRegistration("Sara", "Bennani", null, Year2024, LevelFor(db, 1));
         await db.SaveChangesAsync();
 
         var resolved = await new CnpnAssignment(db)
-            .ResolveAsync(reg.StudentId, TestHarness.CurrentYearId, default);
+            .SelectVersionAsync(AcademicProgram.Medecine, Year2024, default);
 
         resolved.IsSuccess.Should().BeTrue();
-        resolved.Value.CnpnVersionId.Should().Be(NewText);
-        resolved.Value.IsInferred.Should().BeFalse();
+        resolved.Value.Should().Be(NewText);
     }
 
     [Fact]
@@ -71,14 +70,100 @@ public class CnpnAssignmentTests
     {
         await using var db = TestHarness.NewContext("cnpn-old-entrant");
         SeedTexts(db);
-        var reg = db.SeedRegistration("Ali", "Amrani", null, Year2023, LevelFor(db, 1));
         await db.SaveChangesAsync();
 
         var resolved = await new CnpnAssignment(db)
-            .ResolveAsync(reg.StudentId, TestHarness.CurrentYearId, default);
+            .SelectVersionAsync(AcademicProgram.Medecine, Year2023, default);
 
-        resolved.Value.CnpnVersionId.Should().Be(OldText);
-        resolved.Value.IsInferred.Should().BeFalse();
+        resolved.Value.Should().Be(OldText);
+    }
+
+    [Fact]
+    public async Task A_text_kept_only_for_the_record_never_governs_an_intake()
+    {
+        // Arrêté 2175.22 amended the 2019 text and was then explicitly disapplied by 1650.25, which
+        // sends pre-2024-2025 students back to the pre-amendment form. It must be recorded and never
+        // selected.
+        await using var db = TestHarness.NewContext("cnpn-history-only");
+        SeedTexts(db);
+        db.SeedCnpnVersion(93, "2175.22", totalYears: 7, appliesFromAcademicYearId: null);
+        await db.SaveChangesAsync();
+
+        var resolved = await new CnpnAssignment(db)
+            .SelectVersionAsync(AcademicProgram.Medecine, Year2023, default);
+
+        resolved.Value.Should().Be(OldText);
+    }
+
+    [Fact]
+    public async Task An_intake_older_than_every_recorded_text_is_refused_rather_than_guessed()
+    {
+        await using var db = TestHarness.NewContext("cnpn-too-old");
+        SeedTexts(db);
+        db.SeedAcademicYear(5, "2015-2016", new DateOnly(2015, 9, 1), new DateOnly(2016, 8, 31));
+        await db.SaveChangesAsync();
+
+        var resolved = await new CnpnAssignment(db)
+            .SelectVersionAsync(AcademicProgram.Medecine, 5, default);
+
+        resolved.IsFailure.Should().BeTrue("guessing here would shorten someone's degree");
+        resolved.Error.Code.Should().Be("Cnpn.NoVersionForIntake");
+    }
+
+    [Fact]
+    public async Task An_intake_year_that_does_not_exist_is_refused()
+    {
+        await using var db = TestHarness.NewContext("cnpn-unknown-intake");
+        SeedTexts(db);
+        await db.SaveChangesAsync();
+
+        var resolved = await new CnpnAssignment(db)
+            .SelectVersionAsync(AcademicProgram.Medecine, 4242, default);
+
+        resolved.IsFailure.Should().BeTrue();
+        resolved.Error.Code.Should().Be("AcademicYears.NotFound");
+    }
+
+    // -- When the student entered ---------------------------------------------
+    //
+    // The deduction is pure, so the cases are exact rather than approximately seeded. It carries the
+    // one assumption the whole backfill rests on: ~2,200 enrolled students first appear in the data
+    // at level 2 or above, because the legacy import only carried them once they had stages.
+
+    [Fact]
+    public void A_first_registration_at_the_first_level_is_the_entry_itself()
+    {
+        EntryYearDeduction.IsRecordedEntry(1).Should().BeTrue();
+
+        EntryYearDeduction.EntryYearId(Years, Year2024, levelYearAtEarliestRegistration: 1)
+            .Should().Be(Year2024);
+    }
+
+    [Fact]
+    public void An_unrecorded_entry_is_walked_back_one_year_per_level_and_flagged_as_deduced()
+    {
+        EntryYearDeduction.IsRecordedEntry(3).Should().BeFalse(
+            "you cannot be in the third year without having spent two — the answer is offered as "
+            + "inference, not as fact");
+
+        EntryYearDeduction.EntryYearId(Years, TestHarness.CurrentYearId, 3)
+            .Should().Be(Year2023, "third year in 2025-2026 means an entry two years earlier");
+    }
+
+    [Fact]
+    public void The_walk_back_stops_at_the_earliest_year_on_record()
+    {
+        // History does not reach far enough, which still lands before any modern CNPN: the answer
+        // stays right even when the exact year does not.
+        EntryYearDeduction.EntryYearId(Years, Year2023, levelYearAtEarliestRegistration: 7)
+            .Should().Be(Year2023);
+    }
+
+    [Fact]
+    public void A_year_that_cannot_be_placed_is_returned_unchanged()
+    {
+        EntryYearDeduction.EntryYearId(Years, 4242, levelYearAtEarliestRegistration: 3)
+            .Should().Be(4242, "a year we cannot place is a year we cannot walk back from");
     }
 
     [Fact]
@@ -89,96 +174,39 @@ public class CnpnAssignmentTests
         // students are in exactly this position.
         await using var db = TestHarness.NewContext("cnpn-repeater");
         SeedTexts(db);
-
-        int firstYear = LevelFor(db, 1);
-        var reg = db.SeedRegistration("Nadia", "Idrissi", null, Year2023, firstYear);
-        db.Registrations.Add(new PGSH.Domain.Registrations.Registration
-        {
-            Id = Guid.NewGuid(), AcademicYearId = Year2024, LevelId = firstYear,
-            StudentId = reg.StudentId, Student = reg.Student,
-        });
         await db.SaveChangesAsync();
 
-        var resolved = await new CnpnAssignment(db)
-            .ResolveAsync(reg.StudentId, TestHarness.CurrentYearId, default);
+        int entryYearId = EntryYearDeduction.EntryYearId(
+            Years, earliestKnownYearId: Year2023, levelYearAtEarliestRegistration: 1);
 
-        resolved.Value.CnpnVersionId.Should().Be(OldText,
+        var resolved = await new CnpnAssignment(db)
+            .SelectVersionAsync(AcademicProgram.Medecine, entryYearId, default);
+
+        resolved.Value.Should().Be(OldText,
             "the text follows the intake, not the level the student happens to sit in");
-        resolved.Value.IsInferred.Should().BeFalse();
     }
 
     [Fact]
-    public async Task An_unrecorded_entry_is_deduced_from_the_level_and_flagged()
+    public async Task A_deduced_entry_places_the_student_under_the_text_of_that_year()
     {
-        // ~2,200 enrolled students first appear in the data at level 2 or above: the legacy import
-        // only carried them once they had stages. You cannot be in the third year without having
-        // spent two, so entry is deduced — and the answer is offered as inference, not as fact.
         await using var db = TestHarness.NewContext("cnpn-deduced");
         SeedTexts(db);
-        var reg = db.SeedRegistration("Omar", "Tazi", null, TestHarness.CurrentYearId, LevelFor(db, 3));
         await db.SaveChangesAsync();
 
-        var resolved = await new CnpnAssignment(db)
-            .ResolveAsync(reg.StudentId, TestHarness.CurrentYearId, default);
+        int entryYearId = EntryYearDeduction.EntryYearId(
+            Years, earliestKnownYearId: TestHarness.CurrentYearId, levelYearAtEarliestRegistration: 3);
 
-        resolved.Value.IsInferred.Should().BeTrue();
-        resolved.Value.CnpnVersionId.Should().Be(OldText,
+        var resolved = await new CnpnAssignment(db)
+            .SelectVersionAsync(AcademicProgram.Medecine, entryYearId, default);
+
+        resolved.Value.Should().Be(OldText,
             "third year in 2025-2026 means an entry two years earlier, before the new text");
     }
 
-    [Fact]
-    public async Task A_student_with_no_registration_cannot_be_placed()
-    {
-        await using var db = TestHarness.NewContext("cnpn-no-registration");
-        SeedTexts(db);
-        var orphan = new Student
-        {
-            Id = Guid.NewGuid(), FirstName = "Sans", LastName = "Inscription",
-            Email = "sans@etu.ma", CNE = "CNE000000", Appogee = "AP000000", BacYear = "2022",
-        };
-        db.Users.Add(orphan);
-        await db.SaveChangesAsync();
-
-        var resolved = await new CnpnAssignment(db)
-            .ResolveAsync(orphan.Id, TestHarness.CurrentYearId, default);
-
-        resolved.IsFailure.Should().BeTrue();
-        resolved.Error.Code.Should().Be("Cnpn.NoRegistration");
-    }
-
-    [Fact]
-    public async Task A_text_kept_only_for_the_record_never_governs_an_intake()
-    {
-        // Arrêté 2175.22 amended the 2019 text and was then explicitly disapplied by 1650.25, which
-        // sends pre-2024-2025 students back to the pre-amendment form. It must resolve as a citation
-        // and never be selected.
-        await using var db = TestHarness.NewContext("cnpn-history-only");
-        SeedTexts(db);
-        db.SeedCnpnVersion(93, "2175.22", totalYears: 7, appliesFromAcademicYearId: null);
-        var reg = db.SeedRegistration("Yassine", "Alami", null, Year2023, LevelFor(db, 1));
-        await db.SaveChangesAsync();
-
-        var resolved = await new CnpnAssignment(db)
-            .ResolveAsync(reg.StudentId, TestHarness.CurrentYearId, default);
-
-        resolved.Value.CnpnVersionId.Should().Be(OldText);
-    }
-
-    [Fact]
-    public async Task An_intake_older_than_every_recorded_text_is_refused_rather_than_guessed()
-    {
-        await using var db = TestHarness.NewContext("cnpn-too-old");
-        SeedTexts(db);
-        db.SeedAcademicYear(5, "2015-2016", new DateOnly(2015, 9, 1), new DateOnly(2016, 8, 31));
-        var reg = db.SeedRegistration("Ancien", "Étudiant", null, 5, LevelFor(db, 1));
-        await db.SaveChangesAsync();
-
-        var resolved = await new CnpnAssignment(db)
-            .ResolveAsync(reg.StudentId, TestHarness.CurrentYearId, default);
-
-        resolved.IsFailure.Should().BeTrue("guessing here would shorten someone's degree");
-        resolved.Error.Code.Should().Be("Cnpn.NoVersionForIntake");
-    }
+    // A student with no registration at all is no longer this class's case: the text is resolved as
+    // a registration is created, so the registration being created is its own entry evidence.
+    // "unresolvable -> created without a text rather than refused" is covered by
+    // CnpnEffectivityTests.An_unresolvable_registration_is_created_without_a_text_rather_than_refused.
 
     // ── The stamp itself ─────────────────────────────────────────────────────
 

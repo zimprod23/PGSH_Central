@@ -25,10 +25,23 @@ internal sealed class GetCnpnEffectivitiesQueryHandler(IApplicationDbContext dbC
     public async Task<Result<IReadOnlyList<CnpnEffectivityResponse>>> Handle(
         GetCnpnEffectivitiesQuery request, CancellationToken ct)
     {
-        var rows = await dbContext.CnpnLevelEffectivities
+        var rows = await EffectivityRowsQuery(dbContext, request.CnpnVersionId, request.Program)
+            .ToListAsync(ct);
+
+        return Result.Success<IReadOnlyList<CnpnEffectivityResponse>>(rows);
+    }
+
+    /// <summary>
+    /// ⚠ The registration count is a correlated scalar subquery in the projection. It is what the
+    /// rule has actually done, and it is compared on <c>StartDate</c> — named so its translation is
+    /// pinned rather than discovered on the effectivity page.
+    /// </summary>
+    internal static IQueryable<CnpnEffectivityResponse> EffectivityRowsQuery(
+        IApplicationDbContext dbContext, int? cnpnVersionId, AcademicProgram? program) =>
+        dbContext.CnpnLevelEffectivities
             .AsNoTracking()
-            .Where(e => request.CnpnVersionId == null || e.CnpnVersionId == request.CnpnVersionId)
-            .Where(e => request.Program == null || e.CnpnVersion.AcademicProgram == request.Program)
+            .Where(e => cnpnVersionId == null || e.CnpnVersionId == cnpnVersionId)
+            .Where(e => program == null || e.CnpnVersion.AcademicProgram == program)
             .OrderBy(e => e.CnpnVersion.AcademicProgram)
             .ThenBy(e => e.FromAcademicYear.StartDate)
             .ThenBy(e => e.Level.Year)
@@ -51,9 +64,5 @@ internal sealed class GetCnpnEffectivitiesQueryHandler(IApplicationDbContext dbC
                 dbContext.Registrations.Count(r =>
                     r.LevelId == e.LevelId
                  && r.CnpnVersionId == e.CnpnVersionId
-                 && r.AcademicYear.StartDate >= e.FromAcademicYear.StartDate)))
-            .ToListAsync(ct);
-
-        return Result.Success<IReadOnlyList<CnpnEffectivityResponse>>(rows);
-    }
+                 && r.AcademicYear.StartDate >= e.FromAcademicYear.StartDate)));
 }
