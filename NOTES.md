@@ -2351,3 +2351,33 @@ service in the base carries a `ServiceLevelCapacity` row, so nothing would refus
 after it, MED3 (895 inscriptions) and MED4 (898) list the same services, which is a scheduling
 question wherever their windows overlap.
 
+## The old text's duration is recorded, visible, and applied nowhere — measured 2026-09-01
+
+`SMOKE-TEST.md` §34 was written to walk one fact end to end: **MED3 Chirurgie (`Stage.Id = 2`) is a
+single catalogue row owed by two populations under two texts.**
+
+- **895** inscribed in 3ᵉ année 2026-2027, stamped **1650.25** with `CnpnSource = Effectivity` —
+  895 of 895, from the rule « 1650.25 governs level 3 from 2026-2027 ». The mechanism works exactly
+  as designed: read once, at the creation of the registration, and frozen there.
+- **92** in 6ᵉ année 2026-2027 on **2174.18** still owe it, plus 3 in 5ᵉ année.
+
+⚠ **The expectation that a revalidation carries the old 66 days is not met, and the gap is real.**
+No code on the revalidation / dossier / progression / export path reads a duration at all —
+`RevalidateStageCommand` takes the `StartDate` / `EndDate` the operator supplies. The figure is
+recorded (2174.18's requirement set) and, since `StageCatalogueFigure`, visible; it is not applied.
+
+**The evidence is exact.** Abdallah Jad (CNE 2136598214) failed it in 2023-2024, served in Chirurgie
+Vasculaire from 18/03/2024 to 14/06/2024 — **65 jours ouvrables** against the weekend-and-holiday
+calendar. 2174.18 states 66. The catalogue now states 30. So the catalogue is not merely a second
+source of truth, it is the *wrong* one for anyone still on the old text — which is every student who
+could possibly be revalidating a 3ᵉ année credit, since 1650.25's own cohort has not reached the
+point of owing anything yet.
+
+⚠ **And there is no door.** `POST stages/revalidate` has no caller anywhere in `PGSH.Frontend/src`.
+The act exists, is guarded, is tested, and can only be reached through Scalar by someone holding a
+registration id, a stage id and a cohort id.
+
+⚠ **A 6ᵉ année student needs an explicit `cohortId`.** He has no roster in the current year, so
+`ResolveCohortAsync`'s fallback — « the cohorte of his own group » — has nothing to find, and the
+call fails `NoGroupForRevalidation`. The cohorte has to come from the target promotion's own plan,
+which is why §34 plans the 3ᵉ année *before* revalidating into it.

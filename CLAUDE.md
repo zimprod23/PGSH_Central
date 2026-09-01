@@ -406,7 +406,15 @@ could not fail.
   - ⚠ **Read by a second flat query keyed on the page's stage ids**
     (`GetStagesQueryHandler.TextFiguresQuery`), never as a collection inside the row projection —
     that element carries no key and is the shape Npgsql refuses. Pinned by `SqlTranslationTests`.
-  - The *substantive* half — which of the two numbers is authoritative — is still 15.1's. The Stages page is also not year- or CNPN-scoped at all: it is the timeless
+  - The *substantive* half — which of the two numbers is authoritative — is still 15.1's.
+  - ⚠ **…and no number is *applied* anywhere.** Measured 2026-09-01: nothing on the revalidation,
+    dossier, progression or export path reads `DurationInDays` at all — neither the catalogue's nor
+    the text's. `RevalidateStageCommand` takes the window the operator types. So the 92 6ᵉ année
+    students who owe MED3 Chirurgie under 2174.18 owe **66 j.o.**, that figure is recorded and now
+    visible, and no screen proposes it. The one such window on record ran **65 j.o.**, matching 66
+    and not the catalogue's 30 — so the catalogue is the wrong default precisely where it would be
+    reached for. When a duration is eventually proposed it must resolve through the registration's
+    own text (`r.CnpnVersionId ?? r.Student.CnpnVersionId`), like every other CNPN read. The Stages page is also not year- or CNPN-scoped at all: it is the timeless
   catalogue, so switching the navbar year changes nothing there. Resolve with Phase 15.1.
 - ⚠ **Still year-based, and shouldn't be:** the new CNPN organises 12 *semesters* with typed
   placements (immersion / nursing / part-time clinical / full-time / family medicine) and credits

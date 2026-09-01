@@ -3027,3 +3027,348 @@ revalide un crédit de 3ᵉ année reste régi par 2174.18 : c'est pour cela que
    suivre les lignes affichées. Les figures sont lues par une seconde requête plate sur les ids de la
    page — si la page 2 n'en affiche jamais, la clé de regroupement est fausse.
 
+# §34 — Bout en bout : planifier la 3ᵉ année sous le nouveau texte, puis solder une dette sous l'ancien (60-75 min) — session 36
+
+> ⚠ **Sur la base réelle, avec des données réelles.** Cette section écrit : elle crée des rosters, des
+> cohortes, des affectations, des périodes, et elle déplace des étudiants nommés. **Prendre un
+> `pg_dump -Fc` avant de commencer** — c'est la seule vraie annulation de la partie A.
+>
+> Ce qui est réversible sans restauration est dit à chaque étape. **Les parties D/E touchent une
+> promotion publiée (5MED)** — rien n'y est démarré, donc rien n'est détruit, mais la partie I remet
+> tout en place.
+
+**Pourquoi cette section existe.** Chaque section précédente teste un acte. Celle-ci teste ce qui ne se
+voit qu'en les enchaînant : **le même `Stage` — MED3 Chirurgie, `Id = 2` — est dû par deux populations
+sous deux textes différents**, et aucune page isolée ne le montre.
+
+| | régi par | durée du texte | coefficient |
+|---|---|---|---|
+| les 895 inscrits en 3ᵉ année 2026-2027 | **1650.25** (`CnpnSource = Effectivity`) | 30 j.o. | 1 |
+| les 92 en 6ᵉ année qui la doivent encore | **2174.18** | **66 j.o.** | 3 |
+| le catalogue (`Stage`), ce que la page Stages affichait seule | — | 30 j.o. | 3 |
+
+---
+
+## 34.0 — L'état de départ, mesuré le 01/09/2026
+
+À vérifier **avant** de toucher à quoi que ce soit : si la base ne dit pas cela, elle a dérivé et les
+nombres cités plus bas ne tomberont pas juste.
+
+| fait | valeur attendue |
+|---|---|
+| 3ᵉ MED 2026-2027 — inscriptions | **895** |
+| 3ᵉ MED 2026-2027 — rosters / cohortes / créneaux | **0 / 0 / 0** — jamais planifiée |
+| stamps CNPN de ces 895 | **1650.25**, `CnpnSource = Effectivity`, 895/895 |
+| règles d'effectivité | 1650.25 → niveau 1 dès 2024-2025, niveau 2 dès 2025-2026, **niveau 3 dès 2026-2027** |
+| stages 3ᵉ MED | 6, tous **30 j.o. / Service unique** |
+| services autorisés (3ᵉ MED) | Cardio **3**, Chirurgie **12**, Dermato-Endoc **4**, Médecine **14**, Pneumo **3**, Rhumato-Radio **7** |
+| 5ᵉ MED 2026-2027 | 105 rosters, 9 partitions, 833 inscrits, **5 831 périodes issues de la grille, 0 démarrée** |
+| jours fériés enregistrés | 24 |
+
+⚠ **Les 17 lignes `AllowedServices` des quatre nouveaux stages ont été copiées depuis leurs homologues
+de 4ᵉ année le 01/09/2026** (Cardiologie 3, Dermato-Endoc 4, Pneumo 3, Rhumato-Radio 7). Sans elles
+`RotationArranger` refuse d'emblée et **rien de la partie A n'est possible** — c'est la première chose
+à revérifier si l'auto-répartition échoue.
+
+---
+
+## Partie A — planifier la 3ᵉ année de 2026-2027 (25 min)
+
+Cette promotion n'a **jamais** été planifiée. C'est le seul endroit de la base où l'on peut voir la
+chaîne complète partir de zéro.
+
+1. **Étudiants → filtre promotion « 3ème année Médecine », année 2026-2027.** Le compteur doit dire
+   **895**. ⚠ Ce nombre est le contrôle du piège des deux `Any` indépendants : demandé de travers il
+   remonterait à quelques milliers, en comptant tous ceux qui sont *passés* par la 3ᵉ année.
+
+2. **Groupes → 3ᵉ année Médecine.** Attendu : **aucun roster**, et 895 inscriptions dans
+   « Non réparti ». C'est le seul écran d'où l'on voit le vivier.
+
+3. **« Répartir automatiquement »** sur la promotion.
+   - ⚠ **Les groupes sont homogènes par CNPN.** Les 895 sont tous sur 1650.25, donc **un seul bucket**
+     et aucun groupe « CNPN à confirmer ». S'il en apparaît un, des inscriptions ont perdu leur stamp —
+     arrêter et chercher pourquoi avant de continuer.
+   - La numérotation **repart à 1** pour cette promotion. Elle ne continue pas après les 105 de la
+     5ᵉ année : un numéro sans sa promotion n'identifie rien.
+
+4. **Découper en partitions.** Le nouveau texte organise la 3ᵉ année en **deux semestres de trois
+   stages**, pas un bloc de six. Donc `T = 3` par bloc, et `P` doit être un **multiple de 3**.
+   - Prendre `P = 9` (comme la 5ᵉ année), ou 6.
+   - ⚠ Demander **7** exprès : le refus doit être `PartitionCountIncompatible` **et nommer le multiple
+     qui marche**. « Mauvais nombre » sans « voici ce qui va » ne sert à rien.
+
+5. **Rotation cycle → 3ᵉ année Médecine → premier bloc**, trois stages, `k = 1` chacun, unité
+   **`WorkingDays`**, 30 jours ouvrables par colonne.
+   - `T = Σkₛ = 3` colonnes. `Lₛ = P·kₛ/T = 3` partitions simultanées par stage si `P = 9`.
+   - **`DurationChecks` doit tomber juste** : 30 j.o. demandés contre 30 j.o. annoncés au catalogue.
+     C'est le premier endroit où le catalogue aligné sur 1650.25 se voit.
+   - ⚠ **`CalendarIsEmpty` ne doit pas apparaître** — 24 fériés sont enregistrés. S'il apparaît,
+     « jours ouvrables » veut dire « moins les week-ends » et les dates de fin seront fausses.
+   - ⚠ **`MissingReligious`** peut légitimement apparaître : les dates lunaires sont annoncées par
+     décret et ne se calculent pas. C'est un rapport, pas une erreur.
+
+6. **Appliquer**, puis **deuxième bloc** avec les trois autres stages. Les deux blocs coexistent sur le
+   même niveau — c'est le cas pour lequel le remplacement « scopé aux stages nommés » existe.
+
+7. **Générer le plan macro.** Il écrit cohortes, affectations et cellules **dans une seule
+   transaction**. La page annonce ce qui s'écrit et dit qu'interrompre coûte la passe sans rien abîmer —
+   ce qui n'est vrai *que* grâce à cette transaction.
+   - ⚠ **`NotRequiredByCnpn` doit être à 0.** 1650.25 exige les six stages de la 3ᵉ année ; un refus ici
+     veut dire que le jeu d'exigences n'est pas celui qu'on croit.
+
+8. **Répartition → 3ᵉ année Médecine.** Le document doit sortir rempli. Deux causes d'un tableau vide,
+   et elles appellent des gestes opposés — `DeclaredSlotCount` les sépare :
+   - 0 créneau déclaré → l'axe n'a pas été écrit (retour au point 5)
+   - des créneaux déclarés mais 0 ligne → personne n'a été réparti (retour au point 7)
+
+9. **Publier.** ⚠ S'attendre à `PublishRefusedByIntake` : la base est structurellement sur-souscrite
+   (233 cellules sur 353 dépassaient déjà la capacité, pire cas 85 pour 20). Le refus doit être
+   **unique**, nommer le total, dire **combien relèvent de la moitié non forçable**
+   (`LevelNotAdmitted`) et citer les trois plus lourds. Un refus par cellule est le défaut corrigé en
+   session 33.
+   - Cocher « autoriser le dépassement d'effectif » et republier. La moitié **admissibilité** doit
+     continuer à refuser — aucune case ne la rend vraie.
+
+---
+
+## Partie B — le même stage, l'autre texte (5 min)
+
+10. **Stages → filtre 3ème année.** Sur **Chirurgie** et **Médecine**, un triangle orange à côté du
+    coefficient **et** de la durée (§33). L'infobulle doit lire :
+    - « 2174.18 (3ème année) : 66j » · « 1650.25 (3ème année) : 30j »
+    - coefficient : catalogue **3**, 1650.25 **1**
+    - ⚠ **Témoin :** les quatre stages descendus de la 4ᵉ année ne portent **aucun** marqueur — un seul
+      texte les mentionne, et il est d'accord avec le catalogue.
+
+11. **Curriculum → comparer 2174.18 et 1650.25 au niveau 3.** Les deux lignes qui changent sont
+    Chirurgie et Médecine (66→30, coef 3→1) ; les quatre autres apparaissent comme ajoutées.
+
+---
+
+## Partie C — la revalidation, et ce qu'elle ne fait pas (15 min)
+
+> ⚠ **Il n'y a pas d'écran.** `POST stages/revalidate` existe côté API et **aucun composant du frontend
+> ne l'appelle**. Cette partie se conduit depuis **`/scalar/v1`** (OAuth2 PKCE y est configuré),
+> connecté en scolarité/admin. C'est un manque à signaler, pas un défaut de cette section.
+
+**Le cas, réel :** *Abdallah Jad*, CNE `2136598214`, inscrit en **6ᵉ année 2026-2027**, stampé
+**2174.18**. Il a échoué MED3 Chirurgie en **2023-2024**, servie en **Chirurgie Vasculaire**
+(`serviceId = 43`) du **18/03/2024 au 14/06/2024**.
+
+12. **Compter les jours réellement servis** sur cette fenêtre : **65 jours ouvrables** (hors week-ends
+    et fériés enregistrés).
+    - ⚠ **C'est la preuve chiffrée de toute la section.** 65 ≈ **66**, la durée que *2174.18* énonce.
+      Le catalogue dit aujourd'hui **30**. Pour cet étudiant, le chiffre du catalogue est faux, et il
+      l'était en silence avant §33.
+
+13. **Dossier de l'étudiant → niveau 3.** Chirurgie doit apparaître **à revalider** (toutes les
+    tentatives `NonValidé`).
+    - ⚠ **Témoin :** un stage `NonÉvalué` ne doit **pas** y figurer. Non noté n'est pas échoué, et la
+      base n'a presque aucune note — le compter bloquerait toute la faculté sur une donnée absente.
+
+14. **Ouvrir la revalidation** — `POST stages/revalidate`, corps :
+
+```json
+{
+  "registrationId": "0e9872a1-f7e4-4665-8ced-53017b630471",
+  "stageId": 2,
+  "cohortId": 0,
+  "startDate": "2026-10-05",
+  "endDate": "2027-01-08",
+  "reason": "Rattrapage 3e annee - arrete 2174.18"
+}
+```
+
+- Remplacer `cohortId` par une cohorte **MED3 Chirurgie créée en partie A**.
+- ⚠ **`cohortId` est obligatoire ici** : cet étudiant n'a pas de roster en 2026-2027, donc le repli
+  « la cohorte de son propre groupe » n'a rien à trouver. Sans lui : `NoGroupForRevalidation`.
+- **Laisser `serviceId` absent.** La règle est « servi là où il a échoué » : le service **43** doit
+  être repris tout seul. S'il faut le donner à la main, `OriginalServiceId` ne se résout pas.
+- La période créée porte **`CohortSlotAssignmentId = null`** — hors grille, comme une délocalisation.
+  Ce n'est pas une cellule de la rotation d'un groupe.
+
+15. ⚠ **Ce que le système ne fait pas, et c'est le résultat de cette partie.** Rien n'a proposé 66
+    jours. Ni 30. **Aucun code sur le chemin revalidation / dossier / export ne lit une durée** — ni
+    celle du catalogue ni celle du texte : la fenêtre est celle qui a été tapée. Le 66 est
+    *enregistré* (2174.18) et désormais *visible* (§33), mais il n'est **appliqué nulle part**. Noter
+    la fenêtre saisie et la comparer à 66 j.o. **à la main** — c'est aujourd'hui le seul contrôle qui
+    existe.
+
+16. **Les garde-fous** (chacun doit refuser) :
+
+| essai | refus attendu |
+|---|---|
+| relancer le même appel | `AlreadyAssignedForStage` |
+| un stage qu'il a validé | `StageAlreadyValidated` |
+| un stage jamais tenté | `NothingToRevalidate` |
+| connecté en professeur | `RevalidationNotAllowed` |
+
+17. **Réinscription — la porte de la dernière année.** Simuler la clôture 2026-2027 → 7ᵉ année.
+    - Sous **2174.18** (`TotalYears = 7`), la 6ᵉ n'est **pas** sa dernière année : il y entre.
+    - La **7ᵉ** l'est, et il doit être **`FinalYearBlocked`** tant que Chirurgie n'est pas validée.
+    - ⚠ **Témoin :** un 6ᵉ année stampé **1650.25** (`TotalYears = 6`) est, lui, **déjà** en dernière
+      année — le test est par étudiant, jamais par niveau. C'est exactement pourquoi le niveau seul ne
+      peut pas répondre « est-ce sa dernière année ? ».
+    - ⚠ Un étudiant **sans stamp** ne doit **pas** être bloqué (`TryGetValue`, jamais
+      `GetValueOrDefault` : 0 lu comme « son texte dure 0 an » rendait toute année finale).
+
+---
+
+## Partie D — transfert temporaire (10 min)
+
+Terrain : **5ᵉ MED 2026-2027**, publiée, **rien de démarré**. Rien n'est détruit ; la partie I remet en
+place.
+
+**Le cas :** *Aazou Zakaria*, CNE `J131520156`, inscription `e5ec92fa-a932-43f7-9377-e0fd9de04695`,
+roster **3799** (Groupe 1, partition **A**).
+
+18. **Groupes → Groupe 1 (5ᵉ MED) → l'étudiant → « Transférer ».** Type **Temporaire**, **un seul**
+    stage (le sélecteur ne liste que ses affectations encore déplaçables), roster cible **3811**
+    (Groupe 13, partition **B**).
+    - ⚠ **Un temporaire sans stage doit être refusé.** « Temporaire » veut dire « pour ce stage-là » ;
+      sans stage nommé il n'a pas de portée et ne saurait pas quand se terminer.
+
+19. **Vérifier la portée.** Une seule affectation a bougé. **Les six autres stages sont restés dans le
+    Groupe 1** — c'est toute la différence avec le définitif, et c'est ce qu'il faut regarder en
+    premier.
+
+20. **Le retour automatique.** Démarrer puis clôturer les périodes de ce stage-là (Exécution).
+    - À la clôture, `EndTemporaryTransferIfAny` ferme l'adhésion temporaire et lève
+      `TemporaryTransferEndedDomainEvent`. L'historique d'adhésion doit montrer **A → B → A**.
+    - ⚠ **Le retour est déclenché par l'achèvement du stage, pas par une date.** Rejoindre un groupe
+      dont le stage est *déjà* fini clôt le prêt immédiatement — même chemin.
+
+---
+
+## Partie E — transfert définitif (10 min)
+
+21. **Même écran, un autre étudiant du Groupe 1**, type **Définitif**, cible **3823** (Groupe 25,
+    partition **C**). Pas de stage : un définitif porte sur l'année.
+
+22. **Vérifier la cascade.** *Toutes* ses affectations actives suivent vers les cohortes du groupe
+    cible. `Registration.AcademicGroupId` change. **Aucun retour** n'est programmé.
+
+23. **Les refus qui protègent l'identité du roster** — un index rend les rosters distinguables, il
+    n'empêche pas de les mélanger :
+
+| cible | refus attendu |
+|---|---|
+| un roster d'une **autre promotion** (ex. un roster 4MED) | refus (`AcademicGroupErrors`) |
+| un roster d'une **autre année** | refus |
+| « Non réparti » | refus |
+
+⚠ Sans ces refus, l'étudiant est affecté à des stages qu'il ne doit pas et compté sur le quota d'une
+autre promotion — exactement ce que `SplitAcademicGroupsPerLevel` a dû réparer sur 1 003 lignes.
+
+24. **Le cas « il vient d'arriver ».** Prendre une inscription **sans groupe** et essayer de la
+    transférer : refus. Le bon geste est **« Affecter à un groupe »** (`POST groups/assign-student`),
+    qui matérialise les fenêtres **non encore closes** et rapporte `StagesAlreadyOver` pour les autres.
+    ⚠ Le transfert filtre sur des affectations que le nouvel arrivant n'a pas : il « réussissait » en
+    ne faisant rien, et l'étudiant se retrouvait dans un groupe correct sans aucune période.
+
+---
+
+## Partie F — le croisement, qui est le vrai test de charge (10 min)
+
+25. **Transférer un étudiant qui porte une revalidation.** Reprendre Abdallah Jad (partie C), lui donner
+    un roster 6MED, puis le transférer **définitivement**.
+    - ⚠ **La période de revalidation ne doit pas bouger.** Elle est **hors grille**
+      (`CohortSlotAssignmentId = null`) : la cascade déplace les affectations issues du plan, pas une
+      réparation ad-hoc. Si elle suit, le rattrapage a été traité comme une cellule de rotation.
+
+26. **Revalider un étudiant déjà transféré temporairement.** Les deux adhésions coexistent : le prêt
+    porte sur un stage, la revalidation crée une **affectation neuve**. Vérifier que la clôture du
+    stage prêté ne referme pas la revalidation.
+
+27. **« Vider le groupe » sur un roster qui porte des affectations.**
+    - Rien de planifié → vide en silence.
+    - Affectations seulement planifiées → **refus nommant le compte** (`RosterHasAffectations`) ;
+      `DropAffectations: true` est le fait d'avoir lu la phrase.
+    - Quoi que ce soit d'engagé → **refus non forçable** (`RosterAffectationsUnderway`).
+    - ⚠ **C'est délibérément non forçable.** L'acte qui détruit notes et présences est « Dépublier »,
+      qui annonce son coût et demande deux fois. Un bouton côté roster ne doit jamais devenir le
+      contournement.
+    - ⚠ **Et remettre les étudiants ne défait rien** : un re-découpage les envoie vers d'*autres*
+      cohortes, et la déduplication porte sur (inscription, cohorte) — chacun revient avec une
+      **seconde** affectation pour le même stage.
+
+---
+
+## Partie G — les inscriptions (10 min)
+
+28. **Inscription d'un seul étudiant** (`POST inscription/student`, ou l'écran) en **3ᵉ année
+    2026-2027**, un `NewEntrant`.
+    - ⚠ Il doit être stampé **1650.25** par la **règle d'effectivité**, pas par son année d'entrée —
+      `CnpnSource = Effectivity`. C'est la règle lue **une fois**, à la création.
+    - Sans CNE ou sans Apogée : l'identifiant manquant est fabriqué (`SANS-CNE-…` / `SANS-APOGEE-…`) et
+      **la ligne le dit**. Sans e-mail : une adresse est générée et **comptée** (`GeneratedEmails`) — un
+      e-mail est un identifiant de connexion.
+
+29. **Le fichier.** `GET inscription/template` → remplir → `POST inscription/preview` → `POST inscription`.
+    - ⚠ **`ConfirmedStudentCount` est un nombre, jamais une case.** Modifier le fichier entre la
+      simulation et l'application : le refus est attendu. Cet acte **crée des identités**.
+    - **`AlreadyRegistered` est un saut, pas une erreur** — le fichier doit survivre à un renvoi avec les
+      retardataires ajoutés. Tout le reste refuse le fichier entier.
+    - **Deux lignes pour une même personne** — une avec le CNE, l'autre avec l'Apogée — doivent être
+      détectées. Sur une seule colonne, elles passent et `IX_Registration_Student_Year` rend un 500.
+    - Un e-mail appartenant à quelqu'un d'autre avec un CNE inconnu : **`IdentifierConflict`**. Ni un
+      nouveau, ni cette personne-là.
+
+30. **Un `TransferIn` en 5ᵉ année sans `PriorEnrolment`** → **`OriginRequired`**. Les trois champs
+    (établissement, dernière année validée, référence d'équivalence) vont **ensemble** ; deux sur trois
+    refuse.
+
+31. **Déliberation 2026-2027, 3ᵉ année.** Le canevas est une **liste d'exceptions** : les non-nommés
+    sont **Admis**.
+    - ⚠ **`ConfirmedDefaultCount`** doit refuser si une inscription est créée entre la simulation et
+      l'application — c'est précisément l'étudiant que personne n'a nommé.
+    - ⚠ Le défaut **promeut, ne diplôme jamais** : « est-ce sa dernière année ? » se demande par
+      étudiant depuis son propre `TotalYears`. Sur la 6ᵉ MED, les 1650.25 sont en dernière année et les
+      2174.18 non — **dans la même promotion**.
+
+---
+
+## Partie H — la charge, et les pièges de volume (10 min)
+
+32. **Pagination.** Aucun écran ne doit tout charger :
+    - « Non réparti » 3ᵉ MED avant la partie A : ~895 inscriptions dans **un** roster.
+    - Grille de planification d'un gros stage : **une page de lignes + un `Summary`**. ⚠ Le
+      « Publier tout (N) » doit annoncer le **total du stage**, pas les 25 lignes visibles.
+    - Liste d'un chef de service : bornée par l'**état**, narrowée par l'**année**, et
+      **`OutsideYearCount` doit dire ce que l'année a caché**. C'est ce qui rend le filtre sûr.
+    - ⚠ `?pageSize=0` ne doit pas rendre 1 ligne en silence.
+
+33. **Recherche serveur.** Chercher un étudiant par Apogée **en minuscules** : il doit être trouvé.
+    Puis le chercher depuis la **page 3** d'une liste — le filtrage est côté serveur, donc il est
+    trouvé ; filtré côté client il répondrait « aucun étudiant ».
+
+34. **Occupation des services.** Services → un service de Chirurgie → occupation.
+    - ⚠ Le pic vit dans le **chevauchement** des fenêtres, pas dans une ligne par créneau.
+    - ⚠ **3ᵉ et 4ᵉ année listent désormais les mêmes services** (les 17 lignes copiées). Là où leurs
+      fenêtres se recouvrent, la charge est la **somme des deux promotions** — 895 + 898. Aucun quota
+      n'est écrit, donc rien ne refuse : c'est une question de calendrier, à décaler ou à contraindre
+      par des `ServiceLevelCapacity`.
+
+35. **Exports.** Rôle 3ᵉ MED + dossier de stages 3ᵉ MED.
+    - Les colonnes vides doivent être **nommées** (« aucune valeur dans cet export »). Une colonne vide
+      sans explication est ce qui a fait remonter le premier export comme cassé.
+    - `Nb créneaux` et `Créneaux` doivent être remplis pour les stages `Service unique` publiés en
+      partie A : une période, plusieurs créneaux.
+
+---
+
+## Partie I — remise en état
+
+36. **Dans cet ordre, chaque étape refusant tant que la précédente n'est pas faite :** dépublier
+    (annonce ce que ça coûte) → réinitialiser les cohortes du stage → vider les groupes → supprimer les
+    groupes / supprimer le bloc de rotation.
+
+37. **Les transferts des parties D/E se défont à la main** — retransférer vers le roster d'origine. Il
+    n'y a pas d'annulation ; l'historique d'adhésion garde la trace des deux mouvements, ce qui est le
+    comportement voulu.
+
+38. **La revalidation de la partie C** : supprimer l'`InternshipAssignment` créé. ⚠ Sa période
+    **cascade** avec lui.
+
+39. ⚠ **Si quoi que ce soit a mal tourné en partie A, restaurer le dump.** La 3ᵉ année 2026-2027 est une
+    promotion entière ; la remonter à la main n'est pas une opération de rattrapage.
