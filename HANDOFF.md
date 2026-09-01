@@ -37,7 +37,42 @@
 > | 1d | ~~`POST stages/revalidate` has no frontend caller~~ — **done, session 36.** | `RevalidateStageModal`, reached from « Revalider un stage » on each registration card of the admin student page — on *each* card because the retake always hangs off the inscription the student holds now, never off the year he failed in. Backed by a new read, `GET registrations/{id}/revalidation-context`. ⚠ **The API must be restarted** for that route to exist; a process predating it answers 404 while `/api/stages` answers 401, which is the control that tells « route absent » from « not authenticated ». |
 > | 1e | ~~Nothing applies a stage's duration~~ — **closed where it was asked for, session 36.** | The revalidation dialog now proposes a window laid from `r.CnpnVersionId ?? r.Student.CnpnVersionId`'s own `CurriculumStage`, never from the catalogue, and shows both figures side by side when they disagree. Proposed, not imposed — the field stays editable, since a retake shortened by agreement is legitimate. ⚠ **The other readers still apply no duration at all**: the dossier, the progression and the export read none. What was closed is the one place a duration was *asked of* an operator with nothing telling him which one. |
 >
-> **▶ SESSION 36b — driven in Chrome against the running stack, which found two defects tests could not.**
+> **▶ SESSION 36c — `npm run lint` green, and the guide that was prescribing the defect.**
+>
+> 15 problems to 0, frontend only. No behaviour intended to change; three fixes remove a real
+> defect on the way. `npm run build` clean, backend suite unchanged at **1 299 green**.
+>
+> ⚠ **Eight of the errors were one pattern, and `PGSH.Frontend/CLAUDE.md` §2 was teaching it.**
+> The guide prescribed `useEffect(() => setPage(1), [debouncedSearch])` and five screens carried it.
+> An effect runs *after* the render that changed the filter, so that render commits with the **old**
+> page still in the query arguments and RTK fires a request for page 3 of the new filter which is
+> then superseded. `usePagedFilters` adjusts the page **during** render — what React documents for
+> this case. §2 now teaches the hook and says why the effect was wrong; `useListParams` stays the
+> answer where the filters belong in the URL.
+>
+> **The three that were not just lint:**
+> - `AcademicYearContext` stored `currentYearId` and back-filled it by an effect once the years
+>   arrived, committing a render where every consumer read `null`. A handler that omits the year
+>   resolves it to the *current* one server-side — so that render was not empty, it was a request
+>   for a **different promotion**, on every first paint of the admin shell. Now derived, and the
+>   context value memoised.
+> - `EmployeesPage` populated its edit form from an async fetch in an effect, so the fields showed
+>   the **previous employee** for one render.
+> - `GroupsPage`'s student auto-pick listed `matches` — a fresh array every render — so it re-ran
+>   continuously and would overwrite a choice the user had just made.
+>
+> **Verified in the browser, not only by the linter:** the shell resolves 2026-2027, Infrastructure
+> pages and filters, paging to page 3 then searching lands on **page 1**, and both employees
+> populate their form correctly one after the other — the case the `EmployeesPage` change could
+> have broken.
+>
+> ⚠ **A correction to session 36b:** the note about `RegistrationCard` state resetting mid-
+> interaction was **wrong**. Its key is `reg.id` and it does not remount; the modal closing during
+> automation was synthetic clicks racing the overlay, not a defect. Nothing was changed for it.
+>
+> **Left alone deliberately:** the 500 kB bundle warning from `npm run build` — real, but it is a
+> code-splitting decision, not a lint fix.
+>> **▶ SESSION 36b — driven in Chrome against the running stack, which found two defects tests could not.**
 >
 > Suite **1 299 green**. The API was restarted by the user, so `GET registrations/{id}/
 > revalidation-context` went from 404 to a real 200 — and the whole point was verified on the live
