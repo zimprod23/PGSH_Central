@@ -34,6 +34,44 @@
 > | 19 | **Give « Dépublier toutes » a single command**, the way « Publier tout » now has one. | It still loops one `UnpublishCohortSchedule` per cohorte, so a stage where several rotations have begun answers with one red toast per cohorte. Not a copy of the publish fix: each refusal names what *that* cohorte would lose — périodes démarrées, notes entrées, jours de présence — and an aggregate has to be designed before it can replace them. Session 33. |
 > | 18 | **The pre-validation export.** | Agreed with the user as a second document: the same population without the note/verdict columns, showing where everyone *is going*. `onlyEvaluated` is already the switch and `ExportWorkbook` already the shape, so it is a column set and a caption, not a second pipeline. Deferred deliberately — the post-validation one was the ask. |
 >
+> **▶ SESSION 36 — the migrations verified on the base, and the number the Stages page was asserting.**
+>
+> Suite **1 289 green** (was 1 284). One commit of the whole backlog (`b879e5f`, 199 files). No
+> schema change; one response gains a field.
+>
+> **The three migrations were already applied** — `MigrationService` ran them on the Aspire startup,
+> so the warning carried out of session 35 was stale. Verified on the live base rather than assumed:
+> `Cnpn1650Med3CatalogueAlignment` did **not** raise, i.e. no grid-published période locked the mode
+> change; all six MED3 stages read 30 j.o. / `SingleService`; and 2174.18's own 3ᵉ année set
+> preserves Chirurgie and Médecine at 66 j.o., coefficient 3. That curriculum already existed, so
+> only the two missing rows were inserted and no authored figure was overwritten — the path the
+> migration was written for.
+>
+> ⚠ **Item 1c's premise was wrong, and the mistake is worth naming.** The row said the 4ᵉ année
+> counterparts « are probably empty too, so this is fresh entry rather than a copy ». They are not:
+> all four carry service lists — 17 rows. « 25 of 27 stages carry none » was measured over the
+> *catalogue as a whole* and then read onto a subset of four. Measuring a population and applying the
+> answer to a subset is how the two independent `Any`s bug reads, in prose.
+>
+> **`Stage.Coefficient` / `DurationInDays` stopped being a prediction and became live data**, so the
+> annotation half of `PHASES.md` §15.1 was done: `StageSummaryResponse.TextFigures` +
+> `StageCatalogueFigure`. The page kept rendering the catalogue number alone while 1650.25 says
+> something else, so it asserted a figure no CNPN necessarily states.
+> - **Silent when the texts agree, and silent when no text mentions the stage.** A marker that fires
+>   whatever the data says is noise, and noise is dismissed — which puts the real one out of sight.
+>   Same rule as `ExportNotes`, and « aucun texte ne le mentionne » is not « un texte dit 0 ».
+> - ⚠ **A second flat query keyed on the page's stage ids**, not a collection in the row projection —
+>   that element carries no key and is the shape that killed the macro plan. Pinned by
+>   `SqlTranslationTests`, and the four handler tests were proven to bite.
+> - **The substantive half is untouched**: which of the two numbers is authoritative cannot be
+>   settled before `Stage.LevelId` is advisory, since a stage on two levels has no single catalogue
+>   row to carry a figure for either.
+>
+> ⚠ **Pre-existing and left alone:** `StagesPage.tsx:133` fails `npm run lint`
+> (`'_k' is defined but never used`, from the `_key` destructure-to-omit). Not in this session's
+> diff; flagged rather than folded into an unrelated change.
+>
+
 > **▶ SESSION 35 — the CNPN area audited against clean code / clean architecture / DDD, and fixed.**
 >
 > Suite **1 278 green** (was 1 257). No migration, no schema change, no API change — routes and

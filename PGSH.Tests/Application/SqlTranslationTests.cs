@@ -14,6 +14,7 @@ using PGSH.Application.Stages.Cnpn;
 using PGSH.Application.Stages.Cnpn.Effectivity;
 using PGSH.Application.Stages.Cnpn.GetCnpnVersions;
 using PGSH.Application.Stages.Cnpn.Targeting;
+using PGSH.Application.Stages.GetMany;
 using PGSH.Domain.Common.Utils;
 using PGSH.Infrastructure.Database;
 using Xunit;
@@ -63,6 +64,22 @@ namespace PGSH.Tests.Application;
 /// </summary>
 public class SqlTranslationTests
 {
+    /// <summary>
+    /// The Stages page's « which text states this figure » read. It exists precisely because
+    /// expressing it the obvious way — a collection of each text's figures inside the row projection
+    /// — is the shape that killed the macro plan, so the query it replaced must be provably SQL.
+    /// </summary>
+    [Fact]
+    public void The_stage_text_figures_query_compiles_to_sql()
+    {
+        using var db = TestHarness.NewNpgsqlContext();
+
+        string sql = GetStagesQueryHandler.TextFiguresQuery(db, [1, 2, 3]).ToQueryString();
+
+        sql.Should().Contain("CurriculumStages");
+        sql.Should().Contain("CnpnVersions");
+    }
+
     [Fact]
     public void The_cohort_provisioners_roster_text_query_compiles_to_sql()
     {

@@ -1044,16 +1044,22 @@ be recorded **approximately** until this lands. Three pieces, best done together
   2026-09-01 they no longer agree.** The catalogue carries a weight and duration, and so does every
   `CurriculumStage` for the same stage. They agreed only because the reconstruction seeded one from
   the other; **1650.25 is the first text to reweight a stage, and it has now landed.** Measured on
-  the live base the day the migrations applied: Chirurgie and Médecine read **coefficient 3** in the
-  catalogue and **1** in 1650.25's requirement set, and **30 j.o.** in the catalogue against **66**
-  in 2174.18's — which is exactly right, since a 4ᵉ/5ᵉ/6ᵉ année student revalidating a 3ᵉ année credit
-  is still governed by the older text. Both numbers are correct *of their own text*; what is wrong is
-  that the **Stages page renders the catalogue one unqualified**, so it prints a figure no CNPN
-  necessarily states. This bullet has stopped being a prediction. The first text that reweights a
-  stage makes them disagree — and the **Stages page renders the catalogue value**, which no CNPN
-  necessarily states. The page is also not year- or CNPN-scoped, so switching the navbar year there
-  changes nothing. Either drop the catalogue columns in favour of `CurriculumStage`, or annotate the
-  Stages page with the text each figure comes from. Same change as the two items above.
+  the live base the day the migrations applied: MED3 Chirurgie and Médecine read **coefficient 3** in
+  the catalogue and **1** in 1650.25's requirement set, and **30 j.o.** in the catalogue against
+  **66** in 2174.18's — which is exactly right, since a 4ᵉ/5ᵉ/6ᵉ année student revalidating a 3ᵉ année
+  credit is still governed by the older text. Both numbers are correct *of their own text*. This
+  bullet has stopped being a prediction.
+  - ✅ **The annotation half is done** (`StageCatalogueFigure` + `StageSummaryResponse.TextFigures`).
+    The Stages page no longer renders the catalogue number unqualified: where a text states a
+    different figure the cell is marked and the tooltip names each text and what it says. Silent
+    where they agree, and silent where no text mentions the stage — a marker that fires whatever the
+    data says is noise, and noise is dismissed. The columns are now headed « (catalogue) ».
+  - 🔲 **What is left is the substantive half** — deciding which number is *authoritative*, i.e.
+    dropping the catalogue columns in favour of `CurriculumStage`. It cannot be done before
+    `Stage.LevelId` becomes advisory: a stage belonging to two levels has no single catalogue row
+    that could carry a figure for either. The three items in this section land together.
+  - ⚠ The page is also **not year- or CNPN-scoped at all** — it is the timeless catalogue, so
+    switching the navbar year changes nothing there. Unchanged by the annotation.
 
 > **Cleanup 2026-09-01 — the CNPN area was made to follow the project's own rules.** `CnpnVersion`
 > is an aggregate root (`init` + `Correct` / `DeclareEffectivity` / `WithdrawEffectivity`, two new

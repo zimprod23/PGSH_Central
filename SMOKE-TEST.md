@@ -2991,3 +2991,39 @@ stages de 5MED sont `Rotation par période` et couvrent un créneau chacun : c'e
 8. **La répartition n'a pas bougé.** Niveaux → 5ᵉ année Médecine → « Répartition » : les noms de chefs
    imprimés doivent être identiques à avant. La règle de résolution a déménagé (elle est partagée avec
    l'export) mais n'a pas changé — c'est le contrôle du refactoring.
+
+## §33 — La page Stages cesse d'affirmer un chiffre qu'aucun CNPN n'énonce (4 min) — session 36
+
+⚠ **Redémarrer l'API et recharger le frontend.** Aucune migration : les trois de la 3ᵉ année (1650.25)
+sont **déjà appliquées** — vérifié sur la base le 01/09/2026, `Cnpn1650Med3CatalogueAlignment` n'a pas
+levé d'exception, donc aucune période publiée depuis la grille ne verrouillait le changement de mode.
+
+**Le cas de référence, mesuré sur la base :** MED3 **Chirurgie** et **Médecine** portent au catalogue
+`coefficient 3` et `30 j.o.`, tandis que l'arrêté **1650.25** en dit `coefficient 1` et que
+**2174.18** en dit `66 j.o.` — les deux sont justes, chacun *de son texte*. Un étudiant de 5ᵉ année qui
+revalide un crédit de 3ᵉ année reste régi par 2174.18 : c'est pour cela que la migration a enregistré
+66 **avant** d'écraser le catalogue.
+
+1. **Stages → filtrer sur « 3ème année » (Médecine).** Les en-têtes lisent désormais
+   « Durée (catalogue) » et « Coefficient (catalogue) ».
+
+2. **Ligne Chirurgie.** Un **petit triangle orange** doit apparaître à côté du `3` du coefficient
+   *et* à côté du `30j` de la durée. Survoler : l'infobulle donne « Valeur du catalogue : … » puis une
+   ligne par texte — « 2174.18 (3ème année) : 66j », « 1650.25 (3ème année) : 30j » — et la phrase
+   disant qu'aucune des deux n'est fausse.
+
+3. ⚠ **Le témoin, et c'est le point le plus important de cette section.** Une ligne dont les textes
+   sont d'accord — ou qu'aucun CNPN ne mentionne — ne doit porter **aucun marqueur**. Si le triangle
+   apparaît partout, l'indicateur ne signale plus rien : un marqueur qui s'allume quoi que disent les
+   données est du bruit, le bruit se fait ignorer, et c'est le vrai cas qui devient invisible. Même
+   règle que les notes d'export (§30.7).
+
+4. **Les valeurs affichées n'ont pas changé.** La cellule montre toujours le chiffre du catalogue —
+   c'est celui que le formulaire d'édition réécrit. Ouvrir « Modifier » sur Chirurgie : le
+   coefficient proposé doit être **3**, pas 1. Le correctif nomme la provenance, il ne déplace aucune
+   valeur.
+
+5. **Pagination.** Passer à la page 2 du catalogue complet (sans filtre) : les marqueurs doivent
+   suivre les lignes affichées. Les figures sont lues par une seconde requête plate sur les ids de la
+   page — si la page 2 n'en affiche jamais, la clé de regroupement est fausse.
+

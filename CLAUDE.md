@@ -396,8 +396,17 @@ could not fail.
   coefficient **3** in the catalogue and **1** in 1650.25, **30 j.o.** in the catalogue and **66** in
   2174.18's set. Neither number is wrong *of its text* — a 5ᵉ année student revalidating a 3ᵉ année
   credit is still under 2174.18, which is why the alignment migration recorded 66 there before
-  overwriting the catalogue. What is wrong is that the **Stages page shows the catalogue value**
-  unqualified — a number no CNPN necessarily states. The Stages page is also not year- or CNPN-scoped at all: it is the timeless
+  overwriting the catalogue. What was wrong is that the **Stages page showed the catalogue value**
+  unqualified — a number no CNPN necessarily states, with nothing on screen saying a text disagreed.
+  - **Closed for the display half** (`StageCatalogueFigure`, 2026-09-01): the row now carries
+    `TextFigures` — every text's own coefficient and duration — and the cell marks the figure and
+    names each text only **when one disagrees**. Silent when they agree and silent when no text
+    mentions the stage: a marker that fires whatever the data says is noise, and noise is dismissed,
+    which puts the real one out of sight. Same rule as `ExportNotes`.
+  - ⚠ **Read by a second flat query keyed on the page's stage ids**
+    (`GetStagesQueryHandler.TextFiguresQuery`), never as a collection inside the row projection —
+    that element carries no key and is the shape Npgsql refuses. Pinned by `SqlTranslationTests`.
+  - The *substantive* half — which of the two numbers is authoritative — is still 15.1's. The Stages page is also not year- or CNPN-scoped at all: it is the timeless
   catalogue, so switching the navbar year changes nothing there. Resolve with Phase 15.1.
 - ⚠ **Still year-based, and shouldn't be:** the new CNPN organises 12 *semesters* with typed
   placements (immersion / nursing / part-time clinical / full-time / family medicine) and credits

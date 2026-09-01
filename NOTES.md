@@ -2320,3 +2320,34 @@ was published for the first time.
 from. The export prints it — on 95 % of the rows it is the only name there is — and says so in
 `Origine du chef`. Linking professors in Personnel upgrades those rows with no code change.
 
+## The catalogue and the texts now disagree, and both are right — measured 2026-09-01
+
+The three 1650.25 migrations are **applied** on the live base (`MigrationService` ran them on an
+Aspire startup, not by hand). `Cnpn1650Med3CatalogueAlignment` did not raise, so no grid-published
+période locked the rotation-mode change on Chirurgie or Médecine.
+
+| | catalogue (`Stage`) | 1650.25 | 2174.18 |
+|---|---|---|---|
+| MED3 Chirurgie / Médecine — coefficient | **3** | 1 | 3 |
+| MED3 Chirurgie / Médecine — durée | **30 j.o.** | 30 | **66** |
+| the four stages brought down from MED4 | 30 j.o. / coef 1 | 30 / 1 | — |
+
+All six MED3 stages are now `SingleService`.
+
+⚠ **This is not drift to be repaired.** A 4ᵉ/5ᵉ/6ᵉ année student revalidating a 3ᵉ année credit is
+still governed by 2174.18, so 66 has to stay readable after the catalogue moved to 30 — which is why
+the migration wrote it into 2174.18's own requirement set *before* overwriting the catalogue. The
+coefficient 1 is the documented placeholder from `Cnpn1650Med3Stages`, awaiting the faculty.
+
+What was wrong was the **Stages page**, which rendered the catalogue figure alone. Closed for
+display by `StageCatalogueFigure`; which figure is *authoritative* is still `PHASES.md` §15.1 and
+waits on `Stage.LevelId` becoming advisory.
+
+⚠ **A guess about a population is not a fact about a subset.** `HANDOFF` item 1c reasoned that
+because « 25 of 27 stages carry no `AllowedServices` », the four MED4 counterparts of the new MED3
+stages were probably empty too. They are not: Cardiologie 3, Dermatologie Endocrinologie 4,
+Pneumologie 3, Rhumatologie Radiologie 7 — **17 rows**, so item 1c is a copy and not fresh entry. No
+service in the base carries a `ServiceLevelCapacity` row, so nothing would refuse the copy — and
+after it, MED3 (895 inscriptions) and MED4 (898) list the same services, which is a scheduling
+question wherever their windows overlap.
+
