@@ -409,12 +409,22 @@ could not fail.
   - The *substantive* half — which of the two numbers is authoritative — is still 15.1's.
   - ⚠ **…and no number is *applied* anywhere.** Measured 2026-09-01: nothing on the revalidation,
     dossier, progression or export path reads `DurationInDays` at all — neither the catalogue's nor
-    the text's. `RevalidateStageCommand` takes the window the operator types. So the 92 6ᵉ année
+    the text's — **except in the revalidation dialog, closed 2026-09-01**. So the 92 6ᵉ année
     students who owe MED3 Chirurgie under 2174.18 owe **66 j.o.**, that figure is recorded and now
     visible, and no screen proposes it. The one such window on record ran **65 j.o.**, matching 66
     and not the catalogue's 30 — so the catalogue is the wrong default precisely where it would be
     reached for. When a duration is eventually proposed it must resolve through the registration's
-    own text (`r.CnpnVersionId ?? r.Student.CnpnVersionId`), like every other CNPN read. The Stages page is also not year- or CNPN-scoped at all: it is the timeless
+    own text (`r.CnpnVersionId ?? r.Student.CnpnVersionId`), like every other CNPN read.
+  - **`GetRevalidationContextQuery` is that read**, and it is the one place a duration is now
+    resolved from the governing text. It lays the proposed window with `WorkingDayCalendar.Lay`
+    and returns **null when the text states nothing** — absence is not zero, and a proposal
+    invented from the catalogue would be indistinguishable from one somebody authored.
+  - ⚠ **Proposed, never imposed.** The command still writes the dates it is given; a retake
+    shortened by agreement stays possible. Closing the gap meant removing the *silence*, not
+    adding a guard.
+  - **`RevalidationPlanner` is shared by the preview and the command**, so `CanOpen` is decided by
+    the rules that would refuse the act — the same guarantee `CnpnTargetPlanner` and the évaluation
+    import make. A dialog offering an act the command then refuses is worse than no dialog. The Stages page is also not year- or CNPN-scoped at all: it is the timeless
   catalogue, so switching the navbar year changes nothing there. Resolve with Phase 15.1.
 - ⚠ **Still year-based, and shouldn't be:** the new CNPN organises 12 *semesters* with typed
   placements (immersion / nursing / part-time clinical / full-time / family medicine) and credits

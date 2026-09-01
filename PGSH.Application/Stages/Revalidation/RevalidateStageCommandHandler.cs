@@ -39,49 +39,22 @@ internal sealed class RevalidateStageCommandHandler(
         // still be redoing a 1st-year stage in their 6th year. The real constraint is the failed
         // attempt checked below — having one proves they were registered at that level once.
 
-        bool alreadyOnThisRegistration = await dbContext.InternshipAssignments
-            .AsNoTracking()
-            .AnyAsync(a => a.RegistrationId == request.RegistrationId
-                        && a.Cohort.StageId == request.StageId, cancellationToken);
+        // Both reads and the four guards live in RevalidationPlanner, which the context query calls
+        // too: the screen that offers this act must be refused by exactly the rules that refuse the
+        // act, or the operator learns of the refusal after committing to it.
+        bool alreadyOnThisRegistration = await RevalidationPlanner
+            .ExistingAssignmentQuery(dbContext, request.RegistrationId, request.StageId)
+            .AnyAsync(cancellationToken);
 
-        if (alreadyOnThisRegistration)
-            return Result.Failure<Guid>(StageErrors.AlreadyAssignedForStage(request.StageId));
-
-        // The whole point of a revalidation is that an earlier attempt failed. Look across every OTHER
-        // registration this student holds — the failure and the retake are, by definition, different years.
-        var priorAttempts = await dbContext.InternshipAssignments
-            .AsNoTracking()
-            .Where(a => a.Registration.StudentId == registration.StudentId
-                     && a.Cohort.StageId == request.StageId
-                     && a.RegistrationId != request.RegistrationId)
-            .Select(a => new
-            {
-                a.RegistrationId,
-                a.Result,
-                // Where the student actually served it — the default destination for the retake.
-                OriginalServiceId = a.ServicePeriods
-                    .OrderByDescending(p => p.StartDate)
-                    .Select(p => (int?)p.ServiceId)
-                    .FirstOrDefault(),
-                // Used to pick the most recent failure when there is more than one.
-                LastServedOn = a.ServicePeriods.Max(p => (DateOnly?)p.StartDate),
-            })
+        var priorAttempts = await RevalidationPlanner
+            .PriorAttemptsQuery(dbContext, registration.StudentId, request.StageId, request.RegistrationId)
             .ToListAsync(cancellationToken);
 
-        if (priorAttempts.Count == 0)
-            return Result.Failure<Guid>(StageErrors.NothingToRevalidate(request.StageId));
+        var eligibility = RevalidationPlanner.CheckEligibility(
+            priorAttempts, alreadyOnThisRegistration, request.StageId);
 
-        // A stage once acquired is never repeated, whichever year earned it.
-        if (priorAttempts.Any(a => a.Result == StageAssignmentResult.Validé))
-            return Result.Failure<Guid>(StageErrors.StageAlreadyValidated(request.StageId));
-
-        // EVERY prior attempt must be settled, not merely one of them — the same test
-        // DossierStageState uses to reach ToRevalidate. With `Any`, a student holding a 2022 failure
-        // and a 2023 attempt still awaiting its verdict would get a retake opened alongside the live
-        // one: two attempts running at once, and the pending one might yet come back validated. The
-        // dossier would call that student InProgress while the command re-opened them.
-        if (!priorAttempts.All(a => a.Result == StageAssignmentResult.NonValidé))
-            return Result.Failure<Guid>(StageErrors.RevalidationStillOpen(request.StageId));
+        if (eligibility.IsFailure)
+            return Result.Failure<Guid>(eligibility.Error);
 
         var cohort = await ResolveCohortAsync(request, registration.AcademicGroupId, cancellationToken);
         if (cohort.IsFailure)
@@ -89,13 +62,8 @@ internal sealed class RevalidateStageCommandHandler(
 
         int cohortId = cohort.Value;
 
-        // The most recent failure decides where the retake goes. Taking whichever row the database
-        // happened to return first would make "served where the student failed it" depend on query
-        // order once there is more than one failed attempt.
-        var failedAttempt = priorAttempts
-            .Where(a => a.Result == StageAssignmentResult.NonValidé)
-            .OrderByDescending(a => a.LastServedOn ?? DateOnly.MinValue)
-            .First();
+        // CheckEligibility has just proven every attempt is NonValidé, so there is always one.
+        var failedAttempt = RevalidationPlanner.LastFailure(priorAttempts)!;
 
         // Placement is all-or-nothing: either the retake is put somewhere now, or it is left to be
         // scheduled. Half a window is a mistake, not an intention.

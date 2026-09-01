@@ -3147,9 +3147,16 @@ chaîne complète partir de zéro.
 
 ## Partie C — la revalidation, et ce qu'elle ne fait pas (15 min)
 
-> ⚠ **Il n'y a pas d'écran.** `POST stages/revalidate` existe côté API et **aucun composant du frontend
-> ne l'appelle**. Cette partie se conduit depuis **`/scalar/v1`** (OAuth2 PKCE y est configuré),
-> connecté en scolarité/admin. C'est un manque à signaler, pas un défaut de cette section.
+> ✅ **Il y a désormais un écran** (session 36) : **Étudiants → l'étudiant → onglet Inscriptions →
+> « Revalider un stage »**, sur la carte de l'inscription qu'il détient *aujourd'hui*. Le bouton est
+> sur chaque carte parce que le rattrapage se raccroche toujours à l'inscription courante, jamais à
+> l'année de l'échec.
+>
+> ⚠ **Redémarrer l'API avant cette partie.** L'écran lit
+> `GET registrations/{id}/revalidation-context`, ajouté en même temps ; un processus antérieur
+> répond **404** et la boîte reste vide. Le contrôle qui distingue les deux cas : `/api/stages`
+> répond **401** à un appel non authentifié (la route existe) tandis que la route absente répond
+> **404**.
 
 **Le cas, réel :** *Abdallah Jad*, CNE `2136598214`, inscrit en **6ᵉ année 2026-2027**, stampé
 **2174.18**. Il a échoué MED3 Chirurgie en **2023-2024**, servie en **Chirurgie Vasculaire**
@@ -3166,7 +3173,19 @@ chaîne complète partir de zéro.
     - ⚠ **Témoin :** un stage `NonÉvalué` ne doit **pas** y figurer. Non noté n'est pas échoué, et la
       base n'a presque aucune note — le compter bloquerait toute la faculté sur une donnée absente.
 
-14. **Ouvrir la revalidation** — `POST stages/revalidate`, corps :
+14. **Ouvrir la revalidation.** Par l'écran : choisir **Chirurgie — Troisième Année Médecine** dans
+    « Stage à revalider ». La boîte doit alors afficher, *avant* toute écriture :
+    - le texte qui le régit — **2174.18**, avec le badge « inscription » (le stamp est lu sur
+      l'inscription, pas sur l'étudiant) — et **66 j.o.**
+    - un bandeau orange : « Le catalogue annonce **30 j.o.**, son texte **66 j.o.** » et la phrase
+      disant qu'aucune des deux n'est fausse
+    - la fenêtre proposée, **laid sur 66 jours ouvrables**, jamais sur 30
+    - l'échec : 2023-2024, **Chirurgie Vasculaire**, 18/03/2024 → 14/06/2024, **65 j.o. réellement
+      servis** — le seul chiffre de l'écran qui ne vienne ni du catalogue ni d'un texte
+    ⚠ **Si la fenêtre proposée fait 30 jours, la règle est cassée** : c'est exactement le défaut que
+    cet écran existe pour empêcher.
+
+    Le même acte en direct, si besoin — `POST stages/revalidate`, corps :
 
 ```json
 {
@@ -3187,12 +3206,15 @@ chaîne complète partir de zéro.
 - La période créée porte **`CohortSlotAssignmentId = null`** — hors grille, comme une délocalisation.
   Ce n'est pas une cellule de la rotation d'un groupe.
 
-15. ⚠ **Ce que le système ne fait pas, et c'est le résultat de cette partie.** Rien n'a proposé 66
-    jours. Ni 30. **Aucun code sur le chemin revalidation / dossier / export ne lit une durée** — ni
-    celle du catalogue ni celle du texte : la fenêtre est celle qui a été tapée. Le 66 est
-    *enregistré* (2174.18) et désormais *visible* (§33), mais il n'est **appliqué nulle part**. Noter
-    la fenêtre saisie et la comparer à 66 j.o. **à la main** — c'est aujourd'hui le seul contrôle qui
-    existe.
+15. **Ce qui a changé, et ce qui n'a pas changé.** La fenêtre est désormais *proposée* depuis le
+    texte de l'inscription ; elle n'est pas *imposée*. Le champ reste modifiable et le serveur écrit
+    ce qui lui est envoyé — un rattrapage écourté d'un commun accord reste possible.
+    - ⚠ **Aucune autre lecture n'applique de durée.** Le dossier, la progression et l'export
+      n'en lisent toujours aucune. Ce qui a été fermé, c'est le seul endroit où une durée était
+      *demandée* à l'opérateur sans que rien ne lui dise laquelle.
+    - **Témoin :** choisir un stage qu'aucun texte de cet étudiant ne mentionne. Aucune fenêtre ne
+      doit être proposée, et la boîte doit le dire. Rien n'est déduit du catalogue — ce serait une
+      valeur qu'aucun texte n'affirme, et elle serait indiscernable d'une valeur saisie.
 
 16. **Les garde-fous** (chacun doit refuser) :
 

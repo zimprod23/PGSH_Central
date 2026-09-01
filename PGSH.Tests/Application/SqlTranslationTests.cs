@@ -15,6 +15,7 @@ using PGSH.Application.Stages.Cnpn.Effectivity;
 using PGSH.Application.Stages.Cnpn.GetCnpnVersions;
 using PGSH.Application.Stages.Cnpn.Targeting;
 using PGSH.Application.Stages.GetMany;
+using PGSH.Application.Stages.Revalidation;
 using PGSH.Domain.Common.Utils;
 using PGSH.Infrastructure.Database;
 using Xunit;
@@ -69,6 +70,53 @@ public class SqlTranslationTests
     /// expressing it the obvious way — a collection of each text's figures inside the row projection
     /// — is the shape that killed the macro plan, so the query it replaced must be provably SQL.
     /// </summary>
+    /// <summary>
+    /// The revalidation reads. <c>PriorAttemptsQuery</c> is the one that matters: it folds two
+    /// aggregates over the <c>ServicePeriods</c> collection inside the row projection — an ordered
+    /// <c>FirstOrDefault</c> and a <c>Max</c> — which is the family Npgsql refuses when the element
+    /// carries no key. It ran unnamed inside the command for a year, so this pins what was already
+    /// load-bearing rather than guarding something new.
+    /// </summary>
+    [Fact]
+    public void The_revalidation_planner_queries_compile_to_sql()
+    {
+        using var db = TestHarness.NewNpgsqlContext();
+
+        string priors = RevalidationPlanner
+            .PriorAttemptsQuery(db, Guid.NewGuid(), stageId: 2, excludingRegistrationId: Guid.NewGuid())
+            .ToQueryString();
+
+        priors.Should().Contain("ServicePeriods");
+        priors.Should().Contain("InternshipAssignments");
+
+        RevalidationPlanner
+            .ExistingAssignmentQuery(db, Guid.NewGuid(), stageId: 2)
+            .ToQueryString().Should().Contain("InternshipAssignments");
+    }
+
+    /// <summary>
+    /// The context read's three. <c>GoverningTextQuery</c> carries two correlated scalar sub-selects
+    /// in its projection so that a text stating nothing comes back as null rather than dropping out
+    /// of the result — the shape has to be proven translatable for that choice to hold.
+    /// </summary>
+    [Fact]
+    public void The_revalidation_context_queries_compile_to_sql()
+    {
+        using var db = TestHarness.NewNpgsqlContext();
+
+        GetRevalidationContextQueryHandler
+            .GoverningTextQuery(db, cnpnVersionId: 1, levelId: 1, stageId: 2)
+            .ToQueryString().Should().Contain("CurriculumStages");
+
+        GetRevalidationContextQueryHandler
+            .FailureDetailQuery(db, Guid.NewGuid(), stageId: 2)
+            .ToQueryString().Should().Contain("ServicePeriods");
+
+        GetRevalidationContextQueryHandler
+            .CohortOptionsQuery(db, stageId: 2, academicYearId: 7)
+            .ToQueryString().Should().Contain("Cohorts");
+    }
+
     [Fact]
     public void The_stage_text_figures_query_compiles_to_sql()
     {
