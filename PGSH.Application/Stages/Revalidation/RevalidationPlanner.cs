@@ -86,6 +86,23 @@ internal static class RevalidationPlanner
     }
 
     /// <summary>
+    /// The cohorte the retake falls back to when the caller names none: the one for this stage on
+    /// the roster the registration already sits in.
+    /// </summary>
+    /// <remarks>
+    /// Shared so the dialog can say « aucune cohorte » for exactly the cases the command refuses
+    /// with <c>NoGroupForRevalidation</c> / <c>NoCohortForRevalidation</c>. A 6ᵉ année student
+    /// revalidating a 3ᵉ année stage usually has neither — his roster runs 6ᵉ année stages — which
+    /// is why naming a cohorte is the normal path here rather than the exception.
+    /// </remarks>
+    internal static IQueryable<int> OwnCohortQuery(
+        IApplicationDbContext dbContext, int academicGroupId, int stageId) =>
+        dbContext.Cohorts
+            .AsNoTracking()
+            .Where(c => c.AcademicGroupId == academicGroupId && c.StageId == stageId)
+            .Select(c => c.Id);
+
+    /// <summary>
     /// The failure the retake is served against. Taking whichever row the database happened to
     /// return first would make "served where the student failed it" depend on query order.
     /// </summary>

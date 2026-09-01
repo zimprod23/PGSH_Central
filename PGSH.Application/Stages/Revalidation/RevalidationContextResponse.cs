@@ -39,7 +39,20 @@ public sealed record RevalidationContextResponse(
 
     RevalidationPriorAttempt? LastFailure,
     RevalidationWindow? ProposedWindow,
-    IReadOnlyList<RevalidationCohortOption> Cohorts);
+    IReadOnlyList<RevalidationCohortOption> Cohorts,
+
+    /// <summary>
+    /// The cohorte the command would fall back to if the caller names none — the one for this stage
+    /// on the roster this registration already sits in. Null means naming one is <b>required</b>.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ Without this the dialog cannot tell « laisse-le vide » from « ceci ne peut que échouer ».
+    /// A 6ᵉ année student revalidating a 3ᵉ année stage normally has no such cohorte — his roster
+    /// runs 6ᵉ année stages — and the button offered the act anyway, which
+    /// <c>NoGroupForRevalidation</c> then refused. Read through the same query the command falls
+    /// back on, so the two cannot disagree.
+    /// </remarks>
+    int? FallbackCohortId);
 
 /// <param name="FromRegistration">
 /// True when the stamp was read off the registration, false when it fell back to the student's own.

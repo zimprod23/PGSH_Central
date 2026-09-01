@@ -87,6 +87,11 @@ internal sealed class GetRevalidationContextQueryHandler(
         var cohorts = await CohortOptionsQuery(dbContext, request.StageId, registration.AcademicYearId)
             .ToListAsync(cancellationToken);
 
+        int? fallbackCohortId = registration.AcademicGroupId is { } rosterId
+            ? await RevalidationPlanner.OwnCohortQuery(dbContext, rosterId, request.StageId)
+                .Cast<int?>().FirstOrDefaultAsync(cancellationToken)
+            : null;
+
         return new RevalidationContextResponse(
             request.RegistrationId,
             request.StageId,
@@ -104,7 +109,8 @@ internal sealed class GetRevalidationContextQueryHandler(
                 proposal.Start, proposal.End, proposal.WorkingDays, proposal.CalendarDays,
                 proposal.HasProvisionalDates,
                 [.. proposal.HolidaysHit.Select(h => h.Name)]),
-            cohorts);
+            cohorts,
+            fallbackCohortId);
     }
 
     private async Task<RevalidationPriorAttempt> BuildLastFailureAsync(
@@ -126,8 +132,8 @@ internal sealed class GetRevalidationContextQueryHandler(
     }
 
     internal sealed record RegistrationRow(
-        Guid StudentId, int AcademicYearId, int? CnpnVersionId, RegistrationCnpnSource? CnpnSource,
-        int? StudentCnpnVersionId);
+        Guid StudentId, int AcademicYearId, int? AcademicGroupId, int? CnpnVersionId,
+        RegistrationCnpnSource? CnpnSource, int? StudentCnpnVersionId);
 
     internal static IQueryable<RegistrationRow> RegistrationQuery(
         IApplicationDbContext dbContext, Guid registrationId) =>
@@ -135,7 +141,7 @@ internal sealed class GetRevalidationContextQueryHandler(
             .AsNoTracking()
             .Where(r => r.Id == registrationId)
             .Select(r => new RegistrationRow(
-                r.StudentId, r.AcademicYearId, r.CnpnVersionId, r.CnpnSource,
+                r.StudentId, r.AcademicYearId, r.AcademicGroupId, r.CnpnVersionId, r.CnpnSource,
                 r.Student.CnpnVersionId));
 
     internal sealed record StageRow(

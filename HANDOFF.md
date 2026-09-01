@@ -37,7 +37,44 @@
 > | 1d | ~~`POST stages/revalidate` has no frontend caller~~ — **done, session 36.** | `RevalidateStageModal`, reached from « Revalider un stage » on each registration card of the admin student page — on *each* card because the retake always hangs off the inscription the student holds now, never off the year he failed in. Backed by a new read, `GET registrations/{id}/revalidation-context`. ⚠ **The API must be restarted** for that route to exist; a process predating it answers 404 while `/api/stages` answers 401, which is the control that tells « route absent » from « not authenticated ». |
 > | 1e | ~~Nothing applies a stage's duration~~ — **closed where it was asked for, session 36.** | The revalidation dialog now proposes a window laid from `r.CnpnVersionId ?? r.Student.CnpnVersionId`'s own `CurriculumStage`, never from the catalogue, and shows both figures side by side when they disagree. Proposed, not imposed — the field stays editable, since a retake shortened by agreement is legitimate. ⚠ **The other readers still apply no duration at all**: the dossier, the progression and the export read none. What was closed is the one place a duration was *asked of* an operator with nothing telling him which one. |
 >
-> **▶ SESSION 36 — the migrations verified on the base, and the number the Stages page was asserting.**
+> **▶ SESSION 36b — driven in Chrome against the running stack, which found two defects tests could not.**
+>
+> Suite **1 299 green**. The API was restarted by the user, so `GET registrations/{id}/
+> revalidation-context` went from 404 to a real 200 — and the whole point was verified on the live
+> base, authenticated as the real admin:
+>
+> ```
+> governingText : 2174.18, fromRegistration true, durationInDays 66, coefficient 3
+> catalogue     : 30 j.o., coefficient 3
+> lastFailure   : 2023-2024, Chirurgie Vasculaire, 18/03→14/06/2024, 65 j.o. servis
+> proposedWindow: 2026-09-01 → 2026-12-03, 66 jours ouvrables, 94 calendaires
+> ```
+>
+> **66, not 30.** The dialog prints it beside « Le catalogue annonce 30 j.o., son texte 66 j.o. »
+> and « 65 j.o. réellement servis ».
+>
+> ⚠ **Two defects the whole test suite was blind to, both found in the browser:**
+> 1. **The stage picker was silently empty.** `useGetStagesQuery` was called with `pageSize: 200`
+>    while `GetStagesQueryValidator` caps it at **100** — a 400, and a rejected lookup shows up only
+>    as a select that will not open. Nothing in 1 297 green tests could see it: the validator runs in
+>    the pipeline, and no test drives the component. Same family as the `Objectives.NotEmpty()` and
+>    CNE-regex incidents — a validator rule is covered from the outside or not at all.
+> 2. **The button offered an act that could only fail.** « Aucune cohorte pour ce stage cette
+>    année » was displayed *and* « Rouvrir le stage » was enabled, on exactly the student the dialog
+>    exists for: a 6ᵉ année revalidating a 3ᵉ année stage sits in a roster that runs 6ᵉ année stages,
+>    so the command's fallback resolves to nothing and it answers `NoGroupForRevalidation`. The
+>    context now carries **`FallbackCohortId`**, read through the *same* query the command falls back
+>    on (`RevalidationPlanner.OwnCohortQuery`), so the dialog can tell « leave it empty » from « this
+>    cannot succeed ». Two tests cover it.
+>
+> ⚠ **Honest limit:** `FallbackCohortId` and its UI guard are proven by tests and by type-checking,
+> **not** re-verified in the browser — the live capture above predates the field, and by then every
+> RTK query was cached so no fresh token could be sniffed. The 66-day proposal, the picker fix and
+> the full dialog were all seen rendered.
+>
+> **Also seen working live:** the §33 catalogue markers on MED3 Chirurgie and Médecine, absent on
+> the two control rows, tooltip reading « 2174.18 (Troisième Année Médecine) : 66j ».
+>> **▶ SESSION 36 — the migrations verified on the base, and the number the Stages page was asserting.**
 >
 > Suite **1 289 green** (was 1 284). One commit of the whole backlog (`b879e5f`, 199 files). No
 > schema change; one response gains a field.

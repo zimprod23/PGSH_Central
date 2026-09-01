@@ -179,10 +179,8 @@ internal sealed class RevalidateStageCommandHandler(
         if (academicGroupId is null)
             return Result.Failure<int>(StageErrors.NoGroupForRevalidation);
 
-        int ownCohortId = await dbContext.Cohorts
-            .AsNoTracking()
-            .Where(c => c.AcademicGroupId == academicGroupId.Value && c.StageId == request.StageId)
-            .Select(c => c.Id)
+        int ownCohortId = await RevalidationPlanner
+            .OwnCohortQuery(dbContext, academicGroupId.Value, request.StageId)
             .FirstOrDefaultAsync(cancellationToken);
 
         return ownCohortId == 0

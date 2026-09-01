@@ -33,7 +33,7 @@ public class RevalidationContextTests
     /// catalogue has since moved to the new text's figure — the live shape after the alignment.
     /// </summary>
     private static async Task<(ApplicationDbContext Db, Guid Current)> SeedAsync(
-        string name, decimal earlierMark = 7m)
+        string name, decimal earlierMark = 7m, bool currentHasRoster = true)
     {
         var db = TestHarness.NewContext(name);
         var stage = db.SeedCatalog();
@@ -71,7 +71,7 @@ public class RevalidationContextTests
             LevelId = TestHarness.LevelId,
             StudentId = failedReg.StudentId,
             Student = failedReg.Student,
-            AcademicGroupId = group.Id,
+            AcademicGroupId = currentHasRoster ? group.Id : null,
         };
         currentReg.StampCnpnVersion(OldText, RegistrationCnpnSource.Backfilled);
         db.Registrations.Add(currentReg);
@@ -173,6 +173,38 @@ public class RevalidationContextTests
 
         ctx.CanOpen.Should().BeFalse();
         ctx.RefusalCode.Should().Be(StageErrors.StageAlreadyValidated(TestHarness.StageId).Code);
+    }
+
+    [Fact]
+    public async Task It_says_when_naming_a_cohorte_is_required_rather_than_optional()
+    {
+        var (db, current) = await SeedAsync("reval-ctx-fallback");
+        await using var _ = db;
+
+        // The roster this registration sits in DOES run the stage here, so the command's fallback
+        // resolves and the dialog may leave the field empty.
+        var ctx = (await Handler(db).Handle(
+            new GetRevalidationContextQuery(current, TestHarness.StageId, null),
+            CancellationToken.None)).Value;
+
+        ctx.FallbackCohortId.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task A_student_whose_roster_does_not_run_the_stage_has_no_fallback()
+    {
+        // The ordinary case for a revalidation: a 6ᵉ année student redoing a 3ᵉ année stage holds no
+        // roster that runs it. Naming a cohorte is then required, and the dialog has to know —
+        // offering the act anyway is what NoGroupForRevalidation then refuses. Measured on the live
+        // base: Jad Abdallah, 6ᵉ année 2026-2027, is exactly this.
+        var (db, current) = await SeedAsync("reval-ctx-no-fallback", currentHasRoster: false);
+        await using var _ = db;
+
+        var ctx = (await Handler(db).Handle(
+            new GetRevalidationContextQuery(current, TestHarness.StageId, null),
+            CancellationToken.None)).Value;
+
+        ctx.FallbackCohortId.Should().BeNull();
     }
 
     [Fact]
