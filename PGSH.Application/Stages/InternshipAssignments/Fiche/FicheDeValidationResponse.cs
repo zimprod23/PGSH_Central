@@ -10,7 +10,7 @@ namespace PGSH.Application.Stages.InternshipAssignments.Fiche;
 public sealed record FicheDeValidationResponse(
     string StudentFullName,
     string StudentAppogee,
-    string StudentCne,
+    string? StudentCne,
     int StageId,
     string StageName,
     string? LevelLabel,

@@ -154,6 +154,12 @@ internal sealed class StudentAffectationService(IApplicationDbContext dbContext)
                      && academicGroupIds.Contains(r.AcademicGroupId.Value)
                      && levelIds.Contains(r.LevelId)
                      && r.Status != RegistrationStatus.Withdrawn)
+            // ⚠ A held registration gets no affectation — chained as its own Where so the *shared*
+            // expression is the one that runs, rather than a fourth hand-written copy of « aucun
+            // signalement ouvert ». EF folds the two into a single SQL WHERE. In a predicate the
+            // collection aggregate becomes an EXISTS, which translates; it is a collection subquery
+            // in a *projection* that Npgsql refuses.
+            .Where(RegistrationHoldPolicy.Plannable)
             .Select(r => new EligibleRegistration(r.Id, r.AcademicGroupId!.Value, r.LevelId));
 
     private async Task<BulkResponse<Guid, Guid>> AssignAsync(IReadOnlyList<CohortTarget> cohorts, CancellationToken ct)

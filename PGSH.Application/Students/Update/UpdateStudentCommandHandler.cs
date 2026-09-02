@@ -18,10 +18,15 @@ internal sealed class UpdateStudentCommandHandler(IApplicationDbContext dbContex
         if (student is null)
             return Result.Failure(StudentErrors.NotFound(request.Id));
 
+        // ⚠ An absent CNE collides with nothing — `null == null` is true in memory and false in
+        // SQL, so the comparison is guarded on the request value rather than left to the provider to
+        // disagree about. IX_Student_CNE is filtered on IS NOT NULL and says the same thing.
+        string? cne = StudentIdentifierRules.NormalizeCne(request.CNE);
+
         bool conflict = await dbContext.Students
             .AnyAsync(s => s.Id != request.Id && (
                 s.Email == request.Email ||
-                s.CNE == request.CNE ||
+                (cne != null && s.CNE == cne) ||
                 s.Appogee == request.Appogee ||
                 (request.CIN != null && s.CIN == request.CIN)),
                 cancellationToken);
@@ -33,7 +38,7 @@ internal sealed class UpdateStudentCommandHandler(IApplicationDbContext dbContex
         student.FirstName = request.FirstName;
         student.LastName = request.LastName;
         student.CIN = request.CIN;
-        student.CNE = request.CNE;
+        student.CNE = cne;
         student.Appogee = request.Appogee;
         student.AccessGrade = request.AccessGrade;
         student.AcademicProgram = request.AcademicProgram;

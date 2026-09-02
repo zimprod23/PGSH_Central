@@ -9,9 +9,22 @@ namespace PGSH.Application.Stages.Progression;
 /// « On ne commence pas la dernière année tant que tout ce qui précède n'est pas validé. »
 ///
 /// <para>The rule is the faculty's, not an inference: a 7ᵉ année under arrêté 2174.18 and a 6ᵉ under
-/// 1650.25 cannot be entered while a stage from an earlier year is still unvalidated. It is asked per
-/// <b>student</b>, from his own text — from 2026-2027 one 6ᵉ année Médecine holds students of both, so
-/// the level alone cannot answer "is this his last year?".</para>
+/// 1650.25 cannot be <b>entered</b> while a stage from an earlier year is still unvalidated. It is
+/// asked per <b>student</b>, from his own text — from 2026-2027 one 6ᵉ année Médecine holds students
+/// of both, so the level alone cannot answer "is this his last year?".</para>
+///
+/// <para>⚠ <b>« Entrer » is the whole rule, and reading it as « être inscrit en » inverts it.</b> The
+/// final year is not a year one passes or fails: there is no déliberation for it. A student sits in
+/// it, validates and revalidates his stages one at a time, and is <b>re-registered each September
+/// until they are all validated</b> — and then re-registered again if he fails the examens cliniques,
+/// which open as soon as the stages are done. So <em>the re-registration is the mechanism by which he
+/// clears the debt</em>. Refusing it because he still owes a stage refuses him the only way to stop
+/// owing it, and it fires hardest on the students who need it most.</para>
+///
+/// <para>Measured 2026-09-01 against the faculty's own réinscription roll for 2026-2027: of the 651
+/// 7ᵉ année Médecine it re-registers into the 7ᵉ année, <b>182 were refused</b> — a quarter of the
+/// promotion, every one of them named by the faculty as coming back. The gate now stands aside for a
+/// student already registered at that level: he is continuing, not beginning.</para>
 ///
 /// <para><b>Why it lives here and not only in the réinscription.</b> The rollover is the path that
 /// creates next year's registrations for a whole promotion, but it is not the only one:
@@ -70,10 +83,18 @@ public sealed class FinalYearGuard(IApplicationDbContext dbContext, OutstandingS
 
         var totalYears = await TotalYearsAsync(ids, ct);
 
+        // ⚠ Who is *beginning* this level, as opposed to continuing in it. A student who already
+        // holds a registration at it is being re-registered to finish what he owes — which is how the
+        // final year works — so the gate has nothing to say about him. See the class remarks: read as
+        // « est inscrit en dernière année » rather than « entre en dernière année », this rule
+        // refuses 182 of the 651 7ᵉ année Médecine the faculty's own roll brings back.
+        var continuing = await AlreadyRegisteredAtLevelAsync(ids, levelId, ct);
+
         // ⚠ TryGetValue, not GetValueOrDefault: the dictionary holds `int`, so a student with no text
         // on record would read as "his cursus runs 0 years" and every year would be his last — which
         // blocked hardest exactly where the guard must stand aside.
         var entrants = ids
+            .Where(id => !continuing.Contains(id))
             .Where(id => totalYears.TryGetValue(id, out int total) && levelYear >= total)
             .ToList();
 
@@ -109,6 +130,33 @@ public sealed class FinalYearGuard(IApplicationDbContext dbContext, OutstandingS
                 x => RegistrationErrors.FinalYearBlocked(
                     levelYear, x.Owed.Count, OutstandingStageFinder.Summarize(x.Owed)));
     }
+
+    /// <summary>
+    /// Which of these students has already been registered at this level.
+    /// </summary>
+    /// <remarks>
+    /// <para>The discriminator between « il commence sa dernière année » and « il la continue », and
+    /// it is read from the store rather than passed in because every caller would otherwise have to
+    /// carry the previous level — and two of the four do not have it. A student who sat in the level
+    /// before is continuing whatever gap there has been: a 7ᵉ année who dropped out in 2023-2024 and
+    /// comes back in 2026-2027 still has the same stages to revalidate, which is exactly what the
+    /// re-registration is for.</para>
+    ///
+    /// <para>⚠ <c>Contains</c> on the ids is right here: they are the batch the caller handed in, a
+    /// <em>listed</em> set. The debt lookup below is scoped the same way for the same reason.</para>
+    /// </remarks>
+    private async Task<HashSet<Guid>> AlreadyRegisteredAtLevelAsync(
+        IReadOnlyCollection<Guid> studentIds, int levelId, CancellationToken ct) =>
+        (await AlreadyRegisteredAtLevelQuery(dbContext, studentIds, levelId).ToListAsync(ct))
+            .ToHashSet();
+
+    internal static IQueryable<Guid> AlreadyRegisteredAtLevelQuery(
+        IApplicationDbContext db, IReadOnlyCollection<Guid> studentIds, int levelId) =>
+        db.Registrations
+            .AsNoTracking()
+            .Where(r => r.LevelId == levelId && studentIds.Contains(r.StudentId))
+            .Select(r => r.StudentId)
+            .Distinct();
 
     /// <summary>
     /// How long this student's text runs, read from his most recent registration's own CNPN and

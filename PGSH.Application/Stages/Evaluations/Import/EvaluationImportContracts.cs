@@ -93,7 +93,7 @@ public sealed record EvaluationImportTemplate(
     int? PeriodNumber,
     IReadOnlyList<EvaluationImportTemplateStudent> Students);
 
-public sealed record EvaluationImportTemplateStudent(string Cne, string Appogee, string FullName, string GroupLabel);
+public sealed record EvaluationImportTemplateStudent(string? Cne, string Appogee, string FullName, string GroupLabel);
 
 /// <summary>
 /// Reads an uploaded evaluation sheet and writes the blank one. The port lives here so the

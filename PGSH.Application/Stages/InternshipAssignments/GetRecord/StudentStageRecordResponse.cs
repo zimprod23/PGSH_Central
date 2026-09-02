@@ -16,7 +16,7 @@ public sealed record StudentStageRecordResponse(
     Guid RegistrationId,
     string StudentFullName,
     string StudentAppogee,
-    string StudentCne,
+    string? StudentCne,
     int StageId,
     string StageName,
     string? LevelLabel,

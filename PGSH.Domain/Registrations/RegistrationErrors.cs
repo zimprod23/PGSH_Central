@@ -130,6 +130,52 @@ public static class RegistrationErrors
         "FinalYearWaiver.NotNeeded",
         "Cet étudiant ne doit aucun stage antérieur : aucune dérogation n'est nécessaire.");
 
+    // === Holds — a registration created but not yet plannable ===
+
+    /// <summary>
+    /// Planning reached a registration carrying an unreleased hold. Reported per student rather than
+    /// counted, because « 232 inscriptions écartées » is a number nobody can act on and the evidence
+    /// is the whole point of the flag.
+    /// </summary>
+    public static Error Held(RegistrationHoldReason reason, string evidence) => Error.Conflict(
+        "Registrations.OnHold",
+        $"Inscription signalée — {reason.Label()} : {evidence} "
+        + "Elle ne participe ni au découpage en groupes ni aux affectations tant que le signalement "
+        + "n'est pas levé.");
+
+    /// <summary>
+    /// A hold with no evidence. The whole value of the flag is that it says what it saw, and it is
+    /// the sentence the worklist and the export print: « signalé » alone is a row nobody can action.
+    /// </summary>
+    public static readonly Error HoldEvidenceRequired = Error.Validation(
+        "RegistrationHolds.EvidenceRequired",
+        "Un signalement doit dire ce qui a été constaté au moment où il a été posé.");
+
+    public static Error HoldNotFound(Guid holdId) => Error.NotFound(
+        "RegistrationHolds.NotFound",
+        $"Aucun signalement enregistré sous l'identifiant '{holdId}'.");
+
+    /// <summary>
+    /// Releasing a hold that was already lifted. Returning success would tell the caller he had just
+    /// freed a registration when somebody else had freed it days earlier.
+    /// </summary>
+    public static Error HoldAlreadyReleased(Guid holdId) => Error.Conflict(
+        "RegistrationHolds.AlreadyReleased",
+        $"Le signalement '{holdId}' a déjà été levé.");
+
+    /// <summary>
+    /// A release with no justification. Symmetric with <see cref="HoldEvidenceRequired"/>: the hold
+    /// row survives its own release precisely so the file can say who cleared the student and why,
+    /// and an empty note makes that half of the record worthless.
+    /// </summary>
+    public static readonly Error HoldReleaseNoteRequired = Error.Validation(
+        "RegistrationHolds.ReleaseNoteRequired",
+        "Lever un signalement doit être motivé : indiquez ce qui a été vérifié.");
+
+    public static readonly Error HoldNotAllowed = Error.Forbidden(
+        "RegistrationHolds.NotAllowed",
+        "Seule la scolarité peut poser ou lever un signalement d'inscription.");
+
     // === FailureReasons ===
     public static Error FailureReasonNotFound(Guid registrationId) => Error.NotFound(
         "FailureReasons.NotFound",

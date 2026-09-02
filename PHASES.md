@@ -1335,14 +1335,214 @@ of damaged data if the page went away. All three were real. None was only about 
   instead of throwing. It joins FKs, unique indexes and `OnDelete` on the Testcontainers list.
 - **No browser has seen any of it.** `SMOKE-TEST.md` §31.
 
-## 🔲 Phase 16 — Re-importing the Access base, cleanly
+## ✅ Phase 15.15 — the réinscription roll: the canvas the faculty actually sends
+
+**Raised 2026-09-01 by the user.** The three acts of the year were built against canvases PGSH
+generates. The faculty does not use them: for 2026-2027 it sent **`Réinscriptions 26-27 VF.xlsx`**,
+6 862 rows of `Code · NOM · PRENOM · Etape 25-26 · Etape 2026/2027`. Those two étapes carry the
+verdict with them, so one upload does what the déliberation and the réinscription do between them.
+
+### What it is, measured against the source before anything was written
+
+| | |
+|---|---|
+| rows | 6 862 |
+| distinct `Code` values | 6 862 (no duplicate) |
+| `Code` = Access `NO_ORDRE` = `Students.Appogee` | **6 813 match a student exactly** |
+| rows whose from-étape **disagrees** with the registration on record | **0** of the 6 810 checkable |
+| master rows (`MMBTM1 → MMBTM2`), out of scope | 23 |
+| students PGSH does not hold | 26 |
+| students with no 2025-2026 registration (returners) | 3 |
+| 2025-2026 registrations the file never mentions | 1 216 (999 in 7ᵉ MED, 211 in 6ᵉ PHARM) |
+
+The zero in row four is what makes a level disagreement safe to treat as a **refusal** rather than a
+skip: the strictness costs nothing on the real file, and a verdict written onto the wrong
+registration cannot be walked back.
+
+### The two rules the file forced
+
+- ⚠ **A level that has not moved is not always a redoublement.** 804 rows are final-year students
+  re-registering in the same year — 659 in 7ᵉ année Médecine, 145 in 6ᵉ année Pharmacie — because the
+  thesis year runs until the thesis is defended and PGSH holds no record of a defence. Recording
+  `Failed` there would be wrong twice: it is not a failure, and `RegistrationStatus.AnnulsItsStages`
+  would **wipe the year's stage record for 804 students**. Nothing is written for them, nor for a
+  réorientation, nor where the closing year holds no registration — so `WillRecordOutcome` is
+  deliberately smaller than `WillRegister`, and the screen says why.
+- ⚠ **Silence inverts.** The déliberation canvas is a list of exceptions, so a student it does not
+  name is admis. This is the roll of who *is* coming back, so a student it does not name is **not** —
+  and PGSH cannot tell a graduate from an exclusion. The 1 216 are left untouched and counted, which
+  is exactly the population the déliberation should then be run over with the defence roll.
+
+### What was built
+
+`Students/Registrations/ReinscriptionSheet/` — contracts, `ReinscriptionSheetPlanner` (shared by
+preview and apply, so the dry run *is* the plan), the preview query, the apply command,
+`ClosedXmlReinscriptionSheetParser`, `POST reinscription/sheet[/preview]`, and a section on
+`YearClosurePage` placed **first**, outside the 1/2/3 numbering, because it is not a fourth step — it
+is 1 and 2.
+
+Two things it needed that did not exist:
+
+- **`FacultyLevelCodes`** (`Application/Stages/Levels/`) — the faculty's code table, promoted out of
+  `LegacyImport.LevelMapper` so the importer and the roll cannot disagree about what `MDME3` means.
+  `MDME3` and `MPHAR3` are new in this file and appear in no legacy row. It also lists the codes PGSH
+  knowingly does **not** manage, which is the whole reason it is a table: an importer has to tell « a
+  programme we do not cover » (skip, count) from « a code nobody told us about » (refuse the file).
+- **`FinalYearTest`** (`Application/Stages/Progression/`) — « peut-être sa dernière année ? », lifted
+  out of `DeliberationPlanner`'s private method so both acts ask it once. Two copies would disagree
+  about 804 students in this file alone.
+
+### Verified
+
+23 handler tests (every guard, each refusal asserting the **store is untouched**, each paired with a
+control row that would have applied cleanly), 8 parser tests, 5 `SqlTranslationTests` cases, and the
+central rule proved to bite by breaking it and watching two tests fail. The real file was parsed
+through the real parser: 6 862 rows, 0 missing codes, 6 862 distinct, 0 scientific-notation codes,
+every level code resolved or explicitly out of scope.
+
+---
+
+## ✅ Phase 15.16 — the roll is applied whole, and PGSH records its disagreement
+
+**Raised 2026-09-02 by the user, on the report 15.15 produced from the real file.** The rollover was
+correct and still unusable: it *refused* the rows PGSH's own record disagreed with, and the faculty's
+document is the more authoritative of the two.
+
+> « the excel should create registration, even tho some conditions are not fulfilled — why, because
+> in most cases they already validated / revalidated everything but we did not add the evaluations
+> yet, so we can just flag the students so we can later come back to them. »
+
+### What the refusal actually cost, measured
+
+| | |
+|---|---|
+| 7ᵉ MED the roll re-registers into the 7ᵉ | 651 |
+| …refused by the final-year gate, *before* session 37's « entrer » fix | **182** — a quarter of the promotion |
+| …refused by it **today**, i.e. held by the roll — measured live 2026-09-02 | **60** |
+| 2025-2026 registrations the roll never names | 1 267 |
+| …in a final year, recorded « Diplômé » from the absence | 1 217 |
+| …undecidable (below a final year, or no CNPN) | 50 |
+
+⚠ **The two numbers belong to two code versions and must not be conflated.** 182 is what the gate
+refused before session 37 corrected « entrer » to mean « commencer » rather than « être inscrit en ».
+With that fix it reaches only genuine entrants to a final year, and the live preview on 2026-09-02
+prints **60**. 182 is the motivation; 60 is the count.
+
+Neither set is students who are behind: in most of them the stage was **served and the évaluation
+is simply not keyed in**. That is a fact about our data entry, and refusing a registration over it
+refuses the student the very mechanism — re-registration — by which the debt gets cleared.
+
+### The shape: create it, freeze it, and give somebody a list
+
+`RegistrationHold` (`Domain/Registrations/`), `Registrations/Holds/` for the worklist and the
+release. A held registration takes part in **no** roster cut, gets **no** cohort affectation and is
+published **no** période; it keeps its status, its verdict and everything already published under it.
+
+- `OutstandingPriorStages` — the 60. Created and frozen: he may not begin his final year's stages
+  before the earlier ones are settled, which is what the hold says and what a skip could not.
+- `AbsentFromReinscriptionRoll` — **all 1 267**, the 1 217 inferred graduations included.
+  ⚠ The user asked for this explicitly, and the reasoning survives scrutiny better than the original
+  proposal to hold only the 50: **the graduation is our inference, read off a blank cell, never the
+  faculty's statement.** A partial roll would end the cursus of people still enrolled with nothing on
+  the row saying a human had looked. It costs a real graduate nothing, and it catches what an absence
+  most often is — a réinscription that has not arrived — because the flag is still standing the day
+  somebody registers him by hand.
+
+**What still refuses the whole file** is unchanged and the line is principled: a duplicated code, an
+unknown level code, a level contradicting the registration on record, a level going backwards, a
+« Retrait ». Those say the *file* is mistaken, not that our data is behind, and the write they would
+produce is a verdict on somebody's year.
+
+**The manual paths still refuse too** (`CreateRegistrationCommand`, `CreateManyRegistrations`,
+`InscriptionPlanner`), with `FinalYearEntryWaiver` as the deliberate override. The roll is the
+faculty's own document and outranks a hand-typed form; and per-student ceremony is exactly what does
+not scale to 182 at once.
+
+### The report as a document
+
+`POST reinscription/sheet/export` — Synthèse · Lignes · Absents, **uncapped**, written from the plan
+rather than from the capped on-screen report. It re-runs the planner, writes nothing, and is offered
+before the confirmation and on a roll the apply would refuse: « donne-moi la liste des erreurs » is
+the request, and a refusal naming only the first offending line cannot answer it.
+
+### 15.16b — the students the file names and PGSH has never seen
+
+**Raised 2026-09-02, same session, after the roll was applied.** 26 of the 6 862 lines name people
+PGSH does not hold. They were skipped on the rule that *creating an identity is the inscription's
+act* — sound, and still wrong in practice: the only trace was a downloaded spreadsheet, so nobody
+acted on them, and the user asked to see them in the app.
+
+**The conflict that shaped the design.** He wanted them flagged **and** partitioned with everyone
+else. A signalement, as built, freezes — so flagging them the existing way would have excluded them
+from the very planning he wanted them in. The fix is to make **blocking a property of the reason**:
+
+| reason | freezes | why |
+|---|---|---|
+| `OutstandingPriorStages` | yes | he may not start his final year's stages before clearing the earlier ones |
+| `AbsentFromReinscriptionRoll` | yes | nobody has explained the absence |
+| **`IncompleteStudentFile`** | **no** | his dossier is *thin*, not *wrong* |
+
+`RegistrationHoldPolicy` grows a third form: `Plannable` (no **blocking** hold — what planning obeys),
+`OnHold`, and `Flagged` (any hold — what the worklist counts). `BlocksPlanning` is sent to the client
+rather than re-derived there, and `ReleaseHoldReport` carries `StillBlocked` beside `StillHeld`.
+
+**What is invented, and what deliberately is not.** Only the e-mail, because `Users.Email` is NOT
+NULL UNIQUE and a login: allocated in the *planner* against the addresses in the **store**, printed on
+the row so the operator can read and communicate it. **No CNE** — the row has an Apogée and
+`Student.CNE` is optional. `BacYear` is left **empty**, not guessed; that emptiness is what the flag
+names.
+
+⚠ Two defects caught by tests rather than by the compiler: adding the **student** left the
+registration untracked (the graph is only whole from the registration, which references the student
+and owns the hold), and `ReleaseHold` on an **unsaved** hold matched an arbitrary one, since every
+store-generated key is `Guid.Empty` before the save — now refused outright.
+
+### Open, parked deliberately
+
+**When a 1650.25 student starts revalidating.** Under 2174.18 the 6ᵉ and 7ᵉ are both stage years with
+no year exam, the 7ᵉ final; under 1650.25 only the 6ᵉ, and it is final. PGSH asks
+`level.Year == TotalYears` per student (`FinalYearTest`), which reproduces the old text's behaviour
+on the new one — the holding pattern the user asked for until the faculty states the rule. Nothing
+hard-codes 7, so closing it is a change to one test. **Not urgent: the first 1650.25 promotion is in
+its 3ᵉ année.** ⚠ Do not invent a rule meanwhile — a revalidation window opened under the wrong text
+is indistinguishable from one somebody authored.
+
+### Still not modelled: the *examens cliniques*
+
+The user described them and they are real: they open as soon as a student's stages are all done, he
+can fail them, and he is re-registered to sit them again. PGSH therefore cannot today tell « still
+finishing stages » from « stages done, waiting on the clinical exams » — both read as re-registered.
+Deliberately left out: the user said the logic is complex and did not describe it, and inventing it
+would put a state on screen nobody can act on.
+
+---
+
+## ✅ Phase 16 — Re-importing the Access base, cleanly
+
+> **16.1 and 16.2 are closed (2026-09-01).** `Student.CNE` is optional, the importer manufactures
+> nothing, and the open question below is answered with a measurement rather than a guess. What the
+> re-import *itself* needs, and the two silent traps it hides, are in **16.5**.
 
 **Raised 2026-08-18 by the user, measured the same day against the live base.** The import of
 2026-08-07 got the *rows* right — all 104,924 migrated and verified — but it manufactured identifiers
 it did not need to, and the placeholders are now visible to every user of the app. Re-run the import
 with the corrections below rather than patching the data in place, so the importer and the base agree.
 
-### 16.1 — `LEGACY-nnnnn` is not an identifier, it is a prefix on the Appogée
+### ✅ 16.1 — `LEGACY-nnnnn` is not an identifier, it is a prefix on the Appogée
+
+> **Done 2026-09-01.** `Student.CNE` is nullable, `IX_Student_CNE` is filtered on `IS NOT NULL`,
+> migration `StudentCneOptional` clears the 4 695 placeholders (guarded on `^LEGACY-[0-9]+$`), and
+> `LegacyIdentityMapper` carries the source value across or leaves it absent. `InscriptionPlanner`
+> stopped manufacturing `SANS-CNE-…` for the same reason. Every response type carrying a CNE is
+> `string?`, every search predicate reads `(x.CNE ?? "")`, and the two uniqueness checks are guarded
+> on the request value — `null == null` is true in memory and false in SQL, so an unguarded predicate
+> reports a phantom conflict in the test suite and none in production.
+>
+> ⚠ **One defect found on the way, of the class this file already names twice.**
+> `UpdateStudentCommandValidator` required `int.TryParse` on the Apogée, which no `SANS-APOGEE-…`
+> value satisfies — so every student the inscription import created without an Apogée was read-only
+> the day somebody opened his file, the refusal naming a field nobody was editing. Third instance
+> after the CNE regex (5 646 students) and `Objectives.NotEmpty()` (the whole stage catalogue).
 
 Measured on `TodoDatabase`, 2026-08-18:
 
@@ -1379,7 +1579,23 @@ separately. The consequence to handle deliberately:
 - The reference tab of the déliberation canvas and the student list should show Appogée where CNE is
   null, rather than an empty cell.
 
-### 16.2 — Open: does Access hold the Appogée *in* the CNE column?
+### ✅ 16.2 — Answered: **no**. Access does not hold the Appogée in the CNE column
+
+> **Measured 2026-09-01 against `Medecine.mdb`, 10 203 rows, 5 508 carrying a usable CNE:**
+>
+> | | count |
+> |---|---|
+> | CNE identical to the row's own `NO_ORDRE` | **0** |
+> | CNE equal to *another* row's `NO_ORDRE` | **0** |
+> | CNE of exactly eight digits (the `NO_ORDRE` shape) | **1** |
+>
+> Shape distribution of the 5 508: 4 561 letter + digits, 835 digits-only of other lengths, 104
+> alphanumeric, 4 with punctuation, 3 with an internal space.
+>
+> So the 835 digits-only codes are **not** appogées — not one of them matches any `NO_ORDRE`. There is
+> nothing to move into `Appogee` and nothing to blank, and the importer carries the CNE across
+> verbatim. The original reading below is preserved because the check it asked for is the reason the
+> answer can be stated rather than assumed.
 
 The user's reading, not yet verified: some records of `Medecine.mdb` may carry an appogée number in
 the CNE field, so a "real" CNE in PGSH today may in fact be an appogée. Not the same defect as 16.1 —
@@ -1420,6 +1636,38 @@ student ids detaches every CNPN stamp and every waiver from the person it was gr
 identity (CNE, else Appogée — see 16.1) and verify the join **before** dropping anything.
 
 Take a `pg_dump -Fc` first, and keep it: it is the only copy of the authored half.
+
+### 16.5 — ⚠ The order, and the two traps that are silent
+
+Measured 2026-09-01 while building the rebuild. A naive
+`drop → dotnet ef database update → import` fails, and two of the three problems leave no trace.
+
+**1 · The chain does not run in that order.** `Cnpn1650Med3Stages`, `Cnpn1650ImmersionStages` and
+`Cnpn1650Med3CatalogueAlignment` open with `RAISE EXCEPTION 'Aucun niveau « 3ᵉ année Médecine »…'` —
+they need the `Levels` and `Stages` the *import* creates. This one at least fails loudly:
+
+```
+1. dotnet ef database update 20260830143914_PriorEnrolment
+2. PGSH.LegacyImport --source Medecine.mdb --connection <cs> --apply
+3. PGSH.LegacyImport --seed-curricula --connection <cs> --apply
+4. dotnet ef database update
+5. PGSH.LegacyImport --stamp-cnpn --connection <cs> --apply
+```
+
+**2 · Step 5 did not exist, and its absence is silent** — now `CnpnHistoryAttributor`. The student
+attribution was one `UPDATE` inside `CnpnVersioning` and the registration backfill another inside
+`RegistrationCnpnAndLevelEffectivity`; both were written to run *over* data already present. In the
+order above they run before the import, stamp nobody, and are then recorded as applied. The base then
+holds 10 200 students and 49 500 registrations with a null text — which **every reader tolerates
+gracefully**, so nothing complains while the déliberation stops knowing whose year might be his last
+and `CohortProvisioner` plans against requirement sets nobody is bound by.
+
+**3 · The authored half must be dumped on *natural* keys.** 16.3 already says the re-import cannot be
+a restore; what it does not say is that an id-keyed dump is worse than none, because the import
+regenerates every surrogate key and the rows land on the wrong rows. Preserved for the 2026-09-01
+rebuild: 24 `Holidays`, 146 `StageAllowedServices`, 3 `CnpnLevelEffectivities`, 2
+`ServiceChefAssignment`, and the 2026-2027 `AcademicYear` — which the Access base does not contain at
+all, and which one of the effectivity rules takes effect from, so it is restored first.
 
 ### 16.4 — Re-import hygiene
 

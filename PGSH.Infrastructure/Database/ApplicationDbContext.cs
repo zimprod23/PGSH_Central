@@ -58,6 +58,7 @@ public sealed class ApplicationDbContext : DbContext, IApplicationDbContext
     public DbSet<AuditLog> AuditLogs { get; set; }
     public DbSet<ObjectiveScore> ObjectiveScores { get; set; }
     public DbSet<FinalYearEntryWaiver> FinalYearEntryWaivers { get; set; }
+    public DbSet<RegistrationHold> RegistrationHolds { get; set; }
     public DbSet<PriorEnrolment> PriorEnrolments { get; set; }
     public DbSet<Cohort> Cohorts { get; set; }
     public DbSet<CnpnVersion> CnpnVersions { get; set; }

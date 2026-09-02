@@ -5,7 +5,7 @@ public record StudentSummaryResponse(
     string Email,
     string FirstName,
     string LastName,
-    string CNE,
+    string? CNE,
     string Appogee,
     string AcademicProgram,
     string? CIN,

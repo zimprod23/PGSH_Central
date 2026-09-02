@@ -43,7 +43,7 @@ public sealed record LegacyImportReport(
     int Assignments,
     int ServicePeriods,
     int Evaluations,
-    int SyntheticCne,
+    int StudentsWithoutCne,
     IReadOnlyList<LegacyImportProblem> Problems)
 {
     public IEnumerable<(LegacyImportProblemKind Kind, int Count)> ProblemsByKind() =>

@@ -9,7 +9,27 @@ namespace PGSH.Domain.Students;
 public sealed class Student : User
 {
     public AcademicProgram AcademicProgram { get; set; }
-    public string CNE { get; set; }
+
+    /// <summary>
+    /// The national student code, when the faculty holds one.
+    ///
+    /// <para>⚠ <b>Optional, and that is a statement about the source rather than a relaxation.</b>
+    /// The legacy Access base records a CNE for only 5 510 of its 10 203 students, and the import
+    /// used to manufacture <c>LEGACY-nnnnn</c> for the rest — a value indistinguishable, to every
+    /// screen and every export, from a code somebody actually holds. Null says « jamais renseigné »,
+    /// which is the fact; a placeholder asserts an identifier that does not exist. Same reasoning as
+    /// <see cref="CnpnVersionId"/>, <c>OutcomeSource</c> and <c>Registration.CnpnVersionId</c>:
+    /// absence is recorded as absence.</para>
+    ///
+    /// <para>Uniqueness still holds where a value <em>is</em> present — <c>IX_Student_CNE</c> is
+    /// unique and filtered on <c>IS NOT NULL</c> — so the constraint that actually protects anything
+    /// here is untouched. What is gone is the pretence that everyone has one.</para>
+    ///
+    /// <para>⚠ <see cref="Appogee"/> is therefore the identifier that is in practice always present:
+    /// it carries the legacy <c>NO_ORDRE</c> verbatim for every imported student, and it is what the
+    /// faculty's own réinscription file keys on.</para>
+    /// </summary>
+    public string? CNE { get; set; }
     public decimal AccessGrade { get; set; } = 10.01M;
     public string Appogee { get; set; }
     public BacSeries BacSeries { get; set; }

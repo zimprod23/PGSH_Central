@@ -42,7 +42,7 @@ internal sealed class GetInternshipAssignmentsQueryHandler(IApplicationDbContext
                 (a.Registration.Student.FirstName != null && a.Registration.Student.FirstName.ToLower().Contains(term)) ||
                 (a.Registration.Student.LastName  != null && a.Registration.Student.LastName.ToLower().Contains(term))  ||
                 a.Registration.Student.Appogee.ToLower().Contains(term) ||
-                a.Registration.Student.CNE.ToLower().Contains(term));
+                (a.Registration.Student.CNE ?? "").ToLower().Contains(term));
         }
 
         var response = await query

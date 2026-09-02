@@ -1,7 +1,8 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
 using PGSH.Application.Extensions;
+using PGSH.Domain.Registrations;
 using PGSH.Domain.Students;
 using PGSH.SharedKernel;
 
@@ -45,9 +46,19 @@ internal sealed class GetStudentsQueryHandler(IApplicationDbContext context)
         // A level with no year stays meaningful — "everyone who has ever been in the 3ᵉ année" — which
         // is what the omitted year already means for the list as a whole, so it is left reachable
         // rather than resolved to the current year here.
-        if (request.LevelId is { } levelId)
+        //
+        // ⚠ The **status** joins that same `Any` for the identical reason, and it is the stricter
+        // case: a verdict is a fact about one year. « Diplômé » ∧ « 2026-2027 » asked separately
+        // returns every student who ever graduated *and* happens to hold a 2026-2027 registration —
+        // which, for a thesis year re-registered every September, is most of them.
+        int? levelId = request.LevelId;
+        RegistrationStatus? status = request.Status;
+
+        if (levelId.HasValue || status.HasValue)
             query = query.Where(s => s.Registrations.Any(r =>
-                r.LevelId == levelId && (yearId == null || r.AcademicYearId == yearId.Value)));
+                (levelId == null || r.LevelId == levelId.Value) &&
+                (status == null || r.Status == status.Value) &&
+                (yearId == null || r.AcademicYearId == yearId.Value)));
 
         if (!string.IsNullOrWhiteSpace(request.SearchTerm))
         {
@@ -58,7 +69,7 @@ internal sealed class GetStudentsQueryHandler(IApplicationDbContext context)
                 s.FirstName.ToLower().Contains(term) ||
                 s.LastName.ToLower().Contains(term)  ||
                 s.Email.ToLower().Contains(term)     ||
-                s.CNE.ToLower().Contains(term)       ||
+                (s.CNE ?? "").ToLower().Contains(term) ||
                 s.Appogee.ToLower().Contains(term)   ||
                 (s.CIN != null && s.CIN.ToLower().Contains(term)));
         }

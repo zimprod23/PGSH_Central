@@ -1,6 +1,7 @@
-using PGSH.Application.Abstractions.Messaging;
+﻿using PGSH.Application.Abstractions.Messaging;
 using PGSH.Application.Exports;
 using PGSH.Domain.Common.Utils;
+using PGSH.Domain.Registrations;
 
 namespace PGSH.Application.Students.Export;
 
@@ -29,4 +30,10 @@ public sealed record GetStudentsExportQuery(
     int? LevelId = null,
     AcademicProgram? Program = null,
     int? AcademicGroupId = null,
+    /// <summary>
+    /// The verdict recorded on the year's registration. Present so the file can take the <em>same</em>
+    /// scope as the list it is downloaded from — a « liste des diplômés » on screen that exports the
+    /// whole promotion is worse than no button.
+    /// </summary>
+    RegistrationStatus? Status = null,
     string? SearchTerm = null) : IQuery<ExportFile>;

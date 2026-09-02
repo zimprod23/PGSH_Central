@@ -6,7 +6,7 @@ public sealed record ServicePeriodResponse(
     Guid Id,
     Guid InternshipAssignmentId,
     string StudentFullName,
-    string StudentCne,
+    string? StudentCne,
     string StudentAppogee,
     int ServiceId,
     string ServiceName,

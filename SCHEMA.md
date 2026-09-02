@@ -72,7 +72,7 @@ Student → History (audit trail)
 | `Status_NationalityStatus` | varchar(50) | owned enum: `Marocaine`, `Etrangaire` |
 | **Student columns** | | Discriminator = `Student` |
 | `AcademicProgram` | varchar | enum: `Medecine`, `Pharmacie`, `Master`, `Doctorat` |
-| `CNE` | varchar(50) | NOT NULL, UNIQUE |
+| `CNE` | varchar(50) | **nullable**, UNIQUE where present — see the warning below |
 | `Appogee` | varchar(50) | **NOT NULL**, UNIQUE — see the warning below |
 | `AccessGrade` | decimal(5,2) | default 10.01 |
 | `BacSeries` | varchar | enum |
@@ -91,15 +91,30 @@ Student → History (audit trail)
 | `WorkPlace` | varchar | enum: `Hospital`, `Fmpr`, nullable |
 | `PvSignatureDate` | date | nullable |
 
-**Indexes:** `IX_Users_Email` (unique), `IX_Users_IdentityProviderId` (unique, null filter), `IX_Student_CNE` (unique), `IX_Student_Appogee` (unique, filtered `"Appogee" IS NOT NULL`)
+**Indexes:** `IX_Users_Email` (unique), `IX_Users_IdentityProviderId` (unique, null filter), `IX_Student_CNE` (unique, filtered `"CNE" IS NOT NULL`), `IX_Student_Appogee` (unique, filtered `"Appogee" IS NOT NULL`)
 
 ⚠ **`IX_Student_Appogee`'s filter is vestigial, and it reads as though absence were allowed.**
 The column is `IsRequired()` in the model, so `"Appogee" IS NOT NULL` can never be false — which
 means an empty string is a *value*, and the second student written without an Apogée collides
-with the first. **CNE and Apogée are both NOT NULL UNIQUE**: any path creating a student must
-supply or manufacture both. This line said "nullable" until 2026-08-30 and the inscription import
-was written against it — the in-memory provider caught it, unusually, because it enforces required
-properties even though it enforces no unique index.
+with the first. Any path creating a student must supply or manufacture one. This line said
+"nullable" until 2026-08-30 and the inscription import was written against it — the in-memory
+provider caught it, unusually, because it enforces required properties even though it enforces no
+unique index.
+
+⚠ **`CNE`, by contrast, is genuinely optional since 2026-09-01** (`StudentCneOptional`), and
+`IX_Student_CNE`'s filter is load-bearing rather than vestigial. The Access base records a national
+code for **5 510 of its 10 203 students**; the import used to manufacture `LEGACY-{NO_ORDRE}` for the
+other 4 693, which put a value indistinguishable from a real code into 46% of the roll. The column
+was *already* nullable at the database level — `Users` is TPH and an `Employee` has no CNE — so the
+requirement only ever lived in the EF model and the validators.
+
+Consequences to hold on to:
+- **`Appogee` is the identifier in practice always present.** It carries the legacy `NO_ORDRE`
+  verbatim for every imported student, and it is what the faculty's réinscription roll keys on.
+- ⚠ **A uniqueness check on an optional identifier must be guarded on the request value.**
+  `null == null` is true in memory and NULL — i.e. false — in SQL, so an unguarded predicate reports
+  a phantom conflict under the in-memory provider and passes silently on PostgreSQL.
+- Every response type carrying a CNE is `string?`; every search predicate reads `(x.CNE ?? "")`.
 
 ---
 
@@ -532,6 +547,48 @@ nothing is owed, and **irrevocable once the registration it permitted exists**.
 
 ---
 
+### `RegistrationHolds` — a registration created but not yet plannable
+
+| Column | Type | Notes |
+|---|---|---|
+| `Id` | uuid (PK) | store-generated — never pre-set on a child of a tracked parent |
+| `RegistrationId` | uuid (FK) | CASCADE |
+| `Reason` | text | `OutstandingPriorStages` \| `AbsentFromReinscriptionRoll` \| `IncompleteStudentFile` |
+| `Evidence` | varchar(1000) | required — **snapshot** of what was true when it was raised |
+| `RaisedOn` | timestamptz | |
+| `RaisedByUserId` | uuid? | null for a bulk roll |
+| `ReleasedOn` | timestamptz? | null while the hold stands |
+| `ReleasedByUserId` | uuid? | |
+| `ReleaseNote` | varchar(1000)? | required **on release** — who cleared him, and on what |
+
+**Indexes:** `RegistrationId` **filtered** `WHERE "ReleasedOn" IS NULL`, `(Reason, RaisedOn)`
+
+The filter is not an optimisation: every planning read asks « does this registration carry an active
+hold? » (`RegistrationHoldPolicy`, an `EXISTS` over exactly this set), and unfiltered the index would
+be dominated by the released rows, which are history and never on the hot path.
+
+⚠ **Not every reason withdraws the registration from planning** —
+`RegistrationHoldReasonExtensions.Blocking` names the ones that do. `IncompleteStudentFile` (the
+students the réinscription roll creates from a code and a name) is **advisory**: it appears on the
+worklist and the student partitions and plans like anyone else, because a thin dossier is not a
+reason to keep him out of a rotation. A signalement means « a human must look at this »; blocking is
+a separate question.
+
+⚠ **A blocking hold withdraws a registration from planning, and does nothing else.** Held, a registration is cut
+into no roster, given no cohort affectation and published no période — but it keeps its status, its
+verdict and every période already published under it. Removing those is
+`UnpublishCohortScheduleCommand`'s act, which names what it destroys and asks twice.
+
+⚠ **Released by hand, never by the condition lapsing.** A registration that quietly re-entered the
+répartition the day an évaluation was keyed in is the silent behaviour the flag exists to remove. The
+row survives its own release — kept, not deleted — so the file can still say the student was flagged
+and who cleared him. Same snapshot reasoning as `FinalYearEntryWaivers`.
+
+⚠ **Idempotent per reason.** The réinscription roll is re-runnable by design, so a second upload must
+neither stack identical flags nor rewrite evidence somebody is in the middle of acting on.
+
+---
+
 ### `PriorEnrolments` — what a transfer did before he got here
 
 | Column | Type | Notes |
@@ -655,6 +712,7 @@ the resolver — the stage set is matched against the slots on disk instead.
 | Student → FinalYearEntryWaiver | CASCADE | The waiver is about that student and nobody else |
 | AcademicYear → FinalYearEntryWaiver | RESTRICT | The year it permitted entry to must stay nameable |
 | Registration → PriorEnrolment | CASCADE | An équivalence attached to an entry that no longer exists explains nothing |
+| Registration → RegistrationHold | CASCADE | A signalement is a fact *about* a registration and means nothing without it |
 | CnpnVersion → CnpnLevelEffectivity | CASCADE | The rule is part of the text that states it |
 | Level / AcademicYear → CnpnLevelEffectivity | RESTRICT | The (level, year) the rule names must stay nameable |
 

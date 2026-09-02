@@ -16,6 +16,37 @@ namespace PGSH.Application.Stages.Cnpn;
 public static class CnpnErrors
 {
     /// <summary>
+    /// An attribution pass over a database with no academic years at all. Entry is deduced by walking
+    /// back through the list of years, so there is nothing to walk — this is a base the import has not
+    /// run against yet, not a student PGSH cannot place.
+    /// </summary>
+    public static readonly Error NoAcademicYears = Error.Problem(
+        "Cnpn.NoAcademicYears",
+        "Aucune année universitaire enregistrée : l'attribution des CNPN se déduit de la suite des "
+        + "années, et il n'y en a aucune à parcourir.");
+
+    /// <summary>
+    /// An attribution pass that could place <b>nobody at all</b>.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ <b>One unplaceable student is a fact; ten thousand is a broken catalogue, and the two must
+    /// not read the same.</b> A text with no <c>AppliesToEntrantsFrom</c> is not malformed — it is
+    /// <i>citation-only</i>, which arrêté 2175.22 legitimately is — so a base where <em>every</em>
+    /// text is in that state throws nothing, refuses nothing, and simply selects no candidate for
+    /// anyone. Measured on the 2026-09-01 rebuild: 10 185 of 10 185 students unresolved, 0 stamped,
+    /// reported as a count by a pass that returned success. The cause is that
+    /// <c>CnpnVersioning</c> reads its intake years out of <c>AcademicYears</c>, which is empty when
+    /// the migration chain runs before the import — see <c>CnpnIntakeYearsBackfill</c>.
+    /// </remarks>
+    public static Error NoTextGovernsAnyIntake(int studentsConsidered) => Error.Problem(
+        "Cnpn.NoTextGovernsAnyIntake",
+        $"Aucun des {studentsConsidered} étudiants n'a pu être rattaché à un CNPN : aucun texte "
+        + "enregistré ne revendique d'année d'entrée. Un texte sans « année d'entrée » n'est pas "
+        + "invalide — il est conservé pour citation et n'est jamais sélectionné — donc rien ne "
+        + "signale l'anomalie de lui-même. Vérifiez « AppliesToEntrantsFrom » sur les textes avant "
+        + "de relancer.");
+
+    /// <summary>
     /// No recorded text reaches back to this intake. Deliberately an error rather than a silent
     /// fallback to the newest version: guessing here would put an old student under a CNPN that
     /// shortens their degree.

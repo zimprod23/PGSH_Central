@@ -12,16 +12,24 @@ namespace PGSH.Application.Students.Create
     {
         public async Task<Result<Guid>> Handle(CreateStudentCommand request, CancellationToken ct)
         {
+            // ⚠ Every comparison is guarded on the *request* value being present. CNE and CIN are
+            // both optional, and `null == null` is true in memory while it is NULL — i.e. false — in
+            // SQL, so an unguarded predicate reports "CNE déjà utilisé" against the next student
+            // without one under the in-memory provider and passes silently on PostgreSQL. The
+            // uniqueness indexes are filtered on IS NOT NULL for the same reason: an absent
+            // identifier collides with nothing.
+            string? cne = StudentIdentifierRules.NormalizeCne(request.CNE);
+
             var existing = await context.Students
-                .Where(s => s.CNE == request.CNE ||
+                .Where(s => (cne != null && s.CNE == cne) ||
                             s.Email == request.Email ||
-                            s.CIN == request.CIN ||
+                            (request.CIN != null && s.CIN == request.CIN) ||
                             s.Appogee == request.Appogee)
                 .FirstOrDefaultAsync(ct);
 
             if (existing is not null)
             {
-                var culprit = existing.CNE == request.CNE ? ("CNE", request.CNE) :
+                var culprit = cne != null && existing.CNE == cne ? ("CNE", cne) :
                               existing.Email == request.Email ? ("Email", request.Email) :
                               existing.Appogee == request.Appogee ? ("Appogee", request.Appogee) :
                               ("CIN", request.CIN!);
@@ -43,7 +51,7 @@ namespace PGSH.Application.Students.Create
                 Address = request.FullAddress, // Uses your implicit operator
 
                 // Student specific
-                CNE = request.CNE,
+                CNE = cne,
                 Appogee = request.Appogee,
                 AccessGrade = request.AccessGrade,
                 AcademicProgram = request.AcademicProgram,

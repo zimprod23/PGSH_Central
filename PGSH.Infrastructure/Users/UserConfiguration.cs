@@ -87,8 +87,11 @@ internal sealed class StudentConfiguration : IEntityTypeConfiguration<Student>
     public void Configure(EntityTypeBuilder<Student> builder)
     {
         // --- Student-specific properties ---
-        builder.Property(s => s.CNE).HasMaxLength(50).IsRequired();
-        builder.HasIndex(s => s.CNE).IsUnique().HasDatabaseName("IX_Student_CNE");
+        // ⚠ Optional, and the index is filtered to match. Postgres already treats NULLs as distinct
+        // in a unique index, so the filter buys no correctness — it states the intent, and keeps the
+        // index off the ~4 700 imported students the source never gave a code for.
+        builder.Property(s => s.CNE).HasMaxLength(50);
+        builder.HasIndex(s => s.CNE).IsUnique().HasFilter("\"CNE\" IS NOT NULL").HasDatabaseName("IX_Student_CNE");
 
         builder.Property(s => s.Appogee).HasMaxLength(50);
         builder.HasIndex(s => s.Appogee).IsUnique().HasFilter("\"Appogee\" IS NOT NULL").HasDatabaseName("IX_Student_Appogee");

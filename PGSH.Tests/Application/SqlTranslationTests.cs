@@ -1,22 +1,29 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Employees.MyServices;
 using PGSH.Application.Hospitals.Chefs;
+using PGSH.Application.Hospitals.Services.OccupancyReport;
 using PGSH.Domain.Stages;
 using PGSH.Application.Stages.Planning;
+using PGSH.Application.Stages.Progression;
 using PGSH.Application.Stages.Cohorts.GetByStage;
 using PGSH.Application.Stages.Schedule;
 using PGSH.Application.Stages.Slots;
 using PGSH.Application.Students.Export;
 using PGSH.Application.Stages.Export;
+using PGSH.Application.Students.Registrations.Holds;
+using PGSH.Application.Students.Registrations.ReinscriptionSheet;
 using PGSH.Application.Students.Registrations.Inscription;
+using PGSH.Application.Students.Registrations.ReinscriptionSheet;
 using PGSH.Application.Stages.Cnpn;
 using PGSH.Application.Stages.Cnpn.Effectivity;
+using PGSH.Application.Stages.Cnpn.SeedFromHistory;
 using PGSH.Application.Stages.Cnpn.GetCnpnVersions;
 using PGSH.Application.Stages.Cnpn.Targeting;
 using PGSH.Application.Stages.GetMany;
 using PGSH.Application.Stages.Revalidation;
 using PGSH.Domain.Common.Utils;
+using PGSH.Domain.Registrations;
 using PGSH.Infrastructure.Database;
 using Xunit;
 
@@ -482,7 +489,7 @@ public class SqlTranslationTests
 
         string sql = GetStudentsExportQueryHandler
             .RegistrationsQuery(db, yearId: 1, levelId: 3, program: null,
-                academicGroupId: null, searchTerm: "ben")
+                academicGroupId: null, status: RegistrationStatus.Graduated, searchTerm: "ben")
             .ToQueryString();
 
         sql.Should().Contain("Registrations");
@@ -749,5 +756,185 @@ public class SqlTranslationTests
         GetCnpnEffectivitiesQueryHandler.EffectivityRowsQuery(db, cnpnVersionId: null, program: null)
             .ToQueryString().Should().Contain("CnpnLevelEffectivities");
     }
-}
 
+    /// <summary>
+    /// The réinscription roll's five reads.
+    /// </summary>
+    /// <remarks>
+    /// <para>⚠ <b>This act had no coverage here at all before it existed, and it is the least
+    /// forgiving place to skip it:</b> one upload closes a year for 6 800 students and opens the next
+    /// for them, so a query the provider refuses is a 500 on the single most consequential button in
+    /// the application — and the whole file is refused with it.</para>
+    ///
+    /// <para>Two shapes are worth naming. <c>StudentsByCodeQuery</c> puts a <c>Contains</c> over a
+    /// listed set of ~6 800 strings in the predicate, which Npgsql must render as one array parameter
+    /// rather than 6 800 of them. And the two text lookups project through a required navigation
+    /// (<c>CnpnVersion!.TotalYears</c>) behind a null check — a left join the provider has to see
+    /// through, and the reason they are two flat queries rather than one projection carrying both.</para>
+    /// </remarks>
+    [Fact]
+    public void The_reinscription_roll_queries_compile_to_sql()
+    {
+        using var db = TestHarness.NewNpgsqlContext();
+
+        ReinscriptionSheetPlanner.LevelCatalogueQuery(db)
+            .ToQueryString().Should().Contain("Levels");
+
+        // The identifiers the file names. `= ANY (@__codes_0)` is the shape that keeps a 6 862-row
+        // roll to a single parameter; a per-code parameter list would not survive the real file.
+        string byCode = ReinscriptionSheetPlanner
+            .StudentsByCodeQuery(db, ["24008386", "25019590"])
+            .ToQueryString();
+
+        byCode.Should().Contain("Users", "Student is a TPH discriminator on Users, not its own table");
+        byCode.Should().Contain("ANY", "the codes must ride along as one array parameter");
+
+        ReinscriptionSheetPlanner.AlreadyRegisteredQuery(db, toAcademicYearId: 22, [Guid.NewGuid()])
+            .ToQueryString().Should().Contain("Registrations");
+
+        // The final-year gate's « is he beginning this level or continuing in it » read.
+        FinalYearGuard.AlreadyRegisteredAtLevelQuery(db, [Guid.NewGuid()], levelId: 7)
+            .ToQueryString().Should().Contain("DISTINCT");
+
+        // ⚠ The two halves of « how long does his text run ». Kept apart deliberately: folded into
+        // one projection the registration's text has to be reached through a filtered navigation,
+        // which is the family of shape that killed the macro plan.
+        ReinscriptionSheetPlanner.StudentTextQuery(db, [Guid.NewGuid()])
+            .ToQueryString().Should().Contain("CnpnVersions");
+
+        // ⚠ Predicate-scoped, not id-listed: the closing year is 8 077 registrations and the
+        // absentee pass needs every one of their texts, not just those the file names.
+        ReinscriptionSheetPlanner.ClosingYearTextQuery(db, fromAcademicYearId: 21)
+            .ToQueryString().Should().Contain("CnpnVersions");
+    }
+
+    /// <summary>
+    /// The CNPN attribution pass reads every registration in the base — 49 500 of them — through two
+    /// navigations at once, to get the year it sits in and the level year it names. It is the widest
+    /// unfiltered read in the application, and it runs exactly once: on a database being rebuilt,
+    /// where a translation failure means the import finishes and nobody is stamped.
+    /// </summary>
+    [Fact]
+    public void The_cnpn_attribution_read_compiles_to_sql()
+    {
+        using var db = TestHarness.NewNpgsqlContext();
+
+        string sql = CnpnHistoryAttributor.EnrolmentsQuery(db).ToQueryString();
+
+        sql.Should().Contain("Registrations");
+        sql.Should().Contain("AcademicYears", "the year's StartDate is what entry is walked back through");
+        sql.Should().Contain("Levels", "the level year is what says whether the entry is recorded");
+    }
+
+    /// <summary>
+    /// The hold exclusion is a collection aggregate, and this is the case that says which side of the
+    /// line it falls on.
+    ///
+    /// <para>⚠ <b>A collection in a <em>predicate</em> is an <c>EXISTS</c> and translates; the same
+    /// collection in a <em>projection</em> is the shape Npgsql refuses</b> — the family that killed
+    /// the macro plan. <c>RegistrationHoldPolicy.Plannable</c> is composed into the two hottest
+    /// planning reads in the application, so if it did not compile, cohort affectation would 500 on
+    /// the first real « Générer le plan » with the whole suite green.</para>
+    /// </summary>
+    [Fact]
+    public void The_registration_hold_exclusion_compiles_to_sql()
+    {
+        using var db = TestHarness.NewNpgsqlContext();
+
+        string affectation = StudentAffectationService
+            .EligibleRegistrationsQuery(db, [1, 2], [3])
+            .ToQueryString();
+
+        affectation.Should().Contain("EXISTS", "the unreleased-hold test is an EXISTS, not a subquery projection");
+        affectation.Should().Contain("RegistrationHolds");
+
+        string texts = CohortProvisioner.GroupTextsQuery(db, [1, 2]).ToQueryString();
+
+        texts.Should().Contain("RegistrationHolds",
+            "a held registration does not decide which texts its roster follows");
+    }
+
+    /// <summary>
+    /// The address allocator's lookup. It runs on the réinscription apply, once, for a file that
+    /// names students PGSH does not hold — and if it did not compile, the roll would 500 at the
+    /// moment it is applied to a whole promotion.
+    /// </summary>
+    [Fact]
+    public void The_taken_email_lookup_compiles_to_sql()
+    {
+        using var db = TestHarness.NewNpgsqlContext();
+
+        string sql = ReinscriptionSheetPlanner.TakenEmailsQuery(db, "um5.ac.ma").ToQueryString();
+
+        sql.Should().Contain("Users");
+        sql.Should().Contain("LIKE", "the domain filter is a suffix match, pushed to the server");
+    }
+
+    /// <summary>
+    /// ⚠ The hold exclusion now filters on the <b>reason</b> as well, through a static array. EF
+    /// translates <c>Contains</c> over one into an <c>IN</c>; if it did not, every planning read
+    /// would throw on the first real request with the whole suite green.
+    /// </summary>
+    [Fact]
+    public void The_blocking_reason_filter_compiles_to_sql()
+    {
+        using var db = TestHarness.NewNpgsqlContext();
+
+        string sql = StudentAffectationService
+            .EligibleRegistrationsQuery(db, [1, 2], [3])
+            .ToQueryString();
+
+        sql.Should().Contain("EXISTS");
+        sql.Should().Contain("RegistrationHolds");
+        sql.Should().Contain("Reason", "the advisory reasons must not exclude anybody from planning");
+    }
+
+    /// <summary>
+    /// The signalements worklist. Year-scoped through the <b>registration's</b> own
+    /// <c>AcademicYearId</c> rather than through <c>RaisedOn</c> — one roll raises holds on the
+    /// closing year's registrations and creates the opening year's in the same act, so the date the
+    /// flag was written says nothing about which promotion it belongs to.
+    /// </summary>
+    [Fact]
+    public void The_registration_holds_worklist_compiles_to_sql()
+    {
+        using var db = TestHarness.NewNpgsqlContext();
+
+        string sql = GetRegistrationHoldsQueryHandler
+            .ScopedQuery(db, academicYearId: 21, reason: null, RegistrationHoldFilter.Active)
+            .ToQueryString();
+
+        sql.Should().Contain("RegistrationHolds");
+        sql.Should().Contain("Registrations", "the year is read through the registration, not off the hold");
+    }
+
+    /// <summary>
+    /// The three reads behind the cross-service occupancy report.
+    ///
+    /// <para>⚠ <c>PlacementsQuery</c> is the one worth pinning. It projects the cohort's assignment
+    /// <b>count</b> — an aggregate over a collection navigation, which translates — where a
+    /// projected collection of those assignments would be the element with no key that Npgsql
+    /// refuses. Same family as the shape that killed the macro plan, and this one runs over every
+    /// service at once.</para>
+    /// </summary>
+    [Fact]
+    public void The_occupancy_report_queries_compile_to_sql()
+    {
+        using var db = TestHarness.NewNpgsqlContext();
+
+        string placements = GetOccupancyReportQueryHandler
+            .PlacementsQuery(db, new DateOnly(2026, 9, 1), new DateOnly(2027, 8, 31))
+            .ToQueryString();
+
+        placements.Should().Contain("CohortSlotAssignments");
+        placements.Should().Contain("StageSlots", "the window is the slot's, and it is what bounds the year");
+        placements.Should().ContainEquivalentOf("count(", "the load is the cohort's affectation count");
+
+        GetOccupancyReportQueryHandler.ServicesQuery(db, hospitalId: 3)
+            .ToQueryString().Should().Contain("Services");
+
+        // The denominator of « il en utilise deux sur cinq » — a correlated count, not a collection.
+        GetOccupancyReportQueryHandler.AllowedServicesQuery(db)
+            .ToQueryString().Should().Contain("StageAllowedServices");
+    }
+}

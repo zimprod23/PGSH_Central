@@ -37,17 +37,41 @@ internal sealed class AutoArrangeGroupsCommandHandler(IApplicationDbContext dbCo
             return Result.Failure<BulkResponse<Guid, int>>(
                 LevelErrors.NotAPromotion(level.Label ?? $"niveau {request.LevelId}"));
 
-        var registrations = await dbContext.Registrations
+        // ⚠ The holds are Included, not filtered away in SQL: a held registration is not a row this
+        // handler may pretend it never saw. Cutting a promotion silently one student short is the
+        // failure mode the flag exists to remove — it looks exactly like a promotion that size — so
+        // the held ones are read, excluded from the cut, and returned as named refusals below.
+        var candidates = await dbContext.Registrations
+            .Include(r => r.Holds)
             .Where(r => r.LevelId == request.LevelId &&
                         r.AcademicYearId == request.AcademicYearId &&
                         r.AcademicGroupId == null)
             .OrderBy(r => r.Student.LastName)
             .ToListAsync(cancellationToken);
 
-        if (!registrations.Any())
+        var held = candidates.Where(RegistrationHoldPolicy.IsOnHold).ToList();
+        var registrations = candidates.Where(RegistrationHoldPolicy.IsPlannable).ToList();
+
+        // ⚠ Held rows are counted here, so « tous les étudiants restants sont signalés » is a report
+        // naming each of them rather than « aucun étudiant non affecté » — two states that call for
+        // opposite acts and that the old message collapsed into one.
+        var itemResults = held
+            .Select(r => new BulkItemResult<Guid, int>(
+                r.StudentId,
+                default,
+                HeldError(r)))
+            .ToList();
+
+        if (registrations.Count == 0)
+        {
+            if (itemResults.Count > 0)
+                return Result.Success(new BulkResponse<Guid, int>(
+                    itemResults, itemResults.Count, 0, itemResults.Count));
+
             return Result.Failure<BulkResponse<Guid, int>>(Error.NotFound(
                 "Groups.NoUnassignedStudents",
                 "No unassigned students found for the selected level and year."));
+        }
 
         // ⚠ The registration's own stamp decides the bucket; the student's is only the fallback for a
         // row the resolution never reached. A roster is built for one year, and what its members owe
@@ -88,8 +112,6 @@ internal sealed class AutoArrangeGroupsCommandHandler(IApplicationDbContext dbCo
             .GroupBy(CnpnOf)
             .OrderBy(g => g.Key ?? int.MaxValue)
             .ToList();
-
-        var itemResults = new List<BulkItemResult<Guid, int>>();
 
         foreach (var bucket in buckets)
         {
@@ -133,8 +155,22 @@ internal sealed class AutoArrangeGroupsCommandHandler(IApplicationDbContext dbCo
 
         return Result.Success(new BulkResponse<Guid, int>(
             itemResults,
-            registrations.Count,
+            candidates.Count,
             itemResults.Count(x => x.IsSuccess),
             itemResults.Count(x => !x.IsSuccess)));
+    }
+
+    /// <summary>
+    /// The refusal for one held registration, carrying the hold's own evidence. Where several stand,
+    /// the oldest is named: it is the one that has been waiting longest for a decision.
+    /// </summary>
+    private static Error HeldError(Registration registration)
+    {
+        var hold = registration.Holds
+            .Where(h => h.ReleasedOn is null)
+            .OrderBy(h => h.RaisedOn)
+            .First();
+
+        return RegistrationErrors.Held(hold.Reason, hold.Evidence);
     }
 }

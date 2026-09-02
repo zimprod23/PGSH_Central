@@ -3,6 +3,7 @@ using System.Text;
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.AcademicYears;
+using PGSH.Application.Stages.Progression;
 using PGSH.Domain.Common.Utils;
 using PGSH.Domain.Registrations;
 using PGSH.Domain.Stages;
@@ -325,10 +326,10 @@ internal sealed class DeliberationPlanner(
         Level level,
         IReadOnlyDictionary<Guid, int> finalYears,
         IReadOnlyDictionary<AcademicProgram, int> earliestFinalYear) =>
-        finalYears.TryGetValue(registration.StudentId, out int totalYears)
-            ? level.Year >= totalYears
-            : earliestFinalYear.TryGetValue(level.AcademicProgram, out int earliest)
-              && level.Year >= earliest;
+        FinalYearTest.MayBeFinal(
+            level.Year,
+            finalYears.TryGetValue(registration.StudentId, out int totalYears) ? totalYears : null,
+            earliestFinalYear.TryGetValue(level.AcademicProgram, out int earliest) ? earliest : null);
 
     private sealed class LevelTally(int levelId, string label, int year)
     {

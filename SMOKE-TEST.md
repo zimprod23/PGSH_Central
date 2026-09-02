@@ -3394,3 +3394,301 @@ autre promotion — exactement ce que `SplitAcademicGroupsPerLevel` a dû répar
 
 39. ⚠ **Si quoi que ce soit a mal tourné en partie A, restaurer le dump.** La 3ᵉ année 2026-2027 est une
     promotion entière ; la remonter à la main n'est pas une opération de rattrapage.
+
+---
+
+# §37 — Reconstruire la base, puis appliquer le fichier de réinscription (session 37)
+
+> **La partie A a été exécutée le 01/09/2026** et les chiffres ci-dessous sont ceux qu'elle a
+> réellement produits. Elle est conservée telle quelle : c'est la procédure à rejouer, et le relevé de
+> ce qu'un run correct affiche.
+
+## Partie A — la reconstruction · **exécutée 01/09/2026**
+
+Script : `rebuild.ps1`. Dump conservé : `pgsh-avant-reimport-20260901-223756.dump`.
+Ordre : migrer jusqu'à `PriorEnrolment` → importer → `--seed-curricula` → migrer le reste →
+restaurer la moitié saisie → `--stamp-cnpn`.
+
+**Ce qu'il a produit, et ce qu'il faut retrouver en le rejouant :**
+
+| contrôle | attendu |
+|---|---|
+| CNE `LEGACY-%` | **0** |
+| étudiants sans CNE | **4 695** |
+| étudiants / inscriptions | 10 203 / 43 605 |
+| périodes / évaluations | 105 626 / 87 092 |
+| étudiants rattachés à un CNPN | **10 185** (dont 2 769 par entrée déduite), **0 non résolu** |
+| inscriptions rattachées | **43 605** |
+| étudiants non rattachés | **18** — exactement les 18 sans aucune inscription |
+| jours fériés / services autorisés / règles d'effectivité / chefs | 24 / 146 / 3 / 2 |
+| rosters sans niveau | **0** |
+| inscriptions 2026-2027 | **0** — la répartition de test a disparu |
+| année courante | **2026-2027** |
+
+⚠ **Quatre pièges silencieux ont été trouvés en l'exécutant, et chacun a maintenant sa garde.** Si
+vous rejouez la partie A, ce sont les lignes à surveiller — le détail est dans `NOTES.md`
+« The rebuild, run for real ».
+
+1. **Le `DROP DATABASE` peut ne rien faire, et sortir en code 0.** PowerShell retire les guillemets
+   des arguments d'une commande native, donc `"TodoDatabase"` arrive non quoté, Postgres le replie en
+   minuscules et `IF EXISTS` en fait un simple avis. ⚠ L'étape suivante,
+   `dotnet ef database update <cible>`, réagit à une base **peuplée** en *défaisant* les migrations —
+   elle a commencé à démonter les migrations CNPN de la base vivante avant d'échouer sur une clé
+   étrangère. Rien n'a été perdu (EF encapsule chaque migration dans une transaction). Le SQL est
+   désormais dans un **fichier**, et la vacuité est **affirmée en SQL** avant de migrer.
+2. **Les textes CNPN perdent leur année d'entrée.** `CnpnVersioning` la lit dans `AcademicYears`, vide
+   quand la chaîne tourne avant l'import. ⚠ Un texte sans année d'entrée n'est pas invalide : il est
+   *conservé pour citation*, donc rien ne proteste — **10 185 étudiants sur 10 185 non résolus, 0
+   rattaché, et le passage a retourné un succès.** Corrigé par `CnpnIntakeYearsBackfill`, et
+   `--stamp-cnpn` **refuse** désormais s'il ne rattache personne.
+3. **Les noms de service ne sont pas uniques** — 25 sont partagés entre hôpitaux, « Urologie »
+   apparaît deux fois dans le même hôpital — donc une restauration par nom a transformé 146
+   `StageAllowedServices` en **178**. La restauration est maintenant par identifiant (l'import est
+   déterministe, vérifié : 148/148 services identiques) et **vérifie ses propres comptes**.
+4. **Les deux employés de démonstration n'existent pas** après une reconstruction : c'est
+   `PGSH.MigrationService` qui les crée au démarrage d'Aspire. Les affectations de chef pointaient
+   donc dans le vide et ont restauré **0 sur 2**, sans erreur.
+
+**Après la reconstruction : redémarrer la stack.** L'API tourne contre une base supprimée puis
+recréée sous elle, et il lui faut de toute façon les deux nouvelles migrations et la route
+`reinscription/sheet`.
+
+## Partie B — le fichier de réinscription 2026-2027 (20 min)
+
+> Le fichier de la faculté, pas un canevas PGSH. Une ligne par étudiant, son étape actuelle et son
+> étape de l'an prochain. ⚠ **Le silence n'y vaut décision que dans une chose** — voir l'étape 12.
+
+9. **Clôture & réinscription** → la carte **« Réinscription par fichier »**, tout en haut. Elle est
+   volontairement hors de la numérotation 1/2/3 : ce n'est pas une quatrième étape, c'est 1 et 2.
+
+10. Année de destination : **2026-2027**. Déposer `Réinscriptions 26-27 VF.xlsx`. La simulation part
+    toute seule.
+
+11. **Lire les compteurs. Attendu :**
+
+    | badge | attendu |
+    |---|---|
+    | lignes dans le fichier | **6 862** |
+    | à réinscrire en 2026-2027 | **≈ 6 813** |
+    | décisions sur 2025-2026 | **≈ 6 009** — *volontairement plus petit* |
+    | diplômés déduits | **≈ 1 218** |
+    | hors périmètre (masters) | **23** |
+    | étudiants inconnus | **26** |
+    | sans inscription source | **3** |
+    | erreurs | **0** |
+    | non couvertes | **≈ 1 267** |
+
+    ⚠ **Premier test : l'écart entre « à réinscrire » et « décisions ».** Ce sont les 804 étudiants de
+    dernière année qui se réinscrivent au même niveau : la thèse n'est pas soutenue, ce n'est pas un
+    redoublement, et enregistrer `Failed` **annulerait les stages de leur année**. L'encart mauve doit
+    l'expliquer. **Si les deux nombres sont égaux, ne pas appliquer** — la règle ne mord pas.
+
+12. ⚠ **Deuxième test : les diplômés.** L'encart bleu doit décomposer les non couvertes en
+    *diplômés / à examiner / déjà décidés*, et un second encart mauve doit annoncer les ~1 218 qui
+    seront enregistrés **« Diplômé » sans être nommés dans le fichier** — ils sont absents **et** en
+    dernière année de leur propre CNPN. **La case à cocher est obligatoire** : le bouton Appliquer
+    reste désactivé tant qu'elle ne l'est pas, et le nombre repart au serveur, qui refuse s'il a
+    bougé depuis la simulation.
+
+    La décision est enregistrée **déduite**, pas déclarée : une liste de soutenances déposée plus tard
+    par la déliberation la corrigera d'elle-même.
+
+13. **Le tableau « Absent du fichier »** doit lister **~47** étudiants absents qui ne sont *pas* en
+    dernière année, en orange. Ceux-là ne sont pas touchés : rien dans le fichier ne distingue un
+    abandon d'une exclusion. Plus le tableau « à examiner » avec les 26 inconnus et les 3 sans
+    inscription source.
+
+14. **Appliquer.** ⚠ **Compter en minutes, pas en secondes** : ~14 000 événements de domaine se
+    publient un par un après le commit. `SELECT count(*) FROM "Histories"` qui monte = ça avance.
+
+15. **Après :**
+    ```sql
+    SELECT count(*) FROM "Registrations" r
+      JOIN "AcademicYears" y ON y."Id"=r."AcademicYearId" WHERE y."Label"='2026-2027';   -- ≈ 6 813
+
+    -- les décisions déclarées, portées par le fichier
+    SELECT count(*) FROM "Registrations" r
+      JOIN "AcademicYears" y ON y."Id"=r."AcademicYearId"
+     WHERE y."Label"='2025-2026' AND r."OutcomeSource"='Declared';                        -- ≈ 6 009
+
+    -- les diplômes déduits de l'absence
+    SELECT count(*) FROM "Registrations" r
+      JOIN "AcademicYears" y ON y."Id"=r."AcademicYearId"
+     WHERE y."Label"='2025-2026' AND r."Status"='Graduated'
+       AND r."OutcomeSource"='Inferred';                                                  -- ≈ 1 218
+
+    -- ⚠ le contrôle qui compte : aucune 7ᵉ année ne doit être passée en Failed
+    SELECT count(*) FROM "Registrations" r
+      JOIN "AcademicYears" y ON y."Id"=r."AcademicYearId"
+      JOIN "Levels" l ON l."Id"=r."LevelId"
+     WHERE y."Label"='2025-2026' AND l."Year"=7 AND r."Status"='Failed';                  -- 0
+
+    -- ⚠ et aucun diplômé en dessous d'une dernière année
+    SELECT count(*) FROM "Registrations" r
+      JOIN "AcademicYears" y ON y."Id"=r."AcademicYearId"
+      JOIN "Levels" l ON l."Id"=r."LevelId"
+      LEFT JOIN "CnpnVersions" v ON v."Id" = COALESCE(r."CnpnVersionId",
+               (SELECT u."CnpnVersionId" FROM "Users" u WHERE u."Id"=r."StudentId"))
+     WHERE y."Label"='2025-2026' AND r."Status"='Graduated' AND l."Year" <> v."TotalYears";  -- 0
+    ```
+
+16. **Re-déposer le même fichier.** Tout doit basculer en **« déjà inscrit »**, 0 création, et
+    **0 diplômé** — les absents portent désormais une décision, donc ils comptent en « déjà décidés ».
+
+17. **Un refus, pour vérifier qu'il refuse.** Dupliquer une ligne dans une copie du fichier, déposer :
+    la simulation doit afficher **1 erreur rouge** « Doublon » et le bouton Appliquer doit disparaître.
+    ⚠ Vérifier ensuite que **rien n'a été écrit**.
+
+## Partie C — remise en état
+
+18. Si la partie B a mal tourné : les inscriptions de 2026-2027 se suppriment par année, mais **les
+    décisions portées sur 2025-2026 se rouvrent une par une**
+    (`POST registrations/{id}/outcome/reopen`) — diplômes déduits compris. Il n'y a pas d'annulation
+    en masse. ⚠ **À ce volume, restaurer le dump est la bonne réponse.**
+
+---
+
+## Partie D — les signalements · **exécutée 02/09/2026**
+
+> ⚠ **La partie B ci-dessus décrit le comportement d'avant le 02/09/2026.** Le fichier ne refuse plus
+> personne : les **60** qu'il ignorait sont désormais **créés et gelés**, et **les 1 267 absents sont
+> gelés eux aussi**, diplômés déduits compris. Les compteurs attendus changent en conséquence —
+> « bloqués » disparaît, « réinscrit(s) signalé(s) » et « absent(s) gelé(s) » apparaissent.
+
+19. **Avant d'appliquer** : sur la carte « Réinscription par fichier », cliquer **« Exporter le
+    rapport »**. Un .xlsx à trois feuilles doit se télécharger. ⚠ Vérifier que la feuille **Lignes**
+    contient bien **6 862** lignes et non 1 000 : l'écran plafonne, le document non — c'est la
+    raison d'être du bouton.
+
+20. Vérifier que le bouton fonctionne **aussi sur un fichier refusé** : reprendre la copie avec le
+    doublon de l'étape 17. L'export doit produire le même classeur, feuille « Lignes » en tête avec
+    les erreurs. Un refus qui ne nomme que la première ligne fautive ne répond pas à « donne-moi la
+    liste ».
+
+21. Appliquer. Puis **Académique → Signalements**. Attendu, sur 2025-2026 :
+
+    | filtre | attendu |
+    |---|---|
+    | Encore gelés, motif « Absent du fichier » | **≈ 1 267** |
+    | Encore gelés, motif « Stages antérieurs » (année 2026-2027) | **60** |
+
+    ⚠ Le sélecteur d'année de la navbar pilote la page : les 60 sont sur **2026-2027** (l'inscription
+    créée) et les 1 267 sur **2025-2026** (l'inscription qui se ferme). C'est voulu — l'année est
+    celle de *l'inscription*, pas celle du signalement.
+
+22. **Le gel doit mordre.** Prendre un étudiant gelé de 2026-2027, aller sur **Groupes** et lancer
+    l'auto-répartition de sa promotion. Attendu : il **n'est pas** rattaché à un groupe, et il est
+    **nommé** dans le compte-rendu de l'opération avec le motif. ⚠ Un découpage qui l'omet en silence
+    ressemble exactement à une promotion de cette taille-là — c'est le défaut que le signalement
+    supprime.
+
+23. **Lever un signalement.** Bouton « Lever », saisir un motif (le bouton reste désactivé sans
+    motif), valider. Attendu : la notification dit « participe de nouveau à la planification » si
+    plus rien ne le gèle, ou « il reste N signalement(s) » sinon. Relancer l'auto-répartition : il
+    doit maintenant être rattaché.
+
+24. **La ligne survit à sa levée.** Basculer le filtre sur **« Levés »** : la ligne doit y être, avec
+    le constat d'origine *et* le motif de levée. C'est la moitié du dossier qu'un audit demande.
+
+25. **Le fichier est rejouable.** Redéposer le même fichier et appliquer (en confirmant **0**
+    diplômé — ils portent déjà une décision). Attendu : aucun signalement en double sur un étudiant,
+    et le constat d'origine **inchangé** — pas réécrit.
+
+### Résultat de l'exécution du 02/09/2026
+
+Le fichier a été **appliqué** pour de bon (sauvegarde `pgsh-avant-reinscription-20260902-140434.dump`
+prise avant). Tout ce que la simulation annonçait s'est écrit, au chiffre près :
+
+| | attendu | écrit |
+|---|---|---|
+| inscriptions 2026-2027 créées | 6 813 | **6 813** |
+| décisions portées sur 2025-2026 | 6 015 + 1 217 | **7 232** |
+| « Diplômé » déduits | 1 217 | **1 217** |
+| signalements posés | 60 + 1 267 | **1 327** |
+
+**Le gel mord, mesuré sur la promotion réelle.** Découpage de la 7ᵉ année Médecine 2026-2027 :
+**65 groupes, 1 281 étudiants placés, 60 non placés — et les 60 sont exactement les signalés**
+(0 signalé placé). Après la levée d'un signalement : 1 282 placés, 59 non placés, et l'étudiante
+levée est dans « Groupe 66 ». La ligne du signalement survit à sa levée, avec le constat d'origine
+**et** le motif de levée, l'auteur horodaté.
+
+⚠ **Les 1 267 absents apparaissent « dans un groupe » et c'est normal** : ce sont leurs inscriptions
+de **2025-2026**, rattachées à un groupe depuis l'import. Le signalement empêche de construire du
+**nouveau**, il ne déloge personne rétroactivement — c'est la règle énoncée, pas une fuite. Sur
+2026-2027, aucun signalé n'est dans un groupe.
+
+### Trois défauts trouvés en exécutant cette partie — tous corrigés le jour même
+
+1. **Le découpage ne disait pas *pourquoi*.** Il annonçait « 60 étudiant(s) non assigné(s) » sans un
+   nom ni un motif, alors que le serveur envoie une erreur par étudiant portant le constat du
+   signalement. Un décompte sans raison ne vaut guère mieux que le découpage silencieux que ce
+   rapport remplace. `GroupsPage` liste désormais les motifs et renvoie vers **Signalements**.
+2. **`BulkItemResult.error` était typé `ApiError`** — l'enveloppe problem-details — alors que le
+   serveur y sérialise le `Error` du domaine (`code` / `description`). Défaut **préexistant** : la
+   conséquence est que l'erreur d'un item pouvait être testée mais jamais lue. Typé `DomainError`.
+3. **Le panneau de levée était rendu *après* le tableau.** Avec 60 lignes, cliquer « Lever » sur la
+   première ne montrait rien : le bouton passait pour cassé. ⚠ Un `Modal` Mantine a été essayé et
+   **refuse de se monter sur cette page** (la racine `mantine-Modal-root` apparaît vide) — non
+   diagnostiqué, contourné : le panneau est inline, **au-dessus** du tableau, sans portail ni
+   transition. À reprendre si un autre écran rencontre le même refus.
+
+
+---
+
+## §40 — « Charge des services », the status filter, and the student file's Stages tab (session 39)
+
+⚠ **Restart the AppHost first.** Two of the three need backend code the running process predates:
+`GET /services/occupancy-report` 404s, and `?status=` on `/students` binds to nothing — the filter
+*appears to do nothing* rather than erroring, which is the confusing failure.
+
+### A · Le filtre « décision » sur la liste des étudiants — `/admin/students`
+1. Année 2026-2027 dans la barre du haut. Ouvrir « Toutes les décisions ».
+   → Diplômée · Admise · Redoublée · Exclue · Abandon · Active · En attente. ✅ **vérifié 02/09**
+2. Choisir **Diplômée**. → Le total tombe à ~1 217 (les Diplômé déduits par le rouleau).
+   ⚠ **Le test qui compte** : basculer l'année sur **2025-2026** et regarder ce total. Les 1 217
+   verdicts sont portés par les inscriptions **2025-2026**, donc c'est là qu'ils doivent apparaître —
+   et *pas* sur 2026-2027, où les mêmes personnes sont réinscrites et « en cours ». Si les deux
+   années donnent le même nombre, le statut n'est pas résolu sur la même inscription que l'année et
+   c'est exactement le défaut que `StudentStatusFilterTests` couvre.
+3. Cliquer « Exporter (.xlsx) » avec le filtre actif. → Le titre de la feuille doit nommer la
+   décision (« … — diplômée ») et le fichier doit contenir le même nombre de lignes que la liste.
+4. Vider le filtre. → Le total revient à 6 839.
+
+### B · L'onglet « Stages » du dossier étudiant
+✅ **Vérifié 02/09 sur Houda Aamoud** (7ᵉ MED, `J137479812`) : 21 stages / 21 validés, 6ᵉ 6/6,
+5ᵉ 7/7, 4ᵉ 5/5 « COMPLET », **3ᵉ 2/6 dont quatre « JAMAIS TENTÉ »** et le bandeau vert « aucun stage
+en attente de revalidation » — la distinction que l'onglet existe pour montrer. « Septième Année
+Médecine » affiche « aucun stage n'est inscrit au catalogue de ce niveau », ce qui est exact (7MED a
+0 stage). L'axe année par année affiche dates, rotations, notes et groupes.
+
+Ce qui **reste** à conduire :
+1. Un étudiant qui **doit** vraiment un stage (toutes tentatives `NonValidé`). → Bandeau rouge,
+   badges par stage, bouton « Ouvrir une revalidation ». Le bandeau doit rappeler qu'il peut
+   *poursuivre* sa dernière année, seulement pas la *commencer*.
+2. Un **redoublant** dont une tentative a été validée dans une année ensuite redoublée. → Badge
+   barré, gris, contour — et l'infobulle « l'année a été redoublée, donc cette tentative n'établit
+   rien ». C'est la ligne qu'on ne doit jamais lire comme un « validé » ordinaire.
+3. Un **rattrapage** : stage d'un niveau antérieur servi sur l'inscription courante. → Dans « Par
+   promotion » il figure sous **son** niveau ; dans « Année par année » il porte le badge violet du
+   niveau du stage.
+
+### C · La charge des services — `/admin/charge-services`
+⚠ **Attendu aujourd'hui : un rapport vide, et c'est le cas à vérifier en premier.** La base ne
+contient **0 créneau et 0 cellule sur les 22 années**.
+1. Ouvrir la page. → Le document doit dire, en toutes lettres, qu'aucune cellule n'existe et
+   qu'il faut passer par « Bloc de rotation » — **pas** afficher « 0 étudiant » comme si les services
+   étaient vides. Les graphiques et la bande annuelle doivent être **absents**, pas vides.
+2. La note sur la capacité uniforme (20) doit apparaître : tous les services portent la valeur par
+   défaut de l'import.
+3. « Télécharger (.html) » → ouvrir le fichier **hors de l'application**. Il doit être complet et
+   autonome : titre, portée, notes, tableaux, sans rien à charger. « Imprimer / PDF » ouvre un onglet
+   qui s'imprime seul.
+4. **Après avoir posé un axe et réparti** (c'est la vraie recette) :
+   - Le graphe mensuel montre le **pic** du mois, pas une moyenne.
+   - La bande annuelle place chaque intervalle à ses vraies dates ; lire une colonne verticale donne
+     les services pleins la même quinzaine.
+   - Filtrer sur une promotion : ⚠ **le pic d'un service partagé ne doit pas bouger** — seule la
+     part attribuée change. Un service au-dessus de sa limite reste au-dessus.
+   - « Services saturés uniquement » ne doit laisser que des lignes à jours > 0.
+   - Un stage dont tous les groupes tombent dans un seul service doit apparaître avec
+     **inutilisés > 0**, et les services vides comptés dans « jamais utilisés ».

@@ -15,7 +15,7 @@ public record StudentResponse(
     DateOnly? DateOfBirth,
     string? PlaceOfBirth,
     string? FullAddress,
-    string CNE,
+    string? CNE,
     string Appogee,
     string AcademicProgram,
     string BacSeries,

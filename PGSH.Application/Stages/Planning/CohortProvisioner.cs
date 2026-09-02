@@ -1,5 +1,6 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
+using PGSH.Domain.Registrations;
 using PGSH.Domain.Stages;
 using PGSH.SharedKernel;
 
@@ -189,6 +190,14 @@ internal sealed class CohortProvisioner(IApplicationDbContext dbContext)
             .Where(r => r.AcademicGroupId != null
                      && groupIds.Contains(r.AcademicGroupId.Value)
                      && (r.CnpnVersionId != null || r.Student.CnpnVersionId != null))
+            // ⚠ A held registration does not decide which texts its roster follows. It is excluded
+            // from the roster cut and from cohort affectation, so counting its CNPN here would
+            // provision the group a cohorte for a text nobody in it is going to be planned under —
+            // and a frozen student is frozen precisely because nobody has established what he owes.
+            // Chained as its own Where so the *shared* expression runs rather than a third
+            // hand-written copy; EF folds the two into one SQL WHERE, and in a predicate the
+            // collection aggregate is an EXISTS, which translates.
+            .Where(RegistrationHoldPolicy.Plannable)
             .Select(r => new GroupText(
                 r.AcademicGroupId!.Value,
                 r.CnpnVersionId ?? r.Student.CnpnVersionId!.Value))

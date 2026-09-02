@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Authorization;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
@@ -60,7 +60,7 @@ internal sealed class GetStudentsExportQueryHandler(
 
         var query = RegistrationsQuery(
             dbContext, yearId, request.LevelId, request.Program,
-            request.AcademicGroupId, request.SearchTerm);
+            request.AcademicGroupId, request.Status, request.SearchTerm);
 
         int rowCount = await query.CountAsync(cancellationToken);
         if (rowCount > MaxRows)
@@ -71,6 +71,11 @@ internal sealed class GetStudentsExportQueryHandler(
 
         string scope = levelLabel
             ?? (request.Program is { } program ? ExportLabels.Program(program) : "toutes promotions");
+
+        // The verdict is part of the scope, not a hidden narrowing: a file of 1 217 rows captioned
+        // « toutes promotions » is unreadable three months later as a list of *graduates*.
+        if (request.Status is { } wantedStatus)
+            scope += $" — {ExportLabels.RegistrationStatus(wantedStatus).ToLowerInvariant()}";
 
         var cells = rows.Select(ToCells).ToList();
 
@@ -194,6 +199,7 @@ internal sealed class GetStudentsExportQueryHandler(
         int? levelId,
         AcademicProgram? program,
         int? academicGroupId,
+        RegistrationStatus? status,
         string? searchTerm)
     {
         IQueryable<Registration> query = dbContext.Registrations
@@ -209,6 +215,11 @@ internal sealed class GetStudentsExportQueryHandler(
         if (academicGroupId is { } groupId)
             query = query.Where(r => r.AcademicGroupId == groupId);
 
+        // Already one predicate on one registration row — the file *is* a list of registrations —
+        // so the trap `GetStudentsQueryHandler` has to work around does not arise here.
+        if (status is { } wantedStatus)
+            query = query.Where(r => r.Status == wantedStatus);
+
         if (!string.IsNullOrWhiteSpace(searchTerm))
         {
             // Same shape as every other search handler: trimmed, lowered on *both* sides, and
@@ -217,7 +228,7 @@ internal sealed class GetStudentsExportQueryHandler(
             query = query.Where(r =>
                 r.Student.FirstName.ToLower().Contains(term) ||
                 r.Student.LastName.ToLower().Contains(term) ||
-                r.Student.CNE.ToLower().Contains(term) ||
+                (r.Student.CNE ?? "").ToLower().Contains(term) ||
                 r.Student.Appogee.ToLower().Contains(term) ||
                 (r.Student.CIN != null && r.Student.CIN.ToLower().Contains(term)));
         }
@@ -256,7 +267,7 @@ internal sealed class GetStudentsExportQueryHandler(
 internal sealed record StudentExportRow(
     string LastName,
     string FirstName,
-    string Cne,
+    string? Cne,
     string Appogee,
     string? Cin,
     Gender Gender,

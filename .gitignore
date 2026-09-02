@@ -61,3 +61,9 @@ Thumbs.db
 *.accdb
 *.ldb
 *.laccdb
+
+# Faculty spreadsheets — réinscription rolls, déliberation PVs, intake lists. Same reason as the
+# Access base above: they name real students (nom, prénom, numéro Apogée) and are working inputs,
+# not source. Keep them beside the repository, not inside it.
+*.xlsx
+*.xls

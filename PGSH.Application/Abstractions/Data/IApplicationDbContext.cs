@@ -32,6 +32,7 @@ public interface IApplicationDbContext
     DbSet<AcademicYear> AcademicYears { get; set; }
     DbSet<AcademicGroup> AcademicGroups { get; set; }
     DbSet<FinalYearEntryWaiver> FinalYearEntryWaivers { get; set; }
+    DbSet<RegistrationHold> RegistrationHolds { get; set; }
     DbSet<PriorEnrolment> PriorEnrolments { get; set; }
     DbSet<Cohort> Cohorts { get; set; }
     DbSet<CnpnVersion> CnpnVersions { get; set; }

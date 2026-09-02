@@ -464,13 +464,19 @@ public class InscriptionTests
     }
 
     /// <summary>
-    /// <c>Students.CNE</c> is NOT NULL UNIQUE and an international student legitimately has none —
-    /// the legacy import hit the same wall on 4 693 of 10 203 rows.
+    /// An international student legitimately has no CNE, and <c>Student.CNE</c> is optional, so the
+    /// row is stored without one.
     /// </summary>
+    /// <remarks>
+    /// ⚠ It used to be manufactured as <c>SANS-CNE-{Apogée}</c>, exactly as the legacy import wrote
+    /// <c>LEGACY-{NO_ORDRE}</c> for 4 693 of its 10 203 rows. Both produced a value that reads, in
+    /// every list, every export and every identifier-matching import, like a national code somebody
+    /// holds — while the numéro Apogée was already identifying the student perfectly well.
+    /// </remarks>
     [Fact]
-    public async Task A_row_identified_only_by_its_apogee_number_gets_a_provisional_cne()
+    public async Task A_row_identified_only_by_its_apogee_number_is_stored_with_no_cne()
     {
-        await using var db = TestHarness.NewContext(nameof(A_row_identified_only_by_its_apogee_number_gets_a_provisional_cne));
+        await using var db = TestHarness.NewContext(nameof(A_row_identified_only_by_its_apogee_number_is_stored_with_no_cne));
         SeedPromotions(db);
         await db.SaveChangesAsync();
 
@@ -480,7 +486,31 @@ public class InscriptionTests
         applied.IsSuccess.Should().BeTrue();
 
         var student = await db.Students.SingleAsync(s => s.Appogee == "AP99001");
-        student.CNE.Should().Be("SANS-CNE-AP99001");
+        student.CNE.Should().BeNull("absence is recorded as absence, never as a code");
+    }
+
+    /// <summary>
+    /// The control on the rule above: two students without a CNE do not collide.
+    /// <c>IX_Student_CNE</c> is filtered on <c>IS NOT NULL</c>, and an absent identifier is unique
+    /// against nothing.
+    /// </summary>
+    [Fact]
+    public async Task Two_rows_without_a_cne_both_go_through()
+    {
+        await using var db = TestHarness.NewContext(nameof(Two_rows_without_a_cne_both_go_through));
+        SeedPromotions(db);
+        await db.SaveChangesAsync();
+
+        var rows = new[]
+        {
+            Row(2, null!, "Ines", "Berrada", appogee: "AP99001"),
+            Row(3, null!, "Omar", "Tazi", appogee: "AP99002"),
+        };
+
+        var applied = await ApplyHandler(db).Handle(Apply(rows, confirmed: 2), default);
+
+        applied.IsSuccess.Should().BeTrue();
+        (await db.Students.CountAsync(s => s.CNE == null)).Should().Be(2);
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -773,44 +803,49 @@ public class InscriptionTests
     // ---------------------------------------------------------------------------------------------
 
     /// <summary>
-    /// ⚠ A validator describes what a <b>save</b> must satisfy. <c>SANS-CNE-</c> costs 9 of the 20
-    /// characters <c>StudentIdentifierRules.CnePattern</c> allows, so a long Apogée would create a
-    /// student whose file could never be saved again — the refusal naming a field nobody was editing.
-    /// That is how 5 646 students became read-only once already.
+    /// ⚠ A validator describes what a <b>save</b> must satisfy, so an identifier PGSH manufactures
+    /// has to be one the edit form would accept — otherwise the student's file can never be saved
+    /// again, and the refusal names a field nobody was editing. That is how 5 646 students became
+    /// read-only once already.
+    ///
+    /// <para>Only the numéro Apogée is still derived — from the CNE, when the faculty has not
+    /// allocated one yet. The CNE half went with the column's required-ness, so what is left to
+    /// assert is the length ceiling: <c>SANS-APOGEE-</c> costs 12 of the 50 characters
+    /// <c>Students.Appogee</c> allows.</para>
     /// </summary>
     [Fact]
-    public async Task A_provisional_cne_that_the_edit_form_could_not_save_is_refused_at_creation()
+    public async Task A_provisional_apogee_the_edit_form_could_not_save_is_refused_at_creation()
     {
-        await using var db = TestHarness.NewContext(nameof(A_provisional_cne_that_the_edit_form_could_not_save_is_refused_at_creation));
+        await using var db = TestHarness.NewContext(nameof(A_provisional_apogee_the_edit_form_could_not_save_is_refused_at_creation));
         SeedPromotions(db);
         await db.SaveChangesAsync();
 
-        var rows = new[] { Row(2, null!, "Ines", "Berrada", appogee: "AP-000000000000001") };
+        var rows = new[] { Row(2, new string('X', StudentIdentifierRules.MaxAppogeeLength), "Ines", "Berrada") };
 
         var preview = await PreviewHandler(db).Handle(
             new PreviewInscriptionQuery(rows, FirstYearLevelId), default);
 
         preview.Value.Rows.Single().Action.Should().Be(InscriptionAction.InvalidValue);
-        preview.Value.Rows.Single().Message.Should().Contain("CNE");
+        preview.Value.Rows.Single().Message.Should().Contain("Apogée");
         preview.Value.CanApply.Should().BeFalse();
     }
 
-    /// <summary>The control: a real Apogée fits, and the provisional code is saveable.</summary>
+    /// <summary>The control: an ordinary CNE fits, and the provisional Apogée is saveable.</summary>
     [Fact]
-    public async Task A_provisional_cne_from_an_ordinary_apogee_number_is_a_valid_identifier()
+    public async Task A_provisional_apogee_from_an_ordinary_cne_is_a_valid_identifier()
     {
-        await using var db = TestHarness.NewContext(nameof(A_provisional_cne_from_an_ordinary_apogee_number_is_a_valid_identifier));
+        await using var db = TestHarness.NewContext(nameof(A_provisional_apogee_from_an_ordinary_cne_is_a_valid_identifier));
         SeedPromotions(db);
         await db.SaveChangesAsync();
 
-        var rows = new[] { Row(2, null!, "Ines", "Berrada", appogee: "10001373") };
+        var rows = new[] { Row(2, "R130012345", "Ines", "Berrada") };
 
         var applied = await ApplyHandler(db).Handle(Apply(rows, confirmed: 1), default);
         applied.IsSuccess.Should().BeTrue();
 
-        var student = await db.Students.SingleAsync(s => s.Appogee == "10001373");
-        student.CNE.Should().Be("SANS-CNE-10001373");
-        StudentIdentifierRules.IsValidCne(student.CNE).Should().BeTrue();
+        var student = await db.Students.SingleAsync(s => s.CNE == "R130012345");
+        student.Appogee.Should().Be("SANS-APOGEE-R130012345");
+        student.Appogee!.Length.Should().BeLessThanOrEqualTo(StudentIdentifierRules.MaxAppogeeLength);
     }
 
     /// <summary>

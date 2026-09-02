@@ -221,6 +221,15 @@ Order matters: the rotation cycle reads the partition labels, so they must exist
   them the plan refuses with `Schedule.NoAllowedServices`. The 6th year's 51 were authored 2026-08-24
   and it has been planned end to end since (see §9).
 - **The navbar year is the year you mean.** There is one year selector and it scopes everything.
+- ⚠ **No student is signalé** — *Académique → **Signalements***. A held registration is deliberately
+  invisible to planning: it is cut into no roster, given no cohorte and published no période. The
+  réinscription roll of 2026-2027 raises ~1 449 of them in one act (1 267 absentees plus 182 final-year
+  debts), so on a freshly rolled-over year this is the first thing to clear, not the last.
+  - The roster cut **names** the students it left out rather than dropping them silently — a cut one
+    student short otherwise looks exactly like a promotion that size.
+  - They come off one at a time, with a motif. There is no bulk release, and that is the point: each
+    is a different question — is the évaluation keyed in, did this student really defend, is he
+    simply coming back late.
 
 ### 1 · Cut the promotion into partitions
 

@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 
 namespace PGSH.Application.Stages.Planning;
@@ -24,21 +24,66 @@ internal sealed record OccupancyEntry(
 /// </summary>
 internal sealed class ServiceOccupancyLookup(IReadOnlyList<OccupancyEntry> entries)
 {
-    /// <summary>Total students on <paramref name="serviceId"/> whose slot window overlaps [start, end], across all stages.</summary>
+    /// <summary>
+    /// The most students on <paramref name="serviceId"/> at any one moment inside [start, end],
+    /// across all stages.
+    /// </summary>
+    /// <remarks>
+    /// <para>⚠ <b>The peak inside the window, never the sum of everything that touches it.</b> This
+    /// summed, and two cells that each overlap the window <i>without overlapping each other</i> were
+    /// added together. Measured on the live plan 2026-09-03: asked for Pharmacie Clinique 1's P2
+    /// (06/10 → 03/11) on Pédiatrie2, it returned <b>118</b> — 56 from 4ᵉ année Pédiatrie P1
+    /// (07/09 → <b>06/10</b>), 56 from its P2 (<b>07/10</b> → 06/11) and 6 from the pharmaciens. The
+    /// two Pédiatrie columns are consecutive and never coexist; the service holds <b>62</b> on every
+    /// single day of that window.</para>
+    ///
+    /// <para>It is the readable kind of wrong: the number is plausible, and it appears in three
+    /// places at once — the planning grid's saturation, <c>RotationArranger</c>'s balance, and
+    /// <c>SchedulePublisher</c>'s pre-publish guard. So publication was refused over loads that never
+    /// occur. The per-service page and the charge report were right throughout, because they go
+    /// through <c>OccupancyTimeline</c>, which cuts at boundaries — this now does the same
+    /// arithmetic, so the four can no longer disagree.</para>
+    ///
+    /// <para>⚠ This makes the guard <b>less</b> strict, and correctly so. It never made it miss a real
+    /// breach: a genuine simultaneous overload is still a moment at which the sum exceeds the
+    /// ceiling, and that moment is one of the candidates evaluated below.</para>
+    /// </remarks>
     public int LoadOn(int serviceId, DateOnly start, DateOnly end) =>
-        entries
-            .Where(e => e.ServiceId == serviceId && e.Start <= end && start <= e.End)
-            .Sum(e => e.Students);
+        PeakWithin(entries.Where(e => e.ServiceId == serviceId), start, end);
 
     /// <summary>
-    /// The share of that load belonging to one level — what a per-level quota is measured against.
+    /// The share of that peak belonging to one level — what a per-level quota is measured against.
     /// A service holding 10 first-years and 15 third-years is at 25 against its ceiling but at 10
     /// against the first-year quota.
     /// </summary>
     public int LoadOn(int serviceId, int levelId, DateOnly start, DateOnly end) =>
-        entries
-            .Where(e => e.ServiceId == serviceId && e.LevelId == levelId && e.Start <= end && start <= e.End)
-            .Sum(e => e.Students);
+        PeakWithin(entries.Where(e => e.ServiceId == serviceId && e.LevelId == levelId), start, end);
+
+    /// <summary>
+    /// Sweeps the window and returns the highest simultaneous load in it.
+    /// </summary>
+    /// <remarks>
+    /// The load is a step function that only ever rises when a window opens, so the maximum inside
+    /// [start, end] is reached either on <paramref name="start"/> itself or on the first day of some
+    /// entry that begins inside it. Evaluating those candidates is exact — no sampling, and no need
+    /// to walk a day at a time.
+    /// </remarks>
+    private static int PeakWithin(IEnumerable<OccupancyEntry> scoped, DateOnly start, DateOnly end)
+    {
+        var overlapping = scoped.Where(e => e.Start <= end && start <= e.End).ToList();
+
+        if (overlapping.Count == 0)
+            return 0;
+
+        var candidates = overlapping
+            .Select(e => e.Start)
+            .Where(day => day > start && day <= end)
+            .Append(start)
+            .Distinct();
+
+        return candidates.Max(day =>
+            overlapping.Where(e => e.Start <= day && day <= e.End).Sum(e => e.Students));
+    }
 
     /// <summary>The levels actually present on a service over a window, for reporting which quota broke.</summary>
     public IReadOnlyList<int> LevelsOn(int serviceId, DateOnly start, DateOnly end) =>

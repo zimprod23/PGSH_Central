@@ -103,7 +103,7 @@ internal sealed class GetMyServicePeriodsQueryHandler(
             query = query.Where(p =>
                 (p.InternshipAssignment.Registration.Student.FirstName ?? "").ToLower().Contains(term) ||
                 (p.InternshipAssignment.Registration.Student.LastName ?? "").ToLower().Contains(term) ||
-                p.InternshipAssignment.Registration.Student.CNE.ToLower().Contains(term) ||
+                (p.InternshipAssignment.Registration.Student.CNE ?? "").ToLower().Contains(term) ||
                 p.InternshipAssignment.Registration.Student.Appogee.ToLower().Contains(term));
         }
 
@@ -334,7 +334,7 @@ internal sealed class GetMyServicePeriodsQueryHandler(
         Guid Id,
         Guid InternshipAssignmentId,
         string FullName,
-        string Cne,
+        string? Cne,
         string Appogee,
         int ServiceId,
         string ServiceName,

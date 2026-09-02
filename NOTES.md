@@ -1435,6 +1435,290 @@ the background; asserting that something *appeared* is not.
 
 ---
 
+## The faculty's own canvas, measured before a line was written (2026-09-01, session 34)
+
+The three acts of the year were built against canvases PGSH generates. For 2026-2027 the faculty sent
+its own: **`Réinscriptions 26-27 VF.xlsx`**, five columns —
+`Code · NOM · PRENOM · Etape 25-26 · Etape 2026/2027`.
+
+Everything below was measured against `Medecine.mdb` and the live base *before* deciding anything,
+because the whole design turns on whether the file can be trusted to agree with what PGSH holds.
+
+| | |
+|---|---|
+| rows | 6 862 |
+| distinct `Code` values | 6 862 — **no duplicate** |
+| `Code` shape | integer in every row; `Code` = `NO_ORDRE` = `Students.Appogee` |
+| codes matching a student | **6 813** |
+| …of the 49 that do not, masters (`MMBTM`) | 23 |
+| …genuinely unknown students | 26 |
+| rows whose from-étape **disagrees** with the registration on record | **0** of 6 810 checkable |
+| students in `ETUDIANT` with no 2025-2026 `Inscription` | 3 |
+| 2025-2026 registrations the file never mentions | 1 216 |
+
+**The zero is the load-bearing number.** It is what makes « the file says one étape, the registration
+says another » safe to treat as a **refusal of the whole file** rather than as a skip: on the real
+document it costs nothing, and a verdict written onto the wrong registration cannot be walked back.
+
+### The 1 216 the file does not name
+
+Not an omission — they are the students who are not coming back. 999 are 7ᵉ année Médecine and 211 are
+6ᵉ année Pharmacie, i.e. the thesis years, i.e. where the graduates are. PGSH cannot tell a graduate
+from an exclusion from an abandon, so nothing is written for them.
+
+⚠ **This inverts the déliberation canvas and the two must never be confused.** That one is a list of
+*exceptions*: a student it does not name is admis. This one is the roll of who *is* re-registering: a
+student it does not name is not. Same file format family, opposite reading of silence.
+
+### 804 rows where the level does not move and it is not a failure
+
+`MED07 → MED07` (659) and `MDPH06 → MDPH06` (145). The thesis year runs until the thesis is defended —
+already measured in session 24: **855 of the 1 657 students in 7ᵉ année Médecine had been there
+before, 132 of them four times.** Reading those lines as « redoublant » would be wrong twice over:
+
+1. it is not a failure; and
+2. `RegistrationStatus.AnnulsItsStages` treats `Failed` as annulling the year's stages, so it would
+   have **wiped a year of stage record for 804 students who did nothing wrong**.
+
+The rule that stands aside is `FinalYearTest`, lifted out of `DeliberationPlanner` so the two acts ask
+it once. Two copies would disagree about exactly these 804 people.
+
+### Two level codes that exist in no legacy row
+
+`MDME3` and `MPHAR3`. The faculty renames its codes one promotion at a time as each cohort moves up,
+so in 2026-2027 the third year is `MED03` for the students repeating it and `MDME3` for the ones
+arriving — the same `Level` under two names, which is why the mapping is a table and not a column.
+Confirmed against `Niveaux`: `MDME1` reads « 1ère année Médecine » and `MPHAR1` « 1ère année
+Pharmacie », so the `MDME`/`MPHAR` families are the rename, not a new programme.
+
+---
+
+## `LEGACY-` was never an identifier, and the column was never required (2026-09-01, session 34)
+
+Phase 16.1 said to leave the CNE null. Two things measured while doing it were not in the plan.
+
+**The column was already nullable.** `Users` is a TPH table and an `Employee` has no CNE, so
+PostgreSQL had always accepted a null there; the requirement lived only in EF's model and in the
+validators. What the database really enforced was `IX_Student_CNE`, unique and **unfiltered** — and
+Postgres treats NULLs as distinct, so that index already tolerated any number of students without a
+code. The filter added with the change states the intent and keeps 4 695 unmatchable rows out of the
+index; it does not change the rule.
+
+**Phase 16.2 is answered, and the answer is no.** The open question was whether some source rows carry
+an appogée *in* the CNE column. Measured over the 5 508 usable CNEs in `Medecine.mdb`:
+
+| | count |
+|---|---|
+| CNE identical to the row's own `NO_ORDRE` | **0** |
+| CNE equal to *another* row's `NO_ORDRE` | **0** |
+| CNE of exactly eight digits (the `NO_ORDRE` shape) | **1** |
+
+Shapes: 4 561 letter + digits, 835 digits-only of other lengths, 104 alphanumeric, 4 with
+punctuation, 3 with an internal space. So the 835 digits-only codes are not appogées — not one matches
+any `NO_ORDRE`. Nothing to move, nothing to blank.
+
+### A third instance of the read-only-validator defect
+
+`UpdateStudentCommandValidator` required `int.TryParse` on the Apogée. `InscriptionPlanner` derives
+`SANS-APOGEE-{cne}` when the faculty has not allocated one yet, which is not a number and never will
+be — so **every student the inscription import created that way was read-only the day somebody opened
+his file**, the refusal naming a field nobody was editing. After the CNE regex (5 646 students) and
+`Objectives.NotEmpty()` (the whole stage catalogue), this is the third. The pattern to watch for is a
+validator asserting a *shape* rather than what the column actually requires.
+
+### And a nullability trap the in-memory suite gets backwards
+
+`null == null` is **true** in LINQ-to-Objects and **NULL — i.e. false** — in SQL. So an unguarded
+uniqueness check on an optional identifier (`s.CNE == request.CNE`) reports a phantom « CNE déjà
+utilisé » against the next student without one *in the test suite*, and passes silently on PostgreSQL.
+The guard is on the request value being present, which is what the filtered index says too. Same
+family as the `Include`/in-memory-fixup blind spot: the provider disagreeing with the store in the
+direction that hides the real behaviour.
+
+---
+
+## Rebuilding the base: one loud failure and one silent one (2026-09-01, session 34)
+
+`drop → dotnet ef database update → import` does not work, and only the first problem announces
+itself.
+
+**Loud.** `Cnpn1650Med3Stages`, `Cnpn1650ImmersionStages` and `Cnpn1650Med3CatalogueAlignment` open
+with `RAISE EXCEPTION 'Aucun niveau « 3ᵉ année Médecine » : le catalogue des niveaux doit exister
+avant les stages.'` — they need the `Levels` and `Stages` the *import* creates, so they have to run
+**after** it.
+
+**Silent, and worse.** The CNPN attribution — students stamped from their deduced entry, registrations
+backfilled from that stamp — was written as two one-off `UPDATE`s inside `CnpnVersioning` and
+`RegistrationCnpnAndLevelEffectivity`. Both assume data is already there. Run before the import they
+stamp nobody and are then recorded as applied, so nothing will ever run them again. The base ends with
+**10 200 students and 49 500 registrations carrying a null text**, and every reader falls back on null
+*gracefully* — which is precisely why nothing complains:
+
+- the déliberation's « est-ce sa dernière année ? » has no `TotalYears` to read, so nobody is left
+  undecided and silence promotes everyone, including the thesis years;
+- `FinalYearGuard` stands aside for the entire faculty;
+- `CohortProvisioner` stands aside where no requirement set is recorded, so a promotion plans as if it
+  owed no stage.
+
+Closed by `CnpnHistoryAttributor` + `PGSH.LegacyImport --stamp-cnpn`, which reuses
+`EntryYearDeduction` and `CnpnAssignment` rather than restating the rule in SQL.
+
+### What the Access file cannot give back
+
+Measured on the live base before the rebuild. None of it is test residue:
+
+| | count | why |
+|---|---|---|
+| `Holidays` | 24 | Aïd, Moharram and Mawlid follow the Hijri calendar and are announced by decree — **cannot be generated, only entered** |
+| `StageAllowedServices` | 146 | authored per stage; the source has no such column |
+| `CnpnLevelEffectivities` | 3 | authored, and they decide the text of every registration created at that level afterwards |
+| `ServiceChefAssignment` | 2 | the only *dated* chef evidence; 140 of 148 services carry an undated legacy note |
+| `AcademicYears` → 2026-2027 | 1 | the Access base stops at 2025/2026 |
+
+⚠ **Dump it on natural keys, never on ids.** The import regenerates every surrogate key, so an
+id-keyed restore lands rows on the wrong rows — which is not a failure that announces itself either.
+And restore 2026-2027 *first*: one effectivity rule takes effect from it, and
+`IX_AcademicYear_IsCurrent` is unique and filtered, so demoting and promoting are two statements in
+that order rather than one `UPDATE`.
+
+---
+
+## The rebuild, run for real: four silent traps, and the one that was loud (2026-09-01, session 37)
+
+Executed against the live base. The dump is `pgsh-avant-reimport-20260901-223756.dump`.
+
+**Loud, and the only one that announced itself.** The three CNPN data migrations `RAISE EXCEPTION`
+against an empty base. Expected, documented, handled by the ordering.
+
+**Silent #1 — the drop that did nothing.** `psql -c 'DROP DATABASE IF EXISTS "TodoDatabase";'` from
+PowerShell. **PowerShell strips double quotes from native-command arguments**, so Postgres received an
+unquoted identifier, folded it to lowercase `tododatabase`, found no such database, and `IF EXISTS`
+downgraded it to a NOTICE — **exit code 0**. `CREATE DATABASE TodoDatabase` then created a *lowercase*
+database, and the rebuild carried on believing it had an empty one.
+
+⚠ **What that turned into is the part worth remembering.** The next step was
+`dotnet ef database update <target>`, which reacts to a *populated* database by rolling migrations
+**back**. It began undoing the CNPN migrations and failed on an FK
+(`FK_CurriculumStages_Stages_StageId`). Nothing was lost — EF wraps each migration in a transaction —
+but a destructive step with a silent no-op turned the next step into an unintended downgrade of the
+live base. Closed by putting the SQL in a **file** (no quoting layer) and by asserting emptiness in
+SQL before migrating, so psql exits non-zero and the script stops on its own.
+
+**Silent #2 — every CNPN text came out citation-only.** `CnpnVersioning` reads
+`AppliesToEntrantsFromAcademicYearId` out of `AcademicYears`, which is empty when the migration chain
+runs before the import, so all four texts stored NULL. ⚠ **A text with no intake year is not
+malformed** — arrêté 2175.22 legitimately is one — so nothing threw and
+`CnpnAssignment.SelectVersionAsync` simply found no candidate for anybody:
+**10 185 of 10 185 students unresolved, 0 stamped, and the pass returned success.** Closed twice:
+`CnpnIntakeYearsBackfill` fills the three that should have one (never 2175.22), and
+`CnpnHistoryAttributor` refuses when it can place nobody — one unplaceable student is a fact about
+him, the whole population is a broken catalogue, and the two must not read the same.
+
+**Silent #3 — service names are not unique.** The first restore keyed `StageAllowedServices` on
+`JOIN Services ON Name = …`, following the rule « never key a restore on ids, the import regenerates
+them ». **25 service names are shared across hospitals** — « Pharmacie » exists in 9 — and
+« Urologie » appears **twice inside one hospital**, so 146 rows fanned out into **178**. `Service`
+carries no external identifier at all: the importer keys it on the Access `CodeS` and does not
+persist it.
+
+⚠ The fix inverts the rule, on evidence rather than taste. **The import is deterministic**, verified
+by restoring the pre-rebuild dump beside the rebuilt base and joining on `Id`: **148/148 services
+identical, 0 stages and 0 levels differing.** So the restore uses ids — and **asserts its own counts
+in SQL**, which is what a silent fan-out needs and what its absence cost.
+
+**Silent #4 — the chef tenures restored 0 of 2.** They point at the two seeded employees, which
+`PGSH.MigrationService` creates at Aspire startup — and a rebuild never runs it. No error; the
+`JOIN Users ON Email = …` simply matched nothing.
+
+### What the corrected run produced
+
+| | |
+|---|---|
+| students / registrations | 10 203 / 43 605 |
+| périodes / évaluations | 105 626 / 87 092 |
+| CNE `LEGACY-%` | **0** · with no CNE: 4 695 |
+| students stamped | **10 185** (2 769 from a deduced entry), 0 unresolved |
+| registrations backfilled | **43 605** |
+| students unstamped | 18 — exactly the 18 the import reports as having **no registration at all** |
+| holidays / allowed services / effectivity rules / chef tenures | 24 / 146 / 3 / 2 |
+| 2026-2027 registrations | **0** — the test rollover is gone |
+
+---
+
+## The roll's silence, and the one thing it does decide (2026-09-01, session 37)
+
+Absence from the réinscription roll is not a verdict — except in a student's last year, where it is a
+defence. Measured on the 2026-2027 file, absent from it by level:
+
+| | absent | of |
+|---|---|---|
+| 7ᵉ année Médecine | **1 006** | 1 657 |
+| 6ᵉ année Pharmacie | **212** | 356 |
+| Médecine 1-4 + Pharmacie 1-2 | **47** | — |
+| Retrait / Interne CHU | 2 | — |
+
+The split is clean, which is what makes the rule safe: **1 218 absentees are in a final year** and are
+recorded « Diplômé »; the 47 below one are not, and nothing in the file distinguishes an abandon from
+an exclusion from a réinscription that has not arrived. They are named, not decided.
+
+- **`Inferred`, never `Declared`** — nobody named them on a document. It also makes the correction
+  free: a defence roll is `Declared`, `Declared` overwrites `Inferred`, the reverse is refused.
+- ⚠ **Stricter than the déliberation's own « Diplômé » check, deliberately.** `IsExactlyFinal`
+  compares with `==` (keeping out the 6 registrations sitting *above* their text's span) and refuses
+  to answer without a text, where the déliberation stands aside. The difference is who spoke: the
+  faculty naming a student may override PGSH's ignorance; an absence may not.
+- ⚠ **It brought back the confirmation number I had argued was unnecessary.** The act needed none
+  while every write landed on a student the file names. A graduation lands on one it does not.
+
+---
+
+## The final year is not a year you pass — and the gate was refusing the people it is for (2026-09-02)
+
+**Told by the user, then measured.** The final year (7ᵉ Médecine under 2174.18, 6ᵉ under 1650.25, 6ᵉ
+Pharmacie) works unlike every other year:
+
+- **There is no déliberation for it.** The student cannot fail the year.
+- He validates and revalidates his stages **one at a time**, and **never redoes one already
+  validated**.
+- He is **re-registered every September** until they are all acquired.
+- Once the stages are done he sits the **examens cliniques**, which open immediately — and if he fails
+  them he is re-registered again, stages complete or not.
+
+So a final-year student who still owes a stage is not an anomaly: he is the ordinary case, and the
+re-registration is *how he gets to clear it*.
+
+### What that broke
+
+`FinalYearGuard` reads « on ne commence pas la dernière année tant que tout ce qui précède n'est pas
+validé » — and was applying it to anyone *registered into* a final year, not to anyone *beginning*
+one. Measured against the faculty's 2026-2027 roll:
+
+| | |
+|---|---|
+| 7ᵉ année Médecine the roll re-registers into the 7ᵉ | 651 |
+| …**refused by the gate** | **182** |
+| 6ᵉ année Pharmacie re-registered into the 6ᵉ | 144, none refused |
+| « Réinscrits sans décision » shown on screen | **616** instead of 798 |
+
+469 + 144 + 3 = 616 — the screen's number, to the row. A quarter of the 7ᵉ année promotion was being
+refused re-registration, every one of them named by the faculty as coming back, and the refusal was
+reported as an ordinary skip.
+
+**The fix:** the gate stands aside for a student who already holds a registration at that level. It
+now refuses **60**, which is precisely the MED06 → MED07 population documented for it in session 24.
+A gap does not make it a beginning — « has he ever been registered here », not « was he here last
+year ».
+
+### ⚠ And the first test written for it passed with the rule removed
+
+`Debt.LevelYear` comes from **`a.Registration.Level.Year`** — the registration's level, not the
+stage's. Seeding the failed attempt against the *final-year* registration therefore produced a
+year-7 debt, which `d.LevelYear < levelYear` correctly discards, so the guard returned no refusal
+either way. The debt has to hang off an **earlier registration** to be an earlier debt. Worth
+remembering whenever a fixture needs a student to owe something from further back.
+
+---
+
 ## Open Questions / Things to Verify
 
 - **`GenerateScheduleCommandHandler`**: Does it correctly handle the case where students are transferred between cohorts mid-year? The `CohortMembership` model supports it but the handler logic needs review.
@@ -2381,3 +2665,445 @@ registration id, a stage id and a cohort id.
 `ResolveCohortAsync`'s fallback — « the cohorte of his own group » — has nothing to find, and the
 call fails `NoGroupForRevalidation`. The cohorte has to come from the target promotion's own plan,
 which is why §34 plans the 3ᵉ année *before* revalidating into it.
+
+---
+
+## Refusing a row loses the faculty's statement — measured 2026-09-02, session 38
+
+The réinscription roll was applying the right rules and doing the wrong thing with the answer. Asked
+« may this student begin his final year owing an earlier stage? », `FinalYearGuard` said no for
+**182 of the 651** 7ᵉ année Médecine the faculty's own file re-registers, and the roll skipped them.
+
+⚠ **That 182 predates session 37's « entrer » fix.** Corrected, the gate reaches only genuine
+entrants to a final year, and the live preview on 2026-09-02 holds **60**. The argument below is
+unchanged by which number it is; the count to check against the screen is 60.
+
+**Why the no was right and the skip was wrong.** In most of those 182 the stage *was* served — the
+évaluation is simply not keyed in yet. That is a fact about our data entry, not about the student.
+PGSH's stage record is behind the faculty's, and the roll is the faculty stating, in a document it
+produced for its own purposes, that these people are coming back. Refusing the row throws that
+statement away; applying it silently throws ours away. The hold keeps both.
+
+### The number that decided the absentee question
+
+| | rows | what the roll does |
+|---|---|---|
+| named, final-year debt | 60 | registered **and held** (`OutstandingPriorStages`) |
+| absent, final year | 1 217 | « Diplômé » (Inferred) **and held** |
+| absent, undecidable | 50 | nothing recorded **and held** |
+
+⚠ **The 1 217 are held on purpose, and the first proposal was to leave them alone.** The argument for
+leaving them was that a `Graduated` registration ends the cursus, so there is no next-year row to keep
+out of a partition — the flag would be inert — and 1 217 rows on a worklist where ~1 200 need no
+action is the kind of marker that gets dismissed wholesale, which then hides the 50 that matter. Two
+things break that:
+
+1. **It is not inert.** Their 2025-2026 registration is still live, and an absence is exactly the
+   shape a *late réinscription* takes — the hold is still standing on the day somebody registers one
+   of them by hand.
+2. **The graduation is our inference, read off a blank cell**, never the faculty's statement. If the
+   roll was partial, « il a soutenu » is wrong for people still enrolled and nothing on the row says a
+   human ever looked.
+
+So the verdict is still recorded (`Inferred`, self-correcting when a real defence roll arrives) and
+the hold sits on top of it as the review marker. **Holding costs a genuine graduate nothing** — his
+year is closed and there is nothing left to plan.
+
+### What a hold is, and what it deliberately is not
+
+It withdraws a registration from **planning** and from nothing else: no roster cut, no cohort
+affectation, no published période. It keeps its status, its verdict, and every période already
+published under it — taking those away is `UnpublishCohortScheduleCommand`'s act, which names what it
+destroys and asks twice. A hold only stops *new* work being built on a registration nobody confirmed.
+
+⚠ **Released by hand, never by the condition lapsing.** A registration that quietly re-entered the
+répartition the day an évaluation was keyed in would be the same silent behaviour the flag replaces.
+
+### The line that did not move
+
+Errors still refuse the whole file — a duplicated code, an unknown level code, a level contradicting
+the registration on record, a level going backwards, a « Retrait ». Those say the *file* is mistaken
+rather than that our data is behind, and the write they would produce is a verdict on somebody's
+year. The manual registration paths still refuse too, with `FinalYearEntryWaiver` as the override:
+the roll is the faculty's own document and outranks a hand-typed form, and per-student ceremony is
+precisely what does not scale to 182 at once.
+
+### Still not modelled: the *examens cliniques*
+
+Described by the user and real: they open as soon as a student's stages are all done, he can fail
+them, and he is re-registered to sit them again. PGSH therefore cannot tell « still finishing stages »
+from « stages done, waiting on the exams » — both read as re-registered. Left out deliberately; the
+logic was described as complex and not spelled out, and inventing it would put a state on screen
+nobody can act on.
+
+---
+
+## A flag that freezes and a flag that only asks are not the same flag (2026-09-02, session 38b)
+
+The user wanted the 26 students the réinscription roll names and PGSH has never seen to be
+**created, flagged, and partitioned with everyone else**. The first two were easy; the third
+contradicted the mechanism, because a signalement freezes by construction — flagging them the
+existing way would have excluded them from the exact planning he wanted them in.
+
+**The resolution is that blocking is a property of the *reason*, not of the flag.** A signalement
+means « quelqu'un doit regarder ceci »; whether it also withdraws the registration from planning is a
+second question. `OutstandingPriorStages` and `AbsentFromReinscriptionRoll` both say *nobody has
+established that this student may go on* — a debt not cleared, an absence not explained — and acting
+before a human rules would send somebody where he may not belong. `IncompleteStudentFile` says
+something much weaker: *we are missing his paperwork*. Nothing about a missing date de naissance says
+he may not stand in a service.
+
+⚠ **Collapsing them fails in both directions**: freeze people over a birth date, or let an unexplained
+absence plan itself.
+
+### What that cost in shape
+
+- `RegistrationHoldPolicy` needs **three** forms, not two — `Plannable` (no *blocking* hold, what
+  planning obeys), `OnHold`, and `Flagged` (any hold, what the worklist counts). A screen conflating
+  them reports 1 353 blocked students where 1 327 are.
+- The blocking set is a **static array**, not a method, because EF cannot call a method inside a
+  predicate but translates `Contains` over an array into an `IN`.
+- `BlocksPlanning` is **sent** to the client, never re-derived there — the same split as
+  `ServicePeriodResponse.State`, for the same reason. `ReleaseHoldReport` grew `StillBlocked` beside
+  `StillHeld`: a student left carrying only « dossier à compléter » is on the worklist *and is
+  planned*, and reporting him as frozen would be false.
+
+### Two defects the compiler could not see, and the tests could
+
+- ⚠ **`dbContext.Students.Add(student)` left the registration untracked and nothing was written.**
+  `Add` marks the reachable graph, and the graph is whole only from the *registration*: it references
+  the student and owns the hold, while `Student.Registrations` was never populated. A silent no-op —
+  the apply returned success and created nothing.
+- ⚠ **`ReleaseHold` on an unsaved hold lifted an arbitrary one.** Keys are store-generated, so every
+  hold added in one unit of work carries `Guid.Empty`, and `FirstOrDefault(h => h.Id == holdId)`
+  matched whichever sat first. Refused outright now — nothing on the worklist can carry an empty id,
+  so reaching it is a defect in the caller rather than a user action.
+
+### What is invented, and what is deliberately not
+
+Only the **e-mail**, because `Users.Email` is NOT NULL UNIQUE and doubles as a Keycloak login: it is
+allocated in the *planner*, against the addresses in the **store** rather than merely the batch, and
+printed on the row — « N adresses générées » says nothing about *which* address a student was handed,
+and that address is how he logs in.
+
+**No CNE is manufactured**: the row carries an Apogée and `Student.CNE` is optional since the
+`LEGACY-` placeholders were cleared, so a `SANS-CNE-…` would read in every list exactly like a code
+somebody holds. `BacYear` is required by the schema and absent from the file, so it is left **empty**
+rather than guessed — and that emptiness is precisely what « dossier à compléter » names.
+
+---
+
+## A skip is still a mention (2026-09-02, found by the smoke test)
+
+The réinscription roll is **designed to be re-runnable**, and 15.16b made the second run the ordinary
+path: it is how the students the file names and PGSH does not hold get created. The second run was
+destructive.
+
+**What it offered on the live base:** 8 077 signalements and **791 « Diplômé » déduits**, where the
+first pass had found 1 267 and 1 217. Those 791 were students the same file re-registers, on their own
+named lines, minutes earlier.
+
+**Cause.** `Skip()` returned `SourceRegistrationId: null`. A row skipped as « déjà inscrit » therefore
+dropped the closing-year registration it had resolved, so it never entered the `mentioned` set — and
+`ReadAbsence` reads *not mentioned* as *ne revient pas*, which in a final year it records as a
+soutenance.
+
+⚠ **The rule this violates:** « couvert par le fichier » means the file **named** him, not that the
+line produced a write. A skip is still a mention.
+
+**Why it stayed invisible.** The roll had only ever been applied once. Every count was correct on a
+first pass, and the defect needed a *second* upload to appear — which is precisely the operation the
+act advertises as safe. A feature whose safety story is « you can just run it again » has to be tested
+by running it again.
+
+
+## Two facts about a plan exist only when every service is read at once (2026-09-02, session 39)
+
+`Services/OccupancyReport/` — `GET services/occupancy-report`, and the « Charge des services » page
+and printable document behind it.
+
+The service detail page has answered « what does *this* service hold » since session 24. What nothing
+answered is **« which services are the problem »** — the question asked once, before publishing a
+promotion, and which opening 148 pages does not answer. Two findings are not merely inconvenient to
+reach one page at a time; they are **unreachable**:
+
+- **A service that holds nobody all year.** On its own page that is a service with nothing planned,
+  which is exactly what it is — there is no fact on the page that makes it a defect. It becomes one
+  only beside the service that took its groups. Measured previously on 5MED Psychiatrie: all nine
+  columns went to a single service and **two of the five were never used**, 69-85 students against a
+  capacity of 20, and the printed répartition was the only place it ever showed.
+- **A stage that uses fewer services than it may.** The denominator is `Stage.AllowedServices` and
+  the numerator is the cells, so the question spans a stage's whole service list — `ServicesUnused`.
+
+**The trap this design had to avoid, and it is the same one as the omitted year.** A filter is
+offered for a promotion and for a stage, and the obvious implementation narrows the placements before
+measuring. That prints « ok » for a service that is over *because of another promotion* — and then
+the publish is refused anyway, by a guard counting everyone. So the filter narrows which services are
+**listed** and what `Share` attributes to them; `PeakStudents`, `Saturation` and every overflow stay
+measured on the service's whole load. One number quietly standing in for another is the defect, not
+the filter.
+
+**Three arithmetic rules, each of which produces a plausible wrong answer if it slips.**
+
+- A peak is **simultaneous presence**, from the same pure `OccupancyTimeline` the service page uses.
+  One cohort of 40 passing through three windows is 40. Summed it is 120 — a saturation that never
+  happened, indistinguishable from a real one.
+- A month's bar is the **maximum reached inside the month**, never its mean. A month with one
+  saturated week reads comfortable on an average, and the week is what somebody has to act on.
+- `Saturation` is **null, never 0**, when there is no ceiling to divide by. Zero sorts as « the least
+  saturated », which is exactly backwards for a service admitting nobody — and those sort *first*,
+  above even a service at 400 %, because theirs is the one refusal publication cannot force.
+
+⚠ **The report's first audience is an empty year, and that had to be designed rather than fallen
+into.** Measured 2026-09-02: the live base holds **0 `StageSlots` and 0 `CohortSlotAssignments` on
+every one of its 22 academic years**. So the first thing anybody sees is a report of nothing — and
+« 0 étudiant » collapses two states that call for opposite acts: no créneau authored (author an axis)
+versus créneaux nobody is in (arrange). `Notes` separates them in a sentence naming the button.
+Same shape as `RepartitionSummary.DeclaredSlotCount`, and the same rule as `ExportNotes`: the
+uniform-capacity note fires only when every open service really does carry the imported default,
+because a warning that fires whatever the data says is noise, and noise is dismissed — which puts the
+real one out of sight.
+
+**Every figure is inline SVG or a CSS box, and that is a constraint, not a preference.** The page
+serializes the document node into a standalone .html the faculty can keep or upload (the répartition's
+mechanism, lifted into `common/utils/printableDocument` now that two documents use it). A canvas
+serializes empty; a charting library that measures the DOM on mount draws nothing in a file opened
+elsewhere. The reader would get a document with holes where the charts were and nothing anywhere
+saying so — which is why no charting dependency was added.
+
+## The verdict is a fact about one registration, and that is what makes it findable (2026-09-02)
+
+`GetStudentsQuery.Status`, and its twin on `GetStudentsExportQuery`.
+
+The réinscription roll recorded **1 217 « Diplômé » déduits**, and there was no way to see them in the
+app — only in a downloaded file. The filter is three lines; what matters is *where* they go.
+
+⚠ **The status joins the level and the year inside the **same** `Any`.** Asked as a second
+independent condition, « Diplômé » ∧ « 2026-2027 » returns every student who ever graduated and
+happens to hold a 2026-2027 registration. In a thesis year re-registered every September until the
+defence, that is **most of them** — the false positive is the ordinary case, not an edge one. It is
+the same trap the level/year pair already documents (833 students as one `Any`, 2 127 as two), and it
+is stricter here because a verdict is by construction a fact about exactly one year.
+
+**The test for it passed with the handler broken**, first time round: `TestHarness.SeedRegistration`
+mints a new `Student` on every call, so « one student, two registrations » was silently two students,
+and two students satisfy the assertion whatever the predicate does. Broken deliberately, confirmed
+red, restored — which is the only reason the fixture defect was found at all.
+
+**The export takes the same parameter** so the file matches the list it is downloaded from, and the
+caption names the verdict: 1 217 rows captioned « toutes promotions » is unreadable three months
+later as a list of graduates.
+
+## Three reads existed on the API with no caller in the admin app (2026-09-02)
+
+`students/{id}/parcours`, `students/{id}/levels/{levelId}/dossier` and
+`students/{id}/outstanding-stages` all shipped with their features and none was ever wired into the
+student file. So scolarité could see a student's *registrations* and not what he had done under them
+— and the réinscription's refusal, « il doit encore N stages », could not be understood from the file
+it is about.
+
+**The three answer different questions and none replaces another**, which is why the tab shows all
+three rather than folding them:
+
+| read | scope | answers |
+|---|---|---|
+| `outstanding-stages` | cursus-wide | what `FinalYearGuard` refuses on |
+| `levels/{id}/dossier` | one level, every registration folded | whether a stage is *acquired* — only readable folded, because a repeater has several |
+| `parcours` | one year at a time | what actually happened, in order |
+
+**Verified on real data the same day** (Houda Aamoud, 7ᵉ MED, 21 stages): 6ᵉ 6/6, 5ᵉ 7/7, 4ᵉ 5/5 —
+and **3ᵉ année 2/6, with the other four « jamais tenté » and the banner correctly reading « aucun
+stage en attente de revalidation »**. That is the distinction the tab exists to draw: « owed » means
+*every attempt came back NonValidé*; a stage nobody has sat is not a debt and an unmarked one is not a
+failure. Folding the three reads into one list would have lost exactly that.
+
+⚠ **`refetchOnMountOrArgChange` on all three**, because the revalidation mutation lives in `adminApi`
+and the parcours query in `studentApi` — RTK Query cannot invalidate across slices, so without it the
+tab keeps showing the state from before the retake was opened.
+
+## A test asserted a filter that was never applied (2026-09-02, found closing session 39)
+
+`SqlTranslationTests.The_registration_hold_exclusion_compiles_to_sql` asserts that
+`CohortProvisioner.GroupTextsQuery` mentions `RegistrationHolds`, and `CLAUDE.md` lists it as one of
+the three reads a held registration is excluded from. **It was not in the query.** The exclusion had
+been applied to `AutoArrangeGroupsCommandHandler` and to
+`StudentAffectationService.EligibleRegistrationsQuery`, documented for all three, and tested for two.
+
+**What it would have cost.** `GroupTextsQuery` decides which CNPN texts a roster follows, and
+`CohortProvisioner` provisions one cohorte per (roster, required stage). A frozen registration's text
+therefore counted: the roster could be given a cohorte for a text nobody in it will be planned under,
+because the same student is excluded from the roster cut *and* from cohort affectation. Latent only
+because the base has no cells at all — but the 1 327 signalements the roll raised are real, and the
+first « Générer le plan » would have read them.
+
+**Why it survived a green suite.** The assertion is on `ToQueryString()` output, and the query
+compiles perfectly well without the filter — the test failed on `Should().Contain(…)`, not on a
+translation error. It is the one case in that file that checks *what the SQL says* rather than *that
+there is SQL*, and that is the only reason it was caught at all. Applying the filter fixed it with no
+other change.
+
+## L'axe de la 3ᵉ MED 2026-2027, posé pour de vrai (2026-09-02)
+
+Premier axe jamais écrit dans cette base : elle tenait **0 `StageSlot` sur ses 22 années**.
+
+**L'arithmétique.** Six stages à `k = 1` → `T = Σkₛ = 6` colonnes ; six partitions → `Lₛ = P·kₛ/T = 1`,
+une partition par stage et par colonne. Le découpage que la scolarité avait fait (A-F, 94 rosters,
+933 inscrits, **0 non placé**) tombe donc juste sans reste — ce qui n'est pas une coïncidence : six
+partitions est le seul choix qui donne un `Lₛ` entier pour six stages de même durée.
+
+**Les six colonnes font exactement 30 jours ouvrables**, la durée que le catalogue *et* le CNPN
+1650.25 énoncent pour les six stages depuis `Cnpn1650Med3CatalogueAlignment`. C'est la propriété que
+`WorkingDays` existe pour donner : les spans calendaires vont de 42 à 46 jours (P6 en fait 46) et
+pourtant chaque étudiant fait le même stage. Coupure de 2 jours entre deux périodes, à la demande.
+
+⚠ **Les quatre fêtes lunaires ont dû être saisies d'abord, et ce sont des estimations.** La base n'en
+avait aucune pour 2026-2027 — 10 fériés nationaux, 0 religieux — et la page « Jours fériés »
+l'affichait elle-même. Sans elles « jours ouvrables » veut dire « moins les week-ends », donc P5 et
+P6 auraient compté l'Aïd comme des jours de stage : 28 jours réels au lieu de 30, sur les deux
+dernières colonnes. Saisies **non confirmées** : les jours sont bloqués sur la meilleure estimation
+et toute fenêtre posée dessus est signalée, ce qui est exactement le marché que `IsConfirmed`
+propose. P5 et P6 portent chacune ce drapeau.
+
+⚠ **Écrit en SQL, donc sans entrée d'audit.** `HolidayCommands` et `ApplyRotationCycleCommand` sont
+l'un et l'autre `IAuditableCommand` ; l'automatisation du navigateur n'a pas tenu (le viewport se
+redimensionnait entre deux captures, les coordonnées ne visaient plus rien) et la boîte de dialogue
+refusait de s'ouvrir. La transaction **affirme ses propres comptes** avant de valider — 4 fêtes, 36
+créneaux, six stages partageant la même fenêtre par colonne, aucun chevauchement par stage — et la
+première version a d'ailleurs été annulée par sa propre assertion, trop large. C'est la pratique que
+le rebuild du 01/09 avait établie. Mais 40 lignes écrites sans trace, c'est l'angle mort de
+`HANDOFF.md` 0e sous un autre nom.
+
+**Vérifié sur la page Répartition annuelle** : « Périodes définies, aucune répartition — les 36
+créneaux de ce niveau sont en place (6 colonnes), mais aucun groupe n'y a encore été affecté. » C'est
+`RepartitionSummary.DeclaredSlotCount` séparant « pas de période » de « des périodes où personne
+n'est », sur des données réelles, et les deux appellent bien des actes opposés.
+
+## Quatre corrections sur le rapport de charge, dont deux invisibles à l'écran (2026-09-02)
+
+**1 · « 11 148 étudiants placés » n'était pas un effectif.** C'était la somme des effectifs de cohorte
+sur chacune des 1 500 cellules — un compte de *placements*, où un étudiant compte une fois par créneau
+qu'il occupe. La 3ᵉ année compte **933** étudiants réels. Signalé par l'utilisateur en une phrase :
+« either its wrong or it means assignement, the administration won't understand it ». Les deux à la
+fois, en réalité. Retiré de l'en-tête, remplacé par le **pic simultané**, qui est une mesure de
+personnes ; les colonnes « Étudiants » des deux tableaux sont renommées **Placements** avec une phrase
+disant ce qu'elles comptent. ⚠ Un chiffre qui ressemble à un effectif sans en être un est pire qu'un
+chiffre absent — c'est la même famille que les colonnes vides de l'export, où la donnée était juste et
+la lecture fausse.
+
+**2 · Le bloc de rotation gardait les stages de la promotion précédente.** Le formulaire n'était vidé
+qu'à l'intérieur du `if (block)` : une paire (promotion, année) *sans* bloc laissait donc le
+précédent en place. Changer la promotion masquait le défaut — ce sélecteur vide à la main — mais
+changer l'**année** dans la barre du haut ne passe pas par lui, et atterrir sur une promotion dont le
+bloc vient d'être supprimé non plus. « Simuler » aurait alors porté sur les stages d'une promotion que
+personne ne regardait. **Restaurer *rien* est un état, et il doit remettre le formulaire à zéro.**
+
+**3 · « Occupation sur l'année » ne s'imprimait pas — et rien ne le disait.** Les navigateurs
+suppriment les fonds à l'impression. Les graphiques SVG survivent (`fill` est du contenu), mais la
+bande annuelle dessine chaque intervalle comme un `background` coloré sur un `<span>` vide : le PDF
+sortait avec des pistes grises vides. La seule figure qui montre *quand* un service est plein, absente
+du document, intacte à l'écran. `print-color-adjust: exact` sur `.charge-doc *` — déclaré sur chaque
+élément, pas sur la racine, parce que la propriété n'hérite pas partout et que ce fichier est imprimé
+par le navigateur de quelqu'un d'autre.
+
+**4 · …et en le corrigeant, un second défaut d'impression, plus grave.** `break-inside: avoid` était
+posé sur **toutes** les sections, y compris celle du tableau de 148 services. Un bloc qu'un navigateur
+ne peut pas faire tenir sur une page n'est pas déplacé, il est **rogné** : le plus long tableau du
+document était celui qui risquait le plus de perdre sa fin. La règle ne vaut plus que pour les
+figures ; les tableaux se coupent entre les pages, gardent leurs lignes entières et **répètent leur
+en-tête** (`display: table-header-group`), sans quoi la page 2 est un mur de nombres sans étiquette.
+
+**Et la mise en page.** Le document s'étirait sur toute la largeur de la fenêtre : sur un écran de
+1920 px, un SVG en `width: 100%` sur un viewBox de 720 donnait des barres de six cents pixels de haut
+et le graphique horizontal débordait à droite. Il est désormais borné à 860 px — la largeur utile
+d'un A4 portrait (190 mm ≈ 718 px) — et présenté comme une feuille blanche sur un fond gris, si bien
+que l'aperçu, le PDF et le .html téléchargé ont enfin la même forme. C'est le marché que cette
+feuille de style annonçait depuis le début et qu'elle ne tenait qu'en apparence.
+
+## Le pic annonçait un mois pour un plateau de six (2026-09-02)
+
+`OccupancyReportTotals.PeakStart/PeakEnd` venait d'un `MaxBy` : **le premier** intervalle atteignant
+le maximum, pas l'étendue sur laquelle il est atteint. Sur le plan réel 2026-2027, la 3ᵉ et la 4ᵉ
+année tournent ensemble, donc 1 858 étudiants se tiennent dans la faculté sur des dizaines
+d'intervalles consécutifs — et le document annonçait « du 07/09 au 06/10 », un mois, **directement
+sous un graphique montrant le plateau**. Le nombre était juste et la fenêtre fausse : la sorte
+d'erreur qui se lit.
+
+- Corrigé en **enveloppe** : premier jour atteint → dernier jour atteint.
+- ⚠ **Et `PeakDays` à côté, parce que l'enveloppe seule ment aussi.** Les intervalles au pic ne sont
+  pas forcément contigus : l'axe 3MED porte une coupure de 2 jours entre chaque période, pendant
+  laquelle la charge retombe à 925. L'enveloppe fait ~181 jours, le temps réellement passé à 1 858
+  en fait ~171. Dire l'un sans l'autre transforme un plateau troué en plateau plein.
+
+**Et « 5 549 jours » n'était pas des jours.** C'est la somme des `DaysOverCapacity` **sur tous les
+services** : un service au-dessus pendant dix jours et dix services au-dessus pendant un jour donnent
+tous deux 10. Renommé **jours-service**, avec « un service, un jour = 1 » écrit à côté. Même famille
+que les 11 148 « étudiants placés » — une unité fausse sur un nombre juste, et c'est l'unité qui se
+retient.
+
+## La bande annuelle n'avait pas d'axe (2026-09-02)
+
+« Occupation sur l'année » portait un seul libellé — « sept. 2026 → mai 2027 » — et rien entre les
+deux. La **position** d'une bande ne disait donc rien : on voyait qu'un service était plein sans
+pouvoir dire quand, ce qui est la seule question que cette figure existe pour répondre. Ajoutés :
+une échelle de mois (initiales) et une trame verticale derrière chaque piste, si bien que l'œil
+descend une date d'un service à l'autre — c'est ainsi qu'on lit « ces quatre services sont pleins la
+même quinzaine ». Les bandes reçoivent aussi un filet blanc intérieur, sans quoi deux périodes
+consécutives dans le même service se lisent comme un seul séjour continu.
+
+## Deux figures ajoutées, et pourquoi celles-là
+
+- **La barre mensuelle est empilée par promotion.** « 1 858 » ne dit pas qui pousse ; 933 + 925 le
+  dit. ⚠ Le découpage est lu sur **l'intervalle de pic du mois**, jamais sur le pic propre de chaque
+  promotion — deux promotions ne culminent pas le même jour, donc la seconde méthode donne une somme
+  supérieure au total, et une barre empilée dont les parts ne font pas le tout est pire qu'aucune
+  barre. Un test l'affirme.
+- **Une distribution des services par taux d'occupation.** Un classement montre les pires ; il ne
+  montre pas la *forme*. Mesuré sur le plan réel : **102 services sans occupant, 23 sous 85 %, 0
+  entre 85 et 100 %, 1 entre 100 et 200 %, 22 au-dessus de 200 %.** C'est un parc vide à 69 % dont
+  une poignée porte tout — le fait qui appelle une décision, et il n'est visible que comme
+  distribution.
+
+⚠ **Le document se défend maintenant d'une réponse d'API plus ancienne** (`m.levels ?? …`,
+`peakDays ?? 0`). L'AppHost vit longtemps ici, donc une API servant encore la forme précédente est un
+état ordinaire en développement — et lire `.map` sur une collection absente a fait tomber tout le
+document par l'error boundary. Même défense que `service.chefHistory ?? []`.
+
+## Deux colonnes consécutives comptées ensemble (2026-09-03, signalé depuis l'écran)
+
+`ServiceOccupancyLookup.LoadOn(service, start, end)` **sommait toute cellule chevauchant la
+fenêtre** — donc deux cellules qui touchent chacune la fenêtre *sans se toucher entre elles* étaient
+additionnées.
+
+**Reproduit exactement sur le plan réel.** Sur Pédiatrie2, pour le créneau P2 de Pharmacie Clinique 1
+(06/10 → 03/11) :
+
+| cellule | fenêtre | étudiants |
+|---|---|---|
+| 4ᵉ année Pédiatrie **P1** | 07/09 → **06/10** | 56 |
+| Pharmacie Clinique 1 P2 | 06/10 → 03/11 | 6 |
+| 4ᵉ année Pédiatrie **P2** | **07/10** → 06/11 | 56 |
+| **somme affichée** | | **118** |
+| **présence réelle, chaque jour** | | **62** |
+
+Les deux colonnes de Pédiatrie sont **consécutives** — l'une finit le 6, l'autre commence le 7 — et
+ne coexistent jamais. Elles chevauchent seulement, l'une et l'autre, la fenêtre des pharmaciens.
+
+⚠ **Ce n'est pas un défaut d'affichage : c'est le nombre sur lequel une publication est refusée.**
+Les trois lecteurs de cette classe sont la saturation de la grille de planning, l'équilibrage de
+`RotationArranger`, et la garde de `SchedulePublisher`. La publication était donc refusée sur des
+charges qui n'existent pas.
+
+**Et la fiche du service et le rapport de charge avaient raison depuis le début** — ils passent par
+`OccupancyTimeline`, qui découpe à chaque frontière. Le CLAUDE.md affirmait que la fiche « mesure la
+charge exactement comme la garde le fait » ; c'était vrai de l'intention et faux de l'arithmétique.
+`LoadOn` fait désormais le même balayage, si bien que les quatre ne peuvent plus diverger.
+
+- **Le maximum se lit sur les seuls jours où la charge peut monter** : le début de la fenêtre, ou le
+  premier jour d'une cellule qui s'ouvre dedans. C'est exact, pas échantillonné.
+- ⚠ **La garde devient moins stricte, et c'est correct.** Elle ne peut pas rater un vrai
+  dépassement : un dépassement réel est un instant où la somme franchit le plafond, et cet instant
+  fait partie des candidats évalués. Les 1 409 tests passent sans qu'aucune attente existante ait dû
+  changer — personne ne s'appuyait sur la somme.
+- **C'est l'utilisateur qui l'a vu**, en comparant deux écrans qui affichaient 118 et 62 pour le même
+  service. Aucun test ne pouvait le trouver : les deux chemins étaient couverts séparément et chacun
+  était cohérent avec lui-même.

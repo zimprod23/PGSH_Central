@@ -166,7 +166,7 @@ public sealed record DeliberationTemplate(
     IReadOnlyList<DeliberationTemplateStudent> Students);
 
 public sealed record DeliberationTemplateStudent(
-    string Cne, string Appogee, string FullName, string LevelLabel, string GroupLabel, string? CurrentDecision);
+    string? Cne, string Appogee, string FullName, string LevelLabel, string GroupLabel, string? CurrentDecision);
 
 /// <summary>
 /// Reads an uploaded déliberation sheet and writes the blank one. The port lives here so the

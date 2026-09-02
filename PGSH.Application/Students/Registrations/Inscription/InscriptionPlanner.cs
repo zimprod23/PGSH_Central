@@ -55,22 +55,24 @@ internal sealed class InscriptionPlanner(
     private const int MaxEmailAttempts = 500;
 
     /// <summary>
-    /// Marks a CNE that was manufactured because the row carried none — never a real national code,
-    /// and readable as such wherever it is displayed. Same intent as
-    /// <c>LegacyIdentityMapper.SyntheticCnePrefix</c>.
-    /// </summary>
-    public const string ProvisionalCnePrefix = "SANS-CNE-";
-
-    /// <summary>
-    /// The same, for a numéro Apogée the faculty has not allocated yet.
+    /// A numéro Apogée the faculty has not allocated yet, derived from the CNE the row does carry.
     /// </summary>
     /// <remarks>
-    /// ⚠ <b>Both identifiers are NOT NULL UNIQUE on <c>Students</c>, so neither may be left out and
-    /// neither may be "".</b> The filtered index <c>IX_Student_Appogee</c> reads
-    /// « WHERE Appogee IS NOT NULL » and looks as though absence were allowed, but the column itself
-    /// is required — the filter can never be false — so an empty string is a *value* and the second
-    /// student without an Apogée would collide with the first. A row is therefore required to carry
-    /// one of the two, and whichever is missing is manufactured from the other, which is unique.
+    /// <para>⚠ <b>A row must carry at least one of the two identifiers</b> — that is what
+    /// <c>NoIdentifier</c> refuses — and <c>IX_Student_Appogee</c> is unique with a
+    /// « WHERE Appogee IS NOT NULL » filter, so <c>""</c> is a <em>value</em> and the second student
+    /// saved with a blank box would collide with the first. Where a row gives a CNE and no Apogée,
+    /// one is derived from the CNE, which is unique and therefore cannot collide: a second row
+    /// carrying it would have matched the student this one creates and been classified as returning.</para>
+    ///
+    /// <para>⚠ <b>There is deliberately no counterpart for the CNE.</b> <c>Student.CNE</c> is
+    /// optional, so a row with an Apogée and no national code is stored with none — an international
+    /// student genuinely has no CNE, and a manufactured <c>SANS-CNE-…</c> reads, in every list and
+    /// every export, exactly like a code somebody holds. The legacy import made the same mistake at
+    /// scale (4 693 <c>LEGACY-nnnnn</c> rows) and it is why the column is optional now. The asymmetry
+    /// is not an oversight: absence of an Apogée still has to be filled because a student with
+    /// <em>neither</em> identifier could not be found by any of the three import canvases, while
+    /// absence of a CNE leaves the Apogée doing that job.</para>
     /// </remarks>
     public const string ProvisionalAppogeePrefix = "SANS-APOGEE-";
 
@@ -248,28 +250,13 @@ internal sealed class InscriptionPlanner(
               + $"{origin!.LastLevelYearCompleted} année(s) à « {origin.Institution} »."
             : "Nouvel inscrit : création de l'étudiant et de son inscription.";
 
-        // ⚠ CNE and Apogée are both NOT NULL UNIQUE, and an international student legitimately has no
-        // CNE while a numéro Apogée is often allocated after the affectation list arrives — the legacy
-        // import hit the first wall on 4 693 of 10 203 rows and manufactured `LEGACY-n`. Whichever is
-        // missing is built from the other, which is unique and therefore cannot collide: a second row
-        // carrying it would have matched the student this one creates and been classified as
-        // returning rather than as a newcomer.
-        string? generatedCne = null;
+        // An international student legitimately has no CNE, and the column is optional, so nothing is
+        // invented for it — the row is simply stored without one, and the report says so rather than
+        // handing the student a code that reads like a national one. A numéro Apogée is different:
+        // it is often allocated after the affectation list arrives, and a student carrying neither
+        // identifier could not be matched by any canvas afterwards, so that half is still derived.
         if (Normalize(row.Cne) is null)
-        {
-            generatedCne = $"{ProvisionalCnePrefix}{Trim(row.Appogee)}";
-
-            // ⚠ A validator describes what a *save* must satisfy. A code the CNE pattern rejects makes
-            // the student read-only the day somebody opens his file, and the refusal then names a
-            // field nobody was editing — exactly how 5 646 students became unsaveable once already.
-            // The prefix costs 9 of the 20 characters allowed, so a long Apogée really does overflow.
-            if (!StudentIdentifierRules.IsValidCne(generatedCne))
-                return Refuse(row, name, InscriptionAction.InvalidValue,
-                    $"CNE absent, et le code provisoire « {generatedCne} » dérivé du numéro Apogée "
-                    + "ne serait pas un identifiant enregistrable : renseignez la colonne CNE.");
-
-            message += $" CNE absent : code provisoire « {generatedCne} » attribué.";
-        }
+            message += " CNE absent : aucun code national enregistré.";
 
         string? generatedAppogee = null;
         if (Normalize(row.Appogee) is null)
@@ -287,7 +274,7 @@ internal sealed class InscriptionPlanner(
         return new RowDraft(
             row, action, name, null, fields.Value, origin,
             NeedsEmail: Normalize(row.Email) is null, Message: message,
-            GeneratedCne: generatedCne, GeneratedAppogee: generatedAppogee);
+            GeneratedAppogee: generatedAppogee);
     }
 
     private static RowDraft ClassifyKnown(
@@ -502,7 +489,7 @@ internal sealed class InscriptionPlanner(
         IReadOnlyList<string> emails) =>
         dbContext.Students
             .AsNoTracking()
-            .Where(s => cnes.Contains(s.CNE.ToLower())
+            .Where(s => (s.CNE != null && cnes.Contains(s.CNE.ToLower()))
                      || (s.Appogee != null && appogees.Contains(s.Appogee.ToLower()))
                      || (s.CIN != null && cins.Contains(s.CIN.ToLower()))
                      || emails.Contains(s.Email.ToLower()))
@@ -756,7 +743,7 @@ internal sealed class InscriptionPlanner(
 /// <summary>The identifiers of a student PGSH already holds, flat and projected.</summary>
 internal sealed record StudentIdentity(
     Guid Id,
-    string Cne,
+    string? Cne,
     string? Appogee,
     string? Cin,
     string Email,
@@ -841,7 +828,6 @@ internal sealed record RowDraft(
     OriginDraft? Origin,
     bool NeedsEmail,
     string Message,
-    string? GeneratedCne = null,
     string? GeneratedAppogee = null,
     string? GeneratedEmail = null)
 {

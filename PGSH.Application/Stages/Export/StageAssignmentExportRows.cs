@@ -12,7 +12,7 @@ internal sealed record StageAssignmentExportRow(
     Guid AssignmentId,
     string LastName,
     string FirstName,
-    string Cne,
+    string? Cne,
     string Appogee,
     string YearLabel,
     AcademicProgram Program,

@@ -10,7 +10,7 @@ public record CreateStudentCommand(
     string FirstName,
     string LastName,
     string? CIN,
-    string CNE,
+    string? CNE,
     string Appogee,
     decimal AccessGrade,
     AcademicProgram AcademicProgram,

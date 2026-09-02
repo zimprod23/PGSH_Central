@@ -1,4 +1,4 @@
-﻿using PGSH.Domain.Common.Utils;
+using PGSH.Domain.Common.Utils;
 using PGSH.Domain.Stages;
 using PGSH.Domain.Students;
 using PGSH.SharedKernel;
@@ -53,6 +53,26 @@ public sealed class Registration : Entity
     public RegistrationCnpnSource? CnpnSource { get; private set; }
 
     public ICollection<InternshipAssignment> InternshipAssignments { get; set; } = new List<InternshipAssignment>();
+
+    /// <summary>
+    /// Signalements posés sur cette inscription. Kept after release rather than deleted, so the file
+    /// can still say the student was flagged, on what evidence, and who cleared him.
+    /// </summary>
+    public ICollection<RegistrationHold> Holds { get; set; } = new List<RegistrationHold>();
+
+    /// <summary>
+    /// Whether planning must leave this registration alone. ⚠ Reads <see cref="Holds"/>, so the
+    /// collection has to be loaded; in a query use <see cref="RegistrationHoldPolicy"/>'s expression
+    /// instead, which is the same rule in the form the provider can translate.
+    /// </summary>
+    public bool IsOnHold =>
+        Holds.Any(h => h.ReleasedOn is null && h.Reason.BlocksPlanning());
+
+    /// <summary>
+    /// Whether anything at all is flagged on this registration — blocking or merely advisory. What
+    /// the worklist counts; <see cref="IsOnHold"/> is what planning obeys.
+    /// </summary>
+    public bool IsFlagged => Holds.Any(h => h.ReleasedOn is null);
 
     /// <summary>
     /// Records the governing CNPN. The only writer of <see cref="CnpnVersionId"/>.
@@ -154,6 +174,97 @@ public sealed class Registration : Entity
         failureReasons = null;
 
         Raise(new RegistrationYearReopenedDomainEvent(Id, StudentId, AcademicYearId, previous, reason));
+
+        return Result.Success();
+    }
+
+    /// <summary>
+    /// Withdraws this registration from planning until somebody settles <paramref name="evidence"/>.
+    /// The only writer of <see cref="Holds"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Idempotent per reason.</b> A hold already standing for the same
+    /// <paramref name="reason"/> is left exactly as it was — its evidence is the snapshot taken the
+    /// first time, and re-running the réinscription roll (which is designed to be re-runnable) must
+    /// not stack four identical flags on one student or quietly rewrite the sentence somebody is
+    /// about to act on. Two <em>different</em> reasons legitimately coexist.</para>
+    ///
+    /// <para>⚠ It changes no status and annuls nothing. A held registration is still
+    /// <c>Active</c>, still carries whatever verdict was pronounced on it, and keeps every période
+    /// already published under it — removing those is
+    /// <c>UnpublishCohortScheduleCommand</c>'s act, which names what it costs and asks twice.</para>
+    /// </remarks>
+    public Result<RegistrationHold> PlaceOnHold(
+        RegistrationHoldReason reason,
+        string evidence,
+        DateTime raisedOn,
+        Guid? raisedByUserId = null)
+    {
+        if (string.IsNullOrWhiteSpace(evidence))
+            return Result.Failure<RegistrationHold>(RegistrationErrors.HoldEvidenceRequired);
+
+        var standing = Holds.FirstOrDefault(h => h.ReleasedOn is null && h.Reason == reason);
+        if (standing is not null)
+            return standing;
+
+        var hold = new RegistrationHold
+        {
+            // ⚠ The key is left to the store. Assigning one to a child added to an already-tracked
+            // parent makes EF classify it Modified rather than Added — UPDATE … WHERE Id = <new
+            // guid>, nought rows, DbUpdateConcurrencyException. See InternshipAssignment.Delocalize.
+            RegistrationId = Id,
+            Reason = reason,
+            Evidence = evidence.Trim(),
+            RaisedOn = raisedOn,
+            RaisedByUserId = raisedByUserId,
+        };
+
+        Holds.Add(hold);
+
+        Raise(new RegistrationHeldDomainEvent(Id, StudentId, AcademicYearId, reason, hold.Evidence));
+
+        return hold;
+    }
+
+    /// <summary>
+    /// Clears one hold, so the registration takes part in planning again once nothing else holds it.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ <b>Nothing lifts a hold but this.</b> The condition that raised it ceasing to be true does
+    /// not — a registration that slipped back into the répartition the day an évaluation was keyed
+    /// in would be exactly the silent behaviour the flag exists to remove. The row survives its own
+    /// release, carrying both the evidence and the note, because « qui l'a débloqué et sur quoi » is
+    /// the half of the record an audit actually asks for.
+    /// </remarks>
+    public Result ReleaseHold(
+        Guid holdId,
+        string releaseNote,
+        DateTime releasedOn,
+        Guid? releasedByUserId = null)
+    {
+        if (string.IsNullOrWhiteSpace(releaseNote))
+            return Result.Failure(RegistrationErrors.HoldReleaseNoteRequired);
+
+        // ⚠ The key is store-generated, so every hold not yet saved carries Guid.Empty — and matching
+        // on it would release whichever unsaved flag happens to sit first in the collection, silently
+        // lifting a different one from the one asked for. Nothing on the worklist can carry an empty
+        // id, so this is only reachable from code that has not saved yet, and it is a defect there.
+        if (holdId == Guid.Empty)
+            return Result.Failure(RegistrationErrors.HoldNotFound(holdId));
+
+        var hold = Holds.FirstOrDefault(h => h.Id == holdId);
+        if (hold is null)
+            return Result.Failure(RegistrationErrors.HoldNotFound(holdId));
+
+        if (hold.ReleasedOn is not null)
+            return Result.Failure(RegistrationErrors.HoldAlreadyReleased(holdId));
+
+        hold.ReleasedOn = releasedOn;
+        hold.ReleasedByUserId = releasedByUserId;
+        hold.ReleaseNote = releaseNote.Trim();
+
+        Raise(new RegistrationHoldReleasedDomainEvent(
+            Id, StudentId, holdId, hold.Reason, hold.ReleaseNote));
 
         return Result.Success();
     }

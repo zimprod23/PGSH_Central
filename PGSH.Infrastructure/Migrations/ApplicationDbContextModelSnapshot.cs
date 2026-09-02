@@ -539,6 +539,53 @@ namespace PGSH.Infrastructure.Migrations
                     b.ToTable("Registrations", "public");
                 });
 
+            modelBuilder.Entity("PGSH.Domain.Registrations.RegistrationHold", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Evidence")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<Guid?>("RaisedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("RaisedOn")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("RegistrationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ReleaseNote")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<Guid?>("ReleasedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("ReleasedOn")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Reason", "RaisedOn")
+                        .HasDatabaseName("IX_RegistrationHold_Reason_RaisedOn");
+
+                    b.HasIndex("RegistrationId", "Reason")
+                        .IsUnique()
+                        .HasDatabaseName("IX_RegistrationHold_Registration_Reason_Active")
+                        .HasFilter("\"ReleasedOn\" IS NULL");
+
+                    b.ToTable("RegistrationHolds", "public");
+                });
+
             modelBuilder.Entity("PGSH.Domain.Stages.AttendanceRecord", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1317,7 +1364,6 @@ namespace PGSH.Infrastructure.Migrations
                         .HasColumnType("character varying(10)");
 
                     b.Property<string>("CNE")
-                        .IsRequired()
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
 
@@ -1340,7 +1386,8 @@ namespace PGSH.Infrastructure.Migrations
 
                     b.HasIndex("CNE")
                         .IsUnique()
-                        .HasDatabaseName("IX_Student_CNE");
+                        .HasDatabaseName("IX_Student_CNE")
+                        .HasFilter("\"CNE\" IS NOT NULL");
 
                     b.HasIndex("CnpnVersionId");
 
@@ -1642,6 +1689,17 @@ namespace PGSH.Infrastructure.Migrations
                     b.Navigation("Student");
 
                     b.Navigation("failureReasons");
+                });
+
+            modelBuilder.Entity("PGSH.Domain.Registrations.RegistrationHold", b =>
+                {
+                    b.HasOne("PGSH.Domain.Registrations.Registration", "Registration")
+                        .WithMany("Holds")
+                        .HasForeignKey("RegistrationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Registration");
                 });
 
             modelBuilder.Entity("PGSH.Domain.Stages.AttendanceRecord", b =>
@@ -2085,6 +2143,8 @@ namespace PGSH.Infrastructure.Migrations
 
             modelBuilder.Entity("PGSH.Domain.Registrations.Registration", b =>
                 {
+                    b.Navigation("Holds");
+
                     b.Navigation("InternshipAssignments");
                 });
 

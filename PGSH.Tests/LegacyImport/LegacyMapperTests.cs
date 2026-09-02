@@ -298,14 +298,34 @@ public class LegacyIdentityMapperTests
         Run().Select(i => i.Email).Should().Equal(Run().Select(i => i.Email));
     }
 
+    /// <summary>
+    /// ⚠ Nothing is manufactured. The mapper used to write <c>LEGACY-{NO_ORDRE}</c> for the 4 693
+    /// source rows carrying no code, which put a value indistinguishable from a real national code
+    /// into 46% of the roll — every list, every export, every identifier-matching import.
+    /// <c>Student.CNE</c> is optional, so absence is imported as absence and
+    /// <see cref="LegacyIdentity.Appogee"/> keeps every student traceable to his source row.
+    /// </summary>
     [Fact]
-    public void A_missing_cne_is_synthesised_from_the_legacy_key_and_flagged()
+    public void A_missing_cne_is_left_absent_rather_than_manufactured()
     {
         var identity = new LegacyIdentityMapper().Map(Student(9000001, "TALBI RIDA", cne: null));
 
-        identity.IsCneSynthetic.Should().BeTrue();
-        identity.Cne.Should().Be("LEGACY-9000001");
-        identity.Appogee.Should().Be("9000001");
+        identity.CneMissing.Should().BeTrue();
+        identity.Cne.Should().BeNull();
+        identity.Appogee.Should().Be("9000001", "the legacy key still identifies him");
+    }
+
+    /// <summary>
+    /// « ######## » appears twice in the source and is a placeholder somebody typed, not a code.
+    /// It is absence, not a value to carry across.
+    /// </summary>
+    [Fact]
+    public void A_placeholder_cne_counts_as_absent()
+    {
+        var identity = new LegacyIdentityMapper().Map(Student(9000002, "TALBI RIDA", cne: "########"));
+
+        identity.CneMissing.Should().BeTrue();
+        identity.Cne.Should().BeNull();
     }
 
     [Fact]
@@ -313,7 +333,7 @@ public class LegacyIdentityMapperTests
     {
         var identity = new LegacyIdentityMapper().Map(Student(1, "ZERHOUNI NAJAT", cne: "1100000099"));
 
-        identity.IsCneSynthetic.Should().BeFalse();
+        identity.CneMissing.Should().BeFalse();
         identity.Cne.Should().Be("1100000099");
     }
 

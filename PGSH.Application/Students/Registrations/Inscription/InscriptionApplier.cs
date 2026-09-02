@@ -185,7 +185,7 @@ internal sealed class InscriptionApplier(
             FirstName = row.FirstName?.Trim() ?? "",
             LastName = row.LastName?.Trim() ?? "",
             Email = draft.GeneratedEmail ?? row.Email!.Trim(),
-            CNE = draft.GeneratedCne ?? row.Cne!.Trim(),
+            CNE = StudentIdentifierRules.NormalizeCne(row.Cne),
             Appogee = draft.GeneratedAppogee ?? row.Appogee!.Trim(),
             CIN = row.Cin?.Trim(),
             Gender = fields.Gender,

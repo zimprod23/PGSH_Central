@@ -62,7 +62,7 @@ public enum CnpnTargetRowStatus
 public sealed record CnpnTargetRow(
     Guid    StudentId,
     string  FullName,
-    string  Cne,
+    string? Cne,
     string? LevelLabel,
     string? CurrentCnpnCode,
     string? EntryYearLabel,

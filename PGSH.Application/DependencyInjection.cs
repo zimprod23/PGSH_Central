@@ -21,6 +21,7 @@ using PGSH.Application.Stages.Slots;
 using PGSH.Application.Students.Registrations.Deliberation;
 using PGSH.Application.Students.Registrations.Inscription;
 using PGSH.Application.Students.Registrations.Reinscription;
+using PGSH.Application.Students.Registrations.ReinscriptionSheet;
 
 namespace Application;
 
@@ -69,6 +70,7 @@ public static class DependencyInjection
         services.AddScoped<EvaluationImportPlanner>();
         services.AddScoped<DeliberationPlanner>();
         services.AddScoped<ReinscriptionPlanner>();
+        services.AddScoped<ReinscriptionSheetPlanner>();
         services.AddScoped<InscriptionPlanner>();
         services.AddScoped<InscriptionApplier>();
         services.AddScoped<RotationCycleContext>();

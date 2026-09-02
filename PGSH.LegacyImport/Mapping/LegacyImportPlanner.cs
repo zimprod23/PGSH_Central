@@ -67,7 +67,7 @@ public sealed class LegacyImportPlanner
             Assignments: assignments.Count,
             ServicePeriods: assignments.Sum(a => a.ServicePeriods.Count),
             Evaluations: assignments.Sum(a => a.ServicePeriods.Count(p => p.Evaluation is not null)),
-            SyntheticCne: students.Count(s => s.CNE.StartsWith(LegacyIdentityMapper.SyntheticCnePrefix, StringComparison.Ordinal)),
+            StudentsWithoutCne: students.Count(s => s.CNE is null),
             Problems: problems);
 
         return new LegacyImportPlan(

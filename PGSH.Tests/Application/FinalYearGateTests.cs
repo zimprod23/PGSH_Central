@@ -42,6 +42,9 @@ public class FinalYearGateTests
         db.SeedCatalog();
         db.SeedLevel(Level4, "4ème année", year: 4);
         db.SeedAcademicYear(Year2026, "2026-2027", new DateOnly(2026, 9, 1), new DateOnly(2027, 8, 31));
+        // An earlier year, so a debt can be dated *below* the final one — see SeedOwingFromAnEarlierYear.
+        db.SeedAcademicYear(TestHarness.PreviousYearId, "2024-2025",
+            new DateOnly(2024, 9, 1), new DateOnly(2025, 8, 31));
 
         // TotalYears = 4, so entering the 4ᵉ année is entering the last year. Through the aggregate,
         // not by assignment: a text's span is only movable by the act that checks it does not fall
@@ -50,6 +53,42 @@ public class FinalYearGateTests
 
         db.SaveChanges();
         return db;
+    }
+
+    private static FinalYearGuard Guard(ApplicationDbContext db) =>
+        new(db, new OutstandingStageFinder(db));
+
+    /// <summary>
+    /// A student stamped with the four-year text, holding a 3ᵉ année registration whose only attempt
+    /// at the shared stage failed — i.e. carrying a debt from a year <em>below</em> the 4ᵉ.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ The registration is what dates the debt: <c>OutstandingStageFinder</c> projects
+    /// <c>Debt.LevelYear</c> from <c>a.Registration.Level.Year</c>, not from the stage's level. So a
+    /// failed attempt recorded against the final-year registration is not an earlier debt.
+    /// </remarks>
+    private static Guid SeedOwingFromAnEarlierYear(ApplicationDbContext db, string last)
+    {
+        var earlier = db.SeedRegistration("Amine", last, academicYearId: TestHarness.PreviousYearId);
+        earlier.Student.AssignCnpnVersion(OldText, isInferred: false);
+        earlier.StampCnpnVersion(OldText, RegistrationCnpnSource.Backfilled);
+        SeedAttempt(db, earlier, mark: 7);
+        return earlier.StudentId;
+    }
+
+    /// <summary>A second registration for the same student, at another level and year.</summary>
+    private static void SeedAlsoRegisteredAt(
+        ApplicationDbContext db, Guid studentId, int levelId, int academicYearId)
+    {
+        var registration = new Registration
+        {
+            Id = Guid.NewGuid(),
+            StudentId = studentId,
+            AcademicYearId = academicYearId,
+            LevelId = levelId,
+        };
+        registration.StampCnpnVersion(OldText, RegistrationCnpnSource.Backfilled);
+        db.Registrations.Add(registration);
     }
 
     /// <summary>Moves the seeded text's span, the only way a text's span moves.</summary>
@@ -124,6 +163,77 @@ public class FinalYearGateTests
 
         // ⚠ The assertion that matters: the refusal has to precede the write.
         (await db.Registrations.CountAsync(r => r.AcademicYearId == Year2026)).Should().Be(0);
+    }
+
+    /// <summary>
+    /// ⚠ <b>« Entrer » is the whole rule, and reading it as « être inscrit en » inverts it.</b>
+    ///
+    /// <para>The final year is not a year one passes or fails — there is no déliberation for it. A
+    /// student sits in it, validates and revalidates his stages one at a time, and is re-registered
+    /// each September until they are all done; then re-registered again if he fails the examens
+    /// cliniques, which open as soon as the stages are finished. <b>The re-registration is the
+    /// mechanism by which he clears the debt</b>, so refusing it because he still owes a stage
+    /// refuses him the only way to stop owing it.</para>
+    ///
+    /// <para>Measured 2026-09-01 against the faculty's own roll for 2026-2027: of the 651 7ᵉ année
+    /// Médecine it re-registers into the 7ᵉ année, <b>182 were refused</b> — a quarter of the
+    /// promotion, every one named by the faculty as coming back.</para>
+    ///
+    /// <para>⚠ The debt has to hang off an <b>earlier registration</b>, because
+    /// <c>OutstandingStageFinder</c> reads <c>Debt.LevelYear</c> from the <em>registration's</em>
+    /// level and not from the stage's. A failed attempt recorded against the final-year registration
+    /// itself is not an earlier debt at all, and the gate rightly ignores it — which is how the first
+    /// version of this test passed with the rule removed.</para>
+    /// </summary>
+    [Fact]
+    public async Task A_student_already_in_his_final_year_may_re_register_into_it_while_owing()
+    {
+        await using var db = Seed(nameof(A_student_already_in_his_final_year_may_re_register_into_it_while_owing));
+
+        var student = SeedOwingFromAnEarlierYear(db, "Bennani");
+        SeedAlsoRegisteredAt(db, student, Level4, TestHarness.CurrentYearId);
+        await db.SaveChangesAsync();
+
+        var refusals = await Guard(db).EnsureMayEnterManyAsync([student], Level4, Year2026, default);
+
+        refusals.Should().BeEmpty(
+            "he is continuing his final year, not beginning it — and the re-registration is how he "
+            + "gets to revalidate what he owes");
+    }
+
+    /// <summary>
+    /// The control that keeps the rule alive: the same debt, the same destination, but he has never
+    /// been registered at that level. That is « commencer sa dernière année », and it is refused.
+    /// </summary>
+    [Fact]
+    public async Task A_student_who_has_never_been_at_that_level_is_still_refused()
+    {
+        await using var db = Seed(nameof(A_student_who_has_never_been_at_that_level_is_still_refused));
+
+        var student = SeedOwingFromAnEarlierYear(db, "Alaoui");
+        await db.SaveChangesAsync();
+
+        var refusals = await Guard(db).EnsureMayEnterManyAsync([student], Level4, Year2026, default);
+
+        refusals.Should().ContainKey(student);
+    }
+
+    /// <summary>
+    /// A gap does not make it a beginning. A student who sat in his final year, dropped out and comes
+    /// back has the same stages to revalidate — which is exactly what the re-registration is for.
+    /// </summary>
+    [Fact]
+    public async Task A_return_to_a_level_held_years_earlier_still_counts_as_continuing()
+    {
+        await using var db = Seed(nameof(A_return_to_a_level_held_years_earlier_still_counts_as_continuing));
+
+        var student = SeedOwingFromAnEarlierYear(db, "Chraibi");
+        SeedAlsoRegisteredAt(db, student, Level4, TestHarness.PreviousYearId);
+        await db.SaveChangesAsync();
+
+        var refusals = await Guard(db).EnsureMayEnterManyAsync([student], Level4, Year2026, default);
+
+        refusals.Should().BeEmpty();
     }
 
     /// <summary>

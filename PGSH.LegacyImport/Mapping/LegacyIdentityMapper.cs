@@ -7,21 +7,25 @@ namespace PGSH.LegacyImport.Mapping;
 /// <summary>
 /// Turns a legacy `ETUDIANT` row into the identity fields PGSH requires but Access never stored.
 ///
-/// Two of those fields are NOT NULL UNIQUE in PGSH and simply absent from the source:
 /// <list type="bullet">
-///   <item><b>Email</b> — no column at all. Generated as <c>prenom_nom@um5.ac.ma</c>.</item>
-///   <item><b>CNE</b> — present on only 5,510 of 10,203 rows, with one junk duplicate.</item>
+///   <item><b>Email</b> — no column at all, and NOT NULL UNIQUE in PGSH because it is a login.
+///   Generated as <c>prenom_nom@um5.ac.ma</c>, falling back to <c>NO_ORDRE</c>, which is the legacy
+///   primary key and therefore unique and stable.</item>
+///   <item><b>CNE</b> — present on only 5,510 of 10,203 rows, with one junk duplicate. <b>Carried
+///   across as it is, and left <see langword="null"/> where the source has none.</b></item>
 /// </list>
-/// Both fall back to a value derived from <c>NO_ORDRE</c>, which is the legacy primary key and
-/// therefore unique and stable. <c>Appogee</c> carries <c>NO_ORDRE</c> verbatim, so every imported
-/// student can be traced back to their source row.
+///
+/// <para>⚠ <b>Nothing is manufactured for the CNE any more, and that is the point of the field.</b>
+/// This mapper used to write <c>LEGACY-{NO_ORDRE}</c> for the 4 693 rows with no code, because
+/// <c>Student.CNE</c> was required. The result was a value that reads, in every list, every export
+/// and every identifier-matching import, exactly like a national code somebody holds — and 46% of
+/// the roll carried one. <c>Student.CNE</c> is now optional, so absence is imported as absence.
+/// <see cref="LegacyIdentity.Appogee"/> still carries <c>NO_ORDRE</c> verbatim, so every imported
+/// student is traceable to their source row whether or not they have a CNE.</para>
 /// </summary>
 public sealed class LegacyIdentityMapper(string emailDomain = LegacyIdentityMapper.DefaultDomain)
 {
     public const string DefaultDomain = StudentIdentifierRules.DefaultEmailDomain;
-
-    /// <summary>Marks a CNE that was manufactured because the source had none — never a real code.</summary>
-    public const string SyntheticCnePrefix = "LEGACY-";
 
     // Allocation is order-dependent (the 2nd "omar_bennani" gets the 2 suffix), so callers MUST feed
     // students in a stable order — NO_ORDRE. Re-running the import in a different order would
@@ -47,10 +51,10 @@ public sealed class LegacyIdentityMapper(string emailDomain = LegacyIdentityMapp
             FirstName: firstName,
             LastName: lastName,
             Email: email,
-            Cne: NormalizeCne(student.Cne, student.NoOrdre),
+            Cne: NormalizeCne(student.Cne),
             Appogee: student.NoOrdre.ToString(CultureInfo.InvariantCulture),
             Gender: MapGender(student.Sexe),
-            IsCneSynthetic: !IsUsableCne(student.Cne));
+            CneMissing: !IsUsableCne(student.Cne));
     }
 
     /// <summary>
@@ -73,8 +77,8 @@ public sealed class LegacyIdentityMapper(string emailDomain = LegacyIdentityMapp
         };
     }
 
-    private static string NormalizeCne(string? cne, int noOrdre) =>
-        IsUsableCne(cne) ? cne!.Trim() : $"{SyntheticCnePrefix}{noOrdre}";
+    private static string? NormalizeCne(string? cne) =>
+        IsUsableCne(cne) ? cne!.Trim() : null;
 
     // '########' appears twice and is a placeholder somebody typed, not a national code.
     private static bool IsUsableCne(string? cne) =>
@@ -97,7 +101,9 @@ public sealed record LegacyIdentity(
     string FirstName,
     string LastName,
     string Email,
-    string Cne,
+    string? Cne,
     string Appogee,
     Gender Gender,
-    bool IsCneSynthetic);
+    /// <summary>The source recorded no usable code, so <see cref="Cne"/> is null. Counted, never
+    /// filled in.</summary>
+    bool CneMissing);

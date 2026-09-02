@@ -15,11 +15,15 @@ public sealed class CreateStudentCommandValidator : AbstractValidator<CreateStud
 
         RuleFor(x => x.CNE).ValidCne();
 
-        // 3. Appogee: Must be a numeric string (or number)
+        // ⚠ Not `int.TryParse`. A validator describes what a *save* must satisfy, so a rule the
+        // stored data does not meet makes those rows read-only — and the refusal names a field
+        // nobody was editing. `InscriptionPlanner` derives « SANS-APOGEE-<cne> » for a student whose
+        // numéro Apogée the faculty has not allocated yet, which is not a number and never will be.
+        // Same mistake as the old CNE regex (5 646 unsaveable students) and `Objectives.NotEmpty()`
+        // (the whole stage catalogue). Length and presence are what the column actually requires.
         RuleFor(x => x.Appogee)
             .NotEmpty()
-            .Must(x => int.TryParse(x, out _))
-            .WithMessage("Appogee must be a valid numeric identifier.");
+            .MaximumLength(StudentIdentifierRules.MaxAppogeeLength);
 
         // 4. Enums: Ensure they aren't "None" or out of range
         // This prevents "Alien" or "None" from being used if you want to restrict them
