@@ -6,6 +6,12 @@
 >
 > | # | Do this | Why it is not done |
 > |---|---|---|
+> | **A1** | **Phase 18.2 — la restauration, pour de vrai.** 18.1 est **livré** (session 40) : dumps planifiés, points nommés, manifeste, plan de restauration chiffré, et la bannière « y a-t-il un retour en arrière ? » dans la déliberation, la réinscription et l'application d'un axe. Reste : **une restauration que quelqu'un a réellement exécutée** (contre une base de rebut), `pgsh-snapshot`/`pgsh-restore` en scripts hors API, l'assertion des effectifs en SQL, le volume **Keycloak**, et l'undo par acte pour la déliberation et le rouleau. | ⚠ **`BackupVerification.Restored` est une valeur que rien ne pose aujourd'hui** — l'application sait relire la table des matières d'une archive (`pg_restore -l`), ce qui attrape une archive tronquée et rien de plus. **Une sauvegarde que personne n'a restaurée est une hypothèse.** Et il n'y a **volontairement pas** de bouton « Restaurer » : un processus ne peut pas remplacer la base dont il se sert ; le plan affiche la commande, la pile arrêtée. `PHASES.md` §18.2, `SMOKE-TEST.md` §41. |
+> | **A2** | **Phase 17 — « suspension d'examens » scoped to a promotion.** Declared as a window on `(année, niveau)`, previewed, correctable and revocable, compensating in **jours ouvrables** through a promotion-scoped `WorkingDayCalendar` rather than by pushing dates on each assignment. | Some promotions sit exams while others rotate through the same services the same morning, so the unit is the promotion — but `StagePauseRunner` is scoped to one **stage**, so an exam week is one call per stage with nothing recording that they were one event. Three further gaps read from the code 2026-09-03: the shift is in **calendar** days (`WorkingDayCalendar` is not consulted at all), only the `ServicePeriod`s move so the **grid silently drifts** from what was published, and nothing can be declared in advance — a forgotten resume leaves rotations frozen with no end date and no compensation. `PHASES.md` §17. |
+> | **A3** | **Decide the mid-flight reschedule** — « on est en P3, peut-on changer P7 ? » Today no, and `UpdateStageSlotCommandHandler` is the dangerous half: it has **no published-guard at all** and rewrites a window without touching the périodes published from it. `SetCohortSlotAssignment` refuses on « the cohorte is published » where `PublishedCells.IsCellPublishedAsync` would answer « is *this cell* published », and `UnpublishCohortSchedule` has no period scope, so undoing P7 undoes P1-P10 and `Force` takes the marks and attendance with it. | Same machinery as A2 — "shift the later périodes *and their cells*" is one operation — which is why it is filed as `PHASES.md` §17.1 rather than on its own. ⚠ `SingleService` complicates all three: the *kₛ* cells fold into one `ServicePeriod`, so editing a column mid-run splits a stay. |
+> | 0ae | **Relancer l'AppHost, puis dérouler `SMOKE-TEST.md` §41.** Les routes `/api/backups*` n'existent pas dans un processus antérieur à cette session : le contrôle qui distingue « route absente » de « non authentifié » est que `safe-point` répond **404** sur l'ancien processus et **401** sans jeton. | Rien dans §41 n'écrit dans la base (un `pg_dump` est une lecture) — sauf les entrées d'audit `BACKUP_POINT_*`. Les deux étapes qui comptent : **arrêter Docker** et vérifier que le bandeau dit « service indisponible » et non « aucune sauvegarde », et **prendre un point depuis la bannière de la déliberation** sans perdre le fichier chargé. ⚠ Ne **pas** exécuter la commande de restauration sur la base vivante ; §18.2 est exactement ce qui manque pour l'éprouver proprement. |
+> | 0af | ~~`ServiceDetailPage` ranks the chef sources differently from `ServiceChefDirectory`~~ — **fixed 03/09/2026.** `ServiceDetailResponse.ChefAttribution` (name + `FromSourceNote` + `LinkedChefWithheld`) is resolved server-side by the directory, as of today, and the page prints it; `chefHistory` stays the trail and now shows each tenure's grade. | ⚠ The defect was **one rule on two sides of a network boundary** — the page read the sitting FK (null on all 148 services), then the note, and filed the open tenure under « Historique », so Pédiatrie1 headlined « Pr.N.Elhafidi » and exported as « Youssef Alaoui ». `LinkedChefWithheld` is what stops the narrowed policy merely *relocating* that confusion: it is why the page no longer advises « Désignez un chef » on a service that has one. Found: the flag reads the trail, so the trail must be loaded under **every** policy — the provider's skip made it answer `false` on exactly the two services needing `true`. |
+> | 0ag | **Two more screens still read the sitting FK alone**, and it is « — » on all 148 services: the services table on `InfrastructurePage` (`serviceChefName`) and the **student** portal's service page (`serviceChef` → « aucun chef », while the student's own répartition names one). | Same class as `0af`, now cheap: `ServiceChefProvider` + the attribution shape exist, so each is a directory build over the rows already being returned (bounded by the page size) plus the printed name. Left out of the 03/09 change deliberately — the report was about the export and the service fiche, and the student page needs a design call (a note gives a name, not a grade, a PPR or an avatar). |
 > | 0z | ~~Run the rebuild~~ — **DONE 2026-09-01.** ⚠ **RESTART the AppHost**: the API is running against a database that was dropped and recreated under it, and it needs the two new migrations and the `reinscription/sheet` route either way. | 10 203 students · 43 605 registrations · 105 626 périodes · 87 092 évaluations · **0 `LEGACY-` CNEs** (4 695 null) · **10 185 stamped, 0 unresolved** · 43 605 registrations backfilled · 146 allowed services · 3 effectivity rules · 2 chef tenures · 2026-2027 present, current, **0 registrations**. Dump kept: `pgsh-avant-reimport-20260901-223756.dump`. Four *silent* traps found on the way — see `NOTES.md` « The rebuild, run for real ». |
 > | 0y | ~~Apply `Réinscriptions 26-27 VF.xlsx`~~ — **DONE 02/09/2026**, through the UI, against the live base. 6 813 inscriptions créées · 7 232 décisions · 1 217 Diplômé déduits · **1 327 signalements** (60 dette de dernière année sur 2026-2027, 1 267 absents sur 2025-2026). Sauvegarde préalable : `pgsh-avant-reinscription-20260902-140434.dump`. | Le gel a été vérifié sur la promotion réelle : découpage 7ᵉ MED 2026-2027 = 65 groupes, 1 281 placés, **60 non placés et ce sont exactement les signalés**. Levée d'un signalement → 1 282 placés, l'étudiante dans « Groupe 66 », la ligne conservée avec constat + motif + auteur. Trois défauts trouvés et corrigés en chemin — voir `SMOKE-TEST.md` Partie D. |
 > | 0ab | ~~`CohortProvisioner.GroupTextsQuery` was missing the hold exclusion~~ — **fixed 02/09/2026.** Documented for three reads, applied to two. A held registration's CNPN text was deciding which cohortes its roster gets, while the same student is excluded from the cut and from affectation. Caught by `SqlTranslationTests`' one assertion that reads *what the SQL says* rather than *that there is SQL*. | Latent only because the base holds 0 cells — the 1 327 signalements are real, and the first « Générer le plan » would have read them. See `NOTES.md`. |
@@ -43,6 +49,121 @@
 > | 1d | ~~`POST stages/revalidate` has no frontend caller~~ — **done, session 36.** | `RevalidateStageModal`, reached from « Revalider un stage » on each registration card of the admin student page — on *each* card because the retake always hangs off the inscription the student holds now, never off the year he failed in. Backed by a new read, `GET registrations/{id}/revalidation-context`. ⚠ **The API must be restarted** for that route to exist; a process predating it answers 404 while `/api/stages` answers 401, which is the control that tells « route absent » from « not authenticated ». |
 > | 1e | ~~Nothing applies a stage's duration~~ — **closed where it was asked for, session 36.** | The revalidation dialog now proposes a window laid from `r.CnpnVersionId ?? r.Student.CnpnVersionId`'s own `CurriculumStage`, never from the catalogue, and shows both figures side by side when they disagree. Proposed, not imposed — the field stays editable, since a retake shortened by agreement is legitimate. ⚠ **The other readers still apply no duration at all**: the dossier, the progression and the export read none. What was closed is the one place a duration was *asked of* an operator with nothing telling him which one. |
 >
+> **▶ SESSION 42 — deux chefs de service enregistrés, et ce sont des comptes de test.**
+>
+> Backend suite **1 481 green**. **No migration** — the change is one constant and the code that
+> reads it.
+>
+> **The ask.** On the Excel export reached from the Répartition annuelle page, the chef de service is
+> to be taken from the **note d'import (`Service.Description`) alone**, and never from an affectation:
+> the base holds **2** `ServiceChefAssignment` rows and both were linked to try the mechanism out. A
+> document resolving them prints a test account's name beside real students.
+>
+> **What was built.** `ServiceChefSourcePolicy` (`Authority` | `SourceNoteOnly`) with
+> `ServiceChefPolicy.InForce` naming which is in force — `SourceNoteOnly` as of today.
+> `ServiceChefDirectory` skips the tenure and the sitting chef under it. ⚠ **The provider still loads
+> the trail** — it briefly did not, and that made `HasWithheldLinkedChef` answer `false` on exactly
+> the two services that need `true`: the policy narrows what a document may *name*, never what the
+> directory *knows*.
+>
+> ⚠ **Applied to the répartition document too, not to the export alone.** The whole reason the
+> resolution order was extracted from `GetLevelRepartitionQueryHandler` is that two pages of one
+> faculty must not name different people for one service. Narrowing one of them rebuilds exactly that
+> drift — so the constant is read by both, and flipping it back is one line.
+>
+> ⚠ **What the policy costs is on the page, not left to be discovered.** A service whose only chef is
+> a link now prints **no name at all** — deliberate: a blank says less wrongly than the wrong name —
+> and `ExportNotes.ChefSourceNote` states that under the caption of the two sheets that print a chef
+> (never on Synthèse, which has no such column). Silent under `Authority`: a note that fires whatever
+> the policy says is noise, and noise is dismissed.
+>
+> ⚠ **« Origine du chef » now reads « Note (import) » on every row, and that is the honest column.**
+> Narrowing the sources is not a licence to stop saying the name is undated. On the répartition the
+> `chefIsFromSourceNote` flag is only a native `title` tooltip, so nothing on the printed document
+> becomes visibly noisier — **no frontend change was needed**.
+>
+> **Tests.** The authority order stays covered where it lives — `ServiceChefDirectoryTests`, now
+> policy-parameterised, plus three cases for the narrowed one — while the two handler suites assert
+> the narrowing (`LevelRepartitionTests`, `ExportTests`). ⚠ **Checked by flipping the constant to
+> `Authority`: 5 handler tests fail, 0 directory tests do**, which is what makes the flip back a
+> one-line change rather than a rediscovery.
+>
+> **⚠ Found while answering « pourquoi Alaoui apparaissait en Pédiatrie 1 et 2 ? ».** Measured on the
+> live base: those are the **two** `ServiceChefAssignment` rows — both **Youssef Alaoui**, open since
+> 29/08/2026 — and `Services.ServiceChefId` is **NULL on all 148 services**. The document resolved the
+> tenure (« Affectation »); the service page reads the *sitting* FK, then the note, and shows the open
+> tenure under « **Historique** » — so it headlined Pédiatrie1 as « Pr.N.Elhafidi » and Pédiatrie2 as
+> « Pr.A.Mdaghri Alaoui » (a **different** Alaoui, which is what made it look half-right). Both were
+> faithful to their own reading of the order; nothing on either screen said the other existed. This
+> session's change makes them agree by accident — item **0af** is the actual defect.
+>
+> **Then the second half, once the user reloaded and asked the right question** (« pourquoi Alaoui
+> apparaissait en Pédiatrie 1 et 2 ? ») — item **0af**, fixed in the same session.
+> `ServiceDetailResponse.ChefAttribution` carries the resolved name, its origin, **and**
+> `LinkedChefWithheld`, and `ServiceDetailPage` prints all three instead of ranking the sources
+> itself. ⚠ Without that third flag the narrowed policy only *moves* the confusion: an « en cours »
+> tenure under a headline naming somebody else, beside « Désignez un chef de service » — advice the
+> service had already satisfied. Backend suite **1 492 green**; `tsc --noEmit` and `eslint` clean.
+>
+> **⚠ Two defects were in the first cut of that fix and are worth remembering, because both are the
+> same mistake the fix is about.** ① The page stopped referencing `serviceChef` at all, so a chef
+> linked through the **FK** rather than through a dated tenure was nowhere on it, while the alert
+> said « voir l'historique » — a section listing tenures only. The link now prints on its own
+> « rattaché » line whatever the attribution says. ② The client fallback for an API predating
+> `chefAttribution` filled it in from `chefFromSourceNote` — a second resolution order on the client.
+> Absent now means *unknown* and says so. The constant was also renamed `ForDocuments` → **`InForce`**:
+> a screen reads it too, and a name that misdescribes its callers is how the next reader gets it wrong.
+>
+> **Still waiting, and it is the reason this is temporary:** link the real professors in Personnel,
+> then set `InForce` to `Authority`. Nothing else changes — the notes and both documents follow
+> the constant. `PHASES.md` §15.14.
+>
+> **▶ SESSION 41 — une demande nominative se résout par un groupe, et rien ne permettait de le voir.**
+>
+> Backend suite **1 474 green** (+67). **No migration** — the whole change is two reads.
+>
+> **The question.** Three real requests, brought by the user: « Sbai fait tous ses stages à l'hôpital
+> militaire », « Aya et Rihab ensemble, stage A en S1 et stage B en S2 », and des fratries dans le même
+> service. Asked whether the system could express them, and whether a *transfert définitif* was better
+> than cutting a groupe.
+>
+> **Measured before answering, on the live base.** The faculty already solves this by grouping: in
+> 2024-2025, 6ᵉ année Médecine held **five rosters of 6-7 students entirely at the HMIMV** (groupes 102,
+> 116, 130, 144, 158). They were **normal-sized**, not tiny. HMIMV is the largest hospital in the base
+> (**35 services**) and covers **every** 6ᵉ année stage — and six of the seven 5ᵉ année ones, because
+> **Santé Publique authorises a single service and it is elsewhere**.
+>
+> **What was answered.** A définitive transfer does not send a student to a *service*, it sends him to a
+> *roster* — so « groupe ou transfert » is not a choice: the transfer is how somebody gets into a group.
+> The user's instinct was right for a reason that is in the code: `RotationArranger.BuildServiceQueue`
+> weights a service by how many *whole average-sized* cohorts it holds and a cohort is atomic, so a
+> two-student roster spends a full cohort's worth of a service's intake on two people — silently.
+> **The cheapest answer is always « transfer him into a roster that already goes there », and that
+> answer was unreachable**: nothing could be asked « quel groupe est au HMIMV ? ».
+>
+> **Built.** `GET groups/placements` (paged, per promotion, filterable by service or hospital, with
+> `match=Anywhere|Exclusively`) and `GET hospitals/{id}/stage-coverage` (can this hospital host this
+> promotion's whole rotation, and which stages it cannot). Two pure domain classifiers,
+> `RosterHospitalPlacement` and `StageHospitalCoverage`, each existing because a blank means two things:
+> a roster nobody arranged satisfies « toutes ses cellules au HMIMV » **vacuously**, and a stage with an
+> empty allowed-services list is *open to everything*, not closed to this hospital.
+>
+> ⚠ **Proved the guard bites**: removing the « au moins une cellule » half of `Exclusively` fails **five**
+> tests, including the endpoint one — without it, on a base holding 0 cells, every roster in the faculty
+> is returned as an exact match for « tout au militaire ».
+>
+> ⚠ **A blind spot found, and it is the inverse of the usual one.** `SelectMany` over a **skip
+> navigation** (`Stage.AllowedServices`) throws `NotImplementedException` on the *in-memory* provider
+> while Npgsql translates it fine — the mirror of the translation trap this suite was built against. The
+> coverage read uses `Include` + an in-memory filter for the **names**, and keeps the **verdict** on
+> `StagesQuery`'s SQL aggregates: a forgotten `Include` then degrades to « couvert, mais aucun service
+> nommé » instead of silently reporting every stage as unauthored.
+>
+> **Still open, and re-ranked by this session:** the *pin marker* on `CohortSlotAssignment` (a hand-set
+> cell is deleted by the next auto-arrange in its reach — `RotationArranger.cs` `staleIds` — with no count
+> and no warning) and a *reason* on `AcademicGroup` (nothing records that Groupe 102 is the military
+> roster). See `PHASES.md` §19.
+
 > **▶ SESSION 37 — the canvas the faculty actually sends, and a CNE that was never an identifier.**
 >
 > Backend suite **1 342 green** (+45), frontend `tsc --noEmit` and `npm run lint` clean.
@@ -97,6 +218,68 @@
 > ⚠ `.gitignore` now covers `*.xlsx` — the faculty's roll names real students and was untracked but
 > not ignored, unlike `Medecine.mdb`.
 >
+---
+
+## Session 40 — 2026-09-03 · un point de sauvegarde que personne n'a besoin de penser à prendre
+
+**Phase 18.1.** La demande : « the app is up and working so the data is super important and we dont
+want to mess it up ». Ce qui manquait n'était pas `pg_dump` — il a fonctionné trois fois — mais le
+fait qu'un humain devait y penser, le jour même où il écrit une promotion entière.
+
+Suite backend **1 435 verte** (+28), `tsc --noEmit` et `npm run lint` propres. **Aucune migration** —
+voir plus bas, c'est une conséquence de la conception et non un raccourci.
+
+### Ce qui est livré
+
+| | |
+|---|---|
+| `Domain/Backups/` | `BackupManifest`, `SchemaFingerprint`, `DatabaseCensus`, `SafePointEvaluator` — pur, comme `WorkingDayCalendar` et `OccupancyTimeline` |
+| `Application/Backups/` | le port `IBackupArchive`, `SafePointTaker`, les 3 commandes et les 3 lectures |
+| `Infrastructure/Backups/` | `PgDumpBackupArchive` (`docker exec pg_dump -Fc -f` puis `docker cp`), `ScheduledBackupService`, `EfSchemaFingerprintProvider` |
+| API | `GET backups`, `GET backups/safe-point`, `POST backups`, `POST backups/{id}/verify`, `GET backups/{id}/restore-plan`, `DELETE backups/{id}` |
+| Frontend | `/admin/sauvegardes` + `SafePointBanner` dans la déliberation, la réinscription par fichier et l'application d'un axe |
+
+### Les trois décisions qui ont porté le reste
+
+**1 · Le registre est le dossier, pas une table.** Un registre gardé *dans* la base serait rembobiné
+par la restauration même qu'il décrit : après un retour en arrière, tous les points pris depuis
+disparaîtraient de la liste **alors que leurs fichiers sont sur le disque**. Le manifeste JSON à côté
+du dump survit à l'acte qu'il documente — et c'est pourquoi ceci se livre sur une base vivante sans
+migration.
+
+**2 · « Indisponible » n'est pas « aucune sauvegarde ».** Docker arrêté et dossier vide appellent des
+gestes opposés. `SafePointState` en a cinq, et `SchemaChanged` passe **devant** `Stale` : un dump
+d'une heure sous une autre migration est une restauration qui *refuse*, un dump de trois jours sous la
+bonne migration est une restauration qui *marche et coûte trois jours*. Même famille que « année
+omise lue comme toutes les années ».
+
+**3 · Le manifeste vaut plus que le dump.** Un `.dump` seul ne dit pas sous quel schéma il a été
+écrit. `SchemaFingerprint` lit *inconnu* comme « ne peut rien certifier », jamais comme « identique ».
+
+### Ce que l'API ne fait pas, volontairement
+**Aucun bouton « Restaurer ».** Un processus ne peut pas remplacer la base dont il se sert :
+`pg_restore --clean` supprime des objets que l'API tient ouverts, et un endpoint qui prétendrait le
+contraire échouerait à mi-course, sur la base vivante. Le plan rend le **coût chiffré** — recensement
+du manifeste contre la base actuelle, dans les deux sens — et la commande exacte, la pile arrêtée.
+⚠ Il **n'échoue pas** sur un désaccord de schéma : le refus doit pouvoir nommer le
+`dotnet ef database update` qui rend le point utilisable.
+
+### La bannière est la fonctionnalité
+« Créer un point maintenant » est **dans** la confirmation de l'acte, pas sur une page à côté. ⚠ Elle
+ne bloque pas : sans point exploitable l'acte demande une case cochée, comme `ConfirmedDefaultCount`.
+Bloquer sèchement voudrait dire que le jour où Docker est en panne, la faculté ne peut plus clôturer.
+
+### Rôles, là où le risque est
+*Prendre* un point est `Roles.Administrative` — scolarité applique les actes en masse, un verrou
+qu'elle ne passerait pas mettrait le bouton hors de portée de la seule personne qui en a besoin.
+*Supprimer* est `SuperUser`, et le **plus récent** est refusé à tout le monde : c'est celui que lisent
+les confirmations. Les deux garde-fous ont été **cassés puis restaurés** pour vérifier qu'ils mordent.
+
+### Ce que la suite ne prouve pas
+`ApiFactory` remplace l'archive par une fausse et coupe le planificateur — sinon `dotnet test`
+prendrait un dump de la base vivante en effet de bord, et le planificateur en prendrait un par heure
+tant que l'hôte de test vit. La moitié `docker exec` se vérifie à la main : `SMOKE-TEST.md` §41.
+
 ---
 
 ## Session 38 — 2026-09-02 · the roll is applied whole, and the disagreement is recorded

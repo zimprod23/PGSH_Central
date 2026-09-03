@@ -637,14 +637,19 @@ public class ExportTests
     }
 
     /// <summary>
-    /// The other half, and the one that makes the flag mean something: a chef linked in Personnel is
-    /// reported as a record, not as a note. That is what adding the professor to the staff buys —
-    /// the export itself needs no change for it.
+    /// ⚠ <b>The temporary policy, and it is the whole subject of the change.</b> A chef linked in
+    /// Personnel is <em>ignored</em> while <see cref="ServiceChefPolicy.InForce"/> is
+    /// <see cref="ServiceChefSourcePolicy.SourceNoteOnly"/>: the two <c>ServiceChefAssignment</c>
+    /// rows in the base were linked to try the mechanism out, so resolving them prints a test
+    /// account's name beside real students.
+    ///
+    /// <para>The authority order itself stays covered in <c>ServiceChefDirectoryTests</c>, which is
+    /// what makes flipping the constant back a safe one-line change rather than a rewrite.</para>
     /// </summary>
     [Fact]
-    public async Task A_chef_linked_in_personnel_is_reported_as_a_record()
+    public async Task A_chef_linked_in_personnel_is_ignored_in_favour_of_the_note()
     {
-        using var db = TestHarness.NewContext(nameof(A_chef_linked_in_personnel_is_reported_as_a_record));
+        using var db = TestHarness.NewContext(nameof(A_chef_linked_in_personnel_is_ignored_in_favour_of_the_note));
         var stage = db.SeedCatalog();
         var chef = db.SeedChef(Guid.NewGuid());
         chef.FirstName = "Nadia";
@@ -662,8 +667,78 @@ public class ExportTests
         result.IsSuccess.Should().BeTrue();
         var periods = writer.Captured!.Sheets[1];
 
-        Cell(periods, 0, "Chef de service").Should().Be("Nadia Bennis",
-            "the structured record outranks the note, whatever the description still says");
-        Cell(periods, 0, "Origine du chef").Should().Be("Affectation");
+        Cell(periods, 0, "Chef de service").Should().Be("Pr.A.Settaf",
+            "the linked chefs are test rows; the import note is the faculty's own last record");
+        Cell(periods, 0, "Origine du chef").Should().Be("Note (import)",
+            "narrowing the sources is not a licence to stop saying the name is undated");
+    }
+
+    /// <summary>
+    /// The cost of the policy, stated so nobody reads the blank as a lost join: a service whose only
+    /// chef is a linked one names <b>nobody</b>. Deliberate — a blank cell says less wrongly than
+    /// the wrong name, and « Origine du chef » stays empty with it rather than claiming a source.
+    /// </summary>
+    [Fact]
+    public async Task A_service_whose_only_chef_is_a_link_prints_no_name_at_all()
+    {
+        using var db = TestHarness.NewContext(nameof(A_service_whose_only_chef_is_a_link_prints_no_name_at_all));
+        var stage = db.SeedCatalog();
+        var chef = db.SeedChef(Guid.NewGuid());
+        chef.FirstName = "Nadia";
+        chef.LastName = "Bennis";
+        var service = db.SeedService(1, "Service de Cardiologie", chef);
+        var cohort = db.SeedCohort(stage, groupId: 1, groupLabel: "G1");
+        var registration = db.SeedRegistration("Amina", "Benali", cohort.AcademicGroup);
+        db.SeedGradedAssignment(registration, cohort, service, mark: 14.5m);
+        await db.SaveChangesAsync();
+
+        var writer = new CapturingWriter();
+        var result = await StagesHandler(db, writer).Handle(new GetStageAssignmentsExportQuery(), default);
+
+        result.IsSuccess.Should().BeTrue();
+        var periods = writer.Captured!.Sheets[1];
+
+        Cell(periods, 0, "Chef de service").Should().BeNull();
+        Cell(periods, 0, "Origine du chef").Should().BeNull(
+            "ChefOrigin names a source only for a name it actually printed");
+    }
+
+    /// <summary>
+    /// ⚠ A column reading the same thing on every row is the mirror of one reading nothing: it looks
+    /// like a value the export hard-coded rather than a policy somebody chose, and the blank it
+    /// leaves on an affectation-only service has no explanation on the page. The note carries both,
+    /// and only onto the sheets that print a chef — Synthèse has no such column.
+    /// </summary>
+    [Fact]
+    public async Task The_sheets_that_print_a_chef_say_the_name_comes_from_the_import_note()
+    {
+        using var db = TestHarness.NewContext(nameof(The_sheets_that_print_a_chef_say_the_name_comes_from_the_import_note));
+        var stage = db.SeedCatalog();
+        var service = db.SeedService(1, "Service de Cardiologie");
+        service.Description = ServiceChefSourceNote.Format("Pr.A.Settaf");
+        var cohort = db.SeedCohort(stage, groupId: 1, groupLabel: "G1");
+        var registration = db.SeedRegistration("Amina", "Benali", cohort.AcademicGroup);
+        db.SeedGradedAssignment(registration, cohort, service, mark: 14.5m);
+        await db.SaveChangesAsync();
+
+        var writer = new CapturingWriter();
+        var result = await StagesHandler(db, writer).Handle(new GetStageAssignmentsExportQuery(), default);
+
+        result.IsSuccess.Should().BeTrue();
+        string expected = ExportNotes.ChefSourceNote(ServiceChefPolicy.InForce)!;
+
+        writer.Captured!.Sheets[0].Notes.Should().Contain(expected);
+        writer.Captured!.Sheets[1].Notes.Should().Contain(expected);
+        writer.Captured!.Sheets[2].Notes.Should().NotContain(expected,
+            "Synthèse names no chef, so the note would answer a question its reader never asked");
+    }
+
+    /// <summary>The note is silent under the full authority order — one that fires whatever the
+    /// policy says is noise, and noise is dismissed, which puts the real ones out of sight.</summary>
+    [Fact]
+    public void The_chef_source_note_is_silent_when_the_full_authority_order_is_in_force()
+    {
+        ExportNotes.ChefSourceNote(ServiceChefSourcePolicy.Authority).Should().BeNull();
+        ExportNotes.ChefSourceNote(ServiceChefSourcePolicy.SourceNoteOnly).Should().NotBeNull();
     }
 }

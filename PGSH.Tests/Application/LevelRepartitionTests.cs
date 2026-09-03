@@ -270,10 +270,20 @@ public class LevelRepartitionTests
             .SelectMany(c => c!.GroupNumbers).Should().NotContain(77);
     }
 
+    /// <summary>
+    /// ⚠ <b>Both halves of the temporary policy in one case.</b> A dated tenure covering the start
+    /// of the axis is what a reprint years later ought to name — and it is <em>ignored</em> while
+    /// <see cref="ServiceChefPolicy.InForce"/> is
+    /// <see cref="ServiceChefSourcePolicy.SourceNoteOnly"/>, because the base's two
+    /// <c>ServiceChefAssignment</c> rows were linked to try the mechanism out and naming a test
+    /// account beside real students is worse than naming the faculty's own undated record.
+    ///
+    /// <para>The authority order stays covered where it lives — <c>ServiceChefDirectoryTests</c> —
+    /// so restoring it is one line in <see cref="ServiceChefPolicy"/>, not a rewrite here.</para>
+    /// </summary>
     [Fact]
-    public async Task The_chef_printed_is_the_one_in_charge_when_the_planning_starts()
+    public async Task A_dated_tenure_is_passed_over_for_the_legacy_note()
     {
-        // A répartition reprinted years later has to keep naming the chef it was published with.
         await using var db = TestHarness.NewContext("repartition-chef");
         await SeedAsync(db);
 
@@ -300,18 +310,26 @@ public class LevelRepartitionTests
             ServiceId = service.Id, EmployeeId = nowChef.Id, Employee = nowChef,
             StartDate = new DateOnly(2026, 7, 1),
         });
+        service.Description = ServiceChefSourceNote.Format("Pr.A.Settaf");
         await db.SaveChangesAsync();
 
         var report = (await Handler(db).Handle(
             new GetLevelRepartitionQuery(TestHarness.LevelId), default)).Value;
 
-        report.Rows.Single(r => r.ServiceId == MedecineA).ChefName.Should().Be("Pr.Y. Sekkach");
+        var row = report.Rows.Single(r => r.ServiceId == MedecineA);
+        row.ChefName.Should().Be("Pr.A.Settaf");
+        row.ChefIsFromSourceNote.Should().BeTrue(
+            "the note is undated whichever sources the policy allows, and the page says so");
     }
 
+    /// <summary>
+    /// The cost of the policy, pinned so the blank is not read as a lost join: a service whose only
+    /// chef is a link — sitting or dated — names nobody at all. A blank cell says less wrongly than
+    /// a test account's name.
+    /// </summary>
     [Fact]
-    public async Task A_service_with_no_recorded_tenure_falls_back_to_the_sitting_chef()
+    public async Task A_service_whose_only_chef_is_a_link_names_nobody()
     {
-        // The legacy import carried no tenure trail; printing no name at all would be worse.
         await using var db = TestHarness.NewContext("repartition-chef-fallback");
         var stage = db.SeedCatalog();
 
@@ -330,8 +348,9 @@ public class LevelRepartitionTests
         var report = (await Handler(db).Handle(
             new GetLevelRepartitionQuery(TestHarness.LevelId), default)).Value;
 
-        report.Rows.Single().ChefName.Should().Be("Pr.H. Harmouch");
-        report.Rows.Single().ChefIsFromSourceNote.Should().BeFalse();
+        report.Rows.Single().ChefName.Should().BeNull();
+        report.Rows.Single().ChefIsFromSourceNote.Should().BeFalse(
+            "nothing was printed, so nothing has a source to report");
     }
 
     /// <summary>
@@ -363,8 +382,10 @@ public class LevelRepartitionTests
             "an undated note is not the same fact as a dated tenure, and a reprint cannot make it one");
     }
 
+    /// <summary>⚠ Inverted by the temporary policy: while the linked chefs are test rows, the
+    /// faculty's own import note is the better answer, and it is the only one read.</summary>
     [Fact]
-    public async Task A_linked_chef_wins_over_the_legacy_source_note()
+    public async Task The_legacy_source_note_wins_over_a_linked_chef()
     {
         await using var db = TestHarness.NewContext("repartition-chef-note-superseded");
         var stage = db.SeedCatalog();
@@ -384,9 +405,9 @@ public class LevelRepartitionTests
         var report = (await Handler(db).Handle(
             new GetLevelRepartitionQuery(TestHarness.LevelId), default)).Value;
 
-        report.Rows.Single().ChefName.Should().Be("Pr.H. Harmouch",
-            "the note is a fallback for services nobody has linked, not a competing record");
-        report.Rows.Single().ChefIsFromSourceNote.Should().BeFalse();
+        report.Rows.Single().ChefName.Should().Be("Pr.A.Settaf",
+            "no real chef is linked yet, so an affectation is not evidence a document may print");
+        report.Rows.Single().ChefIsFromSourceNote.Should().BeTrue();
     }
 
     [Theory]

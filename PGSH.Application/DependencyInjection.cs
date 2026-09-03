@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using PGSH.Application.Abstractions.Authorization;
 using PGSH.Application.AcademicYears;
 using PGSH.Application.AcademicYears.Manage;
+using PGSH.Application.Backups;
 using PGSH.Application.Behaviors;
 using PGSH.Application.Calendar;
 using PGSH.Application.Hospitals.Chefs;
@@ -40,6 +41,8 @@ public static class DependencyInjection
 
         services.AddValidatorsFromAssembly(typeof(DependencyInjection).Assembly, includeInternalTypes: true);
 
+        services.AddScoped<DatabaseCensusReader>();
+        services.AddScoped<SafePointTaker>();
         services.AddScoped<ServiceOccupancyCalculator>();
         services.AddScoped<ServiceIntakeCalculator>();
         services.AddScoped<ServiceLevelCapacityResolver>();

@@ -87,8 +87,15 @@ internal sealed class GetLevelRepartitionQueryHandler(
         // Who led each service when the planning starts, not who leads it today: a répartition
         // reprinted three years later has to keep naming the chef it was published with, and
         // ChefHistory is exactly that record.
+        //
+        // ⚠ InForce is SourceNoteOnly today — the two ServiceChefAssignment rows in the base
+        // are test links — so the name printed is the undated import note and ChefIsFromSourceNote
+        // is true wherever one is printed. Narrowed here rather than on the export alone, or the
+        // two documents of one faculty would name different people for one service.
         var chefs = await chefProvider.BuildAsync(
-            cells.Select(c => c.ServiceId).Distinct().ToList(), cancellationToken);
+            cells.Select(c => c.ServiceId).Distinct().ToList(),
+            ServiceChefPolicy.InForce,
+            cancellationToken);
 
         var rows = BuildRows(cells, axis, chefs, axis[0].StartDate);
 

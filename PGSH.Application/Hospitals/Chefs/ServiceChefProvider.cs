@@ -7,6 +7,10 @@ namespace PGSH.Application.Hospitals.Chefs;
 /// Reads the three chef sources for a set of services and hands back a
 /// <see cref="ServiceChefDirectory"/> — the database side of "who leads this service", in one place,
 /// so no document assembles its own and gets a different name.
+///
+/// <para>The <see cref="ServiceChefSourcePolicy"/> is asked for by the caller and never assumed
+/// here: a default would let a document narrow its sources without saying so on the page that
+/// prints the name. Both callers pass <see cref="ServiceChefPolicy.InForce"/>.</para>
 /// </summary>
 public sealed class ServiceChefProvider(IApplicationDbContext dbContext)
 {
@@ -18,12 +22,20 @@ public sealed class ServiceChefProvider(IApplicationDbContext dbContext)
     /// two of which carry a tenure at all — so the read is cheaper than the round trip it replaces.
     /// </summary>
     public async Task<ServiceChefDirectory> BuildAsync(
-        IReadOnlyCollection<int> serviceIds, CancellationToken cancellationToken)
+        IReadOnlyCollection<int> serviceIds,
+        ServiceChefSourcePolicy policy,
+        CancellationToken cancellationToken)
     {
         if (serviceIds.Count == 0)
             return ServiceChefDirectory.Empty;
 
         var services = await ServicesQuery(dbContext, serviceIds).ToListAsync(cancellationToken);
+
+        // ⚠ Loaded under every policy, including the one that will not print them. The policy
+        // narrows what a document may *name*, not what the directory *knows*:
+        // ServiceChefDirectory.HasWithheldLinkedChef has to be able to say « quelqu'un est rattaché,
+        // et ce n'est pas ce nom-là », and skipping the read makes that answer silently false —
+        // which is the exact confusion the policy exists to remove.
         var tenures = await TenuresQuery(dbContext, serviceIds).ToListAsync(cancellationToken);
 
         var byService = tenures
@@ -33,13 +45,15 @@ public sealed class ServiceChefProvider(IApplicationDbContext dbContext)
                 g => (IReadOnlyList<ServiceChefTenure>)g
                     .Select(t => new ServiceChefTenure(t.Name, t.Start, t.End)).ToList());
 
-        return new ServiceChefDirectory(services
-            .Select(s => new ServiceChefRecord(
-                s.ServiceId,
-                s.SittingChefName,
-                s.Description,
-                byService.GetValueOrDefault(s.ServiceId, [])))
-            .ToList());
+        return new ServiceChefDirectory(
+            services
+                .Select(s => new ServiceChefRecord(
+                    s.ServiceId,
+                    s.SittingChefName,
+                    s.Description,
+                    byService.GetValueOrDefault(s.ServiceId, [])))
+                .ToList(),
+            policy);
     }
 
     /// <summary>

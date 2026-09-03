@@ -738,3 +738,41 @@ the resolver — the stage set is matched against the slots on disk instead.
 | `BacSeries` | ... | Student |
 | `CivilStatus` | `Civil`, `Militaire` | User (owned) |
 | `NationalityStatus` | `Marocaine`, `Etrangaire` | User (owned) |
+
+---
+
+## Ce que les sauvegardes n'ajoutent pas au schéma
+
+⚠ **Phase 18.1 (points de restauration) n'ajoute aucune table, et c'est une décision, pas un oubli.**
+Un registre des sauvegardes gardé *dans* la base serait rembobiné par la restauration même qu'il
+décrit : après un retour au point du 1ᵉʳ, chaque point pris depuis disparaîtrait de la liste **alors
+que son fichier est sur le disque**, et l'opérateur lirait un inventaire en désaccord avec son propre
+dossier — au pire moment possible.
+
+Le registre est donc le **dossier** : un `<id>.dump` et un `<id>.manifest.json` à côté, hors du dépôt
+et hors du volume `pgsh-postgres-data`. Le manifeste porte le libellé, la date, la dernière migration
+appliquée, le sha du build et les effectifs de douze tables au moment de la prise
+(`DatabaseCensus.Tables`).
+
+Conséquence pratique : la fonctionnalité s'est livrée sur une base vivante **sans migration**. Les
+seules lignes qu'elle écrit sont des `AuditLogs` — `BACKUP_POINT_CREATED` / `_VERIFIED` / `_DELETED`.
+
+⚠ Les effectifs du manifeste sont comparés aux compteurs actuels pour chiffrer le coût d'une
+restauration. Une clé absente y vaut **`null`, jamais 0** : « ce point n'en dit rien » et « rien n'a
+changé » sont deux réponses différentes, et une seule est une raison de continuer.
+
+## Ce que la recherche de placement n'ajoute pas au schéma
+
+`GET groups/placements` et `GET hospitals/{id}/stage-coverage` (phase 19.1) sont **entièrement en
+lecture** : aucune table, aucune colonne, aucune migration. Elles ne font que composer ce que le
+schéma porte déjà — `AcademicGroup` → `Cohort` → `CohortSlotAssignment` → `Service` → `Hospital`
+pour « où ce groupe est-il placé », et `StageAllowedServices` → `Services` pour « cet hôpital
+peut-il accueillir ce stage ».
+
+⚠ **Ce que le schéma ne dit toujours pas, et c'est la phase 19.2** : `CohortSlotAssignment` porte
+`{CohortId, StageSlotId, ServiceId}` et **rien qui distingue une cellule choisie par un humain d'une
+cellule calculée**. `RotationArranger` supprime et réécrit toute cellule non publiée à sa portée, donc
+un placement nominatif posé à la main est détruit au prochain « auto-répartir ce stage » — sans refus
+et sans compte. `AcademicGroup` n'a pas davantage de champ disant **pourquoi** un roster existe : la
+seule preuve que le groupe 102 de 2024-2025 est le groupe militaire est le motif de ses cellules.
+Deux colonnes manquantes, l'une portante et l'autre documentaire.

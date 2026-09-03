@@ -355,6 +355,24 @@ holds a period is skipped and counted (`skippedAlreadyServed`). This is what sto
 from doubling up on the Access history — all 706 5MED assignments of 2025-2026 carry one imported
 period per stage.
 
+⚠ **Changing one période mid-rotation is not on this chain, and there is no safe act for it today.**
+« On est en P3, on veut déplacer P7 » has three separate obstacles, one of them a trap rather than a
+refusal:
+
+- Editing the créneau's dates from the stage's own grid **is permitted and does not move what was
+  published from it** — `UpdateStageSlotCommandHandler` has no published-guard. The grid and the
+  périodes then disagree with nothing on either side saying so.
+- Changing the service on a cell is refused as soon as the **cohorte** is published, not as soon as
+  *that cell* is.
+- Dépublier has no portée par période: undoing P7 undoes P1-P10 of the cohorte, and forcing it takes
+  the marks and the attendance of the périodes already served.
+
+The same is true of a suspension: `StagePauseRunner` pauses **one stage**, compensates in *calendar*
+days, and moves the `ServicePeriod`s without moving the créneaux. Both are `PHASES.md` §17 / §17.1.
+
+⚠ **Take a `pg_dump -Fc` before any of the acts in this section.** They are the ones with no undo but
+a restore, and the base is the faculty's real data — `PHASES.md` §18.
+
 ---
 
 ⚠ **An empty répartition has two causes and they need opposite acts**: no créneaux (author an axis) or
@@ -433,3 +451,64 @@ him on the 3ᵉ année's file.
 **The roll**, for the same promotion, is `GET students/export?levelId=…&academicYearId=…` — one row
 per registration, carrying the groupe and the partition as well as the identifiers. Omit
 `academicYearId` and both exports resolve to the current year, never to every year.
+
+## 11 · Une demande nominative — « cet étudiant doit passer là »
+
+« Sbai fait tous ses stages à l'hôpital militaire », « ces deux étudiantes ensemble, stage A en S1 et
+stage B en S2 », « ces frères dans le même service ». Trois demandes, une seule mécanique : **un
+roster**, jamais un transfert isolé ni une cellule épinglée si on peut l'éviter.
+
+### La règle, du moins cher au plus cher
+
+| | geste | quand | ce qu'il coûte |
+|---|---|---|---|
+| ① | **Transférer vers un roster qui y va déjà** | un roster satisfait déjà la demande | rien |
+| ② | **Un roster partagé par contrainte récurrente** | la contrainte revient chaque année | rien — il atteint 6-7 étudiants tout seul |
+| ③ | **Épingler les cellules d'un roster existant** | aucun roster ne convient | déplace aussi les 6 autres du roster |
+| ④ | **Un roster dédié de 1-2 étudiants** | dernier recours | voir l'avertissement ci-dessous |
+
+⚠ **Ne pas faire ④ par réflexe.** `RotationArranger.BuildServiceQueue` pondère chaque service par le
+nombre de cohortes *de taille moyenne* qu'il tient, et une cohorte est **atomique** : une cohorte de
+deux occupe une place dimensionnée pour sept, donc elle dépense une cohorte entière d'admission pour
+deux personnes. Rien ne le refuse, rien ne le signale, et l'équilibre de la promotion est faux.
+
+⚠ **② est la leçon de la vraie base, pas une préférence.** En 2024-2025, la 6ᵉ MED tenait **cinq**
+rosters entièrement au HMIMV, de **6-7 étudiants** chacun — un groupe par *contrainte*, pas un groupe
+par *demande*.
+
+### Trouver le bon roster — c'est ce que ① suppose
+
+```
+GET groups/placements?levelId=<promotion>[&academicYearId=][&stageId=][&serviceId=|&hospitalId=][&match=Anywhere|Exclusively]
+```
+
+- « Qui est **entièrement** à l'hôpital militaire ? » → `hospitalId=<HMIMV>&match=Exclusively`
+- « Qui passe par S1 pour le stage A ? » → `stageId=<A>&serviceId=<S1>`
+- Sans `serviceId` ni `hospitalId`, c'est le parcours de la promotion, un roster par ligne.
+
+⚠ **Une réponse vide a deux causes.** Lire `Summary.PlacedRosters` : à 0, rien n'est encore réparti —
+allez répartir la promotion, la question du lieu ne se pose pas encore. C'est l'état de la base
+aujourd'hui (0 cellule sur toutes les années).
+
+### Vérifier la faisabilité **avant** de promettre
+
+```
+GET hospitals/{hospitalId}/stage-coverage?levelId=<promotion>
+```
+
+Un verdict par stage : `Covered`, `NotAtThisHospital`, ou `NoServicesAuthored`.
+
+⚠ **Les deux derniers ne veulent pas dire la même chose.** `NotAtThisHospital` = le stage autorise des
+services et aucun n'est là — changez d'hôpital, ou autorisez-en un. `NoServicesAuthored` = **personne
+n'a saisi la liste**, et une liste vide n'étant pas appliquée, le stage est ouvert à tout.
+
+⚠ **Le cas qui existe pour de vrai** : le HMIMV couvre les 6 stages de la 6ᵉ année, et **6 des 7** de
+la 5ᵉ — *Santé Publique* n'autorise qu'un service et il est ailleurs. « Tout au militaire » est donc
+impossible en 5ᵉ année tant que cette liste n'est pas élargie.
+
+### Après avoir posé le placement
+
+⚠ **Ne pas lancer « auto-répartir ce stage » sur une cellule posée à la main.** `RotationArranger`
+supprime et réécrit toute cellule non publiée à sa portée, sans refus et sans compte : le placement
+disparaît et la répartition a l'air normale. Publier cohorte par cohorte, pas « Publier tout », tant
+que `PHASES.md` §19.2 (le marqueur d'épinglage) n'est pas livré.

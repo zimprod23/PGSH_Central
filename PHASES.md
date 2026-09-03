@@ -5,6 +5,17 @@
 
 ---
 
+## ⏭ Next up — ASAP (raised 2026-09-03, session 40)
+
+Two items the user asked for explicitly, both ahead of everything still open in Phases 12 and 13.
+
+| | what | why now |
+|---|---|---|
+| **Phase 17** | « Suspension d'examens » scoped to a **promotion**, declared as a window | some promotions sit exams while others rotate through the same services on the same morning; the pause that exists is per *stage*, cannot be declared in advance, and compensates in calendar days |
+| **Phase 18** | Scheduled backups and a **named safe point** before every bulk act | the app is live on the real base — 10 203 students, 43 605 registrations, 105 626 périodes — and the only undo today is a `pg_dump` somebody remembered to take |
+
+---
+
 ## ✅ Phase 0 — Foundation & Architecture
 
 **Status: Complete**
@@ -1301,6 +1312,15 @@ Two reports against a file that was correct in every cell.
 Personnel**. The export needs no change for it — a tenure or a sitting chef already outranks the
 note, and the rows upgrade themselves the day someone is linked.
 
+⚠ **…and until that happens the documents read the note *alone*** (2026-09-03).
+`ServiceChefPolicy.InForce` = `SourceNoteOnly`, honoured by the export **and** the répartition,
+because the base's 2 `ServiceChefAssignment` rows are **test links** — resolving them prints a test
+account beside real students. Consequences, all deliberate: a service named only by an affectation
+prints **no chef**, `ExportNotes.ChefSourceNote` says so under the caption of the two sheets that
+name one, and « Origine du chef » reads « Note (import) » throughout. The authority order is
+untouched and still tested (`ServiceChefDirectoryTests`); **linking the professors and setting the
+constant to `Authority` is the whole of the remaining work**, and it is one line.
+
 ## ✅ Phase 15.13 — the three slow acts, and the correctness bug inside each
 
 Reported as performance on 2026-08-31: the planning grid slow to open **and to close**, « Publier »
@@ -1679,3 +1699,369 @@ all, and which one of the effectivity rules takes effect from, so it is restored
   run does not recreate them: rosters keyed without their promotion (`SplitAcademicGroupsPerLevel`) and
   `Registration.LevelId` left null on 1,003 rows. Both are in the importer now; confirm with a query
   after the run rather than assuming.
+
+---
+
+## 🔲 Phase 17 — Une pause est un fait de promotion, pas de stage
+
+**Status: Not started — ASAP. Raised by the user 2026-09-03 (session 40), after asking whether a
+période can be moved mid-rotation.**
+
+> **The sentence that settles the scope:** « a pause and a matter of exams … is a matter of whole
+> promotion because some promos does not have exams while others have ». Two promotions rotate
+> through the same services on the same morning; one of them is sitting an exam and the other is not.
+> The unit of the act is therefore **(année académique, niveau)** — never the stage, and never the
+> faculty.
+
+### What exists today, read from the code 2026-09-03
+
+`StagePauseRunner` (`Application/Stages/Planning/`) with `InternshipAssignment.PausePeriod` /
+`ResumePeriod`. It works, and it answers a different question:
+
+| | today |
+|---|---|
+| scope | **one stage**, one academic year (both mandatory), optionally narrowed to cohortes, a partition label, or period numbers |
+| what it touches | every `ServicePeriod` that is `Underway`; opens a `PeriodPause` row |
+| when | **now** — pause and resume both stamp `DateOnly.FromDateTime(DateTime.UtcNow)` |
+| compensation | on **resume**: `days = resume − start`, added to that période's `EndDate`, then every later période of the same assignment that is neither complete nor interrupted is pushed forward by the same amount |
+
+Four gaps, and each is a design fault rather than a missing option:
+
+1. ⚠ **Pausing a promotion's exam week is one call per stage, and nothing records that they were one
+   event.** The calls can disagree — a stage forgotten, a cohorte filtered out, one that failed — and
+   there is no row to correct or revoke afterwards. The promotion is not even expressible: the scope
+   is a *stage*, which covers one promotion only because `Stage.LevelId` says so, and §15.1 already
+   plans for a stage to span two levels.
+2. ⚠ **The shift is in calendar days.** `WorkingDayCalendar` is not consulted on this path at all, so
+   a pause spanning a weekend costs two days nobody was going to serve — in a project where *jours
+   ouvrables* is already the unit the catalogue durations are expressed in (25 of 27 stages, measured
+   2026-08-13).
+3. ⚠ **Only the `ServicePeriod`s move; the `StageSlot`s and cells do not.** After a resume the
+   published périodes and the grid they were published from disagree, silently, with nothing on
+   either side saying so. Same class of drift as `UpdateStageSlotCommandHandler` rewriting a window
+   without touching what was published from it — see 17.1.
+4. ⚠ **Nothing can be declared in advance, and a forgotten resume is silent.** An exam week is on the
+   calendar in September; the current shape needs somebody present on the first morning and on the
+   last. A pause never resumed leaves rotations frozen with no end date, no compensation, and nothing
+   on any screen that reads as wrong.
+
+### The shape to build
+
+**A `PromotionPause` is a declared window, not an event that has to happen twice.**
+
+- Aggregate keyed on `(AcademicYearId, LevelId)` carrying `StartDate` / `EndDate` (inclusive, as
+  `Holiday` is), `PauseKind`, `Reason`, `IsConfirmed`.
+  - **`IsConfirmed` is `Holiday.IsConfirmed`'s bargain**: a provisional window still blocks its days
+    — you plan on the best estimate — but every window laid over one is flagged, so the répartition
+    can be reprinted when the dates are settled instead of being quietly a day out.
+- ⚠ **Model it as a *scoped calendar*, not as a second date-pushing mechanism.** A `Holiday` is
+  already "days nobody serves", already flows through `WorkingDayCalendar`, and is already read by
+  the axis laying, `RotationCyclePreview.DurationChecks`, `StagePeriodFolder`'s gap test and the
+  exports. An exam week is the same *kind* of fact with a narrower scope. So the work is
+  `WorkingDayProvider.ForPromotionAsync(yearId, levelId, ct)` — faculty holidays ∪ that promotion's
+  pauses — and every existing reader then compensates for free, in worked days, with the grid and the
+  périodes staying in agreement because they are laid from the same calendar.
+  - Callers holding no promotion (the Holidays screen, anything faculty-wide) keep the current
+    calendar. **That split is the substantive work of this phase; the CRUD around it is not.**
+- ⚠ **Re-applying must move nothing.** `ResumePeriod` *accumulates* — it adds days every time it
+  runs. A declared window must be **derived from**, never added to: the same window applied twice is
+  the same dates. That property is what makes the act correctable and revocable at all.
+- **Four acts, and the last two are the reason for the phase:**
+  - **Preview** — which stages, cohortes, périodes and créneaux the window crosses, and the worked
+    days each loses. Writes nothing.
+  - **Declare** — with a domain event. This is the widest act in the area (it moves the dates of
+    every rotation of a promotion) and, like `CnpnVersion.DeclareEffectivity`, it must be observable.
+  - **Correct** — the shape `UpdateHolidayCommand` already has: report over the **union** of the span
+    it left and the span it arrived at, counted **before** the write, gated on the dates actually
+    moving so that ticking « confirmée » on a span already right reports nothing.
+  - **Revoke** — prospective while the window is still ahead. ⚠ **Decide explicitly what revoking a
+    window already begun does, and write the answer down**: either the compensation already applied
+    is walked back (and périodes already served then disagree with what happened) or it is kept and
+    the revocation is only prospective. The second is almost certainly right — it is the rule
+    `DeleteCnpnEffectivityCommand` and `ResumePeriod` already follow — but it must be *stated*, not
+    inherited by accident.
+- **Guards:**
+  - `Level.IsPromotion` — « Retrait » sits no exams (`Levels.NotAPromotion`).
+  - **Two pauses of one promotion may not overlap** — same rule and same reason as
+    `AcademicYearCalendarGuard`: the days in the overlap would be counted twice against every
+    duration.
+  - The window falls inside the academic year it names.
+  - ⚠ **Closed and interrupted périodes never move.** `ResumePeriod` gets this right today
+    (`!p.IsComplete && !p.IsInterrupted`) and the rule must survive the rewrite: a closed rotation is
+    what actually happened, and pushing it forward rewrites the past to make room for the present.
+- **The stage-scoped pause stays.** A service closing for a week, a stage suspended for one cohorte,
+  is genuinely per stage — `StagePauseRunner` answers that and should keep answering it. The
+  promotion pause is a **second act**, not a replacement, and the two must not be folded into one.
+
+### 17.1 — The adjacent gap, same machinery: moving P7 while P3 runs
+
+Asked in the same session. « Ten periods, we are in P3, can we change P7 — and therefore P8-P10 —
+without republishing everything? » **Today, no**, and the three obstacles are each one step from the
+work above, because "shift the later périodes *and their cells*" is the same operation:
+
+- `UpdateStageSlotCommandHandler` has **no published-guard at all** (unlike `DeleteStageSlot`, which
+  checks `SlotHasPublishedCellAsync`). It rewrites the slot's dates and never touches the
+  `ServicePeriod`s published from it — gap 3 above, reached from the grid side. Editing P7 is
+  *allowed* and silently splits the grid from the périodes, which is worse than a refusal.
+- `SetCohortSlotAssignmentCommandHandler` refuses when the **cohorte** holds any grid-linked période
+  at all, not when *this cell* is published. `PublishedCells.IsCellPublishedAsync` exists precisely
+  to answer the narrower question and is not used here.
+- `UnpublishCohortScheduleCommand(int CohortId, bool Force)` has no period scope: undoing P7 means
+  undoing P1-P10 for that cohorte, and `Force` cascades away the évaluations and the attendance of
+  the périodes already served.
+
+⚠ **`SingleService` is the complication in all three.** `SchedulePublisher` folds the *kₛ* cells of a
+run into one `ServicePeriod`, so editing a column mid-run splits a stay rather than editing a row —
+and 5ᵉ/6ᵉ année are `SingleService` in 51 923 of 51 924 imported placements.
+
+### Definition of done
+
+- The pure calendar half tested exhaustively, the way `RotationTiling`, `PeriodAxis` and
+  `OccupancyTimeline` are — no store, no clock, so the boundary cases are exact rather than
+  approximately seeded.
+- `SqlTranslationTests` for every new named query (`internal static IQueryable<T> …Query(...)`).
+- `PGSH.Tests/Integration/` for each guard, each refusal paired with the request that must still
+  succeed, and the store asserted untouched after every refusal.
+- ⚠ **Rehearsed against a restored `pg_dump -Fc` of the live base before it is ever run on the live
+  base** — this act moves the dates of a whole promotion's rotations. See Phase 18.
+
+---
+
+## 🟡 Phase 18 — Backup, and a rollback to the latest safe point
+
+**Status: 18.1 BUILT 2026-09-03 (scheduled dumps · named safe points · manifest · restore plan · the
+banner on every bulk act). 18.2 — the rehearsed restore and the per-act undo — remains.** Raised by
+the user 2026-09-03: « the app is up and working so the data is super important and we dont want to
+mess it up ».
+
+> **This does not wait for Phase 12.** Production readiness is about deploying; this is about the base
+> that exists *now*. Since the 2026-09-01 rebuild it holds the real faculty — **10 203 students,
+> 43 605 registrations, 105 626 périodes, 87 092 évaluations** — plus the 2026-2027 réinscription
+> applied through the UI on 2026-09-02.
+
+### Why the current state is not enough
+
+- The base lives in the named Docker volume `pgsh-postgres-data` with `ContainerLifetime.Persistent`
+  (`PGSH.AppHost/Program.cs`). ⚠ **A volume is persistence, not a backup.** It survives a restart; it
+  does not survive a bad write, a bad migration, or a bulk apply run against the wrong year.
+- The only undo on record is an **ad-hoc `pg_dump -Fc` somebody remembered to take**. It has worked —
+  `pgsh-avant-reimport-20260901-223756.dump`, `pgsh-avant-reinscription-20260902-140434.dump`,
+  `pgsh-avant-axe-3med.dump` — precisely *because* a human typed it each time. That is a procedure,
+  not a mechanism, and procedures are skipped on the day they are needed.
+- ⚠ **The dangerous acts here are not delete buttons, they are bulk applies.** Each is carefully
+  built to *name* what it costs. Naming is not undoing:
+
+  | act | what one click writes |
+  |---|---|
+  | `ApplyDeliberationCommand` | a verdict on every registration of a promotion, all-or-nothing — **and the file is not stored**, so a half-corrected promotion cannot be reconstructed |
+  | the réinscription roll | measured 02/09/2026: 6 813 inscriptions, 7 232 décisions, 1 217 graduations déduites, 1 327 signalements |
+  | `ApplyRotationCycleCommand` | replaces an axis wholesale; the cells cascade with the slots |
+  | `UnpublishCohortScheduleCommand(Force: true)` | cascades away `ServiceEvaluation`, `AttendanceRecord`, `PeriodPause`, `Delocalization` |
+  | `DeleteAllCohortsCommand`, `DeleteAcademicYearCommand` | cohortes, and — through `CASCADE` — the year's rosters |
+
+### What to build
+
+**1 · Scheduled dumps with a retention window.** `pg_dump -Fc` on a timer (hourly kept a day, daily
+kept a month), written **outside** the container's own volume.
+- ⚠ **`pg_dump` must not be piped.** Already paid for once — `SMOKE-TEST.md` records a dump corrupted
+  by piping it out of the container. Write with `-f` inside the container, then `docker cp`.
+- ⚠ **A backup nobody has restored is a hypothesis.** Every dump gets `pg_restore -l` at minimum, and
+  a full restore into a scratch database is rehearsed on a schedule — not on the day it is needed.
+
+**2 · A *named safe point* before every bulk act.** One command — `pgsh-snapshot <label>` — taking a
+dump plus a manifest: label, timestamp, **git sha**, **the last applied migration**, and the row
+counts of the tables that matter. « Roll back to the latest safe point » then becomes a command
+instead of an archaeology exercise through `/tmp`.
+- ⚠ **The manifest is the point, not the dump.** A dump taken before a migration and restored under
+  code that expects the new schema gives a base the running app cannot read. The restore tool reads
+  the manifest, says which `dotnet ef database update <name>` goes with it, and **refuses loudly** on
+  a mismatch rather than leaving the operator to notice.
+- Surface it where the risk is: the confirmation dialogs that already state a count — déliberation,
+  réinscription roll, rotation-cycle apply, forced unpublish — should also state whether a safe point
+  exists and how old it is.
+
+**3 · Assert the restore, in SQL.** The 2026-09-01 rebuild established the shape: the restore script
+`RAISE EXCEPTION`s on a row-count mismatch so `psql` exits non-zero and the operation stops. That
+assertion is exactly what a silent fan-out needs — it is what would have caught 146
+`StageAllowedServices` becoming 178 when joined on a service name that is not unique (§16.5).
+
+**4 · Keycloak is a second volume, and nothing covers it.**
+`builder.AddKeycloak(...).WithDataVolume()`. ⚠ Restoring the database without the matching realm
+leaves `SyncUserMiddleware` matching a Keycloak `sub` against `User` rows that no longer exist — and
+its fallback is **e-mail**, which is how somebody lands in another person's account. Either dump both
+together, or establish and write down that the realm is stable and independent of the base.
+
+**5 · Application-level undo, where a restore is too big a hammer.** A dump rolls back *everything*,
+including work other people did in the meantime. The acts that most need undoing are per-promotion,
+and two of them have no reversal at all: `ApplyDeliberationCommand` and the réinscription roll.
+⚠ **`IAuditableCommand` records the criteria, the author and the date — it does not record the
+previous values**, so the audit trail can say what was asked for and not what it replaced. Decide per
+act between a reversal command and « the snapshot *is* the undo, and the UI says so ». The
+déliberation's file is explicitly not stored, which is the strongest argument for the snapshot.
+- Related, already in the queue as item 0e: the acts that *create* a cut leave no audit entry while
+  the destructive one does — the wrong way round, and it cost a real « where did these 66 rosters
+  come from » on live data on 02/09/2026.
+
+**6 · The authored half is still the irreplaceable part.** §16.5 already names it — 24 `Holidays`,
+146 `StageAllowedServices`, 3 `CnpnLevelEffectivities`, 2 `ServiceChefAssignment`, the 2026-2027
+`AcademicYear` — none of which exists in `Medecine.mdb`. A dump covers all of it; the natural-key
+export stays the tool for a **re-import**, never for a rollback.
+
+### ✅ 18.1 — what was built, 2026-09-03
+
+`PGSH.Domain/Backups/` (pure) · `PGSH.Application/Backups/` (port + handlers) ·
+`PGSH.Infrastructure/Backups/` (the `docker exec pg_dump` adapter and the timer) ·
+`PGSH.API/Endpoints/Backups/` · `BackupsPage` + `SafePointBanner` on the frontend.
+**28 tests, suite 1 435 green**, `tsc` and `npm run lint` clean.
+
+- **A point is a dump plus a manifest**, and the manifest is the substantive half: the last applied
+  migration, the git sha, and the row counts of twelve tables. ⚠ **A dump taken before a migration
+  and restored under code expecting the new schema gives a base the running app cannot read**, and
+  nothing about the file says so.
+- ⚠ **The register is the directory, not a table.** A registry kept *in* the base would be rolled
+  back by the very restore it describes — every point taken after the restored one vanishing from
+  the list while its file sits on disk. It is also why 18.1 needs **no migration**, which on a live
+  base is the difference between shipping today and scheduling a window.
+- ⚠ **`SafePointState` has five values and two of them are the point**: `Unavailable` (the runner
+  cannot be reached) is not `None` (there is nothing to restore). They call for opposite acts — fix
+  Docker, versus take a point — and one « aucune sauvegarde » covering both is the same defect as an
+  omitted year read as « toutes les années ». `SchemaChanged` outranks `Stale` for a similar reason:
+  an hour-old dump under the wrong migration is a restore that *refuses*, a three-day-old one under
+  the right migration is a restore that *works and costs three days*.
+- **The banner is the feature; the page is where it is administered.** « Créer un point maintenant »
+  sits inside the déliberation's, the réinscription roll's and the rotation-cycle apply's own
+  confirmations, so the dump becomes a side effect of the act instead of a procedure somebody has to
+  remember. ⚠ It **does not block**: with no usable undo the act asks for a ticked box, exactly like
+  `ConfirmedDefaultCount`. Blocking outright would mean that the day Docker is down, nobody can close
+  a year.
+- ⚠ **Nothing restores from the API.** A process cannot replace the database it is serving from — a
+  restore drops and recreates objects the API holds open. `GET backups/{id}/restore-plan` returns
+  what the rollback would **discard** and what it would **bring back**, as numbers read from the
+  manifest's census against the base as it stands, plus the exact command to run with the stack
+  stopped. A schema mismatch does not fail that read: the refusal has to be able to name the
+  `dotnet ef database update` that makes the point usable.
+- **Roles split where the risk does**: *taking* a point is `Roles.Administrative` — scolarité is who
+  applies the bulk acts, so a gate it could not pass would put the button out of reach of the only
+  person who needs it — while *deleting* one is `SuperUser`, and the **newest** point is refused
+  outright to anybody, since it is the one every confirmation dialog is reading.
+- **Retention prunes `Scheduled` points only.** A point somebody took by hand, or that a dialog took
+  before a déliberation, is the only record of a state that has no other undo.
+- ⚠ **`Backups:KeycloakRealmCovered` is `false` and the page says so out loud.** The realm is a
+  second volume; restoring the base without it leaves `SyncUserMiddleware` matching a `sub` against
+  `User` rows that are gone, and its fallback is the e-mail address.
+
+### 🔲 18.2 — what remains
+
+- **A restore somebody has actually run.** `VerifyBackupPointCommand` reads an archive's table of
+  contents back (`pg_restore -l`) — enough to catch the truncation a piped dump produced here once —
+  and `BackupVerification.Restored` is a value **nothing sets yet**. ⚠ A backup nobody has restored
+  is a hypothesis.
+- **`pgsh-snapshot` / `pgsh-restore` as scripts**, so the act exists outside a running API. Today the
+  restore command is *printed* by the plan; §18's « rollback to the latest safe point becomes a
+  command » is not finished until it is one.
+- **Assert the restore in SQL** — `RAISE EXCEPTION` on a row-count mismatch against the manifest's
+  census, the shape the 2026-09-01 rebuild established.
+- **Keycloak's volume**, either dumped with the base or established in writing as independent.
+- **Application-level undo** for the two acts a full restore is too big a hammer for
+  (`ApplyDeliberationCommand`, the réinscription roll). ⚠ `IAuditableCommand` records the criteria,
+  the author and the date — **never the previous values** — so today the snapshot *is* the undo, and
+  the UI now says so.
+- **The constructive acts still leave no audit entry** (item 0e): `BACKUP_POINT_CREATED` /
+  `_VERIFIED` / `_DELETED` are recorded, and « qui a découpé cette promotion ? » still is not.
+
+### Definition of done
+
+- A dump exists that nobody had to remember to take, and a restore somebody has actually run.
+- `pgsh-snapshot` / `pgsh-restore` documented in `SMOKE-TEST.md` beside the existing Rollback
+  section, which becomes a pointer to them rather than a per-session recipe.
+- ⚠ **Until this ships the standing rule holds: `pg_dump -Fc` before every bulk act, no exceptions.**
+  It is already written into the queue for closing 2025-2026 (item 6), and it is why the three named
+  dumps above exist at all.
+
+---
+
+## ✅ Phase 19 — Une demande nominative se résout par un groupe
+
+Trois demandes réelles, apportées par l'utilisateur : « Sbai fait **tous** ses stages à l'hôpital
+militaire », « Aya et Rihab **ensemble**, stage A en S1 et stage B en S2 », et des fratries dans le
+même service. La question posée était double : le système sait-il les exprimer, et vaut-il mieux
+passer par un **transfert définitif** que par un groupe ?
+
+### Ce que la base disait avant qu'on écrive une ligne (mesuré 2026-09-03)
+
+| constat | chiffre |
+|---|---|
+| rosters 6ᵉ MED 2024-2025 **entièrement** au HMIMV | **5** — groupes 102, 116, 130, 144, 158 |
+| leur taille | **6-7 étudiants**, contre une moyenne de promotion de 5,8 |
+| services du HMIMV | **35** — le plus gros hôpital de la base, devant Ibn Sina (27) |
+| stages 6ᵉ année couverts par le HMIMV | **6 / 6** |
+| stages 5ᵉ année couverts | **6 / 7** — *Santé Publique* n'autorise qu'un service, ailleurs |
+| stages du catalogue sans **aucun** service autorisé | **3** (les deux immersions, le stage hospitalier d'initiation) |
+
+**La faculté résout déjà cela par le groupe**, et ses groupes « militaires » ne sont pas minuscules :
+ce sont des rosters ordinaires. Ce qui manquait n'était pas le mécanisme, c'était le moyen de les
+**retrouver**.
+
+### La réponse de fond
+
+- Un **transfert définitif** n'envoie pas un étudiant dans un *service*, il l'envoie dans un *roster* :
+  « groupe ou transfert » n'est pas un choix, le transfert est *la façon* d'entrer dans un groupe.
+- **`DelocalizeStudentCommand` n'est pas la voie** : elle signifie « servi entièrement hors faculté »,
+  supprime la rotation interne et attend une fiche papier. Le HMIMV est *dans* le catalogue.
+- ⚠ **Un roster de deux étudiants coûte quelque chose que rien ne signale.**
+  `RotationArranger.BuildServiceQueue` pondère chaque service par le nombre de cohortes *de taille
+  moyenne* qu'il peut tenir, et **une cohorte est atomique** — deux étudiants consomment donc une
+  place de file dimensionnée pour sept. L'équilibre de la promotion est faux, discrètement.
+
+**L'ordre retenu :** ① transférer vers un roster qui y va déjà · ② **un** roster partagé par
+contrainte récurrente (les militaires d'une promotion dans *un* groupe de 7) · ③ épingler les cellules
+d'un roster existant · ④ un roster dédié de 1-2 étudiants, en dernier.
+
+### 19.1 — ✅ Livré : les deux lectures qui rendent ① atteignable
+
+- **`GET groups/placements`** — `GetRosterPlacementsQuery`. Une page de rosters d'une promotion, avec
+  pour chaque stage les services qu'il occupe et les créneaux qu'il y tient. Filtrable par
+  `serviceId` **ou** `hospitalId` (jamais les deux : un service appartient déjà à un hôpital), par
+  `stageId`, et par `match=Anywhere|Exclusively`.
+- **`GET hospitals/{id}/stage-coverage`** — `GetHospitalStageCoverageQuery`. La faisabilité, posée
+  **avant** la promesse : cet hôpital peut-il accueillir toute la rotation de cette promotion, et
+  sinon quels stages exactement. Volontairement **non scopée par année** — `Stage`, `Service`,
+  `Hospital` et la liste des services autorisés sont du catalogue invariant.
+- Deux classificateurs **purs** dans le domaine, chacun parce qu'un blanc y veut dire deux choses :
+  - `RosterHospitalPlacement` (`Unplaced` / `Elsewhere` / `Partial` / `Entire`) — ⚠ « toutes ses
+    cellules sont au HMIMV » est **vrai à vide** d'un roster que personne n'a réparti. Sur cette base,
+    qui tient **0 cellule**, cela veut dire *tous* les rosters de la faculté.
+  - `StageHospitalCoverage` (`NoServicesAuthored` / `NotAtThisHospital` / `Covered`) — ⚠ une liste de
+    services autorisés **vide n'est pas appliquée**, donc le stage est ouvert à tout : le blanc dit
+    « personne n'a saisi la liste », pas « cet hôpital est exclu ».
+- `RosterPlacementSummary.PlacedRosters` sépare « personne n'y va » de « rien n'est encore réparti ».
+- **Aucune migration.** Le tout est en lecture.
+
+**Vérifié :** 1 474 tests verts (+67). ⚠ La moitié positive d'`Exclusively` a été **retirée pour
+preuve** : cinq tests tombent, dont celui de l'endpoint.
+
+⚠ **Angle mort trouvé en chemin, et c'est l'inverse de l'habituel** : `SelectMany` sur une *skip
+navigation* lève `NotImplementedException` sur le fournisseur **in-memory** alors que Npgsql la
+traduit. Voir `CLAUDE.md`.
+
+### 19.2 — 🔲 Le marqueur d'épinglage, et le motif du roster
+
+Ce que 19.1 ne ferme pas, et qui est la suite directe :
+
+- ⚠ **`CohortSlotAssignment` ne dit pas qu'un humain a choisi la cellule.** Elle porte
+  `{CohortId, StageSlotId, ServiceId}` et rien d'autre, tandis que `RotationArranger` supprime et
+  réécrit **toute** cellule non publiée à sa portée (`staleIds`). Un placement épinglé à la main est
+  donc détruit au prochain « auto-répartir ce stage » — sans refus, sans compte, avec un
+  `Assigned = N` parfaitement normal. À construire : une source sur la cellule (`Arranged` /
+  `Pinned`), traitée par l'arrangeur exactement comme une cellule publiée, et **comptée dans le
+  résultat** (`PinnedCellsKept`), comme `SkippedAlreadyServed` et `AdHocPeriodsKept`. *Un acte
+  destructeur dont personne ne voit le chiffre est un acte que personne n'a accepté.*
+- **Rien n'enregistre pourquoi un roster existe.** La seule preuve que le groupe 102 est le groupe
+  militaire est le motif de ses cellules ; un an plus tard nul ne distingue cela d'une coïncidence, et
+  un re-découpage le dissout sans que rien ne dise ce qui est perdu. Un champ libre sur
+  `AcademicGroup` suffit — pas une entité, pas un moteur de règles.
+- **Ce qu'il ne faut pas construire : un solveur de contraintes.** « même service que X », « frère de
+  Y » comme contraintes que l'arrangeur devrait satisfaire transforme chaque répartition en problème
+  de satisfaction, alors que la recherche exhaustive de `RotationTiling` est déjà la partie coûteuse.
+  Ces demandes sont des exceptions nominatives et peu nombreuses — 32 sur 611 dans le cas le plus
+  large observé. Elles restent lisibles et restent la décision de l'humain.

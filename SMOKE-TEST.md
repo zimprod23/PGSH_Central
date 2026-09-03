@@ -2747,6 +2747,14 @@ year its registration names.
 
 # Rollback
 
+> ⚠ **This section is a per-session recipe, and that is the problem.** The base has been the
+> faculty's real data since the 2026-09-01 rebuild, and the only undo is a `pg_dump -Fc` somebody
+> remembered to take — it has worked three times because a human typed it each time. A mechanism
+> (scheduled dumps, a **named safe point** before each bulk act, a manifest carrying the git sha and
+> the last applied migration, a restore that asserts its own row counts in SQL) is `PHASES.md` §18,
+> and this section becomes a pointer to it once it ships. Until then: **dump before every bulk act,
+> no exceptions.**
+
 Reverse in the order below.
 
 ### Database (destructive — take a dump first)
@@ -2973,10 +2981,12 @@ stages de 5MED sont `Rotation par période` et couvrent un créneau chacun : c'e
      vérité — 140 des 148 services ne nomment leur professeur que dans une note de l'ancienne base,
      **sans date**. Le nom est imprimé (sur 95 % du document c'est le seul disponible) et la colonne
      d'à côté dit d'où il vient.
-   - Pour vérifier l'autre moitié : **Hôpitaux → un service → rattacher un chef dans Personnel**,
-     puis ré-exporter. La même ligne doit passer à « **Affectation** », et le nom doit être celui du
-     personnel même si la description porte encore l'ancienne note. Aucun changement de code n'est
-     nécessaire : l'affectation datée prime.
+   - ⚠ **Cette deuxième moitié est suspendue depuis le 03/09/2026** — voir §42. Rattacher un chef
+     dans Personnel puis ré-exporter ne fait **plus** passer la ligne à « Affectation » : les
+     documents ne lisent que la note (`ServiceChefPolicy.InForce` = `SourceNoteOnly`), parce
+     que les 2 affectations enregistrées sont des liens de test. La colonne reste « Note (import) »,
+     et un service que **seule** une affectation nomme sort **sans chef**, avec la phrase qui le dit
+     sous la légende de la feuille. Rétabli en une ligne le jour où les vrais chefs sont saisis.
 
 6. **Une période hors grille ne ment pas.** Filtrer l'onglet « Périodes » sur `Origine` =
    « Hors grille » (l'historique Access, les délocalisations, les revalidations) : `Nb créneaux` doit
@@ -3692,3 +3702,249 @@ contient **0 créneau et 0 cellule sur les 22 années**.
    - « Services saturés uniquement » ne doit laisser que des lignes à jours > 0.
    - Un stage dont tous les groupes tombent dans un seul service doit apparaître avec
      **inutilisés > 0**, et les services vides comptés dans « jamais utilisés ».
+
+---
+
+## §41 — Les sauvegardes et le point de restauration (session 40)
+
+⚠ **À conduire sur la base vivante, mais rien ici n'écrit dans la base** — sauf l'entrée d'audit de
+chaque acte. Un `pg_dump` est une lecture ; c'est la *restauration* qui est dangereuse, et elle n'est
+pas déclenchable depuis l'application, par construction.
+
+**Prérequis :** Docker démarré (c'est là que tourne la base) et l'AppHost relancé — les routes
+`/api/backups*` n'existent pas dans un processus antérieur à cette session. ⚠ Le contrôle qui
+distingue « route absente » de « non authentifié » : `/api/backups/safe-point` répond **404** sur un
+vieux processus et **401** sans jeton.
+
+### A · L'état, avant tout point
+1. `/admin/sauvegardes`. → Le bandeau doit dire **« Aucune sauvegarde »** en rouge, et la carte
+   doit nommer le dossier (`%LOCALAPPDATA%/PGSH/backups`), la migration en cours, le sha, et
+   « prochaine sauvegarde automatique » avec une heure réelle.
+2. ⚠ **Le cas qui compte le plus : arrêter Docker Desktop, recharger.** Le bandeau doit devenir
+   **« Service de sauvegarde indisponible »** avec la raison en clair — **jamais** « aucune
+   sauvegarde ». Ce sont deux gestes opposés (réparer le runner / prendre un point) et un seul écran
+   vide pour les deux est précisément le défaut que cette page existe pour supprimer. Redémarrer
+   Docker, recharger, l'état revient.
+3. L'encart orange sur **Keycloak** doit être présent : le realm vit dans son propre volume et n'est
+   pas sauvegardé avec la base.
+
+### B · Prendre un point
+4. Libellé vide → le bouton « Créer le point » est **désactivé** (pré-vol : le validateur serveur
+   exige un libellé).
+5. Libellé « Test §41 », note libre → **Créer le point**. Attendre : c'est un vrai `pg_dump -Fc` de
+   ~10⁵ lignes. → La ligne apparaît, type **Manuel**, schéma **Compatible**, relecture **Jamais
+   relue**, « Par » = votre nom.
+6. Vérifier le fichier hors application : deux fichiers dans le dossier, `<id>.dump` et
+   `<id>.manifest.json`. Ouvrir le manifeste → il porte la migration, le sha et les effectifs
+   (`Students`, `Registrations`, `ServicePeriods`, `ServiceEvaluations`…). ⚠ **Comparer ces
+   effectifs à la base** : ce sont eux qui chiffreront le coût d'une restauration.
+7. **Relire l'archive** (icône liste). → Le badge passe à **« Archive relue »**. C'est
+   `pg_restore -l` : il prouve que l'archive n'est ni tronquée ni corrompue — la panne exacte qu'un
+   `pg_dump` redirigé par un tube a produite ici une fois — et **rien de plus**.
+8. Le bandeau passe au **vert**, « il y a N min, même schéma ».
+
+### C · Le plan de restauration — ⚠ **lire, ne pas exécuter**
+9. Icône « Plan de restauration » sur le point pris. → Table par table : au point, aujourd'hui,
+   effacées, rétablies. Juste après la prise, tout doit être à **0 effacée / 0 rétablie**.
+10. Créer une donnée quelconque (un jour férié de test, par exemple), rouvrir le plan. → La ligne
+    `Holidays` doit afficher **1 effacée**, et le total en tête doit le dire. Supprimer le jour férié
+    ensuite.
+11. La commande affichée doit être complète et précédée de « AppHost arrêté ». ⚠ Elle porte
+    `PGPASSWORD=<mot de passe>` **en gabarit**, avec au-dessus la ligne qui le relève
+    (`docker exec … printenv POSTGRES_PASSWORD`) : mesuré 03/09/2026, la socket locale du conteneur
+    est en `scram-sha-256` et non en `trust`, donc une commande sans mot de passe échoue — et un
+    identifiant affiché sur une page web est un identifiant dans une capture d'écran.
+    ⚠ **Ne pas la lancer sur la base vivante.** Si vous voulez l'éprouver, faites-le contre une base
+    de rebut (`createdb pgsh_restore_test`, puis `-d pgsh_restore_test`) — c'est ce qui manque
+    encore (§18.2) et c'est le seul moyen de faire passer un point de « relue » à « restaurée ».
+
+### C-bis · La découverte du conteneur — ⚠ le piège de cette machine
+11-bis. `docker ps --format "{{.Names}}	{{.Image}}"`. → Un **seul** conteneur dont l'image commence
+    par « postgres » doit tourner. S'il y en a plusieurs (cette machine héberge d'autres projets), la
+    page doit dire **« plusieurs conteneurs PostgreSQL tournent (…) : renseignez
+    Backups:ContainerName »** — et surtout **pas** en choisir un. Un dump de la *mauvaise* base,
+    classé et étiqueté comme point de restauration de celle-ci, est exactement la panne silencieuse
+    que cette phase existe pour supprimer. pgAdmin est exclu par son image, pas par son nom.
+
+### D · Les garde-fous
+12. **Supprimer le point le plus récent** → l'icône est **désactivée**, avec l'infobulle disant
+    pourquoi : c'est celui que lisent les confirmations des actes en masse.
+13. Prendre un second point, puis supprimer le premier → autorisé, **et seulement en `SuperUser`**.
+    Connecté en `Scolarite`, l'appel doit répondre **403** et le point rester en place.
+
+### E · La bannière dans les actes en masse — c'est *ça*, la fonctionnalité
+14. `/admin/year-closure`, charger un fichier de déliberation (ou de réinscription). → La bannière
+    apparaît **au-dessus du résumé**, avec le libellé pré-rempli « Avant clôture … ».
+15. ⚠ **Sans point exploitable** (aucun, ou pris sous une autre migration) : le bouton
+    « Enregistrer les décisions » est **désactivé** et l'infobulle dit « Créez un point de
+    sauvegarde, ou confirmez de continuer sans ». Cocher la case → le bouton redevient actif. **Ce
+    n'est pas un blocage** : le jour où Docker est en panne, la faculté doit pouvoir clôturer.
+16. « Créer un point maintenant » **depuis la bannière**, sans quitter l'écran. → Le fichier chargé
+    et le rapport affiché doivent **survivre** à la prise ; la bannière passe au vert et le bouton
+    d'application se débloque de lui-même.
+17. Même vérification sur **« Bloc de rotation » → Appliquer l'axe** et sur la section
+    **« Réinscription par fichier »**.
+
+### F · La planification
+18. Laisser tourner une heure (ou baisser `Backups:Schedule:IntervalMinutes`, minimum **5**). → Un
+    point **Automatique** apparaît seul. ⚠ Vérifier ensuite que la rotation **n'a pas** touché aux
+    points *Manuel* / *Avant un acte* : elle ne purge que les automatiques.
+19. `Backups:Schedule:Enabled = false` → « prochaine sauvegarde automatique : aucune planification
+    active », en toutes lettres plutôt qu'une case vide.
+
+### Remise en état
+20. Supprimer les points « Test §41 » (en `SuperUser`, le plus récent en dernier — ou en prendre un
+    nouveau d'abord). Les entrées d'audit `BACKUP_POINT_*` restent, et c'est voulu.
+
+## §42 — « Quel groupe va déjà là ? » et la faisabilité d'un hôpital (session 41)
+
+**Pourquoi cette passe.** Trois demandes nominatives réelles ont motivé deux lectures neuves. Rien
+n'écrit dans la base — ce sont deux `GET` — donc cette section est **sans risque** et peut être
+déroulée sur la base vivante telle quelle. ⚠ **L'AppHost doit être relancé** : un processus antérieur
+à cette session répond **404** sur `/api/groups/placements` alors que `/api/groups` répond 401 sans
+jeton, et c'est exactement le contrôle qui distingue « route absente » de « non authentifié ».
+
+⚠ **Ce que la base va répondre aujourd'hui, et il faut le savoir avant de crier au bug** : elle tient
+**0 cellule de planification sur toutes les années sauf la 3ᵉ MED 2026-2027** (posée en session 39).
+Donc `Summary.PlacedRosters` vaudra **0** sur presque toutes les promotions, et c'est *la bonne
+réponse* : « rien n'est encore réparti », pas « personne ne va au HMIMV ». Toute la §42 consiste à
+vérifier que les deux se distinguent.
+
+### a — la route existe, et elle est protégée
+
+1. Sans jeton : `GET /api/groups/placements?levelId=<3ᵉ MED>` → **401**.
+   ⚠ Si elle répond **404**, l'API n'a pas été relancée ; rien d'autre dans §42 n'a de sens.
+2. Avec jeton, même URL → **200**, avec `rosters.items`, `rosters.totalCount` et `summary`.
+
+### b — le blanc qui veut dire deux choses
+
+3. Sur une promotion **non répartie** (par ex. 6ᵉ MED 2026-2027), demander
+   `?levelId=<promo>&hospitalId=<HMIMV>&match=Exclusively`.
+   Attendu : `items` **vide**, `summary.promotionRosters` > 0 et **`summary.placedRosters` = 0**.
+   ⚠ C'est *le* point de la section : la liste vide et le chiffre à 0 disent ensemble « allez répartir
+   la promotion », là où la liste vide seule se lirait « cet hôpital ne prend personne ».
+4. Sur la **3ᵉ MED 2026-2027**, qui *est* répartie, la même requête sans `hospitalId` :
+   `placedRosters` doit être **> 0**. C'est le témoin — sans lui, une route qui renvoie toujours 0
+   passerait l'étape 3.
+
+### c — « exclusivement » ne doit jamais ramener un roster que personne n'a réparti
+
+5. `?levelId=<3ᵉ MED>&hospitalId=<HMIMV>&match=Exclusively` puis la même chose avec
+   `match=Anywhere`.
+   Attendu : le résultat d'`Exclusively` est **inclus** dans celui d'`Anywhere`, et dans la réponse
+   `Anywhere` les rosters portant `hospitalPlacement = "Entire"` sont **exactement** ceux
+   qu'`Exclusively` renvoie.
+   ⚠ Aucun roster ne doit porter `hospitalPlacement = "Unplaced"` dans une réponse filtrée par
+   hôpital : c'est la marque du bug à vide.
+6. Prendre un roster de la réponse et vérifier à l'écran, sur la grille du stage, qu'il est bien dans
+   les services annoncés, aux créneaux annoncés (`services[].periodNumbers`).
+
+### d — la faisabilité, sur les deux cas réels
+
+7. `GET /api/hospitals/<HMIMV>/stage-coverage?levelId=<6ᵉ MED>` →
+   `stageCount = 6`, `coveredStageCount = 6`, `unauthoredStageCount = 0`.
+   **« Tout au militaire » est possible en 6ᵉ année.**
+8. La même chose pour la **5ᵉ MED** → `coveredStageCount = 6` sur `stageCount = 7`, et **Santé
+   Publique** doit ressortir `coverage = "NotAtThisHospital"` avec `allowedServiceCount = 1`.
+   ⚠ C'est la ligne qui, jusqu'ici, se découvrait à la sixième cellule après la promesse.
+9. Une promotion tenant un stage d'immersion (1ʳᵉ ou 2ᵉ année) → au moins un stage à
+   `coverage = "NoServicesAuthored"` avec `allowedServiceCount = 0`.
+   ⚠ Vérifier que l'écran/la réponse ne le compte **pas** comme « non couvert » : une liste vide n'est
+   pas appliquée, donc le stage est ouvert à tout. Le confondre enverrait changer d'hôpital au lieu de
+   saisir la liste.
+10. Hôpital inconnu → **404** `Hospitals.NotFound`. `levelId` omis → **400**.
+
+### e — les refus qui ne viennent que du pipeline
+
+11. `?levelId=<promo>&serviceId=<S>&hospitalId=<H>` → **400** (un service appartient déjà à un hôpital).
+12. `?levelId=<promo>&match=Exclusively` sans service ni hôpital → **400**.
+13. `?hospitalId=<H>` sans `levelId` → **400**.
+    ⚠ Ces trois règles vivent **uniquement** dans `ValidationPipelineBehavior` : un test appelant le
+    handler les traverse sans les voir. C'est le même angle mort qui avait rendu tout le catalogue de
+    stages non enregistrable.
+
+### f — le geste complet, sur une vraie demande
+
+14. Prendre une demande réelle (« X doit passer tous ses stages au HMIMV »). Poser d'abord **d**
+    (faisabilité), puis **c** (quel groupe y va déjà), puis transférer l'étudiant vers ce groupe
+    depuis la fiche étudiant. Vérifier sur son dossier qu'il a bien repris les cohortes du roster.
+15. ⚠ **Ne pas lancer « auto-répartir ce stage » ensuite** si une cellule a été posée à la main :
+    `RotationArranger` la supprime et la réécrit sans rien dire. Tant que `PHASES.md` §19.2 n'est pas
+    livré, publier cohorte par cohorte.
+
+**Non exécutée à ce jour.** Elle ne demande aucune sauvegarde préalable — les deux routes lisent.
+
+## §42 — le chef de service vient de la note d'import, et de rien d'autre (03/09/2026)
+
+Bâti session 42. **Aucune migration.** Deux documents concernés : l'export Excel du dossier de stages
+(Répartition annuelle → « Exporter le dossier de stages ») **et** la répartition annuelle elle-même.
+
+⚠ **Le pourquoi, à relire avant de « corriger » ce qui suit :** la base ne contient que **2**
+`ServiceChefAssignment`, et ce sont des liens de test. Un document qui les résout imprime le nom d'un
+compte de test à côté d'étudiants réels. L'ordre d'autorité (affectation datée → chef en poste →
+note) reste la règle et reste testé ; `ServiceChefPolicy.InForce` dit seulement quelle part en
+est appliquée.
+
+1. **Export Excel, onglet « Stages » ou « Périodes ».** Sur **toutes** les lignes :
+   `Origine du chef` = « **Note (import)** ». Une seule ligne en « Affectation » signifie que la
+   constante a été remise à `Authority`.
+
+2. **Sous la légende des deux feuilles** (et **pas** sur « Synthèse », qui ne nomme aucun chef) :
+   « Les chefs de service sont repris de la fiche du service (note d'import) uniquement… ». ⚠ C'est le
+   contrôle qui distingue « politique choisie » de « colonne codée en dur » — une colonne qui ne varie
+   jamais est le miroir d'une colonne vide.
+
+3. **Le coût, et il est voulu.** Prendre un service qui a un chef rattaché dans Personnel *et* aucune
+   note dans sa description (Hôpitaux → le service → onglet Chef). Une ligne de l'export qui passe par
+   ce service doit sortir **`Chef de service` vide et `Origine du chef` vide** — un blanc dit moins
+   faux qu'un mauvais nom, et rien ne prétend une source pour un nom non imprimé.
+
+4. **Répartition annuelle** (télécharger le document) : le nom imprimé après le service est celui de
+   la note, sur toutes les lignes. Survoler le nom → l'infobulle « Nom repris de la fiche du service
+   (import)… ». ⚠ Elle apparaît maintenant partout, ce qui est exact : la note est indatée quelles que
+   soient les sources autorisées. Rien de visible n'a été ajouté au document imprimé.
+
+5. **Le témoin.** Sur un service **sans** chef rattaché et **avec** une note, le nom doit s'afficher
+   exactement comme avant la session — sinon ce n'est pas la politique qui a changé, c'est la lecture
+   de la note qui est cassée.
+
+6. **La fiche du service dit maintenant la même chose que les documents** — c'est le défaut trouvé
+   après le premier rechargement. **Hôpitaux → Pédiatrie1** (ou Pédiatrie2 : ce sont les **deux**
+   seuls services de la base portant une affectation, *Youssef Alaoui*, ouverte depuis le
+   29/08/2026) :
+   - Le nom en tête doit être celui de la **note** — « Pr.N.Elhafidi » pour Pédiatrie1,
+     « Pr.A.Mdaghri Alaoui » pour Pédiatrie2 — avec le badge « **note (import)** ». ⚠ C'est
+     exactement le nom que l'export imprime pour ce service : si les deux diffèrent, la page
+     re-classe les sources de son côté, ce qui est le défaut.
+   - Juste en dessous, l'encadré jaune doit dire « … un chef est pourtant **rattaché** à ce service
+     (voir l'historique), mais les documents ne lisent que la note pour l'instant : les seules
+     affectations enregistrées sont des liens de test ». ⚠ Il **ne** doit **pas** dire « Désignez un
+     chef de service » — le service en a un.
+   - Sous « Historique » : « Youssef Alaoui · *son grade* · en cours depuis 2026-08-29 ».
+   - ⚠ **Un chef rattaché par la clé du service** (`ServiceChefId`, et non par une affectation datée)
+     doit apparaître sur une ligne « **rattaché** » sous l'encadré — pas seulement dans
+     « Historique », qui ne liste que les affectations datées. Aucun service de la base n'est dans
+     cet état aujourd'hui (0 sur 148), donc c'est un contrôle à faire en rattachant un chef depuis
+     le formulaire du service : le nom doit rester visible même si ce n'est pas celui qui est
+     imprimé.
+
+7. **Le témoin, sur un service ordinaire** (n'importe lequel des 140 autres, p. ex. **Pédiatrie3**) :
+   même nom en tête + badge « note (import) », mais l'encadré dit « **Désignez un chef de service**
+   pour que l'attribution soit datée… » — la phrase inverse. Les deux états appellent des gestes
+   opposés et ne doivent jamais partager la même phrase.
+
+8. **Contrôle « l'API est à jour »** : si la fiche affiche « Chef de service non communiqué par
+   l'API », le processus est antérieur à `chefAttribution` — **relancer l'AppHost**. ⚠ La page ne
+   devine **pas** le nom dans ce cas : le deviner reviendrait à remettre un second ordre de
+   résolution côté client, c'est-à-dire le défaut lui-même.
+
+**Pour revenir en arrière** (le jour où les vrais chefs sont saisis) : une ligne,
+`ServiceChefPolicy.InForce` = `ServiceChefSourcePolicy.Authority`. Les deux documents, **la
+fiche du service** et la phrase sous la légende suivent la constante. ⚠ Vérifié en la basculant :
+**5 tests de handler tombent, 0 test de `ServiceChefDirectoryTests`** — l'ordre d'autorité est
+couvert là où il vit.
+
+⚠ **Ce que la session n'a pas corrigé, et qui se voit encore :** la **liste** des services
+(Infrastructure) affiche « — » dans la colonne Chef pour les 148 services, et la fiche service du
+**portail étudiant** dit « aucun chef » — les deux lisent la clé `ServiceChefId` seule, jamais la
+note. `HANDOFF.md` item `0ag`.

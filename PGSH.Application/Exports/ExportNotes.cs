@@ -1,3 +1,5 @@
+using PGSH.Application.Hospitals.Chefs;
+
 namespace PGSH.Application.Exports;
 
 /// <summary>
@@ -84,6 +86,28 @@ public static class ExportNotes
     /// students ». A single blank column collapses the two into one unreadable state, and the reader
     /// cannot tell either from « the export is broken ».
     /// </remarks>
+    /// <summary>
+    /// Why « Origine du chef » reads « Note (import) » on every row, and why a service whose chef is
+    /// linked in Personnel names nobody — or null when the document resolves the full authority
+    /// order and the column is telling the reader something row by row.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ A uniform column is the mirror of an empty one: it looks like a value the export hard-coded
+    /// rather than a policy somebody chose, and the choice is invisible from the file. It is also the
+    /// half of <see cref="ServiceChefSourcePolicy.SourceNoteOnly"/> that <em>costs</em> something — a
+    /// service named only by an affectation comes out blank — and a blank nobody explained is the
+    /// defect <see cref="ExportNotes"/> exists for. Silent under
+    /// <see cref="ServiceChefSourcePolicy.Authority"/>: a note that fires whatever the policy says is
+    /// noise, and noise is dismissed.
+    /// </remarks>
+    public static string? ChefSourceNote(ServiceChefSourcePolicy policy) =>
+        policy is ServiceChefSourcePolicy.Authority
+            ? null
+            : "Les chefs de service sont repris de la fiche du service (note d'import) uniquement : "
+              + "aucune affectation de chef n'est lue pour l'instant, les seules enregistrées étant "
+              + "des liens de test. Un service dont le chef n'est nommé que par une affectation "
+              + "apparaît donc sans nom.";
+
     public static string RosterNote(int rostersInScope) => rostersInScope == 0
         ? "Aucune inscription n'est rattachée à un groupe, et aucun groupe n'existe encore pour cette "
           + "sélection : la promotion n'a pas été découpée."

@@ -15,6 +15,12 @@ namespace PGSH.Tests.Application;
 ///
 /// <para>Pure: <see cref="ServiceChefDirectory"/> takes no store and no clock, so every case here is
 /// exact.</para>
+///
+/// <para>⚠ <b>The authority order is covered here whatever the documents are currently allowed to
+/// read.</b> <see cref="ServiceChefPolicy.InForce"/> is
+/// <see cref="ServiceChefSourcePolicy.SourceNoteOnly"/> while the base's two chef links are test
+/// rows, and the handler suites assert that narrowing — so this file is what makes flipping the
+/// constant back a one-line change instead of a rediscovery.</para>
 /// </summary>
 public class ServiceChefDirectoryTests
 {
@@ -26,8 +32,9 @@ public class ServiceChefDirectoryTests
     private static ServiceChefDirectory Directory(
         string? sitting = null,
         string? description = null,
+        ServiceChefSourcePolicy policy = ServiceChefSourcePolicy.Authority,
         params ServiceChefTenure[] tenures) =>
-        new([new ServiceChefRecord(ServiceId, sitting, description, tenures)]);
+        new([new ServiceChefRecord(ServiceId, sitting, description, tenures)], policy);
 
     /// <summary>
     /// ⚠ The whole reason the as-of date is asked per question rather than per file: a document
@@ -133,6 +140,118 @@ public class ServiceChefDirectoryTests
         ]);
 
         directory.For(ServiceId, Autumn).Name.Should().Be("Nadia Bennis");
+    }
+
+    /// <summary>
+    /// ⚠ The policy in force on both documents today: an affectation names a real person and is
+    /// still not printed, because the two rows in the base were linked to try the mechanism out.
+    /// Neither kind of link answers — the dated tenure is not a stronger claim than the sitting
+    /// chef when the objection is that the row itself is test data.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Under_the_note_only_policy_a_linked_chef_is_passed_over(bool dated)
+    {
+        var directory = Directory(
+            sitting: dated ? null : "Nadia Bennis",
+            description: ServiceChefSourceNote.Format("Pr.A.Settaf"),
+            policy: ServiceChefSourcePolicy.SourceNoteOnly,
+            tenures: dated ? [new("Ahmed Settaf", new DateOnly(2026, 9, 1), null)] : []);
+
+        var chef = directory.For(ServiceId, Autumn);
+
+        chef.Name.Should().Be("Pr.A.Settaf");
+        chef.FromSourceNote.Should().BeTrue(
+            "narrowing the sources does not make an undated note a dated record");
+    }
+
+    /// <summary>
+    /// What the policy costs, and it is deliberate: a service whose only chef is a link names
+    /// nobody. A blank cell says less wrongly than a test account's name, and
+    /// <c>ExportLabels.ChefOrigin</c> stays empty with it rather than claiming a source.
+    /// </summary>
+    [Fact]
+    public void Under_the_note_only_policy_a_service_with_no_note_names_nobody()
+    {
+        var directory = Directory(
+            sitting: "Nadia Bennis",
+            description: "Service de garde, 3e étage",
+            policy: ServiceChefSourcePolicy.SourceNoteOnly,
+            tenures: [new("Ahmed Settaf", new DateOnly(2026, 9, 1), null)]);
+
+        directory.For(ServiceId, Autumn).Should().Be(ServiceChefAttribution.Unknown);
+    }
+
+    /// <summary>The as-of date decides nothing under the narrowed policy — the note is undated — and
+    /// the answer must stay stable across the file rather than varying with the row.</summary>
+    [Fact]
+    public void Under_the_note_only_policy_the_date_changes_nothing()
+    {
+        var directory = Directory(
+            description: ServiceChefSourceNote.Format("Pr.A.Settaf"),
+            policy: ServiceChefSourcePolicy.SourceNoteOnly,
+            tenures:
+            [
+                new("Ahmed Settaf", new DateOnly(2026, 9, 1), new DateOnly(2026, 12, 31)),
+                new("Nadia Bennis", new DateOnly(2027, 1, 1), null),
+            ]);
+
+        directory.For(ServiceId, Autumn).Should().Be(directory.For(ServiceId, Spring));
+    }
+
+    /// <summary>
+    /// ⚠ « Il n'y a personne » and « il y a quelqu'un, et ce n'est pas ce nom-là » are different
+    /// facts calling for opposite acts — designate a chef, versus wait for the policy — so the
+    /// directory answers them separately. Always false under <c>Authority</c>: the order falling
+    /// through to the note is the rule working, not a name held back.
+    /// </summary>
+    [Theory]
+    [InlineData(ServiceChefSourcePolicy.SourceNoteOnly, true)]
+    [InlineData(ServiceChefSourcePolicy.Authority, false)]
+    public void A_linked_chef_the_policy_will_not_print_is_reported_as_withheld(
+        ServiceChefSourcePolicy policy, bool expected)
+    {
+        var directory = Directory(
+            description: ServiceChefSourceNote.Format("Pr.A.Settaf"),
+            policy: policy,
+            tenures: [new("Ahmed Settaf", new DateOnly(2026, 9, 1), null)]);
+
+        directory.HasWithheldLinkedChef(ServiceId, Autumn).Should().Be(expected);
+    }
+
+    [Fact]
+    public void A_sitting_chef_counts_as_a_withheld_link_too()
+    {
+        Directory(
+                sitting: "Nadia Bennis",
+                description: ServiceChefSourceNote.Format("Pr.A.Settaf"),
+                policy: ServiceChefSourcePolicy.SourceNoteOnly)
+            .HasWithheldLinkedChef(ServiceId, Autumn)
+            .Should().BeTrue("the FK is a link like the tenure is, and the policy passes over both");
+    }
+
+    /// <summary>A tenure that closed before the date is nobody's current chef, so nothing is being
+    /// withheld — reporting one sends somebody looking for a name that does not exist.</summary>
+    [Fact]
+    public void A_tenure_closed_before_the_date_is_not_withheld()
+    {
+        Directory(
+                description: ServiceChefSourceNote.Format("Pr.A.Settaf"),
+                policy: ServiceChefSourcePolicy.SourceNoteOnly,
+                tenures: [new("Ahmed Settaf", new DateOnly(2026, 1, 1), new DateOnly(2026, 6, 30))])
+            .HasWithheldLinkedChef(ServiceId, Autumn)
+            .Should().BeFalse();
+    }
+
+    [Fact]
+    public void A_service_nobody_linked_withholds_nothing()
+    {
+        Directory(
+                description: ServiceChefSourceNote.Format("Pr.A.Settaf"),
+                policy: ServiceChefSourcePolicy.SourceNoteOnly)
+            .HasWithheldLinkedChef(ServiceId, Autumn)
+            .Should().BeFalse("« désignez un chef » is the right advice on 140 of the 148 services");
     }
 
     /// <summary>An <c>Employee</c> with no name yields « " " » from the projection's concatenation,

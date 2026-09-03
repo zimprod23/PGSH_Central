@@ -1,12 +1,15 @@
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
+using PGSH.Application.Hospitals.Chefs;
 using PGSH.Domain.Hospitals;
 using PGSH.SharedKernel;
 
 namespace PGSH.Application.Hospitals.Services.GetById;
 
-internal sealed class GetServiceByIdQueryHandler(IApplicationDbContext dbContext) : IQueryHandler<GetServiceByIdQuery, ServiceDetailResponse>
+internal sealed class GetServiceByIdQueryHandler(
+    IApplicationDbContext dbContext,
+    ServiceChefProvider chefProvider) : IQueryHandler<GetServiceByIdQuery, ServiceDetailResponse>
 {
     public async Task<Result<ServiceDetailResponse>> Handle(GetServiceByIdQuery request, CancellationToken cancellationToken)
     {
@@ -78,9 +81,35 @@ internal sealed class GetServiceByIdQueryHandler(IApplicationDbContext dbContext
                 .ToList(),
             // Parsed here rather than in SQL: it is free text with a known prefix, and the format
             // lives in one place so the importer that writes it and every reader cannot drift.
-            ServiceChefSourceNote.Read(service.Description)
+            ServiceChefSourceNote.Read(service.Description),
+            await ResolveChefAsync(service.Id, cancellationToken)
         );
 
         return Result.Success(response);
+    }
+
+    /// <summary>
+    /// ⚠ <b>Resolved by <see cref="ServiceChefDirectory"/>, never by this page's own ranking.</b> The
+    /// page had one — the sitting FK, then the note, with the open tenure under « Historique » — and
+    /// it disagreed with the two documents, which is how a service showing « Pr.N.Elhafidi » ended up
+    /// printing « Youssef Alaoui » on an export with nothing on either screen mentioning the other.
+    ///
+    /// <para><b>As of today</b>, because this screen answers « qui dirige ce service ? » and not
+    /// « qui le dirigeait quand ce document a été publié ? » — that second question is the
+    /// documents', which is why the as-of date is a parameter and not a property of the directory.</para>
+    /// </summary>
+    private async Task<ServiceChefAttributionResponse> ResolveChefAsync(
+        int serviceId, CancellationToken cancellationToken)
+    {
+        var chefs = await chefProvider.BuildAsync(
+            [serviceId], ServiceChefPolicy.InForce, cancellationToken);
+
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var attribution = chefs.For(serviceId, today);
+
+        return new ServiceChefAttributionResponse(
+            attribution.Name,
+            attribution.FromSourceNote,
+            chefs.HasWithheldLinkedChef(serviceId, today));
     }
 }

@@ -232,17 +232,45 @@ public static class TestHarness
         return quota;
     }
 
-    /// <summary>A hospital service, optionally led by <paramref name="chef"/> (who is added to its staff first).</summary>
-    public static Service SeedService(this ApplicationDbContext db, int serviceId, string name, Employee? chef = null)
+    /// <summary>
+    /// A second hospital. Most fixtures need only the default one <see cref="SeedService"/> creates,
+    /// but anything asking « où ce groupe est-il placé » needs at least two — with one hospital every
+    /// placement is trivially at it, and a rule that reads « tout au militaire » would pass without
+    /// ever distinguishing anything.
+    /// </summary>
+    public static Hospital SeedHospital(
+        this ApplicationDbContext db, int hospitalId, string name, string city = "Rabat")
     {
-        var hospital = db.Hospitals.Local.FirstOrDefault(h => h.Id == HospitalId);
+        var hospital = new Hospital { Id = hospitalId, Name = name, City = city };
+        db.Hospitals.Add(hospital);
+        return hospital;
+    }
+
+    /// <summary>
+    /// A hospital service, optionally led by <paramref name="chef"/> (who is added to its staff first)
+    /// and optionally in a hospital other than the default one — see <see cref="SeedHospital"/>.
+    /// </summary>
+    public static Service SeedService(
+        this ApplicationDbContext db, int serviceId, string name, Employee? chef = null,
+        int? hospitalId = null)
+    {
+        int wanted = hospitalId ?? HospitalId;
+
+        var hospital = db.Hospitals.Local.FirstOrDefault(h => h.Id == wanted);
         if (hospital is null)
         {
-            hospital = new Hospital { Id = HospitalId, Name = "CHU Ibn Sina", City = "Rabat" };
+            hospital = new Hospital { Id = wanted, Name = "CHU Ibn Sina", City = "Rabat" };
             db.Hospitals.Add(hospital);
         }
 
-        var service = new Service { Id = serviceId, Name = name, Description = "", Hospital = hospital, Capacity = 20 };
+        // The foreign key is stated as well as the navigation: a query reading Service.HospitalId
+        // before SaveChanges has fixed it up would see 0 and place every service in no hospital.
+        var service = new Service
+        {
+            Id = serviceId, Name = name, Description = "",
+            HospitalId = hospital.Id, Hospital = hospital, Capacity = 20,
+        };
+
         if (chef is not null)
         {
             service.AddStaff(chef);
@@ -251,6 +279,23 @@ public static class TestHarness
 
         db.Services.Add(service);
         return service;
+    }
+
+    /// <summary>
+    /// Adds <paramref name="services"/> to a stage's allowed-services whitelist.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ The empty list is not the neutral state: <c>SetCohortSlotAssignmentCommandHandler</c>
+    /// enforces the whitelist « when configured », so a stage with none is open to every service. A
+    /// fixture that never calls this is therefore asserting « personne n'a saisi la liste », which is
+    /// a real state of the catalogue and a different one from « ce service n'est pas autorisé ».
+    /// </remarks>
+    public static Stage Allow(this ApplicationDbContext db, Stage stage, params Service[] services)
+    {
+        foreach (var service in services)
+            stage.AllowedServices.Add(service);
+
+        return stage;
     }
 
     public static Employee SeedChef(this ApplicationDbContext db, Guid keycloakId, string email = "chef@pgsh.ma")

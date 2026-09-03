@@ -18,15 +18,26 @@ namespace PGSH.Application.Hospitals.Chefs;
 /// start of the axis; the export asks per période, because a file covering a year of rotations spans
 /// months and a chef who took over in January did not lead the students who were there in October.
 /// Answering the whole file from one date would print the wrong name on half of it.</para>
+///
+/// <para><b>Which sources it may answer from is the caller's</b> —
+/// <see cref="ServiceChefSourcePolicy"/>, decided once in <see cref="ServiceChefPolicy"/> so the two
+/// documents cannot narrow differently. The order below is the rule; the policy says how much of it
+/// is in force while the linked chefs are test accounts.</para>
 /// </summary>
 public sealed class ServiceChefDirectory
 {
-    public static readonly ServiceChefDirectory Empty = new([]);
+    public static readonly ServiceChefDirectory Empty =
+        new([], ServiceChefSourcePolicy.SourceNoteOnly);
 
     private readonly Dictionary<int, ServiceChefRecord> _services;
+    private readonly ServiceChefSourcePolicy _policy;
 
-    internal ServiceChefDirectory(IReadOnlyList<ServiceChefRecord> services) =>
+    internal ServiceChefDirectory(
+        IReadOnlyList<ServiceChefRecord> services, ServiceChefSourcePolicy policy)
+    {
         _services = services.ToDictionary(s => s.ServiceId);
+        _policy = policy;
+    }
 
     /// <summary>
     /// The name to print for <paramref name="serviceId"/> on <paramref name="asOf"/>, and where it
@@ -43,26 +54,61 @@ public sealed class ServiceChefDirectory
     /// ⚠ The third is <b>flagged rather than blended in</b>. It says who the Access base last
     /// recorded, not who this document was published under, and only the caller can decide whether
     /// that distinction matters on its page — hence <see cref="ServiceChefAttribution.FromSourceNote"/>.
+    ///
+    /// <para>Under <see cref="ServiceChefSourcePolicy.SourceNoteOnly"/> the first two are skipped
+    /// and only the note answers, so every name comes back flagged. A service whose note is absent
+    /// then names nobody <em>even though a chef is linked</em> — which is the intended reading: the
+    /// link is a test row, and a blank cell says less wrongly than a wrong name.</para>
     /// </summary>
     public ServiceChefAttribution For(int serviceId, DateOnly asOf)
     {
         if (!_services.TryGetValue(serviceId, out var service))
             return ServiceChefAttribution.Unknown;
 
-        // Most recently opened tenure covering the date: two overlapping tenures are a data defect,
-        // and the later one is the better guess about which replaced which.
-        var tenure = service.Tenures
-            .Where(t => t.Start <= asOf && (t.End is null || t.End >= asOf))
-            .OrderByDescending(t => t.Start)
-            .Select(t => t.Name)
-            .FirstOrDefault();
+        if (_policy is ServiceChefSourcePolicy.Authority)
+        {
+            // Most recently opened tenure covering the date: two overlapping tenures are a data
+            // defect, and the later one is the better guess about which replaced which.
+            var tenure = service.Tenures
+                .Where(t => t.Start <= asOf && (t.End is null || t.End >= asOf))
+                .OrderByDescending(t => t.Start)
+                .Select(t => t.Name)
+                .FirstOrDefault();
 
-        string? configured = Normalize(tenure) ?? Normalize(service.SittingChefName);
-        if (configured is not null)
-            return new ServiceChefAttribution(configured, FromSourceNote: false);
+            string? configured = Normalize(tenure) ?? Normalize(service.SittingChefName);
+            if (configured is not null)
+                return new ServiceChefAttribution(configured, FromSourceNote: false);
+        }
 
         string? fromNote = ServiceChefSourceNote.Read(service.Description);
         return new ServiceChefAttribution(fromNote, FromSourceNote: fromNote is not null);
+    }
+
+    /// <summary>
+    /// Whether a chef <b>is</b> linked in Personnel for this service on <paramref name="asOf"/> and
+    /// <see cref="For"/> is nonetheless not printing them — i.e. the policy is holding a real
+    /// affectation back.
+    ///
+    /// <para>⚠ <b>The screen that shows the trail needs this, or it recreates the confusion the
+    /// policy was meant to remove.</b> Pédiatrie1 and Pédiatrie2 carry the base's only two chef
+    /// affectations, both open; a page listing them under « Historique » while its headline names
+    /// the import note says nothing about *why* the two differ, which is exactly the « d'où sort ce
+    /// nom ? » this answers. Same rule as <c>ExportNotes</c>: what a narrowing removed has to
+    /// announce itself.</para>
+    ///
+    /// <para>Always false under <see cref="ServiceChefSourcePolicy.Authority"/> — the order falling
+    /// through to the note because every tenure is closed is the rule working, not a name withheld.
+    /// It is also false where nobody is linked at all: « aucun chef désigné » is a different
+    /// sentence and the caller must be able to print it.</para>
+    /// </summary>
+    public bool HasWithheldLinkedChef(int serviceId, DateOnly asOf)
+    {
+        if (_policy is ServiceChefSourcePolicy.Authority)
+            return false;
+
+        return _services.TryGetValue(serviceId, out var service)
+               && (Normalize(service.SittingChefName) is not null
+                   || service.Tenures.Any(t => t.Start <= asOf && (t.End is null || t.End >= asOf)));
     }
 
     private static string? Normalize(string? name) =>

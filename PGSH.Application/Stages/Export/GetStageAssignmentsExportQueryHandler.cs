@@ -100,8 +100,15 @@ internal sealed class GetStageAssignmentsExportQueryHandler(
         // ⚠ As of each période's own start, never one date for the file: a document covering a year
         // of rotations spans months, and a chef who took over in January did not lead the students
         // who stood there in October. The directory is built once and asked per row.
+        //
+        // ⚠ InForce is SourceNoteOnly today, so the as-of date decides nothing here yet — the
+        // legacy note is undated. Keep asking per row anyway: the date is what makes the file right
+        // the day the policy goes back to Authority, and a per-file date would then be wrong on half
+        // of it with nothing on the page saying so.
         var chefs = await chefProvider.BuildAsync(
-            periods.Select(p => p.ServiceId).Distinct().ToList(), cancellationToken);
+            periods.Select(p => p.ServiceId).Distinct().ToList(),
+            ServiceChefPolicy.InForce,
+            cancellationToken);
 
         var slotsByPeriod = coverage
             .GroupBy(c => c.PeriodId)
@@ -148,11 +155,18 @@ internal sealed class GetStageAssignmentsExportQueryHandler(
     /// <summary>
     /// ⚠ A column blank on every row reads as a column the export forgot — which is how a perfectly
     /// faithful file gets reported as broken. Same note the roll carries, for the same reason.
+    ///
+    /// <para><paramref name="extra"/> is what only the sheet knows: the chef-source note goes on the
+    /// two sheets that print a chef and not on Synthèse, which has no such column and would be
+    /// answering a question nobody reading it asked.</para>
     /// </summary>
     private static IReadOnlyList<string> Notes(
         IReadOnlyList<ExportColumn> columns,
-        IReadOnlyList<IReadOnlyList<ExportCell>> rows) =>
-        ExportNotes.EmptyColumnsNote(columns, rows) is { } note ? [note] : [];
+        IReadOnlyList<IReadOnlyList<ExportCell>> rows,
+        string? extra = null) =>
+        new[] { ExportNotes.EmptyColumnsNote(columns, rows), extra }
+            .OfType<string>()
+            .ToList();
 
     private static ExportedPeriod ToExportedPeriod(StagePeriodExportRow row) =>
         new(row.PeriodId, row.Start, row.End, row.ServiceId, row.ServiceName);
@@ -294,7 +308,7 @@ internal sealed class GetStageAssignmentsExportQueryHandler(
         }).ToList();
 
         return new ExportSheet("Stages", caption, columns, rows,
-            Notes(columns, rows));
+            Notes(columns, rows, ExportNotes.ChefSourceNote(ServiceChefPolicy.InForce)));
     }
 
     /// <summary>
@@ -469,7 +483,7 @@ internal sealed class GetStageAssignmentsExportQueryHandler(
         }
 
         return new ExportSheet("Périodes", caption, columns, rows,
-            Notes(columns, rows));
+            Notes(columns, rows, ExportNotes.ChefSourceNote(ServiceChefPolicy.InForce)));
     }
 
     /// <summary>

@@ -1,5 +1,6 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using PGSH.Application.Hospitals.Chefs;
 using PGSH.Application.Hospitals.Services;
 using PGSH.Application.Hospitals.Services.Create;
 using PGSH.Application.Hospitals.Services.GetById;
@@ -627,7 +628,7 @@ public class ServiceLevelCapacityTests
         service.Hospital.LocalisationMaps = new Localization("-6.84", "34.02", null);
         await db.SaveChangesAsync();
 
-        var result = await new GetServiceByIdQueryHandler(db).Handle(new GetServiceByIdQuery(ServiceId), default);
+        var result = await new GetServiceByIdQueryHandler(db, new ServiceChefProvider(db)).Handle(new GetServiceByIdQuery(ServiceId), default);
 
         result.IsSuccess.Should().BeTrue();
         result.Value.LocalizationX.Should().Be("-6.84");
@@ -645,7 +646,7 @@ public class ServiceLevelCapacityTests
         service.LocalisationMaps = new Localization("-6.90", "34.10", null);
         await db.SaveChangesAsync();
 
-        var result = await new GetServiceByIdQueryHandler(db).Handle(new GetServiceByIdQuery(ServiceId), default);
+        var result = await new GetServiceByIdQueryHandler(db, new ServiceChefProvider(db)).Handle(new GetServiceByIdQuery(ServiceId), default);
 
         result.Value.LocalizationX.Should().Be("-6.90");
         result.Value.HasOwnLocalization.Should().BeTrue();

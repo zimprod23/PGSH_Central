@@ -36,8 +36,42 @@ public record ServiceDetailResponse(
     /// services do, and none of those has a configured chef. ⚠ Undated: it says who the Access base
     /// last recorded, not who led the service on any particular date, so it is surfaced separately
     /// rather than folded into <see cref="ServiceChef"/>. Linking a real chef is what replaces it.
+    ///
+    /// <para>This is the <em>raw</em> fact — what the fiche says. Who PGSH actually <b>names</b> as
+    /// this service's chef is <see cref="ChefAttribution"/>, and a screen prints that one.</para>
     /// </summary>
-    string? ChefFromSourceNote);
+    string? ChefFromSourceNote,
+    /// <summary>
+    /// Who PGSH names as this service's chef **today**, and on what authority — resolved by
+    /// <c>ServiceChefDirectory</c>, the same rule the répartition and the stage export print.
+    /// </summary>
+    ServiceChefAttributionResponse ChefAttribution);
+
+/// <summary>
+/// The resolved answer to « qui dirige ce service ? », sent rather than re-derived.
+///
+/// <para>⚠ <b>This exists because the screen and the documents disagreed, and it cost a real « d'où
+/// sort ce nom ? » on 2026-09-03.</b> The page ranked the sources itself — the sitting FK (null on
+/// all 148 services), then the note, with the open tenure filed under « Historique » — while
+/// <c>ServiceChefDirectory</c> ranked them the other way. One rule, two sides of a network
+/// boundary, nothing able to catch them drifting: the same class as
+/// <c>ServicePeriodResponse.State</c>, and the same fix.</para>
+/// </summary>
+/// <param name="Name">Null when nobody is named at all — « aucun chef désigné ».</param>
+/// <param name="FromSourceNote">
+/// The name is the <b>undated</b> import note rather than a dated affectation. Never dropped beside
+/// the name: printing an undated note as the record is a claim nothing supports.
+/// </param>
+/// <param name="LinkedChefWithheld">
+/// ⚠ A chef <em>is</em> linked in Personnel and is deliberately not the name above — the temporary
+/// <c>ServiceChefPolicy.InForce</c> = <c>SourceNoteOnly</c>. Without this the page shows an
+/// « en cours » tenure under a headline naming somebody else and explains neither, which is the
+/// confusion this whole change removes. False when nobody is linked: that is a different sentence.
+/// </param>
+public record ServiceChefAttributionResponse(
+    string? Name,
+    bool FromSourceNote,
+    bool LinkedChefWithheld);
 
 public record ChefTenureResponse(
     Guid EmployeeId,

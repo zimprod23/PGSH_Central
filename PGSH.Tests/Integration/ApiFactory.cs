@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Authentication;
+﻿using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using PGSH.Application.Backups;
 using PGSH.Domain.Users;
 using PGSH.Infrastructure.Database;
 
@@ -35,6 +36,17 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
     /// <summary>The caller every test uses unless it is testing who the caller is.</summary>
     public static readonly Guid AdminIdentityId = Guid.Parse("0a1b2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d");
 
+    /// <summary>
+    /// The archive the backup endpoints act on, in memory.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ The real one shells out to <c>docker</c> and takes a <c>pg_dump</c> of whatever database the
+    /// host is pointed at. Left in place, <c>dotnet test</c> on a developer machine would dump the
+    /// faculty's live base as a side effect — and the scheduled service below would keep doing it
+    /// every hour for as long as the test host lived.
+    /// </remarks>
+    internal FakeBackupArchive Backups { get; } = new();
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         // Not "Development": that branch maps the Scalar/Swagger UI, which has nothing to do with the
@@ -49,10 +61,16 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
             "ConnectionStrings:TodoDatabase",
             "Host=localhost;Port=5432;Database=pgsh-integration;Username=none;Password=none");
 
+        // Belt as well as braces: the archive is replaced below, and the timer that would drive it is
+        // switched off here — a hosted service that starts before ConfigureTestServices is honoured
+        // would have taken one dump before the fake ever landed.
+        builder.UseSetting("Backups:Schedule:Enabled", "false");
+
         builder.ConfigureTestServices(services =>
         {
             UseInMemoryStore(services);
             UseTestAuthentication(services);
+            UseFakeBackupArchive(services);
         });
     }
 
@@ -79,6 +97,12 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
             // The in-memory store has no transactions, so ExecuteAtomicallyAsync would throw
             // rather than run. See TestHarness.NewContext for what that costs.
             .ConfigureWarnings(w => w.Ignore(InMemoryEventId.TransactionIgnoredWarning)));
+    }
+
+    private void UseFakeBackupArchive(IServiceCollection services)
+    {
+        services.RemoveAll<IBackupArchive>();
+        services.AddSingleton<IBackupArchive>(Backups);
     }
 
     private static void UseTestAuthentication(IServiceCollection services)

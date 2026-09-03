@@ -1,7 +1,9 @@
 ﻿using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Employees.MyServices;
+using PGSH.Application.AcademicGroups.Placements;
 using PGSH.Application.Hospitals.Chefs;
+using PGSH.Application.Hospitals.Coverage;
 using PGSH.Application.Hospitals.Services.OccupancyReport;
 using PGSH.Domain.Stages;
 using PGSH.Application.Stages.Planning;
@@ -936,5 +938,59 @@ public class SqlTranslationTests
         // The denominator of « il en utilise deux sur cinq » — a correlated count, not a collection.
         GetOccupancyReportQueryHandler.AllowedServicesQuery(db)
             .ToQueryString().Should().Contain("StageAllowedServices");
+    }
+
+    /// <summary>
+    /// The two reads behind « quel groupe va déjà là ? » and « cet hôpital peut-il l'accueillir ? ».
+    ///
+    /// <para>⚠ Worth pinning for three separate reasons. <c>MatchingRostersQuery</c> nests an
+    /// aggregate two navigations deep (roster → cohortes → cellules) and, under
+    /// <c>Exclusively</c>, negates one of them — an <c>EXISTS</c>/<c>NOT EXISTS</c> pair that only a
+    /// compile can confirm. <c>PageCellsQuery</c> reaches a second level of navigation in its
+    /// projection (<c>a.Service.Hospital.Name</c>). And <c>ServicesAtHospitalQuery</c> is a
+    /// <c>SelectMany</c> over a collection navigation projecting a keyless record — one step away
+    /// from the collection-in-a-projection shape Npgsql refuses, which is exactly why it is written
+    /// flat rather than folded into the row beside it.</para>
+    /// </summary>
+    [Fact]
+    public void The_placement_reads_compile_to_sql()
+    {
+        using var db = TestHarness.NewNpgsqlContext();
+
+        string byService = GetRosterPlacementsQueryHandler
+            .MatchingRostersQuery(db, academicYearId: 21, levelId: 3, stageId: 7,
+                serviceId: 11, hospitalId: null, PlacementMatch.Anywhere)
+            .ToQueryString();
+
+        byService.Should().Contain("AcademicGroups");
+        byService.Should().Contain("CohortSlotAssignments", "the placement lives on the cell");
+
+        string exclusively = GetRosterPlacementsQueryHandler
+            .MatchingRostersQuery(db, academicYearId: 21, levelId: 3, stageId: null,
+                serviceId: null, hospitalId: 2, PlacementMatch.Exclusively)
+            .ToQueryString();
+
+        exclusively.Should().ContainEquivalentOf("NOT EXISTS",
+            "« aucune cellule ailleurs » is the negative half of Exclusively");
+        exclusively.Should().ContainEquivalentOf("EXISTS",
+            "and « au moins une cellule » is the positive half that keeps an unarranged roster out");
+
+        GetRosterPlacementsQueryHandler.PageStagesQuery(db, [1, 2, 3], stageId: null)
+            .ToQueryString().Should().Contain("Cohorts");
+
+        GetRosterPlacementsQueryHandler.PageCellsQuery(db, [1, 2, 3], stageId: null)
+            .ToQueryString().Should().Contain("Hospitals", "the row names the hospital, two hops out");
+
+        GetRosterPlacementsQueryHandler.PromotionStagesQuery(db, academicYearId: 21, levelId: 3)
+            .ToQueryString().Should().Contain("Cohorts");
+
+        // The two counts are correlated aggregates over a navigation, which translate; the services
+        // themselves are a second flat read for the reason above.
+        GetHospitalStageCoverageQueryHandler.StagesQuery(db, levelId: 3, hospitalId: 2)
+            .ToQueryString().Should().ContainEquivalentOf("count(");
+
+        GetHospitalStageCoverageQueryHandler.ServicesAtHospitalQuery(db, levelId: 3)
+            .ToQueryString().Should().Contain("StageAllowedServices",
+                "the names are loaded through the join table; only the verdict comes from the counts");
     }
 }

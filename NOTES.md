@@ -2604,6 +2604,45 @@ was published for the first time.
 from. The export prints it — on 95 % of the rows it is the only name there is — and says so in
 `Origine du chef`. Linking professors in Personnel upgrades those rows with no code change.
 
+⚠ **…and the other 8 are worse than blank — 2026-09-03.** The 2 services that *do* carry an
+affectation carry a **test link**, so « upgrades those rows » upgraded them to the wrong name. The
+answer is not a special case per document but one constant both read —
+`ServiceChefPolicy.InForce` = `ServiceChefSourcePolicy.SourceNoteOnly` — because the resolution
+order was extracted from the répartition precisely so two pages could not name different people for
+one service, and narrowing only the export rebuilds that drift.
+
+- **The order is not deleted, it is not in force.** `ServiceChefDirectory` still knows it and
+  `ServiceChefDirectoryTests` still proves it; the constant says how much of it a document may read.
+  Flipping it back was *checked*: 5 handler tests fail under `Authority`, 0 directory tests do.
+- ⚠ **A uniform column is the mirror of an empty one.** « Origine du chef » now reads « Note
+  (import) » on every row and a service named only by an affectation prints nothing at all — so the
+  file states the policy under its caption (`ExportNotes.ChefSourceNote`), silent under `Authority`.
+  Same rule as `ExportNotes` itself: an absence, or a value that never varies, has to announce
+  itself or it stands in for a defect.
+- **Narrowing the sources is not a licence to stop flagging the name.** Every attribution comes back
+  `FromSourceNote`, which is true — the note is undated whichever sources the policy allows.
+
+⚠ **…and the question that found the *real* defect: « pourquoi Alaoui apparaissait en Pédiatrie 1
+et 2, et pas sur la fiche du service ? »** Both screens were faithful — to two different rankings of
+the same three sources. The page read `serviceChef` (the sitting FK, **null on all 148 services**),
+fell through to the note, and filed the open tenure under « Historique »; the documents resolved the
+tenure first. Nothing could catch them disagreeing, because the rule existed twice.
+
+- **The fix is the one `ServicePeriodResponse.State` already established:** the server sends the
+  resolved answer (`ServiceDetailResponse.ChefAttribution`) and the page prints it. Re-ranking in
+  TypeScript would have reproduced the defect with better numbers.
+- ⚠ **A narrowed policy needs a *third* fact, or it relocates the confusion instead of removing it.**
+  `LinkedChefWithheld` — « quelqu'un est rattaché, et ce n'est pas ce nom-là » — is what stops the
+  page advising « Désignez un chef de service » on a service that already has one, and what tells an
+  admin why a linked chef is not the printed name. False when nobody is linked; that is a different
+  sentence.
+- ⚠ **The flag reads the tenure trail, so the trail is loaded under every policy.** The provider
+  briefly skipped `TenuresQuery` under `SourceNoteOnly` — nothing printed it — which made the flag
+  answer `false` on exactly the two services in the base that need `true`. An optimisation that
+  erases its own subject. The policy narrows what is *named*, never what is *known*.
+- **Two more screens read the sitting FK alone** and show « — » / « aucun chef » on all 148 services:
+  the services list and the student portal's service page. Filed, not fixed — `HANDOFF.md` `0ag`.
+
 ## The catalogue and the texts now disagree, and both are right — measured 2026-09-01
 
 The three 1650.25 migrations are **applied** on the live base (`MigrationService` ran them on an
@@ -3107,3 +3146,244 @@ charge exactement comme la garde le fait » ; c'était vrai de l'intention et fa
 - **C'est l'utilisateur qui l'a vu**, en comparant deux écrans qui affichaient 118 et 62 pour le même
   service. Aucun test ne pouvait le trouver : les deux chemins étaient couverts séparément et chacun
   était cohérent avec lui-même.
+
+---
+
+## La pause existe, et elle répond à une autre question (2026-09-03, session 40)
+
+L'utilisateur a posé deux questions le même jour — « peut-on changer P7 alors qu'on est en P3 ? » et
+« la pause, elle suspend un stage ou toute la promotion ? ». Les deux tombent au même endroit du
+code, et la réponse est la même : **le mécanisme est correct, son unité est fausse.**
+
+### Ce que fait `StagePauseRunner` aujourd'hui, lu dans le code
+
+Portée : **un stage**, une année académique — les deux obligatoires, ce qui est juste (« mettre
+Chirurgie en pause » ne doit pas atteindre une promotion qui a passé ces examens il y a six ans) —
+puis, en option, des cohortes, une étiquette de partition, ou des numéros de période.
+
+L'acte : passe à `IsPaused` toute `ServicePeriod` **`Underway`** et ouvre une ligne `PeriodPause`
+datée **du jour**. La reprise ferme la fenêtre, calcule `days = reprise − début`, l'ajoute à
+l'`EndDate` de la période, puis **décale de la même quantité toutes les périodes suivantes de la même
+affectation** qui ne sont ni closes ni interrompues. La compensation existe donc, et elle est au bon
+endroit : une rotation close est ce qui s'est réellement passé, et la pousser réécrirait le passé
+pour faire de la place au présent.
+
+### Quatre écarts, et aucun n'est une option manquante
+
+1. ⚠ **Une semaine d'examens est un fait de promotion, pas de stage.** Deux promotions tournent dans
+   les mêmes services le même matin ; l'une compose, l'autre non. Suspendre la promotion se fait donc
+   en autant d'appels qu'elle a de stages, et **rien n'enregistre que c'était un seul événement** :
+   pas de ligne à corriger, pas de ligne à révoquer, et sept appels qui peuvent diverger. La portée
+   ne recouvre la promotion que parce que `Stage.LevelId` le veut bien — et §15.1 prévoit déjà qu'un
+   stage porte deux niveaux.
+2. ⚠ **Le décalage est en jours calendaires.** `WorkingDayCalendar` n'est appelé nulle part sur ce
+   chemin. Une pause à cheval sur un week-end coûte donc deux jours que personne n'allait servir —
+   dans un projet où le *jour ouvrable* est déjà l'unité des durées du catalogue (25 stages sur 27,
+   mesuré le 2026-08-13) et où un axe entier peut être posé en jours ouvrables exacts.
+3. ⚠ **Seules les `ServicePeriod` bougent ; les `StageSlot` et les cellules restent.** Après une
+   reprise, la grille et les périodes publiées depuis cette grille ne disent plus la même chose, en
+   silence. C'est la même dérive que `UpdateStageSlotCommandHandler` atteinte par l'autre bout — voir
+   ci-dessous.
+4. ⚠ **Rien ne se déclare à l'avance, et une reprise oubliée est muette.** Une semaine d'examens est
+   au calendrier dès septembre ; la forme actuelle exige que quelqu'un soit là le premier matin et le
+   dernier. Une pause jamais reprise laisse des rotations gelées sans date de fin, sans compensation,
+   et **sans rien à l'écran qui se lise comme anormal**.
+
+### Et P7 pendant qu'on est en P3 : non, pour trois raisons distinctes
+
+- `UpdateStageSlotCommandHandler` n'a **aucune garde de publication** — contrairement à
+  `DeleteStageSlot`, qui interroge `SlotHasPublishedCellAsync`. Il réécrit les dates du créneau et ne
+  touche pas aux `ServicePeriod` qui en sont issues. **Modifier P7 est donc permis** et sépare la
+  grille des périodes sans le dire : pire qu'un refus.
+- `SetCohortSlotAssignmentCommandHandler` refuse dès que **la cohorte** porte une période liée à la
+  grille, et non dès que **cette cellule-là** est publiée. `PublishedCells.IsCellPublishedAsync`
+  existe exactement pour la question étroite et n'est pas utilisé ici.
+- `UnpublishCohortScheduleCommand(int CohortId, bool Force)` n'a pas de portée par période : défaire
+  P7 défait P1-P10 de la cohorte, et `Force` emporte les notes et les présences des périodes déjà
+  servies.
+
+⚠ **`SingleService` complique les trois** : `SchedulePublisher` replie les *kₛ* cellules d'un run en
+**une** `ServicePeriod`, donc modifier une colonne en cours de run coupe un séjour au lieu de
+modifier une ligne — et la 5ᵉ/6ᵉ année sont `SingleService` sur 51 923 des 51 924 placements importés.
+
+### La forme retenue : un calendrier restreint, pas un second mécanisme de décalage
+
+Un `Holiday` est déjà « des jours que personne ne sert », passe déjà par `WorkingDayCalendar`, et est
+déjà lu par la pose de l'axe, `RotationCyclePreview.DurationChecks`, le test de trou de
+`StagePeriodFolder` et les exports. Une semaine d'examens est **le même genre de fait**, à portée plus
+étroite. Poser `WorkingDayProvider.ForPromotionAsync(yearId, levelId, ct)` — fériés de la faculté ∪
+pauses de la promotion — fait compenser tous ces lecteurs gratuitement, en jours ouvrables, la grille
+et les périodes restant d'accord parce qu'elles sont posées depuis le même calendrier.
+
+⚠ **Et rejouer une fenêtre ne doit rien déplacer.** `ResumePeriod` *accumule* : il ajoute des jours à
+chaque exécution. Une fenêtre déclarée doit être **dérivée**, jamais ajoutée — c'est cette propriété,
+et elle seule, qui rend l'acte corrigeable et révocable. Plan complet : `PHASES.md` §17.
+
+---
+
+## Le point de sauvegarde, et les trois choses qu'il fallait décider d'abord (2026-09-03, session 40)
+
+La demande était « on tourne sur la vraie base, on ne veut pas la casser ». Trois décisions de
+conception ont pesé plus que le code.
+
+### 1 · Le registre est le dossier, pas une table
+Le réflexe est une table `BackupPoints` : requêtable, paginable, auditable. Elle est **fausse ici**,
+et pour une raison qui ne se voit qu'en imaginant l'usage : un registre gardé *dans* la base serait
+rembobiné par la restauration même qu'il décrit. Après un retour au point du 1ᵉʳ, tous les points
+pris depuis disparaîtraient de la liste **alors que leurs fichiers sont sur le disque** — et
+l'opérateur lirait un inventaire en désaccord avec son propre dossier, au pire moment possible.
+
+Le manifeste JSON à côté du dump survit à l'acte qu'il documente. Effet de bord considérable sur une
+base vivante : **aucune migration à appliquer** pour livrer la fonctionnalité.
+
+### 2 · « Indisponible » n'est pas « aucune sauvegarde », et c'est la moitié du travail
+Le premier jet avait un booléen `hasBackup`. Il écrase deux états qui appellent des gestes opposés :
+Docker arrêté (réparer le runner) et dossier vide (prendre un point). Un seul écran rouge pour les
+deux, et l'utilisateur clique sur « créer un point » — qui échoue — puis conclut que la page est
+cassée.
+
+`SafePointState` en a **cinq**, ordonnés par gravité, et `SchemaChanged` passe **devant** `Stale`
+délibérément : un dump d'une heure pris sous une autre migration est une restauration qui *refuse*,
+un dump de trois jours sous la bonne migration est une restauration qui *marche et coûte trois
+jours*. C'est la même famille que « année omise lue comme toutes les années » et que
+`RepartitionSummary.DeclaredSlotCount` : **un état qui en représente deux**.
+
+### 3 · Le manifeste vaut plus que le dump
+Un `.dump` seul ne dit pas sous quel schéma il a été écrit. Restauré sous un code qui attend une
+migration ultérieure, il donne une base que l'application ne sait pas lire — et **rien dans le
+fichier ne l'annonce**. D'où `SchemaFingerprint`, et sa règle : *inconnu* n'est pas *identique*.
+Comparer le sha aurait été plus strict et inutilisable — il refuserait toute sauvegarde antérieure au
+dernier commit, c'est-à-dire toutes.
+
+### Ce que l'API ne fait pas, et pourquoi ce n'est pas une lacune
+**Il n'y a pas de bouton « Restaurer ».** Un processus ne peut pas remplacer la base dont il se sert :
+`pg_restore --clean` supprime et recrée des objets que l'API tient ouverts. Un endpoint qui
+prétendrait le contraire échouerait à mi-course, sur la base vivante, sans retour possible. Ce qui
+est rendu, c'est le **coût chiffré** (le recensement du manifeste contre la base actuelle, dans les
+deux sens) et la commande exacte à lancer la pile arrêtée.
+
+⚠ Corollaire : `GetRestorePlanQuery` **n'échoue pas** sur un désaccord de schéma. §18 demande à la
+restauration de refuser bruyamment — elle le fait — mais un refus qui n'affiche jamais le plan ne
+peut pas dire *quel* `dotnet ef database update` rendrait le point utilisable.
+
+### La bannière est la fonctionnalité ; la page est l'administration
+Ce qui échouait jusqu'ici n'était pas le `pg_dump` — il a fonctionné trois fois — mais le fait qu'un
+humain devait y penser. Un bouton « Créer un point maintenant » **dans la confirmation de l'acte**
+transforme la procédure en effet de bord de l'acte.
+
+⚠ Et il ne **bloque** pas : sans point exploitable, l'acte demande une case cochée, exactement comme
+`ConfirmedDefaultCount`. Bloquer sèchement voudrait dire que le jour où Docker est en panne, la
+faculté ne peut plus clôturer son année — et la règle de la maison est d'appliquer le document de la
+faculté en enregistrant le désaccord, pas de l'interdire.
+
+### Deux détails d'exécution qui coûtent cher s'ils sont ratés
+- ⚠ **Ne jamais rediriger `pg_dump` par un tube.** Déjà payé une fois ici (archive corrompue).
+  `ProcessRunner` passe une *liste d'arguments*, `UseShellExecute = false`, et le dump est écrit avec
+  `-f` **dans** le conteneur puis `docker cp`-é — c'est aussi ce qui règle les chemins Windows avec
+  espaces, qu'un shell couperait en deux arguments.
+- ⚠ **Le conteneur est découvert, pas configuré.** Aspire le nomme lui-même (`postgres-<suffixe>`) et
+  un nom écrit dans les settings est périmé au prochain `dotnet run`. pgAdmin est exclu **par image** :
+  son nom contient « postgres » lui aussi.
+- ⚠ **Le mot de passe est un gabarit dans la commande affichée, pas la valeur** — cette chaîne est
+  rendue sur une page web, et un identifiant affiché est un identifiant dans une capture d'écran.
+  **Il ne pouvait pas non plus être simplement omis** : mesuré 03/09/2026 contre le conteneur qui
+  tourne, la socket locale de l'image est en `scram-sha-256` et **non en `trust`** — la première
+  version de la commande, écrite sur cette croyance, échouait avec « no password supplied », ce qui se
+  lit comme une instruction cassée et non comme une valeur manquante. C'est la ligne qui *relève* le
+  mot de passe (`printenv POSTGRES_PASSWORD`) qui est imprimée à la place.
+- ⚠ **Plusieurs conteneurs PostgreSQL peuvent tourner, et c'est le cas sur cette machine.** La
+  découverte **refuse** au lieu de prendre le premier : un dump de la mauvaise base, classé et
+  étiqueté comme point de restauration de celle-ci, est précisément la panne silencieuse que cette
+  phase existe pour supprimer.
+
+### La chaîne a été éprouvée contre le vrai conteneur (03/09/2026)
+`pg_dump -Fc --schema-only -f /tmp/…` → `docker cp` → recopie → `pg_restore -l` : TOC de 222 entrées,
+`dbname: TodoDatabase`. Schema-only volontairement — l'objet du contrôle était la *chaîne de
+commandes*, pas de déposer une copie des données de la faculté à un nouvel endroit.
+
+⚠ **Un piège de vérification, pas de production** : dans Git Bash, `/tmp/x` passé à `docker` est
+converti en `C:/Users/…/Temp/x` par MSYS, et le premier essai a donc échoué. Le code de production ne
+le subit pas — `ProcessStartInfo.ArgumentList` ne passe par aucun shell — mais toute vérification
+manuelle de cette chaîne doit exporter `MSYS_NO_PATHCONV=1`, sinon elle échoue pour une raison qui
+n'a rien à voir avec le produit.
+
+### Ce que la suite ne prouve pas
+Les 28 tests couvrent le pur (`SafePointEvaluator`, exhaustivement) et le pipeline (routes, rôles,
+refus + contrôle qui réussit, archive inchangée après refus). Ils **ne prouvent pas** que
+`docker exec pg_dump` marche : l'archive est remplacée par une fausse dans `ApiFactory`, sinon
+`dotnet test` prendrait un dump de la base vivante en effet de bord, et le planificateur en prendrait
+un par heure tant que l'hôte de test vit. Cette moitié-là se vérifie à la main — `SMOKE-TEST.md` §41.
+
+## Une demande nominative, et ce que la base répondait déjà (2026-09-03, session 41)
+
+L'utilisateur a apporté trois demandes réelles — « Sbai fait tous ses stages à l'hôpital militaire »,
+« Aya et Rihab ensemble, stage A en S1 et stage B en S2 », des fratries dans le même service — et une
+intuition : que découper un groupe de deux étudiants n'est pas très pratique, et qu'un **transfert
+définitif** serait peut-être mieux.
+
+**L'intuition était juste, et la première mesure que j'avais citée était mauvaise.** J'avais avancé
+que « 72 des 192 rosters de 5ᵉ année 2026-2027 tiennent 1 à 3 étudiants, donc un roster de deux est
+ordinaire ici ». Décomposé : **70 de ces 72 sont des rosters de trois de la 5ᵉ année *Pharmacie***,
+qui est simplement découpée comme cela — chaque roster en tient trois. Les rosters de **deux** sont
+exactement **deux** dans toute la promotion. Un roster minuscule n'est pas ordinaire.
+
+**Ce que la base disait vraiment.** En 2024-2025, 6ᵉ année Médecine :
+
+| roster | étudiants tous au militaire | taille du roster |
+|---|---|---|
+| Groupe 102 | 7 | 7 |
+| Groupe 158 | 7 | 7 |
+| Groupe 116 | 6 | 7 |
+| Groupe 130 | 6 | 7 |
+| Groupe 144 | 5 | 6 |
+
+Cinq rosters quasi purs, **de taille normale** (moyenne de la promotion : 5,8). La faculté résout donc
+déjà ces demandes par le groupe — et sa leçon est plus fine que « fais un groupe » : **un groupe par
+contrainte récurrente, pas un groupe par demande**. Les militaires d'une promotion tiennent dans *un*
+roster de sept.
+
+### Pourquoi le transfert n'est pas une alternative au groupe
+
+`TransferStudentCommand(Type: Definitive)` déplace `Registration.AcademicGroupId` : il envoie
+l'étudiant dans un **roster**, pas dans un service — le roster cible tire toujours ses services des
+cellules. Le transfert est donc *la façon d'entrer dans un groupe*, pas autre chose que le groupe.
+
+`DelocalizeStudentCommand` est un piège dans l'autre sens : elle signifie « servi **entièrement hors
+faculté** », supprime la rotation interne, crée la période déjà `IsStarted && IsComplete` et attend
+une fiche papier. Le HMIMV est dans le catalogue avec 35 services et de vrais chefs — 32 étudiants par
+an sortiraient de la liste de travail du chef, de l'occupation et de l'évaluation en ligne.
+
+### Le coût mesurable d'un roster de deux
+
+`RotationArranger.BuildServiceQueue` pondère chaque service par le nombre de cohortes **de taille
+moyenne** qu'il peut tenir, et une cohorte est **atomique**. Une cohorte de deux occupe donc une place
+de file dimensionnée pour un roster moyen (7 en 6ᵉ année) : elle dépense une cohorte entière
+d'admission de ce service pour deux personnes. Rien ne le refuse et rien ne le signale — l'équilibre
+de la promotion est seulement un peu faux. C'est l'argument concret derrière l'intuition de
+l'utilisateur, et c'est ce que la lecture livrée permet d'éviter.
+
+### Ce que la faisabilité disait, et que personne ne pouvait demander
+
+Le HMIMV couvre **6 stages sur 6** en 6ᵉ année. En 5ᵉ année il en couvre **6 sur 7** : *Santé
+Publique* n'autorise **qu'un seul service** et il n'y est pas. « Tout au militaire » est donc
+impossible pour cette promotion — et jusqu'ici cela se découvrait **à la sixième cellule**, après la
+promesse. C'est exactement la forme de blanc que `ExportNotes` et `RepartitionSummary.DeclaredSlotCount`
+traitent ailleurs : une absence qui a deux causes appelant des gestes opposés.
+
+⚠ Et trois stages du catalogue n'autorisent **aucun** service. Ce n'est pas « le HMIMV est exclu » :
+une liste vide **n'est pas appliquée**, donc le stage est ouvert à tout. Confondre les deux envoie
+l'utilisateur changer d'hôpital au lieu de saisir la liste.
+
+### Le fournisseur in-memory refuse aussi ce que Npgsql accepte
+
+Écrit d'abord `Stages.SelectMany(s => s.AllowedServices.Where(...).Select(...))` — plat, exactement la
+forme que ce dépôt privilégie. Npgsql la traduit ; le fournisseur **in-memory** lève
+`NotImplementedException` depuis `InMemoryQueryExpression.AddJoin`, parce que c'est une *skip
+navigation*. L'image en miroir de l'angle mort autour duquel toute cette suite est construite : une
+requête peut être juste en production et **intestable ici**.
+
+Le contournement retenu dit quelque chose de plus : les **noms** viennent d'un `Include` filtré en
+mémoire, mais le **verdict** reste sur les agrégats SQL de `StagesQuery`. Compter sur la collection
+chargée aurait rejoué `CnpnSpanFloor` — un `Include` oublié est indiscernable d'une collection vide, et
+sur PostgreSQL chaque stage se serait lu « aucun service autorisé », suite entièrement verte. Séparés,
+un `Include` oublié donne « couvert, mais aucun service nommé » : faux d'une manière visible.
