@@ -1,3 +1,5 @@
+using PGSH.Application.Hospitals.Chefs;
+
 namespace PGSH.Application.Hospitals.Services.GetById;
 
 /// <summary>
@@ -46,32 +48,6 @@ public record ServiceDetailResponse(
     /// <c>ServiceChefDirectory</c>, the same rule the répartition and the stage export print.
     /// </summary>
     ServiceChefAttributionResponse ChefAttribution);
-
-/// <summary>
-/// The resolved answer to « qui dirige ce service ? », sent rather than re-derived.
-///
-/// <para>⚠ <b>This exists because the screen and the documents disagreed, and it cost a real « d'où
-/// sort ce nom ? » on 2026-09-03.</b> The page ranked the sources itself — the sitting FK (null on
-/// all 148 services), then the note, with the open tenure filed under « Historique » — while
-/// <c>ServiceChefDirectory</c> ranked them the other way. One rule, two sides of a network
-/// boundary, nothing able to catch them drifting: the same class as
-/// <c>ServicePeriodResponse.State</c>, and the same fix.</para>
-/// </summary>
-/// <param name="Name">Null when nobody is named at all — « aucun chef désigné ».</param>
-/// <param name="FromSourceNote">
-/// The name is the <b>undated</b> import note rather than a dated affectation. Never dropped beside
-/// the name: printing an undated note as the record is a claim nothing supports.
-/// </param>
-/// <param name="LinkedChefWithheld">
-/// ⚠ A chef <em>is</em> linked in Personnel and is deliberately not the name above — the temporary
-/// <c>ServiceChefPolicy.InForce</c> = <c>SourceNoteOnly</c>. Without this the page shows an
-/// « en cours » tenure under a headline naming somebody else and explains neither, which is the
-/// confusion this whole change removes. False when nobody is linked: that is a different sentence.
-/// </param>
-public record ServiceChefAttributionResponse(
-    string? Name,
-    bool FromSourceNote,
-    bool LinkedChefWithheld);
 
 public record ChefTenureResponse(
     Guid EmployeeId,

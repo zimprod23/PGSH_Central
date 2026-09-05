@@ -586,6 +586,82 @@ service is the whole-partition-in-one-service defect above.
     slots on disk instead — a stronger check, since an apply for another year cannot match a block
     that is not there.
 
+### The order the services are walked in is authored — `StageAllowedService.Rank`
+`Stages/AllowedServices/` (`PUT stages/{id}/allowed-services/order`) + `ServiceRotationOrder`
+(pure, in `Domain/Stages/`). The join carries a 1-based `Rank`; `RotationArranger` orders on it and
+falls back to `Id`.
+
+- ⚠ **It was `OrderBy(Service.Id)` — catalogue creation order, i.e. the legacy import order — and it
+  decides which contiguous run of group numbers lands in which service.** `BuildServiceQueue` emits
+  each service's block **consecutively**, and the earliest column of the footprint takes phase 0, so
+  `offset = 0` and the cohort at column position 0 takes `queue[0]`. First groups, first service,
+  first période, deterministically. Nobody had chosen that order.
+- ⚠ **…and the stage's fiche listed the services by hospital then name — a *fourth* order.** Neither
+  the authored one nor the one the arranger walked, so nothing on screen said which service was
+  first, in the one place where being first decides something. The read now returns them in rotation
+  order with the position beside each.
+- **Why it exists: it is the cheap answer to a nominative placement.** The alternative is editing a
+  cell on the planning grid, and the printed répartition **shows** that edit — `GroupNumberRanges`
+  refuses to merge across the hole it leaves, so « 21-27 » becomes « 21-23, 25-27 » beside a lone
+  « 24 » in another row, on a page where every other cell is a clean range. Reordering produces the
+  same placement in whole ranges. `PLANNING.md` §11 ③.
+- **What the lever can and cannot do.** Per stage, so « S1 for stage A, S2 for stage B » is two
+  independent orders. ⚠ It moves the **whole promotion**, not one group — usually the point, never a
+  pin. ⚠ Granularity is the **block**: a service's block width comes from its own capacity
+  (`(int)(capacity / avgStudents)`), so reordering permutes blocks as units — you choose which
+  service covers a position, not which group number. ⚠ Two conflicting requests on one stage can be
+  unsatisfiable. ⚠ A service under one average cohort has weight 0 and is out of the rotation
+  entirely; ranking it first does not bring it back.
+- ⚠ **A rank is a position, always contiguous from 1** — every operation returns the whole re-based
+  sequence rather than patching one row. Holes would make the number shown beside a service disagree
+  with the place it takes in the queue: one number meaning two things.
+- ⚠ **A partial list is refused, never completed** (`ServiceOrderNotAPermutation`), and the refusal
+  names *which* of missing / unknown / duplicated applies, because they call for different acts. A
+  short list is far likelier to be a page opened before somebody else authorised a service than an
+  intention to leave it last — and silently appending states an order nobody authored, in the one
+  place whose whole purpose is that the order is authored.
+- ⚠ **Written in two statements, never one** (`ServiceRankWriter`). `IX_StageAllowedServices_Stage_Rank`
+  is unique and non-deferrable, so a 1↔2 swap in one `SaveChanges` leaves the order of the two
+  `UPDATE`s to EF and one of them violates the constraint half-way through. The rows are parked on
+  their **negative** ranks first. Same shape, same reason, as `SetCurrentAcademicYearCommandHandler`
+  saving the demotion before the promotion.
+- ⚠ **…and the pair is one `ExecuteAtomicallyAsync`, because the parked state is worse than either
+  end.** A connection dropped between the two saves leaves *every* rank negative, which `SortKeyOf`
+  reads as « nobody chose » — so the stage silently reverts to id order, on a list somebody had just
+  ordered by hand. Insertion and removal are inside the same transaction: the row added is the row
+  being ranked last, and the row removed is the reason the survivors move up.
+- ⚠ **Every row the writer touches is loaded *inside* that transaction.** `ExecuteAtomicallyAsync`
+  opens each attempt with `ChangeTracker.Clear()`, so an entity handed in from outside would be
+  detached by the time it is mutated and `SaveChanges` would write nothing — `CnpnTargetPlanner`'s
+  defect exactly. That is also why `AddAllowedServiceCommandHandler` no longer writes through
+  `stage.AllowedServices`.
+- ⚠ **The permutation is re-checked inside the write** (`ServiceOrderIsStale`). The caller validated
+  against a read taken before the transaction, so a service authorised in between arrives as a row
+  the ranking says nothing about — it would keep a positive rank, collide, and surface as a 500
+  naming an index. Its own sentence, not `ServiceOrderNotAPermutation`: what the caller sent *was*
+  well-formed when checked, and blaming the payload for a concurrent edit sends the user hunting for
+  a mistake that is not in it.
+- **`ServiceRankWriter.RanksQuery` is the one lookup**, read by both `RotationArranger` and the
+  stage's fiche. On neither of them deliberately: the arranger is the planning engine and the fiche a
+  read screen, so hanging it off one makes the other depend on it for a fact belonging to neither.
+- ⚠ **Rank 0 sorts *last*, never first** (`ServiceRotationOrder.SortKeyOf`). The column defaults to
+  0, so a join row written by a corrective script would otherwise sort ahead of every service
+  somebody deliberately placed and take the first run of group numbers — the exact opposite of what
+  an absent choice means.
+- **The migration backfills from `ORDER BY "ServiceId"`**, i.e. exactly what the arranger already
+  did, so applying it changes no plan. The rank starts life describing the old behaviour; only an
+  explicit reorder moves it. Without the backfill the unique index fails outright — all 146 authored
+  rows would carry the default 0, several per stage.
+- **Adding appends, removing closes the hole.** A newly authorised service has no claim on a position
+  somebody chose for the others. Neither act touches a written cell: the order is read by the **next**
+  auto-arrange, which is guarded and audited on its own terms.
+- ⚠ **It is a payload join behind the same skip navigation.** `Stage.AllowedServices` stays
+  `ICollection<Service>` (`UsingEntity<StageAllowedService>`), so the ~10 existing reads —
+  `.Count`, `.Any(…)` in a predicate, the `Include` in `GetHospitalStageCoverageQueryHandler` — are
+  untouched, including the `SelectMany`-over-a-skip-navigation trap. In a fixture, `Allow` leaves the
+  rank at 0 (« nobody chose ») and `AllowInOrder` writes the join rows; **never both**, or EF tracks
+  two instances of one key.
+
 ### A nominative placement request is answered by a roster, never by a transfer or a pin
 `AcademicGroups/Placements/` (`GET groups/placements`) and `Hospitals/Coverage/`
 (`GET hospitals/{id}/stage-coverage`). « Cet étudiant fait tous ses stages à l'hôpital militaire »,
@@ -631,7 +707,9 @@ dedicated 1-2 student roster, last.
 - ⚠ **`StageHospitalCoverage.NoServicesAuthored` is not a weaker « non couvert ».** An empty
   allowed-services list is **not enforced** (`SetCohortSlotAssignmentCommandHandler` checks it « when
   configured »), so such a stage is open to every service — the blank means nobody authored the list.
-  Three stages of the catalogue are in that state. The feasibility this read exists for: **5ᵉ année
+  **Seven** stages of the catalogue are in that state (re-measured 2026-09-04; it was three before
+  the 1650.25 immersion stages were added), and ⚠ **that is not a gap to close on sight** — see the
+  planning-order rule below. The feasibility this read exists for: **5ᵉ année
   Santé Publique authorises exactly one service and it is not at the HMIMV**, so « tout au militaire »
   is impossible for that promotion — discovered today at the sixth cell, after the promise.
 - **The match is stated twice** — a SQL `EXISTS`/`NOT EXISTS` pair choosing the rosters, and counts in
@@ -835,6 +913,79 @@ refusal:
 ⚠ **`SingleService` complicates all three** — the *kₛ* cells fold into one `ServicePeriod`, so editing
 a column mid-run splits a stay rather than editing a row. `PHASES.md` §17.1.
 
+### Le registre des actes, et la moitié qui manquait — `Audit/`
+`IAuditableCommand` + `AuditLogPipelineBehavior` écrivent depuis longtemps ; `GetAuditLogQuery`
+(`GET audit-log`) est ce qui les **relit**, et c'est arrivé en dernier.
+
+- ⚠ **La table était en écriture seule.** Trente-cinq commandes y écrivaient, et il n'existait ni
+  route ni écran pour l'ouvrir : la seule façon de consulter la trace était d'interroger la base à
+  la main. Le 02/09/2026 la question s'est posée pour de vrai — 66 rosters étaient apparus sur la
+  7ᵉ MED, l'utilisateur a demandé d'où, et le journal tenait **deux lignes pour toute la session**.
+  Ajouter des entrées à un registre que personne ne peut ouvrir n'aurait rien répondu ; c'est la
+  lecture qui manquait le plus.
+- ⚠ **La couverture était simplement lacunaire, pas « destructif contre constructif ».**
+  `PARTITIONS_CLEARED` et `GROUP_DELETED` étaient enregistrés ; `AssignRotationGroups`,
+  `AutoArrangeGroups`, `CreateGroup`, **`EmptyGroup`** et `EmptyAllYearGroups` ne l'étaient pas — et
+  vider un groupe est destructeur. Les cinq le sont depuis le 04/09/2026.
+- **Un acte refusé n'écrit rien**, et ce n'est pas un choix du pipeline : la ligne est ajoutée au
+  contexte *avant* le handler et n'est validée que par le `SaveChanges` de celui-ci. Propriété juste
+  et fragile, donc épinglée par `AuditLogEndpointTests.A_refused_act_writes_no_entry` — un registre
+  qui listerait les tentatives noierait ce qui a eu lieu.
+- ⚠ **`AuditLog` était un sac de propriétés, et une entrée d'audit est immuable par nature.**
+  `set` public sur chaque membre : tout code tenant l'instance pouvait réécrire l'auteur ou la date
+  après coup — or *un registre qui se corrige après coup n'est pas un registre*. Accesseurs `init`
+  au-dessus de champs explicites depuis le 04/09/2026, comme `AcademicYear` et `CnpnVersion`, pour
+  la même raison et avec le même bénéfice : l'initialiseur d'objet de la migration et des tests
+  continue de marcher, et rien ne change une entrée *ensuite*.
+- ⚠ **…et l'horloge n'est plus dans l'entité.** `CreatedAt` s'initialisait à `DateTime.UtcNow` dans
+  son propre initialiseur : l'instant d'un acte était intestable et le domaine dépendait de l'heure
+  de la machine, alors que tout le reste passe le temps en paramètre (`SafePointEvaluator.Evaluate(…,
+  nowUtc)`, `WorkingDayCalendar` « pure — no store, no clock »). `AuditLog.Record` le reçoit ; c'est
+  le pipeline qui tient l'`IDateTimeProvider`. **Pas d'héritage d'`Entity`**, délibérément : une
+  entrée n'a pas d'invariant sur des enfants et n'a rien à faire observer — lever un événement de
+  domaine *à propos de l'enregistrement d'un acte* serait de la symétrie pour la symétrie.
+- ⚠ **Les 45 codes d'actes sont des littéraux dispersés dans autant de fichiers, et
+  `AuditLogVocabularyTests` est ce qui les tient ensemble.** Une faute de frappe crée un type d'acte
+  de plus, une copie de fichier en fusionne deux, et le journal — dont tout l'intérêt est qu'on
+  puisse y chercher — devient inutilisable sans que rien n'échoue. Le balayage par réflexion exige
+  que chacun soit non vide, en SCREAMING_SNAKE, et **unique**. ⚠ Le contrôle est là et **pas à
+  l'exécution** : une garde qui lèverait au moment d'enregistrer ferait tomber *l'acte* — une
+  réinscription, une déliberation — pour un défaut de programmation dans sa ligne de journal. Même
+  raisonnement que `AuditMetadataJson`, qui ne peut pas lever.
+- ⚠ **`AuditMetadataJson` plutôt qu'un JSON interpolé à la main.** Les commandes d'origine écrivent
+  `$$"""{"levelId":{{LevelId}}}"""`, ce qui tient tant que chaque valeur est un entier ; un
+  **libellé saisi par un admin** contenant un guillemet produirait une métadonnée qui n'est pas du
+  JSON, dans la seule colonne dont le métier est d'être relue plus tard. `CreateGroupCommand` porte
+  exactement un tel libellé. Le helper ne peut pas lever — l'entrée est écrite dans l'unité de
+  travail de l'acte, donc une sérialisation qui échoue ferait tomber l'acte avec elle.
+- ⚠ **L'auteur se résout en deux lectures plates.** `AuditLog.PerformedByUserId` est un `Guid` (le
+  `sub` Keycloak) et `User.IdentityProviderId` une `string`, **sans clé étrangère entre les deux** :
+  une jointure demanderait à Npgsql de traduire un `Guid.ToString()` dans un prédicat. Les ids sont
+  convertis en mémoire puis remis dans un `IN`. Conséquence voulue : **un auteur introuvable ne fait
+  pas disparaître son entrée** — le compte peut avoir été supprimé, ou la base restaurée sans son
+  royaume Keycloak (`Backups:KeycloakRealmCovered` est `false`), et l'écran distingue « non résolu »
+  de « système » de « quelqu'un ».
+- ⚠ **L'agrégat des types d'actes reste en SQL, le tri non — et c'est le fournisseur *in-memory* qui
+  l'impose.** Un `OrderByDescending` sur une propriété projetée depuis un `GroupBy` est refusé en
+  mémoire alors que PostgreSQL le traduit : le miroir de l'angle mort habituel, comme `SelectMany`
+  au-dessus d'une skip navigation. Le `Count()` reste côté base ; le classement se fait sur une
+  liste bornée par le nombre de commandes auditées.
+- **Non scopé par année universitaire, délibérément.** Une entrée est datée d'une *horloge*, pas
+  d'une année académique — le geste qui touche 2026-2027 a pu être fait en juillet. La règle « une
+  année omise vaut l'année en cours » parle des lectures scopées *par* l'année ; celle-ci ne l'est
+  pas, et son filtre est une plage de temps.
+- ⚠ **Cette plage est en *instants UTC*, jamais en jours — et c'est le correctif d'un défaut
+  mesuré.** Les bornes ont d'abord été des `DateOnly` résolus à minuit **UTC**, alors que l'écran
+  affiche l'heure du **navigateur** : une entrée écrite le 02/09 à 22:16 UTC se lit « 03/09 00:16 »
+  à Casablanca, et un filtre « du 3 au 3 » la faisait disparaître. La date lue et la date filtrée
+  n'étaient pas la même — trouvé en pilotant l'écran le 04/09/2026, sur le journal réel, et
+  invisible à toute la suite parce que les fixtures et les assertions vivaient dans le même repère.
+  **La journée appartient au calendrier de celui qui lit**, donc c'est le client qui la traduit
+  (« au 3 inclus » → « < 4 septembre 00:00 *locale* », envoyé en UTC) ; le serveur compare des
+  instants et ne suppose aucun fuseau — ce qu'il ne saurait pas faire, le Maroc passant à UTC+0
+  pendant le ramadan. `AsUtc` traite séparément les trois `DateTimeKind` que la liaison peut
+  produire : un `SpecifyKind(Utc)` uniforme prendrait une heure locale pour de l'UTC.
+
 ### ⚠ The base is live — take a `pg_dump -Fc` before every bulk act
 Since the 2026-09-01 rebuild the development base *is* the faculty's data: 10 203 students, 43 605
 registrations, 105 626 périodes, 87 092 évaluations, plus the 2026-2027 réinscription applied through
@@ -896,6 +1047,14 @@ not a bad bulk apply.
   `pg_restore -l`, schema-only). ⚠ To repeat it by hand from Git Bash, export `MSYS_NO_PATHCONV=1`,
   or MSYS rewrites `/tmp/x` into `C:/Users/…/Temp/x` and the check fails for a reason that has nothing
   to do with the product. Production is unaffected — `ArgumentList` passes through no shell.
+- ⚠ **The cadence and the freshness window are one decision, not two.** The timer is
+  **daily** (`IntervalMinutes` 1440, since 2026-09-04) and `SafePointEvaluator.DefaultFreshFor`
+  is **48 h** — one interval plus the run that closes it. Freshness means « the timer has not
+  missed a run », not « the dump is recent », so lengthening one without widening the other
+  makes every point read `Stale` between runs on a healthy system: a warning that fires
+  whatever the data says, i.e. noise, i.e. dismissed. Pinned by
+  `A_point_one_whole_scheduled_interval_old_is_still_fresh`, which restates the interval
+  rather than referencing it so the test is a check and not a tautology.
 - **Retention prunes `Scheduled` points only.** A point taken by hand, or by a dialog before a
   déliberation, is the only record of a state that has no other undo.
 - ⚠ **Nothing restores from the API, and that is not a gap to close later.** A process cannot replace
@@ -966,9 +1125,29 @@ loop ground on. It now sends `PublishStageSchedule` once, which the grid modal a
   cell in « 1 affectation dépasse… » says strictly less than the message it replaced.
 - The guard still runs **before** the write, and the tests assert the store is untouched after a
   refusal — a handler test alone cannot tell a pre-check from a post-check.
-- ⚠ **« Dépublier toutes » is still a client-side loop**, and has the same shape. It was left alone
-  deliberately: each per-cohorte refusal *names what that cohorte would lose* (périodes démarrées,
-  notes, jours de présence), and an aggregate would have to be designed before it can replace them.
+- **« Dépublier toutes » is one command too, since 2026-09-04** — `UnpublishStageScheduleCommand`.
+  ⚠ **The lag was never the deletion.** The loop awaited one request per cohorte (134 on the 3ᵉ MED)
+  and *each one invalidated the stage's cache tag*, so the page refetched a 134-row list after every
+  request — a refetch storm on top of N round trips, plus one red toast per refusal.
+  - ⚠ **There is deliberately no `Force`.** A cohorte whose rotation has begun is **skipped and
+    counted**, never swept: forcing destroys marks and attendance, and the act allowed to do that is
+    the per-cohorte « Dépublier », which names what *that* cohorte costs and asks twice. Same rule as
+    `AllowOverCapacity` no longer waiving admissibility, and as `EmptyAllYearGroupsCommand` carrying
+    no `DropAffectations`.
+  - **Skip rather than refuse the batch**, which is the design decision worth keeping: refusing
+    everything because one rotation started makes the button useless from the moment it is most
+    needed — mid-year, when the point is to undo the hundred that have *not* begun. The report then
+    carries what was left alone (`CohortsSkippedUnderway`, `PeriodsUnderway`, `EvaluationsAtRisk`,
+    `AttendanceDaysAtRisk`, plus the heaviest few by name), which is the aggregate that had to be
+    designed before the per-cohorte sentences could be replaced.
+  - ⚠ **`CohortsUnpublished == 0` has two causes** — nothing was published, or everything has begun —
+    so `NothingWasPublished` keeps them apart. A bare zero reads as a button that did nothing.
+  - ⚠ **« Underway » is read exactly as the per-cohorte command reads it** (a started période, a mark,
+    a day of attendance). A stricter bulk test would skip cohortes the single button undoes without
+    complaint, and two acts destroying the same rows must not disagree about which rows they are.
+  - **The toll is one grouped query over the *périodes*, keyed by cohorte** — grouping over the
+    cohortes and folding `Attendance.Count` inside a second aggregate is the shape Npgsql refuses.
+    Pinned by `SqlTranslationTests`.
 
 ### A multi-step write is one transaction, or a closed tab is a half-built plan
 `IApplicationDbContext.ExecuteAtomicallyAsync` — used by `GenerateMacroPlanCommandHandler`, which
@@ -980,6 +1159,20 @@ writes cohortes, then affectations and cells **stage by stage**, committing afte
   simply wrong, and indistinguishable from a plan somebody meant that way.
 - **A `Result` failure rolls back too.** A refusal returned halfway through leaves exactly the same
   partial state as a dropped connection.
+- ⚠ **`ChangeTracker.Clear()` runs on retries only — clearing on the way in ate the audit entry.**
+  `AuditLogPipelineBehavior` stages the act's journal row **before** the handler; that is exactly what
+  makes a refused act write nothing and a successful one record itself in the same unit of work. A
+  helper that opened by clearing the tracker destroyed it: the act committed and its trail vanished,
+  silently, on the one table whose whole purpose is to be read back later. **Found by driving the real
+  screen on 2026-09-05** — a service reorder wrote its ranks and produced no `STAGE_SERVICE_ORDER_SET`.
+  Entities staged before the transaction are snapshotted and re-staged after a clear, so a retry
+  drops the failed attempt's rows without losing the journal entry.
+  - ⚠ **Any `IAuditableCommand` whose handler wraps its work here had the same hole.** Today only the
+    service-order command does; `GenerateMacroPlanCommand` is not auditable. But bulk acts are
+    precisely the ones that want both a transaction and a trail, so the next one would have hit it.
+  - Pinned by `The_act_records_itself_even_though_the_write_opens_its_own_transaction`, which
+    reproduces the live symptom exactly — verified by restoring the original two lines and watching
+    it fail.
 - ⚠ **Through `Database.CreateExecutionStrategy()`, never straight to `BeginTransaction`.** Aspire's
   `AddNpgsqlDbContext` enables retry-on-failure, and a retrying strategy refuses a user-initiated
   transaction outright — which would turn every wrapped handler into a 500. `ChangeTracker.Clear()`
@@ -1925,6 +2118,56 @@ student holds **now**, as a fresh `InternshipAssignment`; the failed one stays a
   is bulk (`GenerateSchedule`, `StudentAffectationService`) or specific (`Delocalize`,
   `LateArrivalScheduler`). That is the flexibility hole to close next.
 
+### ⚠ An unplanned promotion is a state, not a defect — and a past year has no grid at all
+Two facts about the live base that a sweep will otherwise re-report as findings every session.
+
+**Planning is ordered, not inferred.** A promotion of the current year holding registrations but no
+rosters, no cohortes and no cellules is **normal**: the faculty issues the order to plan it, and
+until that order arrives there is nothing to plan. Stated by the user 2026-09-04, after a sweep
+flagged MED1 (44), MED2 (1 027), MED6 (701), MED7 (1 347) and every Pharmacie level of 2026-2027.
+The same goes for a stage carrying no `AllowedServices` on such a promotion — authoring that list is
+part of the planning order, not a missing prerequisite. Report it as state; never "fix" it, because
+the fix writes cohortes, affectations and cells for a whole year nobody asked for.
+
+**Every year before 2026-2027 has périodes and no grid.** Measured 2026-09-04:
+
+| | périodes | créneaux | cellules |
+|---|---|---|---|
+| 2017-18 → 2025-26 | **105 626** | **0** | **0** |
+| 2026-2027 | 12 340, all grid-linked | 137 | 2 873 |
+
+The Access import carried the rotations that were *served*; the source had no planning grid to carry.
+So the périodes are right, nothing is dangling (0 périodes point at a deleted cell), and there is
+nothing to repair.
+
+- **What it cost was on screen, and it is closed** (2026-09-05): opening the planning grid on a past
+  year showed an **empty table** while every dossier showed its périodes — the reported symptom « il y
+  a des périodes mais elles n'apparaissent pas dans la grille ». `StageScheduleSummary` now carries
+  `DeclaredSlotCount`, `ServedPeriodCount` and `EmptyGridNote` (`StageScheduleNotes`), and the grid
+  prints the sentence. Same rule as `RepartitionSummary.DeclaredSlotCount` and `ExportNotes`.
+  - ⚠ **It is *three* causes, not two.** « Cette année n'a jamais été planifiée ici » (no créneau,
+    périodes served — imported history, and laying an axis over it reconstitutes nothing) · « aucun
+    axe n'est posé » (no créneau, nothing served) · « l'axe est posé, personne n'y est réparti ».
+    A fourth is separated inside the last: an axis over a promotion holding **no cohorte** is told to
+    provision, not to arrange — the placements panel's lesson, where a promotion with no roster at
+    all was told « rien n'est réparti », which points at the second gesture instead of the first.
+  - ⚠ **`ServedPeriodCount` is null, never 0, when the question was not put** — every grid that has
+    an axis. « Aucune période » is an answer and « on n'a pas regardé » is not, and each count is
+    read only when it will be printed, so the ordinary request pays nothing for the note.
+  - ⚠ **The note describes the stage and the year, never the filtered selection.** Under a partition
+    filter an empty answer is the filter's doing; told « aucune cohorte » there, an admin goes and
+    undoes a cut that is correct. Read from `PartitionSlotUseQuery`, which is already stage-wide.
+- **And the grid marks publication per cell as well as per cohorte** — `SlotCellResponse.IsPublished`,
+  read through **`PublishedCells`** and never through the FK, which names only a run's **first** cell.
+  Measured on Gynécologie Obstétrique 2026-2027: **363 cells, 121 named by the FK, 363 covered** — a
+  per-cell flag built on the FK would read 242 published cells as free. The row flag stays as it is
+  and stays correct: one période with a non-null FK suffices to make « cette cohorte est publiée »
+  true, which is a strictly weaker claim than the cell's.
+  - The marker is a **marker**, not a new guard: editing is still disabled per *row*, because
+    `SetCohortSlotAssignmentCommandHandler` refuses on « the cohorte holds a grid-linked période ».
+    What the cell flag does add is the pre-flight refusal on **clearing** a published cell, which
+    `ClearCohortSlotAssignmentCommandHandler` was already refusing server-side.
+
 ### The year is constitutive, not an attribute — know which side a table is on
 - **Year-constituted** — `AcademicGroup`, `Cohort`, `Registration`, `Curriculum`, `StageSlot`. Remove
   the year and the row is meaningless. `AcademicGroup.AcademicYearId` being non-nullable is the schema
@@ -2096,6 +2339,14 @@ so one key expresses "10 first-year Médecine, 15 third-year, no pharmaciens" �
   - ⚠ Still true: all 148 services carry the imported default `Capacity = 20` and **not one quota is
     authored**, so every *capacity* verdict today is measured against a number nobody wrote. That is
     an argument about the soft half only — it is exactly why the soft half stays waivable.
+  - ⚠ **…and the predicted collision has arrived on real cells (2026-09-04).** MED3 and MED4 share
+    **17 services** on overlapping calendars, so the load in each is the sum of both promotions:
+    **all 138 of MED4's (service, créneau) pairs are over capacity, worst 196 against 20**, and
+    publishing that promotion will therefore be refused wholesale until the box is ticked. The
+    figure is *correct* — verified against an independent boundary sweep, Pneumologie (HMIMV) really
+    does hold 126 on 10/10/2026 (56 MED3 Pneumo + 56 MED4 Pneumo + 14 MED3 Médecine). So this is not
+    a defect in the occupancy maths; it is the calendar, and it is the first real reason to author
+    quotas. `HANDOFF.md` item `0d`.
 
 ### A service's load is not readable one period at a time
 `Services/Occupancy/` answers "what does this service actually hold, and when" — the question
@@ -2484,9 +2735,28 @@ the same split as `WorkingDayCalendar` / `WorkingDayProvider`.
   - ⚠ **An absent `ChefAttribution` means *unknown*, never « the note ».** Deriving it client-side
     from `ChefFromSourceNote` — for an API process predating the field — is a second resolution
     order on the client, i.e. the defect. The page says it is unresolved instead.
-  - ⚠ **Still open, same class:** the services **list** (`serviceChefName`, the sitting FK → « — »
-    on all 148 rows) and the **student** portal's service page both read the FK alone.
-    `HANDOFF.md` item `0ag`.
+  - **The other two screens are closed the same way** (2026-09-05): the services **list** carries
+    `ServiceSummaryResponse.ChefAttribution`, and the **student** portal's service page reads the
+    attribution the `/services/{id}` response already carried — it was a client-side omission, no
+    server change. Both used to print the sitting FK, i.e. « — » and « aucun chef de service
+    désigné » on all 148 services, while the student's own répartition named one for 140 of them.
+    - **The list resolves over the *page's* ids**, never over the filtered query: a directory built
+      for every matching service grows with the catalogue for rows nobody is looking at. Same rule
+      as the planning grid reading its published cells from the ids it just returned.
+    - ⚠ **The row keeps `ServiceChefName` beside the attribution**, and the two are different
+      questions: the FK is the *rattachement* — configuration, and what `?serviceChefId=` filters
+      on — while the attribution is who PGSH **names**. Collapsing them is what the fix undoes.
+    - ⚠ **`ServiceChefAttributionResponse` moved to `Application/Hospitals/Chefs/`**, out of the
+      fiche's folder, with a `From(directory, serviceId, asOf)` factory. Three screens print it, and
+      a response type owned by whichever query needed it first is how the second one ends up with a
+      copy — the rule `UserResponse` and `LevelResponse` already state. The factory also keeps the
+      *two* calls (`For` and `HasWithheldLinkedChef`) on one as-of date: split across callers, one
+      of them eventually forgets the second, and a screen that cannot say « quelqu'un est rattaché,
+      et ce n'est pas ce nom-là » is the screen that produced the original confusion.
+    - **The student's card never dresses a note up as a personnel record.** A name from the import
+      note is printed with « D'après la fiche du service » and no grade, no PPR, no invented « Dr. »
+      — those exist only where an `Employee` is actually behind the name. And `linkedChefWithheld`
+      with no name reads « Non communiqué », not « aucun chef désigné »: the second is false.
 
 #### Three sheets, because two questions are asked at once
 « Stages » is one row per **attempt** — the unit that carries a note and a verdict, and therefore the

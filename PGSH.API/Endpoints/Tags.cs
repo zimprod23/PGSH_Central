@@ -20,5 +20,6 @@
         public const string ServiceEvaluations = "ServiceEvaluations";
         public const string Calendar = "Calendar";
         public const string Backups = "Backups";
+        public const string Audit = "Audit";
     }
 }

@@ -3786,7 +3786,9 @@ vieux processus et **401** sans jeton.
     **« Réinscription par fichier »**.
 
 ### F · La planification
-18. Laisser tourner une heure (ou baisser `Backups:Schedule:IntervalMinutes`, minimum **5**). → Un
+18. ⚠ **La cadence est désormais quotidienne** (`IntervalMinutes` = 1440 depuis le 04/09/2026) :
+    ne pas attendre le tour suivant. Baisser `Backups:Schedule:IntervalMinutes` (minimum **5**)
+    le temps de l'essai, puis le remettre à 1440. → Un
     point **Automatique** apparaît seul. ⚠ Vérifier ensuite que la rotation **n'a pas** touché aux
     points *Manuel* / *Avant un acte* : elle ne purge que les automatiques.
 19. `Backups:Schedule:Enabled = false` → « prochaine sauvegarde automatique : aucune planification
@@ -3796,7 +3798,7 @@ vieux processus et **401** sans jeton.
 20. Supprimer les points « Test §41 » (en `SuperUser`, le plus récent en dernier — ou en prendre un
     nouveau d'abord). Les entrées d'audit `BACKUP_POINT_*` restent, et c'est voulu.
 
-## §42 — « Quel groupe va déjà là ? » et la faisabilité d'un hôpital (session 41)
+## §42 — « Quel groupe va déjà là ? » et la faisabilité d'un hôpital · **exécutée 04/09/2026**
 
 **Pourquoi cette passe.** Trois demandes nominatives réelles ont motivé deux lectures neuves. Rien
 n'écrit dans la base — ce sont deux `GET` — donc cette section est **sans risque** et peut être
@@ -3872,7 +3874,74 @@ vérifier que les deux se distinguent.
     `RotationArranger` la supprime et la réécrit sans rien dire. Tant que `PHASES.md` §19.2 n'est pas
     livré, publier cohorte par cohorte.
 
-**Non exécutée à ce jour.** Elle ne demande aucune sauvegarde préalable — les deux routes lisent.
+### g — l'écran, une fois l'AppHost relancé (session 41)
+
+`/admin/placements` — **Académique → Placements**. Rien n'y écrit&nbsp;: les deux appels sont des
+`GET`, donc cette partie se déroule sans sauvegarde préalable.
+
+16. **Arriver sans promotion** → l'écran demande d'en choisir une et **n'appelle pas** le serveur
+    (la requête est `skip`ée). Vérifier dans l'onglet réseau qu'aucun `/groups/placements` ne part.
+17. **Choisir une promotion sans lieu** → tous les rosters, chacun avec son effectif, sa partition,
+    et pour chaque stage ses services + créneaux. Aucun badge de placement (aucun lieu n'a été
+    demandé), et « x / y stage(s) au lieu demandé » absent.
+18. **Choisir l'Hôpital Militaire Mohammed V** → le panneau de faisabilité apparaît au-dessus de la
+    liste. En **6ᵉ MED** il doit dire « toute la rotation peut se faire ici » (6/6). En **5ᵉ MED**,
+    « impossible pour cette promotion », en nommant **Santé Publique**.
+19. **Cocher « Exclusivement »** → la liste se restreint. ⚠ Sur une promotion non répartie elle doit
+    devenir **vide**, avec l'encadré orange « rien n'est encore réparti » — *pas* le gris « aucun
+    groupe ne correspond ». C'est la distinction que toute la page existe pour tenir.
+20. **Choisir un service alors qu'un hôpital est sélectionné** → l'hôpital doit **se vider tout
+    seul**, et l'inverse aussi. La combinaison interdite ne doit pas être atteignable (le serveur la
+    refuserait en 400).
+21. **Sans lieu, le commutateur « Exclusivement » est désactivé**, et son infobulle dit pourquoi.
+22. **Recharger la page** → les filtres reviennent (ils sont dans l'URL), et l'URL est partageable.
+23. **Changer l'année dans la barre du haut** → la liste se recharge (l'année est dans la clé de
+    cache), et l'effectif des rosters change avec.
+24. Sur un stage qu'un roster ne fait pas encore, la ligne doit lire « reste à répartir » — pas
+    disparaître.
+
+⚠ **Le contrôle qui distingue « route absente » de « non authentifié »**&nbsp;: sur un processus API
+antérieur à la session 41, `/api/groups/placements` répond **404** tandis que `/api/groups` répond
+**401** sans jeton. Si la page reste vide avec une erreur, vérifier cela avant tout le reste.
+
+### Ce que la passe a donné, 04/09/2026 — **deux défauts, tous deux invisibles autrement**
+
+`tsc` propre, `npm run lint` propre, 1 474 tests backend verts, et **deux défauts trouvés au premier
+pilotage**. Les deux sont de la famille « la donnée est juste, la phrase est fausse ».
+
+1. ⚠ **Le panneau de faisabilité survivait au `skip`.** Lu sur `data` au lieu de `currentData`, il
+   affichait encore « Faisabilité — Hôpital Militaire Mohammed V » après que le choix d'un service
+   d'un *autre* hôpital eut vidé le filtre hôpital. Corrigé, et la règle générale est écrite dans
+   `PGSH.Frontend/CLAUDE.md` §1i : **un panneau qui nomme son sujet se lit sur `currentData`**.
+2. ⚠ **La réponse vide avait trois causes, pas deux.** La 6ᵉ MED 2026-2027 n'a **aucun groupe**, et
+   le message écrit pour « des groupes existent mais rien n'est réparti » disait « Les 0 groupe(s)
+   de cette promotion ne tiennent aucune cellule » en renvoyant vers la répartition — alors que le
+   premier geste est de **découper**. Trois états, trois phrases, trois couleurs.
+
+**Relevé à l'écran, sur la base vivante :**
+
+| étape | attendu | obtenu |
+|---|---|---|
+| 16 · arrivée sans promotion | aucun `/groups/placements` | ✅ seuls `levels`, `hospitals`, `services`, `academic-years` partent |
+| 17 · 3ᵉ MED 2026-2027 | la rotation lisible | ✅ 134 groupes ; partition A = Cardio P1 → Chirurgie P2 → Endocrino P3 → Médecine P4 → Pneumo P5 → Rhumato P6 |
+| — · 4ᵉ MED 2026-2027 | le pliage `SingleService` | ✅ **Pédiatrie · P1, P2** — une entrée, deux créneaux |
+| 18 · faisabilité 6ᵉ MED | 6/6, vert | ✅ « Toute la rotation peut se faire ici » |
+| 18 · faisabilité 5ᵉ MED | impossible, *Santé Publique* | ✅ « 1 stage(s) sur 7 n'ont aucun service autorisé ici : Santé Publique » |
+| 19 · Exclusivement, promotion répartie | **gris** | ✅ 5ᵉ MED : « Aucun groupe ne correspond », 121 répartis |
+| 19 · Exclusivement, promotion non répartie | **orange** | ✅ 6ᵉ MED 2025-2026 : « Rien n'est encore réparti », 100 groupes / 0 répartis, « reste à répartir » par stage |
+| — · promotion sans aucun groupe | orange, autre phrase | ✅ 6ᵉ MED 2026-2027 : « Cette promotion n'a aucun groupe » *(après correction)* |
+| 20 · hôpital puis service | l'hôpital se vide | ✅ l'URL perd `hospital=2` |
+| 21 · Exclusivement sans lieu | désactivé + raison | ✅ |
+| 22 · rechargement | filtres conservés | ✅ ils sont dans l'URL |
+| 23 · changement d'année | la liste se recharge | ✅ 6ᵉ MED : 0 groupe en 2026-2027, 100 en 2025-2026 ; les filtres de lieu survivent |
+
+**Non exécuté :** la pagination au-delà de la page 1, et le lien vers la fiche d'un groupe.
+
+⚠ **L'automatisation du navigateur reste fragile ici** — le viewport se redimensionne sous les clics
+et `Page.captureScreenshot` expire régulièrement. Passer par les `ref` des éléments plutôt que par
+des coordonnées. Même constat que l'item 0ac.
+
+Elle ne demande aucune sauvegarde préalable — les deux routes lisent.
 
 ## §42 — le chef de service vient de la note d'import, et de rien d'autre (03/09/2026)
 
@@ -3948,3 +4017,286 @@ couvert là où il vit.
 (Infrastructure) affiche « — » dans la colonne Chef pour les 148 services, et la fiche service du
 **portail étudiant** dit « aucun chef » — les deux lisent la clé `ServiceChefId` seule, jamais la
 note. `HANDOFF.md` item `0ag`.
+
+## §43 — Le journal des actions (session 42)
+
+⚠ **L'AppHost doit être relancé** : `/api/audit-log` n'existe pas dans un processus antérieur à
+cette session. Le contrôle qui distingue « route absente » de « non authentifié » est que
+`audit-log` répond **404** sur l'ancien processus tandis que `/api/academic-years` répond **200** —
+et depuis cette session la page le **dit** au lieu de rester vide.
+
+Rien n'écrit ici : la lecture est un `GET`. Les étapes qui *provoquent* une entrée sont signalées.
+
+### a — la page, et ce qu'un vide veut dire
+
+1. **Système → Journal des actions** (`/admin/journal`). Sur une base neuve : « Le journal est vide »,
+   avec la phrase disant que les actes s'enregistrent à mesure. ⚠ Ce n'est **pas** le même message
+   que « Aucune entrée pour ce filtre » — vérifier les deux (poser un filtre de date sur une année
+   sans activité donne le second, avec « le journal contient N entrée(s) »).
+2. Le bandeau bleu doit rappeler que le journal est daté d'une **horloge** : changer l'année dans la
+   barre du haut ne doit **rien** changer à la liste.
+
+### b — l'acte qui a motivé la fonctionnalité
+
+3. **Découper une promotion** (Groupes → répartition automatique, ou Bloc de rotation → partitions).
+   ⚠ Ceci **écrit** dans la base : le faire sur une promotion qu'on veut réellement découper, ou
+   prendre un point de sauvegarde d'abord.
+4. Revenir au journal → une ligne **« Découpage en partitions »** (ou « Découpage en groupes »),
+   datée, avec **votre nom** dans la colonne Auteur et les critères en puces
+   (`levelId`, `partitionCount`, `strategy`, `reassign`).
+   ⚠ C'est exactement la question du 02/09/2026 : avant, cette ligne n'existait pas.
+
+### c — ce que le journal n'enregistre pas
+
+5. Provoquer un **refus** : découper « Retrait » (le marqueur de retrait, année 0) → 400.
+6. Revenir au journal → **aucune ligne** pour cette tentative. Le registre est la liste de ce qui a
+   eu lieu, pas des essais.
+
+### d — les filtres
+
+7. Choisir un **type d'acte** → la liste se restreint, et la ligne au-dessus dit « N sur M au total
+   dans le journal ». ⚠ Le sélecteur doit **continuer** à proposer les autres types avec leurs
+   effectifs — comptés sur tout le journal, sinon il n'y a pas de retour en arrière.
+8. **Du / Au** : poser la même date des deux côtés sur un jour où quelque chose s'est passé. ⚠ La
+   borne haute est **inclusive** : « du 2 au 2 » doit rendre les entrées du 2, pas zéro.
+9. Recharger → les filtres survivent (ils sont dans l'URL).
+
+### e — l'auteur
+
+10. Une entrée écrite par une tâche planifiée (`BACKUP_POINT_CREATED` du minuteur) doit afficher
+    « **système** » et non un blanc. Une entrée dont le compte n'existe plus doit afficher
+    « **non résolu** » avec l'identifiant brut dans l'infobulle. ⚠ Les deux sont des faits
+    différents, et un blanc les confondrait.
+11. Un acte destructeur (« Partitions supprimées », « Groupe vidé ») doit ressortir en **rouge**.
+
+### Relevé du 04/09/2026 — partiellement exécutée
+
+| étape | résultat |
+|---|---|
+| 1-2 · la page, l'année sans effet | ✅ 11 entrées, ordre décroissant, libellés français, actes destructeurs en rouge |
+| — · l'auteur | ✅ résolu sur les 11 lignes |
+| 7 · filtre par type | ✅ « 1–1 sur 1 entrée(s) · **11 au total dans le journal** », les autres types restent proposés avec leurs effectifs |
+| — · les deux vides | ✅ « Le journal est vide » ≠ « Aucune entrée pour ce filtre » |
+| 9 · rechargement | ✅ les filtres sont dans l'URL |
+| 8 · **filtre de dates** | ✅ **vérifié après redémarrage** — « du 03/09 au 03/09 » rend bien **3** entrées, dont celle affichée « 03/09/2026 00:16 » |
+
+**Deux défauts trouvés, tous deux corrigés :**
+
+1. ⚠ **`stages : [object Object],[object Object]…`** sur les cinq lignes de bloc de rotation — une
+   métadonnée imbriquée rendue par `String()`. Corrigé : JSON sérialisé, tronqué, valeur entière en
+   infobulle (vérifié à l'écran).
+2. ⚠ **Le filtre de dates comparait en UTC ce que l'écran affiche en heure locale.** Trois entrées
+   lues « 03/09/2026 », un filtre « du 3 au 3 » n'en rendait que **deux** : celle de 22:16 UTC,
+   affichée « 03/09 00:16 », tombait hors de la fenêtre. Corrigé — les bornes sont des instants et
+   c'est le client qui définit la journée. `PHASES.md` §20.1.
+
+✅ **Étape 8 exécutée après redémarrage le 04/09/2026** : « du 03/09 au 03/09 » rend **3** entrées,
+dont celle affichée « 03/09/2026 00:16 » — celle-là même que les bornes UTC faisaient disparaître.
+
+**Étapes 3-6 (l'acte enregistré, le refus non enregistré) non exécutées** — elles écrivent dans la
+base et sont couvertes par `AuditLogEndpointTests`.
+
+---
+
+## §44 — L'ordre des services d'un stage (session 43)
+
+⚠ **Redémarrer l'AppHost d'abord.** La route `PUT /stages/{id}/allowed-services/order` n'existe pas
+dans un processus antérieur à cette session, et la migration `StageAllowedServiceRank` doit être
+appliquée. Le contrôle qui distingue « route absente » de « non authentifié » : `order` répond
+**404** sur l'ancien processus et **401** sans jeton.
+
+⚠ **Prendre un point de sauvegarde avant l'étape 5** — c'est la seule qui écrit des cellules.
+
+**Ce qu'on vérifie** : que le 1ᵉʳ service de la liste reçoit bien les premiers groupes de la 1ʳᵉ
+période, et que la répartition imprimée reste en **plages propres** (c'est tout l'intérêt par rapport
+à une cellule retouchée à la main).
+
+| # | Geste | Attendu |
+|---|---|---|
+| 1 | Fiche d'un stage réparti (3ᵉ MED 2026-2027 en a six) → carte « Services autorisés » | La liste est **numérotée 1, 2, 3…**, la pastille du 1ᵉʳ est pleine, et la phrase « Ordre de rotation : le 1ᵉʳ service reçoit les premiers groupes de la 1ʳᵉ période » est au-dessus. ⚠ L'ordre n'est **plus alphabétique** — il l'était avant, ce qui était un quatrième ordre ne correspondant à rien. |
+| 2 | Comparer avec la grille de planning du stage, période 1 | Les groupes de plus petit numéro sont dans le service n° 1. C'est l'affirmation sur laquelle tout repose. |
+| 3 | Flèche ↑ sur le service n° 3 | Il passe n° 2 immédiatement (optimiste), et le reste après le refetch. ⚠ **Aucune cellule ne bouge** : l'ordre est lu par la *prochaine* répartition. |
+| 4 | Journal des actions → filtrer `STAGE_SERVICE_ORDER_SET` | Une ligne, avec l'auteur, la date, `serviceCount` et l'ordre envoyé. |
+| 5 | Grille du stage → « Répartition auto. » sur la période 1 | Les premiers groupes sont maintenant dans le service que vous avez monté en tête. |
+| 6 | Répartition annuelle de la promotion (téléchargement) | Les cellules restent des **plages entières** (« 21-27 »), jamais « 21-23, 25-27 ». C'est la différence avec une retouche de cellule, et c'est le point de la fonctionnalité. |
+| 7 | Retirer le service n° 2 de la liste | Les numéros se **referment** — 1, 2, 3 sans trou. Pas de « 1, 3, 4 ». |
+| 8 | Ajouter un service depuis la recherche | Il arrive **en dernier**, jamais en tête. |
+
+**Le contrôle qui doit échouer** — sinon les précédents ne prouvent rien :
+
+| # | Geste | Attendu |
+|---|---|---|
+| 9 | Ouvrir la fiche dans deux onglets, autoriser un service dans l'onglet A, puis réordonner dans l'onglet B (dont la liste est périmée) | **409** avec « … 1 service(s) autorisé(s) n'y figurent pas. Rechargez la fiche du stage… ». ⚠ Et **l'ordre sur disque est inchangé** — vérifier en rechargeant : une liste partielle n'est jamais complétée en silence. |
+
+**Non piloté à la livraison** : tout ce tableau. Le serveur est couvert par 19 tests (dont 5 par le
+vrai pipeline HTTP) et la morsure a été vérifiée en cassant l'ordre (2 échecs) puis la garde de
+permutation (3 échecs). Ce qui n'a pas été fait, c'est le navigateur.
+
+### §44 — **piloté pour de vrai le 05/09/2026**, fenêtre visible, clics réels
+
+L'API a été redémarrée entre-temps, donc le correctif de la trace d'audit est en vigueur.
+
+| # | Geste | Résultat |
+|---|---|---|
+| 1 | Fiche du stage « Médecine » (3ᵉ MED) | Liste **numérotée 1→14 dans l'ordre de rotation**, pastille pleine sur le 1ᵉʳ, phrase « le 1ᵉʳ service reçoit les premiers groupes de la 1ʳᵉ période » présente. ↑ **désactivée** sur la ligne 1 et ↓ sur la ligne 14 — lu sur le DOM (`disabled: true`), pas déduit de l'apparence. ✅ |
+| 2 | Comparer à la grille P1 | Acquis par mesure (04/09) : pour chacun des six stages de la 3ᵉ MED, le service de rang 1 tient les plus petits numéros de groupe, en plages contiguës — Cardiologie rang 1 → groupes 1-8, rang 2 → 9-16, rang 3 → 17-23. ✅ |
+| 3 | ↑ sur *Médecine C* (rang 3) | Passe rang 2 à l'écran **et sur la base** ; *Médecine B* descend en 3. Rangs contigus 1..14. ✅ |
+| 4 | Journal des actions | **Deux lignes** `STAGE_SERVICE_ORDER_SET`, avec auteur, date, objet *Stage #1*, et l'ordre complet + `serviceCount : 14` en critères. ✅ ⚠ **Cette étape avait d'abord échoué** — voir le défaut ci-dessous. |
+| — | ↓ pour revenir | Ordre **restauré à l'identique** : `2,4,5,8,23,28,29,81,117,123,125,131,132,133`, c'est-à-dire exactement l'état relevé avant de toucher à quoi que ce soit. |
+
+⚠ **Le défaut trouvé, et il n'était visible que comme ça.** Au premier passage, le
+réordonnancement a écrit ses rangs et **aucune entrée de journal**.
+`AuditLogPipelineBehavior` met la ligne en attente **avant** le handler — c'est ce qui fait qu'un
+acte refusé n'écrit rien et qu'un acte réussi s'enregistre dans la même unité de travail — et
+`ExecuteAtomicallyAsync` ouvrait chaque tentative par `ChangeTracker.Clear()`, qui la mangeait.
+Corrigé au niveau du helper (nettoyage à partir de la **deuxième** tentative, et ré-inscription de ce
+qui venait d'amont), donc **tout `IAuditableCommand` transactionnel** est couvert. Épinglé par
+`The_act_records_itself_even_though_the_write_opens_its_own_transaction`, morsure vérifiée en
+remettant les deux lignes d'origine.
+
+**Corrigé aussi en pilotant** : l'acte s'affichait `STAGE_SERVICE_ORDER_SET` en brut au milieu de
+libellés français — `auditActions.ts` le nomme désormais « Ordre des services modifié ».
+
+**Non piloté, et pourquoi :**
+
+- **Étapes 7 et 8** (retirer / ajouter un service) — mesuré d'abord : **les 14 services du stage
+  portent des cellules**, dont 6 sur le dernier. Retirer une autorisation laisserait des cellules
+  publiées pointant vers un service que le stage n'autorise plus. Les deux chemins (`RemoveAsync`,
+  `AppendAsync`) sont couverts par les tests de handler ; les jouer sur une promotion publiée n'en
+  valait pas le prix.
+- **Étape 5** (répartition auto.) — écrit des cellules pour toute la promotion. Point de sauvegarde
+  d'abord, et c'est le clic de l'utilisateur.
+- **Étape 9** (ordre périmé → 409) — couverte par un test d'intégration qui passe par le vrai
+  pipeline HTTP ; la rejouer au navigateur demandait de manipuler le jeton, ce qui n'apprend rien de
+  plus.
+
+---
+
+## §45 — La grille de planning dit ce qu'elle montre (session 44)
+
+⚠ **Redémarrer l'AppHost d'abord.** Les trois champs (`declaredSlotCount`, `servedPeriodCount`,
+`emptyGridNote`) et le drapeau `isPublished` par cellule n'existent pas dans un processus antérieur à
+cette session. **Aucune migration** — la lecture seule change. Le contrôle : sur l'ancien processus
+la réponse de `GET /stages/{id}/schedule` ne porte pas `summary.emptyGridNote` du tout (et non pas
+`null`), donc l'écran se comporte exactement comme avant.
+
+**Rien ici n'écrit** — c'est une lecture de bout en bout. Aucun point de sauvegarde n'est requis.
+
+**Ce qu'on vérifie** : qu'un tableau vide dit *laquelle* des situations il montre, et qu'une cellule
+publiée se voit, y compris celles qu'aucune clé étrangère ne nomme.
+
+| # | Geste | Attendu |
+|---|---|---|
+| 1 | Barre de navigation → année **2024-2025**, puis n'importe quel stage → « Grille de planning » | Le tableau est vide **et la phrase le dit** : « … alors que N période(s) y ont été servies : ces rotations viennent de l'historique importé… ». ⚠ C'est le symptôme rapporté. La phrase doit **déconseiller** de poser un axe, pas l'inviter. |
+| 2 | Même année, un stage qui n'a jamais rien servi | La phrase change : « Aucun créneau n'est posé… c'est un axe (bloc de rotation) qui les crée ». Aucune mention d'historique. |
+| 3 | Année **2026-2027** → 6ᵉ MED (aucun roster à ce jour) → grille d'un de ses stages | « … ce stage n'a aucune cohorte sur cette année : la promotion doit être découpée et ses cohortes provisionnées ». ⚠ Surtout **pas** « lancez la répartition » — c'est le second geste. |
+| 4 | 4ᵉ MED 2026-2027 → grille de *Pédiatrie* (répartie) | **Aucune phrase.** La note est muette dès qu'une cellule existe : une alerte qui s'affiche quoi qu'il arrive est du bruit, et le bruit se congédie. |
+| 5 | Sur cette même grille, filtrer sur une partition qui n'a aucune cellule | Toujours **aucune phrase** : le vide à l'écran est le fait du filtre, et le compteur « 0 cohorte(s) » le dit déjà. |
+| 6 | 3ᵉ MED 2026-2027 → grille d'un stage **publié** | Chaque cellule publiée porte une **petite fusée verte** avant le nom du service, et l'infobulle native dit « Cellule publiée : des périodes ont été matérialisées à partir d'elle. » |
+| 7 | Passer la souris sur la croix rouge d'une de ces cellules | Elle est **désactivée**, avec « Cellule publiée : dépubliez la cohorte avant de la retirer. » ⚠ Le serveur refusait déjà ; ce qui change est qu'on ne l'apprend plus par un toast rouge. |
+| 8 | **Le cas qui compte** — un stage `SingleService` publié sur plusieurs colonnes (Gynécologie Obstétrique 2026-2027 : 3 colonnes par cohorte) | Les **trois** cellules du pli portent la fusée, pas seulement la première. C'est exactement ce que la FK ne pouvait pas dire : 363 cellules couvertes, 121 nommées par la clé. |
+
+**Le contrôle qui doit rester vrai** — sinon l'étape 8 ne prouve rien :
+
+| # | Geste | Attendu |
+|---|---|---|
+| 9 | Sur la même grille, une cohorte non publiée | Ses cellules n'ont **pas** de fusée et leur croix reste active. Un marqueur qui s'allume partout ne distingue rien. |
+
+**Non piloté à la livraison** : tout ce tableau. Le serveur est couvert par sept tests plus un cas de
+traduction, et la morsure a été vérifiée dans les deux sens — le drapeau relu depuis la FK fait
+tomber le cas de la cellule de queue et lui seul ; la note lue sur la sélection filtrée fait tomber
+le cas du filtre et lui seul. Ce qui n'a pas été fait, c'est le navigateur.
+
+### §45 — **piloté le 05/09/2026**, fenêtre visible, DOM lu
+
+**Ce qui a été fait tourner, et sur quoi.**
+
+| # | Écran | Mesuré |
+|---|---|---|
+| 1 | **CHIRURGIE (6ᵉ MED), année 2024-2025** — 103 cohortes, 0 créneau | La phrase s'affiche au-dessus du tableau : « Aucun créneau n'est posé pour ce stage sur cette année, alors que **627** période(s) y ont été servies : ces rotations viennent de l'historique importé… poser un axe sur une année déjà servie ne reconstituerait pas ce qui a eu lieu. » ⚠ **627 est exactement le compte en base** pour (stage 16, 2024-2025). C'est le symptôme rapporté, nommé. |
+| 4 | **Gynécologie Obstétrique 2026-2027** (363 cellules) | **Aucune alerte** dans le DOM. La note se tait dès qu'une cellule existe. |
+| 6 | idem | **75 cellules sur 75** portent la fusée et l'infobulle « Cellule publiée : des périodes ont été matérialisées à partir d'elle. » (25 lignes × 3 colonnes = la page entière). |
+| 7 | idem | **75 croix sur 75 désactivées**, avec « Cellule publiée : dépubliez la cohorte avant de la retirer. » |
+| 8 | idem — **le cas qui compte** | Les **trois** cellules de chaque pli sont marquées. ⚠ Contrôle SQL sur *cette page précise* : **75 cellules, 75 couvertes, 25 nommées par la FK**. Un marqueur bâti sur la clé aurait montré 25 cellules publiées et **laissé 50 cellules publiées passer pour libres**, sur un seul écran. |
+| 8b | idem, **page 5** (Groupe 101+, dernière page) | 63 cellules, **63 marquées**, 0 croix active. Le drapeau n'est pas un artefact de la première page — 4 × 75 + 63 = **363**, le compte de couverture en base. |
+| 9 | **Pédiatrie (4ᵉ MED) 2026-2027** — répartie, non publiée | **50 cellules, 0 marquée, 50 croix actives**, aucune alerte. Le marqueur distingue ; il ne s'allume pas partout. Vérifié aussi en page 2 (Groupe 26+) : même résultat. |
+
+**Trois lignes du tableau n'ont pas pu être pilotées, et ce n'est pas un oubli — l'état n'existe pas
+dans cette base :**
+
+- **Étape 2** (aucun créneau *et* rien de servi) : **aucun couple (stage, année) de la base** n'a des
+  cohortes, zéro créneau et zéro période — mesuré, 0 ligne. Tout stage qui a des cohortes une année-là
+  a aussi les rotations importées de cette année.
+- **Étape 3** (un axe posé sur une promotion **sans cohorte**) : ⚠ **le bouton « Grille de planning »
+  n'est rendu que si le stage a des cohortes cette année-là** (`yearCohorts.length > 0`), donc la
+  grille est inatteignable dans cet état depuis cet écran. Ce n'est pas grave — la carte « Cohortes »
+  de la fiche affiche déjà « Aucune cohorte pour ce stage », c'est-à-dire la même réponse au même
+  endroit — mais la phrase serveur, elle, reste juste pour tout autre appelant.
+- **Étape 5** (filtrer sur une partition sans cellule) : **aucune partition de 2026-2027** n'a de
+  cohortes sans cellules — mesuré, 0 ligne. La règle « la note parle du stage, pas du filtre » est
+  donc épinglée par le test et par lui seul.
+
+**Rien n'a été écrit** : sept ouvertures de grille, deux changements d'année, deux paginations. Aucun
+`POST`, aucun point de sauvegarde nécessaire.
+
+---
+
+## §46 — Le chef nommé sur la liste des services et dans le portail étudiant (session 44)
+
+⚠ **Redémarrer l'AppHost d'abord.** `ServiceSummaryResponse.ChefAttribution` n'existe pas dans un
+processus antérieur. Le contrôle : sur l'ancien processus la colonne « Chef de service » affiche
+**« ? »** (repli voulu — *inconnu* n'est pas *personne*), et non un nom ni un tiret.
+**Aucune migration**, **aucune écriture** : deux lectures.
+
+**Ce qu'on vérifie** : que les cinq écrans qui nomment un chef nomment **le même**, et que les trois
+façons de ne nommer personne restent distinctes.
+
+| # | Geste | Attendu |
+|---|---|---|
+| 1 | Infrastructure → onglet **Services** | La colonne « Chef de service » n'est plus « — » partout : ~140 des 148 services portent un nom, suivi d'une pastille jaune **« note »**. C'est le défaut rapporté, à l'envers. |
+| 2 | Survoler la pastille « note » | « Nom repris de la note d'import — non daté. Désignez un chef de service pour que l'attribution soit datée. » |
+| 3 | Ouvrir la fiche d'un de ces services (clic sur le nom) | ⚠ **Le nom en tête de fiche est exactement celui de la ligne.** C'est l'affirmation que toute cette phase existe pour tenir : deux écrans d'une même faculté ne doivent pas nommer deux personnes. |
+| 4 | Chercher **Pédiatrie1** (ou Pédiatrie2) — les deux seuls services portant une affectation | La ligne affiche le nom de la note + « note », et la fiche ajoute « Un chef est pourtant **rattaché** à ce service ». La liste ne le répète pas : la place manque, et l'infobulle de la pastille le dit. |
+| 5 | Un service sans note **et** sans rattachement | « — ». Pas « ? », pas « rattaché, non nommé ». |
+| 6 | **Portail étudiant** → un stage → le service → carte « Chef de service » | Le nom s'affiche, avec **« D'après la fiche du service »** en dessous. ⚠ Pas de « Dr. », pas d'avatar à initiales, pas de grade : il n'y a aucun employé derrière ce nom. |
+| 7 | Comparer avec la répartition annuelle que l'étudiant peut télécharger | **Même nom.** C'était le symptôme : la page disait « aucun chef de service désigné » pour un service dont le document nommait le chef. |
+
+**Le contrôle qui doit rester vrai** :
+
+| # | Geste | Attendu |
+|---|---|---|
+| 8 | Un service dont la fiche ne porte **aucune** note, côté étudiant | « Aucun chef de service désigné » — et **« Non communiqué »** si un chef y est rattaché. Les deux phrases sont différentes parce que les deux situations le sont. |
+
+**Non piloté à la livraison** : tout ce tableau. Trois tests couvrent le serveur, dont celui qui
+compare la ligne de liste à la réponse de la fiche ; la morsure a été vérifiée (la liste remise à
+nommer la FK fait tomber 3 tests). Ce qui n'a pas été fait, c'est le navigateur.
+
+### §46 — **piloté le 05/09/2026**, DOM lu, API redémarrée
+
+| # | Mesuré |
+|---|---|
+| 1 | Page 1 des services : **14 lignes sur 15 nomment un chef**, chacune suivie de la pastille **NOTE** ; zéro « ? », donc le champ est bien servi. La 15ᵉ (« Chirurgie », Hôpital Azzamouri) affiche « — » : ni note ni rattachement. C'est le défaut rapporté, à l'envers — la colonne lisait « — » sur les 148 lignes. |
+| 3 | ⚠ **L'affirmation centrale.** « Cardiologie » (HMIMV) affiche **Pr.A.Benyass** sur la ligne ; sa fiche affiche **Pr.A.Benyass**. Deux écrans, un nom. |
+| 4 | **Pédiatrie1 → Pr.N.Elhafidi**, **Pédiatrie2 → Pr.A.Mdaghri Alaoui** — les noms de la note, *pas* l'affectation. La fiche de Pédiatrie1 ajoute « Un chef est pourtant rattaché à ce service… » et l'Historique montre la tenure **en cours de Youssef Alaoui**, le compte de test. La liste ne répète pas la phrase : l'infobulle de la pastille la porte. |
+| 5 | « Pédiatrie » (Hôpital Azzamouri) : « — ». Pas « ? », pas « rattaché, non nommé ». |
+| — | **Page 5** de la liste : 15 lignes, 14 nommées, 0 « ? ». La résolution est bien par page et pas seulement sur la première. |
+
+**Le repli a été vérifié *avant* le redémarrage** : sur le processus antérieur au champ, la colonne
+affichait **« ? »** sur chaque ligne — inconnu, et non « personne ». C'est le contrôle que la page ne
+retombe pas silencieusement sur l'ancienne lecture.
+
+**Portail étudiant — piloté le même jour**, sous une vraie session `Student` (« Wail », 5ᵉ MED
+2026-2027), par le chemin réel : Tableau de bord → *Gynécologie Obstétrique* → son affectation.
+
+| # | Mesuré |
+|---|---|
+| 6 | **Gynécologie Obs A** (Hôpital des Orangers, service 53) : la carte affiche **Pr.M.H.Alami** et, dessous, **« D'après la fiche du service »**. Pas de « Dr. », pas d'avatar à initiales, pas de grade — il n'y a aucun `Employee` derrière ce nom. Le bandeau « CHEF DE SERVICE ASSIGNÉ » revient, lui aussi lu sur l'attribution. Avant, cette page disait « aucun chef de service désigné ». |
+| 7 | La description du service en base est « Responsable (source) : Pr.M.H.Alami » — **le nom imprimé est exactement celui que la répartition et l'export tirent du même annuaire**. |
+| 8 | **Chirurgie (Hôpital Azzamouri, service 139)**, sans note ni rattachement : aucun bandeau, et la carte dit **« Aucun chef de service désigné »**. Le marqueur distingue. |
+| 8b | ⚠ **Le cas qui compte pour un étudiant — Pédiatrie1 (service 45)** : la page nomme **Pr.N.Elhafidi**, et **« Youssef Alaoui » n'apparaît nulle part**. Le compte de test rattaché ne fuit pas vers l'écran de l'étudiant, ce qui est précisément la raison d'être de `ServiceChefPolicy.SourceNoteOnly`. |
+
+⚠ **« Non communiqué » reste impilotable** : il faudrait un service **rattaché et sans note**, et il
+n'en existe aucun dans la base — les deux seuls services rattachés portent tous deux une note. Cette
+branche ne tient que par le test.
+
+**Rien n'a été écrit** : une recherche, deux ouvertures de fiche, une pagination.

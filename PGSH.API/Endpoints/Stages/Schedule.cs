@@ -1,9 +1,10 @@
-using MediatR;
+﻿using MediatR;
 using Microsoft.AspNetCore.Mvc;
 using PGSH.API.Extensions;
 using PGSH.API.Infrastructure;
 using PGSH.Application.Stages.Cohorts.Bulk;
 using PGSH.Application.Stages.Cohorts.PublishSchedule;
+using PGSH.Application.Stages.Cohorts.UnpublishSchedule;
 using PGSH.Application.Stages.Schedule;
 using PGSH.Application.Stages.Schedule.AutoArrange;
 using PGSH.Application.Stages.Slots;
@@ -121,6 +122,22 @@ internal sealed class StageScheduleEndpoints : IEndpoint
             .WithTags("Stages")
             .RequireAuthorization();
 
+        // ⚠ POST, not DELETE: it carries a body (year + partitions) and it answers with a report the
+        // caller has to read — how many cohortes were left alone because their rotation has begun.
+        // Mirrors schedule/publish, which is the act it undoes.
+        app.MapPost("stages/{stageId:int}/schedule/unpublish",
+            async (int stageId, [FromBody] UnpublishStageRequest? request, ISender sender, CancellationToken ct) =>
+            {
+                var command = new UnpublishStageScheduleCommand(
+                    stageId,
+                    request?.AcademicYearId,
+                    request?.PartitionLabels);
+                var result = await sender.Send(command, ct);
+                return result.Match(Results.Ok, CustomResults.Problem);
+            })
+            .WithTags("Stages")
+            .RequireAuthorization();
+
         app.MapPost("stages/{stageId:int}/schedule/start",
             async (int stageId, [FromBody] StageLifecycleRequest? request, ISender sender, CancellationToken ct) =>
             {
@@ -177,5 +194,11 @@ internal sealed record SlotRequest(int AcademicYearId, int PeriodNumber, string?
 internal sealed record SetAssignmentRequest(int ServiceId);
 internal sealed record AutoArrangeRequest(int? AcademicYearId, int? PartitionCount, IReadOnlyList<string>? PartitionLabels, IReadOnlyList<int>? PeriodNumbers);
 internal sealed record PublishStageRequest(int? AcademicYearId, IReadOnlyList<string>? PartitionLabels, IReadOnlyList<int>? PeriodNumbers, bool AllowOverCapacity = false);
+/// <remarks>
+/// ⚠ No <c>Force</c>, and the absence is the design: forcing destroys marks and attendance, and the
+/// act allowed to do that is the per-cohorte « Dépublier », which names what that one cohorte costs
+/// and asks a second time. A bulk sweep must never become the way round it.
+/// </remarks>
+internal sealed record UnpublishStageRequest(int? AcademicYearId, IReadOnlyList<string>? PartitionLabels);
 internal sealed record StageLifecycleRequest(int? AcademicYearId, IReadOnlyList<int>? CohortIds, IReadOnlyList<string>? PartitionLabels, IReadOnlyList<int>? PeriodNumbers);
 internal sealed record StagePauseRequest(int? AcademicYearId, PauseKind? Kind, string? Reason, IReadOnlyList<int>? CohortIds, IReadOnlyList<string>? PartitionLabels, IReadOnlyList<int>? PeriodNumbers);

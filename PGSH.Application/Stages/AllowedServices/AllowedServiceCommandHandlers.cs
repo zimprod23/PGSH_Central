@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
 using PGSH.Domain.Common.Utils;
@@ -8,7 +8,9 @@ using PGSH.SharedKernel;
 
 namespace PGSH.Application.Stages.AllowedServices;
 
-internal sealed class AddAllowedServiceCommandHandler(IApplicationDbContext dbContext)
+internal sealed class AddAllowedServiceCommandHandler(
+    IApplicationDbContext dbContext,
+    ServiceRankWriter rankWriter)
     : ICommandHandler<AddAllowedServiceCommand>
 {
     public async Task<Result> Handle(AddAllowedServiceCommand request, CancellationToken cancellationToken)
@@ -41,9 +43,14 @@ internal sealed class AddAllowedServiceCommandHandler(IApplicationDbContext dbCo
                 service.Name, LabelOf(stage.Level, stage.LevelId), admitted));
         }
 
-        stage.AllowedServices.Add(service);
-        await dbContext.SaveChangesAsync(cancellationToken);
-        return Result.Success();
+        // Appended, never inserted: the rank decides which run of group numbers the service
+        // receives, and a service newly added to the list has no claim on a position somebody chose
+        // for the ones already there. Reordering afterwards is its own act.
+        //
+        // ⚠ The write goes through the rank writer rather than through stage.AllowedServices, so the
+        // insertion and the re-basing land in one transaction. Adding to the navigation here would
+        // also be detached by the ChangeTracker.Clear() that opens each attempt.
+        return await rankWriter.AppendAsync(request.StageId, request.ServiceId, cancellationToken);
     }
 
     /// <summary>The promotions the service does take, named — a refusal that lists them is one the
@@ -66,24 +73,31 @@ internal sealed class AddAllowedServiceCommandHandler(IApplicationDbContext dbCo
         level is null ? $"niveau {levelId}" : $"{level.Label ?? $"{level.Year}e année"} {level.AcademicProgram}";
 }
 
-internal sealed class RemoveAllowedServiceCommandHandler(IApplicationDbContext dbContext)
+internal sealed class RemoveAllowedServiceCommandHandler(
+    IApplicationDbContext dbContext,
+    ServiceRankWriter rankWriter)
     : ICommandHandler<RemoveAllowedServiceCommand>
 {
     public async Task<Result> Handle(RemoveAllowedServiceCommand request, CancellationToken cancellationToken)
     {
-        var stage = await dbContext.Stages
-            .Include(s => s.AllowedServices)
-            .FirstOrDefaultAsync(s => s.Id == request.StageId, cancellationToken);
+        bool stageExists = await dbContext.Stages
+            .AnyAsync(s => s.Id == request.StageId, cancellationToken);
 
-        if (stage is null)
+        if (!stageExists)
             return Result.Failure(StageErrors.NotFound(request.StageId));
 
-        var service = stage.AllowedServices.FirstOrDefault(s => s.Id == request.ServiceId);
-        if (service is null)
+        // The join row is what is being removed, so it is what is asked about — the Include of the
+        // whole service list only existed to answer this one question. Idempotent: a service the
+        // stage does not authorise is already in the state the caller wants.
+        bool isAllowed = await dbContext.StageAllowedServices.AnyAsync(
+            a => a.StageId == request.StageId && a.ServiceId == request.ServiceId, cancellationToken);
+
+        if (!isAllowed)
             return Result.Success();
 
-        stage.AllowedServices.Remove(service);
-        await dbContext.SaveChangesAsync(cancellationToken);
-        return Result.Success();
+        // The survivors keep their relative order with the hole closed, so the rank beside a service
+        // is always the place it actually takes in the queue. Removal and re-basing are one act and
+        // therefore one transaction — see ServiceRankWriter.
+        return await rankWriter.RemoveAsync(request.StageId, request.ServiceId, cancellationToken);
     }
 }

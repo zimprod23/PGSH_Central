@@ -1,6 +1,7 @@
 using FluentAssertions;
 using PGSH.Application.Hospitals.Chefs;
 using PGSH.Application.Hospitals.Services.GetById;
+using PGSH.Application.Hospitals.Services.GetMany;
 using PGSH.Domain.Employees;
 using PGSH.Domain.Hospitals;
 using PGSH.Infrastructure.Database;
@@ -179,5 +180,102 @@ public class ServiceChefAttributionTests
 
         chef.Name.Should().Be("Pr.N.Elhafidi");
         chef.LinkedChefWithheld.Should().BeFalse();
+    }
+
+    // ── The services list ─────────────────────────────────────────────────────
+    // Same question, a second screen. The list bound its « Chef de service » column to
+    // Service.ServiceChefId, which is null on all 148 services of the base — so the column read
+    // « — » on every row while the fiche, the répartition and the export all named somebody for 140
+    // of them. The fix is not a second ranking here: it is the same directory, over the page's ids.
+
+    private static GetServicesQueryHandler ListHandler(ApplicationDbContext db) =>
+        new(db, new ServiceChefProvider(db));
+
+    /// <summary>
+    /// ⚠ <b>The assertion that prevents the drift is the equivalence, not the value.</b> A list
+    /// naming « Pr.N.Elhafidi » and a fiche naming « Pr.N.Elhafidi » could still be two rules that
+    /// happen to agree on this row; asserting the row <em>equals</em> the fiche's answer is what
+    /// fails the day one of them starts ranking the sources itself again.
+    /// </summary>
+    [Fact]
+    public async Task The_services_list_names_exactly_what_the_fiche_names()
+    {
+        await using var db = TestHarness.NewContext("chef-list-matches-fiche");
+        db.SeedCatalog();
+        var service = db.SeedService(ServiceId, "Pédiatrie1");
+        service.Description = ServiceChefSourceNote.Format("Pr.N.Elhafidi");
+        LinkChef(db, service);
+        await db.SaveChangesAsync();
+
+        var row = (await ListHandler(db).Handle(new GetServicesQuery(PageSize: 50), default))
+            .Value.Items.Single();
+        var fiche = (await Handler(db).Handle(new GetServiceByIdQuery(ServiceId), default))
+            .Value.ChefAttribution;
+
+        row.ChefAttribution.Should().Be(fiche);
+        row.ChefAttribution.Name.Should().Be("Pr.N.Elhafidi");
+        row.ServiceChefName.Should().BeNull(
+            "the link is null here — which is the state of all 148 services, and exactly why a "
+            + "column bound to it printed « — » on every row");
+    }
+
+    /// <summary>
+    /// Every row of the page, not the first: the directory is built over the ids the page returned,
+    /// so a caller that resolved one service and reused the answer would show here.
+    /// </summary>
+    [Fact]
+    public async Task Every_row_of_the_page_carries_its_own_answer()
+    {
+        await using var db = TestHarness.NewContext("chef-list-per-row");
+        db.SeedCatalog();
+
+        var named = db.SeedService(ServiceId, "Alpha");
+        named.Description = ServiceChefSourceNote.Format("Pr.A.Settaf");
+
+        var linkedOnly = db.SeedService(ServiceId + 1, "Beta");
+        LinkChef(db, linkedOnly);
+
+        db.SeedService(ServiceId + 2, "Gamma");
+        await db.SaveChangesAsync();
+
+        var rows = (await ListHandler(db).Handle(new GetServicesQuery(PageSize: 50), default))
+            .Value.Items.ToDictionary(r => r.Name, r => r.ChefAttribution);
+
+        rows["Alpha"].Name.Should().Be("Pr.A.Settaf");
+        rows["Alpha"].FromSourceNote.Should().BeTrue();
+        rows["Alpha"].LinkedChefWithheld.Should().BeFalse();
+
+        rows["Beta"].Name.Should().BeNull("the policy holds the link back and there is no note");
+        rows["Beta"].LinkedChefWithheld.Should().BeTrue(
+            "« personne » and « quelqu'un que rien n'imprime » are different sentences on a row too");
+
+        rows["Gamma"].Name.Should().BeNull();
+        rows["Gamma"].LinkedChefWithheld.Should().BeFalse();
+    }
+
+    /// <summary>
+    /// ⚠ The directory is built over <b>the page</b>, so a service the paging left out must not be
+    /// resolved — and, more importantly, a service the page <em>did</em> return must be, whichever
+    /// page it lands on. A build keyed on the filtered query instead would grow with the catalogue
+    /// for rows nobody is looking at.
+    /// </summary>
+    [Fact]
+    public async Task A_row_on_the_second_page_is_resolved_like_any_other()
+    {
+        await using var db = TestHarness.NewContext("chef-list-second-page");
+        db.SeedCatalog();
+
+        var first = db.SeedService(ServiceId, "Alpha");
+        first.Description = ServiceChefSourceNote.Format("Pr.A.Settaf");
+
+        var second = db.SeedService(ServiceId + 1, "Beta");
+        second.Description = ServiceChefSourceNote.Format("Pr.N.Elhafidi");
+        await db.SaveChangesAsync();
+
+        var page = await ListHandler(db).Handle(
+            new GetServicesQuery(PageNumber: 2, PageSize: 1), default);
+
+        page.Value.Items.Single().Name.Should().Be("Beta", "ordered by name");
+        page.Value.Items.Single().ChefAttribution.Name.Should().Be("Pr.N.Elhafidi");
     }
 }

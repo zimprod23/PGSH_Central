@@ -47,6 +47,7 @@ public static class DependencyInjection
         services.AddScoped<ServiceIntakeCalculator>();
         services.AddScoped<ServiceLevelCapacityResolver>();
         services.AddScoped<RotationArranger>();
+        services.AddScoped<PGSH.Application.Stages.AllowedServices.ServiceRankWriter>();
         services.AddScoped<PromotionPartitioning>();
         services.AddScoped<StudentAffectationService>();
         services.AddScoped<AffectationTollReader>();

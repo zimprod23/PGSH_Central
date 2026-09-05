@@ -1861,7 +1861,7 @@ mess it up ».
 
 ### What to build
 
-**1 · Scheduled dumps with a retention window.** `pg_dump -Fc` on a timer (hourly kept a day, daily
+**1 · Scheduled dumps with a retention window.** `pg_dump -Fc` on a timer (**daily** since 2026-09-04 — see the note under §18.1 — every point kept a day, then one a day
 kept a month), written **outside** the container's own volume.
 - ⚠ **`pg_dump` must not be piped.** Already paid for once — `SMOKE-TEST.md` records a dump corrupted
   by piping it out of the container. Write with `-f` inside the container, then `docker cp`.
@@ -1949,6 +1949,35 @@ export stays the tool for a **re-import**, never for a rollback.
 - ⚠ **`Backups:KeycloakRealmCovered` is `false` and the page says so out loud.** The realm is a
   second volume; restoring the base without it leaves `SyncUserMiddleware` matching a `sub` against
   `User` rows that are gone, and its fallback is the e-mail address.
+
+### ✅ 18.1b — la cadence passe à **quotidienne** (2026-09-04, à la demande de l'utilisateur)
+
+`Backups:Schedule:IntervalMinutes` : **60 → 1440**. Un `pg_dump` horaire de toute la base de la
+faculté coûte plus de disque et d'I/O que la fenêtre de reprise ne vaut, et les actes qui ont
+réellement besoin d'un retour en arrière — une déliberation, un rouleau de réinscription,
+l'application d'un axe — prennent **leur propre point depuis la boîte de dialogue** plutôt que de
+s'en remettre au minuteur. C'est cette dernière propriété qui rend la cadence horaire superflue.
+
+⚠ **Deux constantes sont couplées, et changer l'une seule est un défaut silencieux.**
+`SafePointEvaluator.DefaultFreshFor` valait **24 h**, documenté « matched to the scheduled hourly
+dump : anything longer and the timer has missed a run ». La fraîcheur ne dit pas « le dump est
+récent », elle dit **« le minuteur n'a pas sauté un tour »** — donc laissée à 24 h sous une cadence
+quotidienne, elle aurait affiché `Stale` sur **toutes** les heures précédant chaque dump, sur un
+système parfaitement sain. Une alerte qui se déclenche quoi que dise la donnée est du bruit, le
+bruit se fait ignorer, et la vraie alerte part avec. Portée à **48 h** = un intervalle plein plus le
+tour qui le referme.
+
+- `A_point_one_whole_scheduled_interval_old_is_still_fresh` épingle le couplage : un point vieux
+  d'un intervalle complet doit rester `Fresh`, et `DefaultFreshFor` doit dépasser un intervalle.
+  L'intervalle y est **redit** plutôt que référencé — `BackupOptions` est dans Infrastructure et
+  l'évaluateur est une règle de domaine pure — ce qui fait du test un *contrôle* du couplage et non
+  une tautologie : changer l'option sans changer le test fait tomber la suite.
+- `KeepHourlyForHours` → **`KeepAllForHours`**. Le palier reste correct sous n'importe quelle
+  cadence (« tout point plus jeune que ceci est gardé, ensuite un par jour ») ; son ancien nom
+  affirmait une cadence horaire qui n'existe plus. Même règle que partout ici : un nom qui décrit
+  autre chose que ce que fait le code est une dérive, pas un détail.
+- La rétention elle-même est inchangée : 24 h de tout, puis un par jour pendant 30 jours — ce qui,
+  sous une cadence quotidienne, revient à 30 points. Et elle ne purge que les points `Scheduled`.
 
 ### 🔲 18.2 — what remains
 
@@ -2044,6 +2073,54 @@ preuve** : cinq tests tombent, dont celui de l'endpoint.
 navigation* lève `NotImplementedException` sur le fournisseur **in-memory** alors que Npgsql la
 traduit. Voir `CLAUDE.md`.
 
+### 19.3 — ✅ Livré : l'ordre des services est choisi, pas hérité de l'import
+
+`StageAllowedService.Rank` + `ServiceRotationOrder` (pur) + `PUT stages/{id}/allowed-services/order`,
+et les flèches sur la carte « Services autorisés » de la fiche du stage.
+
+**Le constat.** `RotationArranger` parcourait ses services en `OrderBy(Service.Id)` — l'ordre de
+création au catalogue, donc l'ordre de l'import Access. Or cet ordre **décide quelle plage de numéros
+de groupe tombe dans quel service** : `BuildServiceQueue` émet le bloc de chaque service d'un seul
+tenant, et la première colonne prend la phase 0, donc `offset = 0` et la cohorte en position 0 prend
+`queue[0]`. Les premiers groupes, le premier service, la première période — et personne n'avait
+choisi cet ordre.
+
+⚠ **La fiche du stage affichait en plus un *quatrième* ordre** (par hôpital puis par nom), donc rien
+à l'écran ne disait quel service était le premier, dans le seul endroit où être le premier décide de
+quelque chose.
+
+**Pourquoi c'est la réponse à 19.1 ③.** Une demande nominative se réglait sinon en retouchant une
+cellule sur la grille — et **la répartition annuelle le montre** : `GroupNumberRanges` refuse de
+fusionner par-dessus le trou laissé, donc « 21-27 » devient « 21-23, 25-27 » face à un « 24 »
+solitaire, sur une page de plages propres. Réordonner produit le même placement en plages entières.
+
+**Ce qui a été construit.**
+
+- `ServiceRotationOrder` — **pur**, comme `PeriodAxis` / `RotationTiling` / `StagePeriodFolder` :
+  `Reorder` / `Append` / `Without` / `SortKeyOf`, et les rangs sont toujours **contigus depuis 1**.
+- ⚠ **Une liste partielle est refusée, jamais complétée.** Trois causes nommées séparément
+  (manquant / inconnu / doublon) parce qu'elles appellent des gestes différents ; la cause la plus
+  probable d'une liste courte est une page ouverte avant qu'un autre n'autorise un service.
+- ⚠ **`ServiceRankWriter` écrit en deux temps** — rangs négatifs d'abord. L'index
+  `IX_StageAllowedServices_Stage_Rank` est unique et non différé, donc un échange 1↔2 en un seul
+  `SaveChanges` laisse à EF l'ordre des deux `UPDATE` et l'un des deux viole la contrainte à
+  mi-chemin. Même forme que la rétrogradation avant la promotion dans `SetCurrentAcademicYear`.
+- ⚠ **Le rang 0 trie en **dernier**, jamais en premier** : la colonne vaut 0 par défaut, donc une
+  ligne écrite par un script correctif passerait devant tous les services placés à la main.
+- **La migration remplit depuis `ORDER BY "ServiceId"`**, c'est-à-dire exactement ce que le code
+  faisait déjà : l'appliquer ne change aucun plan. Sans ce remplissage l'index unique échoue d'entrée
+  — les 146 lignes autorisées porteraient toutes 0, plusieurs par stage.
+- **Jointure à charge derrière la même skip navigation** (`UsingEntity<StageAllowedService>`), donc
+  les dix lectures existantes de `Stage.AllowedServices` sont intactes.
+- Journalisé : `STAGE_SERVICE_ORDER_SET`.
+
+**Ce que le levier ne fait pas**, et c'est dit à l'écran comme ici : il déplace la **promotion
+entière**, pas un groupe ; la granularité est le **bloc** (sa largeur vient de la capacité du service,
+donc réordonner permute les blocs en bloc) ; deux demandes contradictoires sur un même stage peuvent
+être insatisfaisables. Là, il reste 19.2.
+
+---
+
 ### 19.2 — 🔲 Le marqueur d'épinglage, et le motif du roster
 
 Ce que 19.1 ne ferme pas, et qui est la suite directe :
@@ -2065,3 +2142,270 @@ Ce que 19.1 ne ferme pas, et qui est la suite directe :
   de satisfaction, alors que la recherche exhaustive de `RotationTiling` est déjà la partie coûteuse.
   Ces demandes sont des exceptions nominatives et peu nombreuses — 32 sur 611 dans le cas le plus
   large observé. Elles restent lisibles et restent la décision de l'humain.
+
+---
+
+## ✅ Phase 20 — « Qui a fait ça, et quand ? »
+
+Le 02/09/2026, un test de fumée a créé **66 rosters** sur la 7ᵉ MED 2026-2027. L'utilisateur a
+ensuite demandé pourquoi cette promotion avait des groupes alors qu'il ne l'avait jamais découpée —
+et **le journal n'a pas pu répondre** : il tenait deux entrées pour toute la session, dont aucune ne
+parlait de 66 rosters.
+
+### Ce que le diagnostic a trouvé, mesuré le 04/09/2026
+
+**Deux problèmes distincts, et le second est le plus gros.**
+
+**A · Cinq actes n'écrivaient rien.**
+
+| acte | enregistré avant | après |
+|---|---|---|
+| `AutoArrangeGroups` (découpage en groupes) | ❌ | ✅ `GROUPS_AUTO_ARRANGED` |
+| `AssignRotationGroups` (découpage en partitions) | ❌ | ✅ `PARTITIONS_ASSIGNED` |
+| `CreateGroup` | ❌ | ✅ `GROUP_CREATED` |
+| `EmptyGroup` | ❌ | ✅ `GROUP_EMPTIED` |
+| `EmptyAllYearGroups` | ❌ | ✅ `YEAR_GROUPS_EMPTIED` |
+| `ClearRotationGroups`, `DeleteGroup` | ✅ | ✅ |
+
+⚠ **La lecture « le destructeur est tracé, le constructeur non » était fausse** — c'est ce qui avait
+été avancé d'abord. `EmptyGroup` est destructeur et n'écrivait rien non plus : la couverture était
+simplement lacunaire.
+
+**B · Rien ne pouvait relire la table.** Trente-cinq commandes y écrivaient, il n'existait **ni
+route ni écran**, et elle contenait **11 lignes** — visibles uniquement en interrogeant la base à la
+main. C'est la moitié qui manquait le plus : corriger A sans B n'aurait toujours pas répondu à la
+question posée.
+
+### Livré
+
+- `GET audit-log` — paginé, filtrable par type d'acte et par plage de dates, réservé à
+  `Roles.Administrative`. Renvoie aussi les **types d'actes présents avec leur effectif**, comptés
+  sur tout le journal (jamais sur la fenêtre courante : réduits au filtre actif, il n'y aurait plus
+  de chemin de retour vers les autres).
+- `AuditMetadataJson` — les critères d'un acte sérialisés plutôt qu'interpolés. Voir `CLAUDE.md`.
+- **Page « Journal des actions »** (`/admin/journal`, Système). Date, acte, objet, auteur, critères ;
+  les actes destructeurs teintés ; un code sans libellé français affiché **tel quel** plutôt que
+  masqué.
+- **Aucune migration** — la table et le pipeline existaient déjà.
+
+**Vérifié :** 1 508 tests backend verts (+15), `tsc` et `npm run lint` propres.
+
+### Ce que le pilotage a trouvé
+
+⚠ **La page rendait `null` quand la lecture échouait** : filtres, puis un vide absolu, ce qui se lit
+comme un écran cassé. `errorMiddleware` ne comble pas ce trou — il laisse volontairement passer les
+404 sur une lecture, « ceci n'existe pas encore » étant un état que l'écran doit rendre lui-même
+(`PGSH.Frontend/CLAUDE.md` §1e). Rencontré immédiatement, l'API tournant encore sans la route. Une
+404 y a maintenant sa propre phrase — « le processus API est plus ancien que cette page,
+redémarrez » — distincte d'une panne de service.
+
+### 20.1 — ⚠ Le filtre de dates comparait dans le mauvais repère (04/09/2026)
+
+Trouvé au deuxième pilotage, sur le journal réel : trois entrées s'affichent « 03/09/2026 » et un
+filtre « du 3 au 3 » n'en rendait que **deux**.
+
+`AuditLog.CreatedAt` est en UTC ; l'écran l'affiche dans le fuseau du **navigateur**. L'entrée
+manquante est écrite `2026-09-02 22:16 UTC` et lue « 03/09 00:16 » à Casablanca. Les bornes étant
+des `DateOnly` résolus à minuit **UTC**, la date lue et la date filtrée n'étaient pas la même —
+et l'utilisateur ne voit que la première.
+
+- **Les bornes sont désormais des instants UTC** (`From` inclus, `To` exclu) et **c'est le client qui
+  définit la journée** : « au 3 inclus » devient « < 4 septembre 00:00 *locale* ». Le serveur ne
+  suppose plus aucun fuseau — ce qu'il ne saurait pas faire correctement, le Maroc basculant à UTC+0
+  pendant le ramadan.
+- ⚠ **`AsUtc` traite les trois `DateTimeKind` séparément.** La liaison depuis la query string donne
+  `Utc`, `Local` ou `Unspecified` selon la forme reçue ; un `SpecifyKind(Utc)` uniforme prendrait une
+  heure locale pour de l'UTC, un `ToUniversalTime()` uniforme décalerait une valeur `Unspecified` du
+  fuseau du serveur. Même famille que le défaut corrigé : une date juste, comparée dans le mauvais
+  repère.
+- **Épinglé par `A_late_evening_entry_belongs_to_the_local_day_the_reader_sees`**, qui envoie la
+  fenêtre qu'un client à UTC+2 produit pour « la journée du 3 » et exige que l'entrée de 22:16 s'y
+  trouve. ⚠ Aucun test ne pouvait attraper l'original : les fixtures et les assertions vivaient dans
+  le même repère UTC, et c'est justement l'écart entre ce repère et celui du lecteur qui était le
+  défaut.
+
+### 20.2 — La passe clean code / DDD sur l'aire d'audit (04/09/2026)
+
+Faite à la demande de l'utilisateur, qui a rappelé la règle permanente : clean code, clean
+architecture et DDD sur **tout** le code, ancien comme neuf, correctifs compris.
+
+- **`AuditLog` était un sac de propriétés** — `set` public sur chaque membre — donc n'importe quel
+  code tenant l'instance pouvait réécrire l'auteur ou la date après coup. C'est exactement la forme
+  que `CnpnVersion` avait avant la session 35, et c'est plus grave ici : **une entrée d'audit est
+  immuable par nature**, c'est la seule propriété pour laquelle elle existe. Accesseurs `init`
+  au-dessus de champs explicites, plus une fabrique `Record`.
+- **L'horloge est sortie du domaine.** `CreatedAt = DateTime.UtcNow` dans l'initialiseur de propriété
+  rendait l'instant d'un acte intestable et faisait dépendre le domaine de l'heure de la machine,
+  contre la règle que suit tout le reste (`SafePointEvaluator`, `WorkingDayCalendar`). Le pipeline
+  injecte l'`IDateTimeProvider` et passe la valeur.
+- **Pas d'`Entity`, délibérément.** Une entrée n'a pas d'invariant sur des enfants et rien à faire
+  observer ; lui donner une base qui lève des événements de domaine serait du cargo cult.
+- **`AuditLogVocabularyTests`** balaie l'assemblage : chaque `IAuditableCommand` doit déclarer un
+  acte non vide, en SCREAMING_SNAKE, et **unique**. Les 45 existants passent. ⚠ Vérifié que le
+  contrôle mord — dupliquer un code fait tomber `No_two_commands_share_an_action_code`.
+- ⚠ **Le contrôle est au test et non à l'exécution, et c'est un choix.** Une garde qui lèverait en
+  enregistrant ferait tomber *l'acte* — une réinscription entière — pour une faute de frappe dans sa
+  ligne de journal. Le coût serait payé par l'utilisateur au pire moment ; ici il est nul.
+
+**Non fait, et volontairement :** transformer les 45 codes en énumération. Cela toucherait une
+quarantaine de fichiers et les chaînes sont **persistées** — la migration ne serait pas gratuite. Le
+balayage par réflexion apporte l'essentiel de la garantie pour un fichier.
+
+### Ce qui reste
+
+- ⚠ **Aucune purge.** Le journal grandit indéfiniment. Ce n'est pas urgent (11 lignes aujourd'hui,
+  et les actes audités sont rares par nature) mais une trace qui grossit sans limite finit par être
+  une table qu'on tronque en catastrophe, c'est-à-dire une trace perdue au pire moment.
+- **Les entrées d'origine gardent leur JSON interpolé.** Elles ne portent que des entiers, donc
+  elles sont correctes ; à basculer sur `AuditMetadataJson` si l'une d'elles se met à porter du
+  texte saisi.
+- **L'objet n'est pas cliquable.** « `AcademicYear` #22 » pourrait mener à l'année, « `AcademicGroup`
+  #7 » au groupe. Utile, pas indispensable — et il faudrait décider quoi faire quand la cible a été
+  supprimée, ce qui est précisément le cas d'un acte destructeur.
+
+---
+
+## ✅ Phase 21 — La grille de planning dit enfin ce qu'elle montre
+
+Deux défauts d'une même famille sur le seul écran qui n'en parlait pas : **une absence qui ne
+s'annonce pas**, et **un fait lu à la mauvaise granularité**. Aucun des deux n'écrit ; aucun n'a
+demandé de migration. Livrés le 05/09/2026.
+
+### ① Une grille vide avait trois causes derrière un seul blanc
+
+Rapporté par l'utilisateur : « il y a des périodes mais elles n'apparaissent pas dans la grille de
+planning ». Mesuré le 04/09/2026 : de 2017-2018 à 2025-2026 la base tient **105 626 périodes pour
+0 créneau et 0 cellule** — l'import Access portait les rotations *servies*, la base source n'ayant
+aucune grille à porter. Seule 2026-2027 en a une (137 créneaux, 2 873 cellules).
+
+⚠ **Rien n'est abîmé** (0 période pointe vers une cellule disparue) : ce qui manquait était la
+*phrase*. « Rien n'est planifié » et « cette année n'a jamais été planifiée ici » appellent des
+gestes opposés, et lire le second comme le premier invite à poser un axe sur une année terminée.
+
+`StageScheduleSummary` porte désormais `DeclaredSlotCount`, `ServedPeriodCount` et `EmptyGridNote`,
+la phrase venant de `StageScheduleNotes` — pur, à côté de `ExportNotes` et pour la même raison.
+
+- ⚠ **Trois causes, pas deux**, et une quatrième séparée à l'intérieur de la dernière : un axe posé
+  sur une promotion **sans cohorte** appelle « découpez, provisionnez », pas « répartissez ». C'est
+  la leçon du panneau de faisabilité du 04/09, où une promotion sans aucun groupe recevait le
+  message du second geste.
+- ⚠ **`ServedPeriodCount` vaut `null`, jamais 0, quand la question n'a pas été posée** — toute
+  grille qui a un axe. Chaque compte n'est lu que s'il doit être imprimé, donc la requête ordinaire
+  ne paie rien pour la note.
+- ⚠ **La note parle du stage et de l'année, jamais de la sélection filtrée** : sous un filtre de
+  partition, le vide est le fait du filtre.
+- ⚠ **L'année est lue sur l'inscription** (`ServedPeriodsQuery`), jamais déduite des dates de la
+  période — les deux règles divergent sur 7 030 des 105 626 périodes et l'inscription a raison à
+  chaque fois. Épinglé par `SqlTranslationTests`.
+
+### ② La publication était marquée par cohorte, jamais par cellule
+
+`SlotCellResponse.IsPublished`, lu par **`PublishedCells`** et jamais par la FK — celle-ci ne nomme
+que la **première** cellule d'un pli `SingleService`. Mesuré sur *Gynécologie Obstétrique*
+2026-2027 : **363 cellules, 121 nommées par la FK, 363 couvertes** ; un marqueur bâti sur la FK
+lirait 242 cellules publiées comme libres. Le drapeau de ligne reste inchangé et reste juste — une
+période suffit à rendre vraie une affirmation strictement plus faible.
+
+⚠ **C'est un marqueur, pas une garde nouvelle.** L'édition reste refusée **par ligne**, comme
+`SetCohortSlotAssignmentCommandHandler` la refuse. Ce que le drapeau ajoute est le refus *en amont*
+du retrait d'une cellule publiée, déjà refusé côté serveur sans que rien ne le dise avant le clic.
+
+### Couverture
+
+Sept tests (`StageScheduleGridTests`) plus un cas de traduction. La morsure est vérifiée dans les
+deux sens et chaque cassure ne fait tomber que son propre test : le drapeau relu depuis la FK fait
+tomber le cas de la cellule de queue, la note lue sur la sélection filtrée fait tomber le cas du
+filtre.
+
+### Piloté le 05/09/2026
+
+Sur *Gynécologie Obstétrique* 2026-2027, page 1 : **75 cellules, 75 couvertes, 25 nommées par la
+FK** — l'écran marque les 75. Un marqueur bâti sur la clé aurait laissé **50 cellules publiées passer
+pour libres sur un seul écran**. Page 5 : 63/63 (4 × 75 + 63 = 363). Contrôle négatif sur *Pédiatrie*
+4ᵉ MED, répartie et non publiée : 50 cellules, **0** marquée, 50 croix actives. Sur CHIRURGIE
+2024-2025 la phrase nomme **627 périodes**, le compte exact en base.
+
+⚠ **Trois des neuf lignes de `SMOKE-TEST.md` §45 sont impilotables faute d'état** : aucun couple
+(stage, année) n'a des cohortes sans créneau *et* sans période ; aucune partition de 2026-2027 n'a de
+cohortes sans cellules ; et le bouton « Grille de planning » n'est rendu que si le stage a des
+cohortes cette année-là, ce qui met « un axe sur une promotion sans cohorte » hors d'atteinte depuis
+cet écran (la fiche y répond déjà par « Aucune cohorte pour ce stage »). Ces trois branches ne
+tiennent donc que par les tests.
+
+### Ce qui reste
+- **Le refus d'édition reste par ligne.** Le desserrer par cellule demanderait que
+  `SetCohortSlotAssignmentCommandHandler` passe de « la cohorte tient une période liée » à
+  `PublishedCells.IsCellPublishedAsync` — c'est-à-dire décider si l'on peut déplacer une cellule
+  libre d'une cohorte partiellement publiée. Même question que le report à mi-parcours, `§17.1`.
+
+---
+
+## ✅ Phase 22 — Les deux derniers écrans qui classaient les sources eux-mêmes
+
+Suite directe de la session 42 (`ServiceChefDirectory` partagé, `ServiceChefPolicy.InForce`) et de
+sa dette explicite : la fiche du service avait été corrigée, **la liste des services et la page
+service du portail étudiant non**. Livré le 05/09/2026, **sans migration**.
+
+### Ce que les deux écrans montraient
+
+Les deux lisaient `Service.ServiceChefId` — le *rattachement* — qui est **null sur les 148 services
+de la base**. La liste affichait donc « — » sur chaque ligne et le portail « aucun chef de service
+désigné », pendant que la fiche, la répartition annuelle et l'export nommaient quelqu'un pour **140**
+d'entre eux. Un étudiant lisait « aucun chef » sur la page d'un service dont sa propre répartition
+imprime le chef.
+
+### Ce qui a été fait
+
+- `ServiceSummaryResponse.ChefAttribution`, résolu par `ServiceChefProvider` **sur les ids de la
+  page** — jamais sur la requête filtrée, qui grandit avec le catalogue pour des lignes que personne
+  ne regarde.
+- ⚠ **Le portail n'a demandé aucun changement serveur** : il appelle `/services/{id}`, la même route
+  que la fiche admin, qui porte `chefAttribution` depuis la session 42. C'était une omission côté
+  client — la forme la plus discrète du défaut : la bonne réponse était déjà dans la charge utile.
+- `ServiceChefAttributionResponse` déplacé dans `Application/Hospitals/Chefs/`, avec
+  `From(annuaire, serviceId, asOf)`. Trois écrans l'impriment ; et la fabrique tient les **deux**
+  appels (`For` + `HasWithheldLinkedChef`) sur une seule date d'observation.
+
+### Les distinctions que le code refuse de collapser
+
+| état | liste | portail étudiant |
+|---|---|---|
+| un nom, venu d'une affectation | le nom | la carte complète (grade, PPR) |
+| un nom, venu de la note d'import | le nom + pastille « note » | le nom + « D'après la fiche du service » |
+| rattaché, rien d'imprimé | « rattaché, non nommé » | « Non communiqué » |
+| personne | « — » | « Aucun chef de service désigné » |
+| champ absent (API antérieure) | « ? » | « Information non disponible » |
+
+⚠ **Les deux dernières lignes sont le point.** « Inconnu » n'est pas « personne », et « rattaché mais
+non imprimé » non plus — les trois appellent des gestes différents. C'est la règle
+d'`ExportNotes` et d'`OutsideYearCount`, appliquée à une cellule de tableau.
+
+⚠ **La carte de l'étudiant n'invente ni « Dr. », ni initiales d'avatar, ni grade** pour un nom venu
+de la note : il n'y a aucun `Employee` derrière, et habiller une note en fiche de personnel est une
+affirmation que rien ne soutient.
+
+### Couverture
+
+Trois tests ajoutés à `ServiceChefAttributionTests` (1 562 → 1 565 verts). ⚠ **La morsure est
+l'équivalence, pas la valeur** : `The_services_list_names_exactly_what_the_fiche_names` compare la
+ligne de liste à la réponse de la fiche pour le même service, donc elle tombe le jour où l'un des
+deux se remet à classer les sources. Vérifié en cassant — la liste remise à nommer la FK fait tomber
+**3** tests.
+
+### Ce qui reste
+
+- **`ServiceChefPolicy.InForce` est toujours `SourceNoteOnly`.** Les deux seules affectations de la
+  base sont des comptes de test ; le jour où de vrais chefs sont désignés dans Personnel, c'est
+  **une ligne** à changer et les cinq écrans suivent. C'est tout l'intérêt d'avoir une constante
+  partagée plutôt qu'un choix par écran.
+- **Piloté le 05/09/2026** (`SMOKE-TEST.md` §46) : 14 lignes sur 15 nomment un chef, la fiche de
+  « Cardiologie » nomme **le même** Pr.A.Benyass que sa ligne, et Pédiatrie1/2 affichent les noms de
+  la note plutôt que le compte de test rattaché. Le repli « ? » a été vu sur le processus antérieur
+  au champ, ce qui vérifie que l'écran ne retombe pas en silence sur l'ancienne lecture.
+- **Le portail étudiant a été piloté sous une vraie session `Student`** : *Gynécologie Obs A*
+  affiche « Pr.M.H.Alami » + « D'après la fiche du service » (la page disait « aucun chef de service
+  désigné » avant), un service sans note ni rattachement dit toujours « Aucun chef de service
+  désigné », et — le cas qui compte — **Pédiatrie1 nomme Pr.N.Elhafidi sans que « Youssef Alaoui »
+  apparaisse nulle part** : le compte de test ne fuit pas vers l'écran de l'étudiant.
+- ⚠ **« Non communiqué » reste impilotable** : il faudrait un service rattaché **et** sans note, et
+  la base n'en a aucun. Cette branche ne tient que par le test.

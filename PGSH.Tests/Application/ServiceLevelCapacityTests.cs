@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Hospitals.Chefs;
 using PGSH.Application.Hospitals.Services;
@@ -573,7 +573,7 @@ public class ServiceLevelCapacityTests
         db.SeedLevelCapacity(pharmacieOnly, OtherLevelId, 15);
         await db.SaveChangesAsync();
 
-        var result = await new AddAllowedServiceCommandHandler(db)
+        var result = await new AddAllowedServiceCommandHandler(db, new ServiceRankWriter(db))
             .Handle(new AddAllowedServiceCommand(stage.Id, ServiceId), default);
 
         result.IsFailure.Should().BeTrue();
@@ -595,7 +595,7 @@ public class ServiceLevelCapacityTests
         db.SeedLevelCapacity(service, TestHarness.LevelId, 10);
         await db.SaveChangesAsync();
 
-        var result = await new AddAllowedServiceCommandHandler(db)
+        var result = await new AddAllowedServiceCommandHandler(db, new ServiceRankWriter(db))
             .Handle(new AddAllowedServiceCommand(stage.Id, ServiceId), default);
 
         result.IsSuccess.Should().BeTrue();
@@ -611,7 +611,7 @@ public class ServiceLevelCapacityTests
         db.SeedService(ServiceId, "Cardiologie");
         await db.SaveChangesAsync();
 
-        var result = await new AddAllowedServiceCommandHandler(db)
+        var result = await new AddAllowedServiceCommandHandler(db, new ServiceRankWriter(db))
             .Handle(new AddAllowedServiceCommand(stage.Id, ServiceId), default);
 
         result.IsSuccess.Should().BeTrue("no rules authored means no promotion excluded");
@@ -664,7 +664,7 @@ public class ServiceLevelCapacityTests
         db.SeedLevelCapacity(pharmacieOnly, OtherLevelId, 15);
         await db.SaveChangesAsync();
 
-        var result = await new GetServicesQueryHandler(db).Handle(
+        var result = await new GetServicesQueryHandler(db, new ServiceChefProvider(db)).Handle(
             new GetServicesQuery(AdmitsLevelId: TestHarness.LevelId, PageSize: 50), default);
 
         result.IsSuccess.Should().BeTrue();
@@ -683,7 +683,7 @@ public class ServiceLevelCapacityTests
         db.SeedLevelCapacity(service, OtherLevelId, 5);
         await db.SaveChangesAsync();
 
-        var result = await new GetServicesQueryHandler(db).Handle(new GetServicesQuery(PageSize: 50), default);
+        var result = await new GetServicesQueryHandler(db, new ServiceChefProvider(db)).Handle(new GetServicesQuery(PageSize: 50), default);
 
         result.Value.Items.Single().RestrictedLevelCount.Should().Be(2);
     }

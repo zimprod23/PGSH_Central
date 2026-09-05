@@ -110,7 +110,7 @@ internal sealed class ScheduledBackupService(
     }
 
     /// <summary>
-    /// Hourly points for the first window, then one a day, then nothing.
+    /// Every point for the first window, then one a day, then nothing.
     /// </summary>
     /// <remarks>
     /// The kept day is the <em>newest</em> of each day rather than the oldest: on the day something
@@ -121,20 +121,20 @@ internal sealed class ScheduledBackupService(
         var points = await archive.ListAsync(cancellationToken);
         var now = clock.UtcNow;
 
-        var hourlyWindow = now - TimeSpan.FromHours(Math.Max(1, _options.Schedule.KeepHourlyForHours));
+        var keepAllWindow = now - TimeSpan.FromHours(Math.Max(1, _options.Schedule.KeepAllForHours));
         var dailyWindow = now - TimeSpan.FromDays(Math.Max(1, _options.Schedule.KeepDailyForDays));
 
         var prunable = points.Where(p => p.IsPrunable).ToList();
 
         var keptPerDay = prunable
-            .Where(p => p.TakenAtUtc <= hourlyWindow && p.TakenAtUtc > dailyWindow)
+            .Where(p => p.TakenAtUtc <= keepAllWindow && p.TakenAtUtc > dailyWindow)
             .GroupBy(p => DateOnly.FromDateTime(p.TakenAtUtc))
             .Select(day => day.MaxBy(p => p.TakenAtUtc)!.Id)
             .ToHashSet();
 
         foreach (var point in prunable)
         {
-            bool keep = point.TakenAtUtc > hourlyWindow
+            bool keep = point.TakenAtUtc > keepAllWindow
                         || keptPerDay.Contains(point.Id);
 
             if (keep)

@@ -15,7 +15,17 @@ public sealed record StageResponse(
     AllowedServiceSummary[] AllowedServices
     );
 
-public sealed record AllowedServiceSummary(int Id, string Name, string HospitalName);
+/// <summary>
+/// <paramref name="Rank"/> is the position the service takes in the rotation queue — a planning
+/// fact, not a display preference: <c>RotationArranger</c> hands the first run of group numbers to
+/// the service ranked first, in the first période.
+///
+/// <para>⚠ The list used to come back sorted by hospital then name, which is a fourth order —
+/// neither the one authored, nor the one the arranger walked (<c>OrderBy(Service.Id)</c>, i.e.
+/// legacy import order). So nothing on screen said which service was first, in the one place where
+/// being first decides something.</para>
+/// </summary>
+public sealed record AllowedServiceSummary(int Id, string Name, string HospitalName, int Rank = 0);
 
 public record StageObjectiveResponse(
     string Label,

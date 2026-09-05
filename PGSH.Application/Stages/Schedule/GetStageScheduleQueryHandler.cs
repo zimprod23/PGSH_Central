@@ -75,8 +75,16 @@ internal sealed class GetStageScheduleQueryHandler(
                 c.Assignments.Any(a => a.ServicePeriods.Any(p => p.CohortSlotAssignmentId != null))),
             cancellationToken);
 
-        var cellsByCohort = (await PageCellsQuery(dbContext, page.Items.Select(c => c.Id).ToList())
-                .ToListAsync(cancellationToken))
+        var pageCells = await PageCellsQuery(dbContext, page.Items.Select(c => c.Id).ToList())
+            .ToListAsync(cancellationToken);
+
+        // ⚠ Through the coverage table, never through ServicePeriod.CohortSlotAssignmentId — that FK
+        // names only the first cell of a run, so under SingleService every trailing cell of a
+        // published run would read as free. See SlotCellResponse.IsPublished.
+        var publishedCells = await dbContext.PublishedAmongAsync(
+            pageCells.Select(c => c.Id).ToList(), cancellationToken);
+
+        var cellsByCohort = pageCells
             .GroupBy(a => a.CohortId)
             .ToDictionary(g => g.Key, g => g.ToDictionary(a => a.StageSlotId));
 
@@ -90,7 +98,7 @@ internal sealed class GetStageScheduleQueryHandler(
                 c.Id, c.Label, c.AcademicGroupId, c.AcademicGroupLabel, c.RotationGroup,
                 c.StudentCount, c.IsSchedulePublished,
                 slots.Select(slot => cells.TryGetValue(slot.Id, out var cell)
-                    ? CellFor(cell, slot, levelId, intake, occupancy)
+                    ? CellFor(cell, slot, levelId, intake, occupancy, publishedCells.Contains(cell.Id))
                     : null).ToList());
         }).ToList();
 
@@ -137,6 +145,12 @@ internal sealed class GetStageScheduleQueryHandler(
         var partitionUsage = await PartitionSlotUseQuery(dbContext, request.StageId, academicYearId)
             .ToListAsync(ct);
 
+        // What an empty table means. Asked of the stage and the year, never of the filtered selection:
+        // under a partition filter an empty answer is the filter's doing, and « aucune cohorte » would
+        // send the user to undo a cut that is correct.
+        var (servedPeriodCount, emptyGridNote) = await ExplainEmptyGridAsync(
+            request, academicYearId, slotById.Count, anyCell: partitionUsage.Count > 0, ct);
+
         var saturated = pairs
             .Select(pair => Saturation(pair, slotById[pair.StageSlotId], levelId, intake, occupancy))
             .Where(s => s is not null)
@@ -155,19 +169,52 @@ internal sealed class GetStageScheduleQueryHandler(
             // Which columns the *selection* already occupies — what separates « ajouter une colonne
             // et ne répartir qu'elle » from rewriting a rotation that is already correct.
             pairs.Select(p => p.StageSlotId).Distinct().Order().ToList(),
-            partitionUsage);
+            partitionUsage,
+            slotById.Count,
+            servedPeriodCount,
+            emptyGridNote);
+    }
+
+    /// <summary>
+    /// The two facts an empty grid needs to be readable: how many périodes were served here anyway,
+    /// and the sentence saying which of the three situations this is.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ Each count is read <b>only when it will be printed</b> — the same rule as
+    /// <c>ExportNotes</c>'s roster count. A grid holding cells asks neither, so the ordinary request
+    /// pays nothing for the note; and <c>ServedPeriodCount</c> stays <b>null</b> rather than 0 in
+    /// every case where the question was not put, because « aucune période » is an answer and « on
+    /// n'a pas regardé » is not.
+    /// </remarks>
+    private async Task<(int? ServedPeriodCount, string? Note)> ExplainEmptyGridAsync(
+        GetStageScheduleQuery request, int academicYearId, int declaredSlotCount, bool anyCell,
+        CancellationToken ct)
+    {
+        if (anyCell)
+            return (null, null);
+
+        if (declaredSlotCount == 0)
+        {
+            int served = await ServedPeriodsQuery(dbContext, request.StageId, academicYearId).CountAsync(ct);
+            return (served, StageScheduleNotes.NoAxisNote(served));
+        }
+
+        int cohorts = await ScopedCohortsQuery(dbContext, request.StageId, academicYearId, rotationGroup: null)
+            .CountAsync(ct);
+
+        return (null, StageScheduleNotes.NothingArrangedNote(declaredSlotCount, cohorts));
     }
 
     /// <summary>The one limit that governs a cell, and the load counted the way that limit is written.</summary>
     private static SlotCellResponse CellFor(
         CellDetail cell, StageSlotResponse slot, int levelId,
-        ServiceIntakeLookup intake, ServiceOccupancyLookup occupancy)
+        ServiceIntakeLookup intake, ServiceOccupancyLookup occupancy, bool isPublished)
     {
         var (capacity, occupied, isLevelQuota) = Limit(cell.ServiceId, slot, levelId, intake, occupancy);
 
         return new SlotCellResponse(
             cell.Id, cell.StageSlotId, cell.ServiceId, cell.ServiceName, cell.HospitalName,
-            capacity, occupied, isLevelQuota, intake.Admits(cell.ServiceId, levelId));
+            capacity, occupied, isLevelQuota, intake.Admits(cell.ServiceId, levelId), isPublished);
     }
 
     private static SaturatedCellResponse? Saturation(
@@ -217,6 +264,22 @@ internal sealed class GetStageScheduleQueryHandler(
             .Where(s => s.StageId == stageId && s.AcademicYearId == academicYearId)
             .OrderBy(s => s.PeriodNumber)
             .Select(s => new StageSlotResponse(s.Id, s.PeriodNumber, s.Label, s.StartDate, s.EndDate));
+
+    /// <summary>
+    /// The périodes recorded for this stage and year, whatever their origin — the fact that tells a
+    /// year served before PGSH held a planning grid from a year nobody has started planning.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ The year is <b>read from the registration</b>, never inferred from the period's own dates:
+    /// the two rules disagree on 7 030 of the 105 626 périodes in the base and the registration is
+    /// right every time — a date predicate cannot tell a year that ran late from the next year's work.
+    /// </remarks>
+    internal static IQueryable<ServicePeriod> ServedPeriodsQuery(
+        IApplicationDbContext dbContext, int stageId, int academicYearId) =>
+        dbContext.ServicePeriods
+            .AsNoTracking()
+            .Where(p => p.InternshipAssignment.Cohort.StageId == stageId
+                     && p.InternshipAssignment.Registration.AcademicYearId == academicYearId);
 
     /// <summary>
     /// The cohortes the grid is showing: one stage, one year, optionally one partition. Ordered by

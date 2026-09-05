@@ -2640,8 +2640,38 @@ tenure first. Nothing could catch them disagreeing, because the rule existed twi
   briefly skipped `TenuresQuery` under `SourceNoteOnly` — nothing printed it — which made the flag
   answer `false` on exactly the two services in the base that need `true`. An optimisation that
   erases its own subject. The policy narrows what is *named*, never what is *known*.
-- **Two more screens read the sitting FK alone** and show « — » / « aucun chef » on all 148 services:
-  the services list and the student portal's service page. Filed, not fixed — `HANDOFF.md` `0ag`.
+- **Les deux autres écrans, fermés le 05/09/2026.** La **liste des services** et la page service du
+  **portail étudiant** lisaient la FK seule et affichaient donc « — » et « aucun chef de service
+  désigné » sur les 148 services, pendant que la répartition que l'étudiant tient en main en nommait
+  un pour 140 d'entre eux.
+  - ⚠ **Le portail n'a demandé aucun changement serveur** : il appelle `/services/{id}`,
+    c'est-à-dire *la même route* que la fiche admin, qui porte `chefAttribution` depuis la
+    session 42. C'était une omission côté client — et c'est la forme la plus discrète de ce défaut :
+    le serveur avait déjà la bonne réponse et l'écran ne la lisait pas.
+  - **La liste résout sur les ids de la *page***, jamais sur la requête filtrée : un annuaire bâti
+    pour tous les services correspondants grandit avec le catalogue pour des lignes que personne ne
+    regarde. Même règle que la grille de planning lisant ses cellules publiées sur les ids qu'elle
+    vient de renvoyer.
+  - ⚠ **La ligne garde `ServiceChefName` à côté de l'attribution**, et ce sont deux questions :
+    la FK est le *rattachement* — de la configuration, et ce sur quoi `?serviceChefId=` filtre — ;
+    l'attribution est qui PGSH **nomme**. Les confondre est précisément le défaut corrigé.
+  - ⚠ **`ServiceChefAttributionResponse` a déménagé dans `Application/Hospitals/Chefs/`**, avec une
+    fabrique `From(annuaire, serviceId, asOf)`. Trois écrans l'impriment ; un type de réponse
+    appartenant à la requête qui en a eu besoin la première, c'est la deuxième qui s'en fait une
+    copie. La fabrique tient surtout les **deux** appels (`For` et `HasWithheldLinkedChef`) sur une
+    seule date : séparés, l'un des appelants finit par oublier le second — et un écran incapable de
+    dire « quelqu'un est rattaché, et ce n'est pas ce nom-là » est exactement celui qui a produit la
+    confusion d'origine.
+  - **La carte de l'étudiant n'habille jamais une note en fiche de personnel** : un nom venu de la
+    note d'import s'affiche avec « D'après la fiche du service », sans grade, sans PPR et sans
+    « Dr. » inventé — ces trois-là n'existent que là où un `Employee` est réellement derrière le nom.
+  - ⚠ **Et « personne » garde trois sentences distinctes** : « Information non disponible » (API
+    antérieure au champ — inconnu n'est pas vide), « Non communiqué » (quelqu'un est rattaché mais
+    rien n'est imprimé) et « Aucun chef de service désigné ». Dire la troisième dans le deuxième cas
+    est faux.
+  - **La morsure est l'équivalence, pas la valeur** : `The_services_list_names_exactly_what_the_fiche_names`
+    compare la ligne de liste à la réponse de la fiche pour le même service. Vérifié en la cassant —
+    la liste remise à nommer la FK fait tomber **3** tests.
 
 ## The catalogue and the texts now disagree, and both are right — measured 2026-09-01
 
@@ -3312,7 +3342,8 @@ Les 28 tests couvrent le pur (`SafePointEvaluator`, exhaustivement) et le pipeli
 refus + contrôle qui réussit, archive inchangée après refus). Ils **ne prouvent pas** que
 `docker exec pg_dump` marche : l'archive est remplacée par une fausse dans `ApiFactory`, sinon
 `dotnet test` prendrait un dump de la base vivante en effet de bord, et le planificateur en prendrait
-un par heure tant que l'hôte de test vit. Cette moitié-là se vérifie à la main — `SMOKE-TEST.md` §41.
+un par jour tant que l'hôte de test vit (la cadence est passée à quotidienne le 04/09/2026).
+Cette moitié-là se vérifie à la main — `SMOKE-TEST.md` §41.
 
 ## Une demande nominative, et ce que la base répondait déjà (2026-09-03, session 41)
 
@@ -3387,3 +3418,213 @@ mémoire, mais le **verdict** reste sur les agrégats SQL de `StagesQuery`. Comp
 chargée aurait rejoué `CnpnSpanFloor` — un `Include` oublié est indiscernable d'une collection vide, et
 sur PostgreSQL chaque stage se serait lu « aucun service autorisé », suite entièrement verte. Séparés,
 un `Include` oublié donne « couvert, mais aucun service nommé » : faux d'une manière visible.
+
+### L'ordre des services était celui de l'import Access, et il décidait la répartition
+
+`RotationArranger` parcourait `stage.AllowedServices.OrderBy(s => s.Id)`. Ce n'est pas un détail de
+présentation : `BuildServiceQueue` construit une file plate où **chaque service occupe un bloc
+consécutif**, la cohorte en position *i* de la colonne prend `queue[(i + offset) % m]`, et la
+première colonne de l'empreinte a la phase 0 donc `offset = 0`. Autrement dit **les premiers groupes
+de la première période tombaient dans le service dont l'id catalogue était le plus petit** — c'est-à-dire
+celui que l'import Access avait inséré en premier. Personne n'avait choisi cela, et rien ne le disait.
+
+⚠ **Et la fiche du stage affichait un quatrième ordre.** `GetStageByIdQueryHandler` triait
+`OrderBy(Hospital.Name).ThenBy(Name)`. Il y avait donc l'ordre autorisé (aucun), l'ordre parcouru
+(par id), l'ordre affiché (alphabétique) et l'ordre imaginé par l'utilisateur — quatre, dont aucun ne
+correspondait au suivant. C'est la même famille que `ServiceDetailPage` classant les sources de chef
+autrement que `ServiceChefDirectory` : une règle, deux côtés, rien pour les faire diverger bruyamment.
+
+**Ce que cela coûtait concrètement.** Une demande nominative — « ces étudiants au HMIMV pour ce
+stage » — n'avait qu'une réponse : retoucher une cellule sur la grille de planning après coup. Or la
+**répartition annuelle imprimée montre cette retouche**. `GroupNumberRanges` refuse délibérément de
+fusionner par-dessus un trou (une plage « 47-50 » est une *promesse* que 48 et 49 y sont), donc
+« 21-27 » devient « 21-23, 25-27 » d'un côté et un « 24 » isolé de l'autre, sur une page où toutes les
+autres cellules sont des plages nettes. L'utilisateur l'a formulé exactement ainsi : cela attire
+l'attention, et c'est de l'attention qu'on ne veut pas.
+
+**Ce que le rang ne résout pas, et il faut le dire.** Il déplace la promotion entière, jamais un
+groupe ; sa granularité est le **bloc**, dont la largeur vient de la capacité propre du service
+(`(int)(capacité / effectif moyen)`), donc réordonner permute les blocs *en bloc* ; et deux demandes
+contradictoires sur un même stage restent insatisfaisables. Ce n'est pas une épingle — l'épingle
+reste `PHASES.md` §19.2, avec son marqueur sur la cellule.
+
+**Trois pièges rencontrés en le construisant, tous invisibles au type-check :**
+
+1. **L'index unique `(StageId, Rank)` n'est pas différé.** Un échange 1↔2 en un seul `SaveChanges`
+   laisse à EF l'ordre des deux `UPDATE`, et l'un des deux ordres viole la contrainte à mi-parcours.
+   `ServiceRankWriter` gare les lignes sur leurs rangs **négatifs** puis les pose — exactement la
+   forme de la rétrogradation-avant-promotion de `SetCurrentAcademicYearCommandHandler`. ⚠ La suite
+   in-memory **ne peut pas voir** ce défaut : elle n'applique aucun index. Ce qui est épinglé, c'est
+   l'état final ; la contrainte elle-même attend Testcontainers.
+2. **`0` par défaut trie en premier si on ne fait rien.** Une ligne écrite par un script correctif
+   serait donc passée **devant** tous les services placés à la main, et aurait reçu la première plage
+   de groupes — l'exact contraire de ce que « personne n'a choisi » veut dire. D'où
+   `ServiceRotationOrder.SortKeyOf`, qui envoie 0 et les négatifs à `int.MaxValue`.
+3. **La jointure et la navigation sont deux façons d'écrire la même ligne.** Faire les deux
+   (`stage.AllowedServices.Add(service)` *et* `db.StageAllowedServices.Add(...)`) fait suivre à EF
+   deux instances d'une seule clé. Le harnais le dit désormais : `Allow` laisse le rang à 0,
+   `AllowInOrder` écrit les lignes de jointure, **jamais les deux**.
+
+**La migration ne change aucun plan**, et c'est délibéré : elle remplit le rang depuis
+`ROW_NUMBER() OVER (PARTITION BY "StageId" ORDER BY "ServiceId")`, c'est-à-dire exactement ce que le
+code faisait. Le rang commence sa vie en *décrivant* l'ancien comportement ; seul un réordonnancement
+explicite le déplace. Sans ce remplissage l'index unique échoue d'emblée — les 146 lignes autorisées
+porteraient toutes 0, plusieurs par stage.
+
+### Des périodes sans grille : les neuf années importées
+
+Mesuré le 04/09/2026, par année universitaire — périodes / créneaux / cellules :
+
+| année | périodes | créneaux | cellules |
+|---|---|---|---|
+| 2017-2018 → **2025-2026** | **105 626** | **0** | **0** |
+| 2026-2027 | 12 340, toutes liées à la grille | 137 | 2 873 |
+
+L'utilisateur l'a rapporté ainsi : « il y a des périodes mais elles n'apparaissent pas dans la grille
+de planning ». C'est exact, et **rien n'est abîmé**. L'import Access portait les rotations
+*effectivement servies* ; la base source n'avait pas de grille à porter. Vérifié en même temps :
+**0 période pointe vers une cellule disparue** (la FK est `SetNull`, donc une cellule supprimée sous
+une période l'aurait rendue « hors grille » en silence — ce n'est arrivé nulle part).
+
+⚠ **Le défaut était d'affichage, et du genre dangereux** : une grille vide se lit « rien n'est
+planifié », alors qu'elle dit « cette année n'a jamais été planifiée ici ». Les deux appellent des
+gestes opposés, et le premier invite à poser un axe sur une année terminée. Exactement la forme que
+`RepartitionSummary.DeclaredSlotCount` sépare pour la répartition, que `ExportNotes` sépare pour les
+exports et que `OutsideYearCount` sépare pour la liste du chef — la grille était le seul écran à ne
+pas le faire. **Fermé le 05/09/2026** : `StageScheduleSummary` porte `DeclaredSlotCount`,
+`ServedPeriodCount` et `EmptyGridNote`, la phrase venant de `StageScheduleNotes`.
+
+⚠ **Et ce sont *trois* causes, pas deux** — la leçon du panneau de faisabilité, où une promotion sans
+aucun groupe recevait « rien n'est réparti », c'est-à-dire le second geste au lieu du premier :
+
+| état | ce que la phrase dit | geste |
+|---|---|---|
+| 0 créneau, N périodes servies | l'historique importé ne portait pas de grille | aucun — poser un axe ne reconstitue rien |
+| 0 créneau, 0 période | rien n'est encore posé | poser un axe (bloc de rotation) |
+| créneaux, 0 cohorte | la promotion n'a pas de cohortes pour ce stage | découper, provisionner |
+| créneaux, cohortes, 0 cellule | l'axe est posé, personne n'y est réparti | répartir |
+
+⚠ **`ServedPeriodCount` vaut `null`, jamais 0, quand la question n'a pas été posée** — c'est-à-dire
+sur toute grille qui a un axe. « Aucune période » est une réponse, « on n'a pas regardé » n'en est
+pas une ; même discipline que `DatabaseCensus` et que `Saturation`. Chaque compte n'est lu que s'il
+doit être imprimé, donc la requête ordinaire ne paie rien pour la note.
+
+⚠ **La note parle du stage et de l'année, jamais de la sélection filtrée.** Sous un filtre de
+partition, une réponse vide est le fait du filtre : dire « aucune cohorte » à cet endroit envoie
+défaire un découpage correct. Lue depuis `PartitionSlotUseQuery`, déjà non filtrée par construction —
+et c'est ce que `The_note_is_silent_when_the_stage_holds_cells_the_filter_hides` épingle (vérifié en
+la cassant : la note passée sur `pairs`, la sélection filtrée, fait tomber ce test-là et lui seul).
+
+⚠ **Et en la relisant, une seconde chose** : la grille marquait la publication **par cohorte**,
+jamais par cellule. Le drapeau de la ligne lit `p.CohortSlotAssignmentId != null` — la FK qui ne
+nomme que la **première** cellule d'un pli `SingleService`. Mesuré sur *Gynécologie Obstétrique*
+2026-2027 : **363 cellules, 121 nommées par la FK, 363 couvertes**. Le drapeau de ligne s'en tire par
+chance (une seule période suffit à le rendre vrai) ; un marqueur par cellule bâti de la même façon
+lirait **242 cellules publiées comme libres**.
+
+**Fermé le 05/09/2026** : `SlotCellResponse.IsPublished`, lu par `PublishedAmongAsync` sur les
+cellules **de la page** — une lecture plate de plus, jamais une sous-requête dans la projection. Le
+drapeau de ligne reste ce qu'il est et reste juste : « cette cohorte est publiée » est une
+affirmation strictement plus faible que celle de la cellule.
+
+⚠ **C'est un marqueur, pas une nouvelle garde.** L'édition reste désactivée **par ligne**, parce que
+`SetCohortSlotAssignmentCommandHandler` refuse sur « la cohorte tient une période liée à la grille » :
+la desserrer par cellule ne ferait qu'échanger un bouton grisé contre un toast rouge. Ce que le
+drapeau ajoute vraiment, c'est le refus en amont du **retrait** d'une cellule publiée, que
+`ClearCohortSlotAssignmentCommandHandler` refusait déjà côté serveur sans que rien ne le dise avant
+le clic.
+
+⚠ **La morsure a été vérifiée dans les deux sens** : le drapeau relu depuis la FK fait tomber
+`Every_cell_a_period_covers_is_published_including_the_ones_no_foreign_key_names`, et lui seul — la
+cellule de queue du pli est le seul cas où les deux lectures divergent, ce qui est exactement pourquoi
+la fixture pose `SeedCoverage(..., leadCell: false)`.
+
+### Une promotion non planifiée n'est pas un manque
+
+Dit par l'utilisateur le 04/09/2026, après qu'un balayage eut signalé MED1 (44 inscriptions), MED2
+(1 027), MED6 (701), MED7 (1 347) et tous les niveaux de Pharmacie de 2026-2027 comme
+« non planifiables » : **la faculté donne l'ordre de planifier une promotion**. Tant que l'ordre
+n'est pas arrivé, il n'y a rien à planifier et rien ne va mal.
+
+Corollaire : un stage sans `AllowedServices` sur une telle promotion n'est pas davantage une lacune —
+saisir cette liste fait partie de l'ordre de planification. Le signaler comme défaut produit une
+fausse alerte à chaque session et invite quelqu'un à « corriger » en planifiant une promotion que
+personne n'a demandée — ce qui écrit cohortes, affectations et cellules pour une année entière.
+
+### La lenteur de « Dépublier toutes » n'était pas la suppression
+
+Rapporté par l'utilisateur le 04/09/2026 : dépublier prend beaucoup de temps et la page devient
+saccadée, alors que publier depuis la grille est rapide. Les deux moitiés de l'observation sont
+justes, et la cause n'est pas celle qu'on suppose.
+
+`handleUnpublishAllConfirm` était une boucle `for … await` : **une requête HTTP par cohorte**, 134
+sur la 3ᵉ MED. Chaque requête chargeait les affectations de sa cohorte avec leurs périodes *et* leurs
+évaluations, puis — c'est la vraie cause — **invalidait le tag de cache du stage**, donc RTK Query
+refetchait une liste de 134 lignes **après chaque requête**. 134 allers-retours d'écriture plus 134
+refetchs d'une grosse liste : le figement vient du second terme, pas du premier. Et comme
+`errorMiddleware` émet un toast pour chaque mutation rejetée, un stage dont plusieurs rotations ont
+démarré répondait par **un toast rouge par cohorte**, arrivant un par un pendant que la boucle
+tournait.
+
+Publier n'avait pas ce défaut parce que « Publier tout » avait déjà été ramené à un seul
+`PublishStageSchedule` — c'est exactement la même correction, faite une session plus tôt d'un seul
+côté.
+
+⚠ **Ce qui bloquait la correction était une vraie question de conception, pas la mécanique.** Chaque
+refus unitaire *nomme ce que cette cohorte perdrait* (périodes démarrées, notes, jours de présence),
+et un agrégat devait pouvoir les remplacer. La réponse retenue :
+
+- **Écarter, jamais forcer.** Une cohorte engagée est laissée telle quelle et comptée. Forcer détruit
+  des notes et des présences ; l'acte qui a le droit de le faire reste le « Dépublier » unitaire, qui
+  annonce son prix et demande deux fois. Un balayage groupé ne doit jamais devenir le contournement —
+  même raison que `AllowOverCapacity` cessant de couvrir l'admissibilité.
+- **Écarter plutôt que refuser le lot.** Refuser tout parce qu'une rotation a démarré rendrait le
+  bouton inutile précisément quand il sert : en cours d'année, quand on veut défaire les cent qui
+  n'ont pas commencé.
+- **Le rapport porte ce qui a été laissé** — nombre de cohortes engagées, périodes, évaluations,
+  jours de présence, et les plus lourdes nommées. C'est l'agrégat qui remplace les phrases unitaires.
+- ⚠ **`CohortsUnpublished == 0` a deux causes** : rien n'était publié, ou tout est engagé. `0` seul se
+  lit comme un bouton qui n'a rien fait.
+
+⚠ **Le bilan par cohorte s'agrège sur les *périodes*, pas sur les cohortes.** Grouper sur les
+cohortes et replier `Attendance.Count` dans un second agrégat est la forme que Npgsql refuse — celle
+qui avait tué le plan macro. Épinglé par `SqlTranslationTests`, parce qu'un refus du fournisseur
+ferait tomber le bouton sur une promotion entière avec toute la suite au vert.
+
+### L'acte s'est écrit, sa trace non — `ChangeTracker.Clear()` mangeait l'entrée d'audit
+
+Trouvé le 05/09/2026 **en pilotant l'écran réel**, et par aucun autre moyen. Le réordonnancement des
+services d'un stage a écrit ses rangs correctement (Néphrologie 4 → 3, rangs contigus) et
+`AuditLogs` ne contenait **aucune** ligne `STAGE_SERVICE_ORDER_SET`.
+
+La cause est un croisement de deux mécanismes tous deux corrects :
+
+1. `AuditLogPipelineBehavior` ajoute la ligne de journal au contexte **avant** le handler. C'est
+   délibéré et c'est ce qui donne les deux propriétés du registre : un acte **refusé n'écrit rien**
+   (la ligne n'est validée que par le `SaveChanges` du handler) et un acte réussi s'enregistre dans
+   **la même unité de travail** que lui, donc jamais sans lui.
+2. `ExecuteAtomicallyAsync` ouvrait chaque tentative par `ChangeTracker.Clear()`. Le commentaire
+   d'origine est juste — « une nouvelle tentative rejoue l'opération depuis le début, donc ce que la
+   tentative ratée a suivi doit disparaître, sinon il est inséré deux fois » — mais il ne vaut que
+   **à partir de la deuxième** tentative. À la première, il n'y a pas de tentative ratée à nettoyer :
+   il n'y a que ce qui a été mis en attente en amont, exprès.
+
+Résultat : l'acte commitait et sa trace disparaissait, sans erreur, sur la seule table dont le métier
+est d'être relue plus tard.
+
+⚠ **La portée dépasse la commande où c'est apparu.** *Tout* `IAuditableCommand` dont le handler
+enveloppe son écriture dans `ExecuteAtomicallyAsync` avait le même trou. Aujourd'hui il n'y en a
+qu'un (`GenerateMacroPlanCommand` n'est pas auditable) — mais les actes en masse sont précisément
+ceux qui veulent à la fois une transaction et une trace, donc le suivant l'aurait rencontré.
+
+**Le correctif tient les deux propriétés à la fois** : les entités mises en attente *avant* la
+transaction sont photographiées, le `Clear()` ne s'exécute qu'à partir de la deuxième tentative, et
+elles sont remises en attente après lui — sinon une nouvelle tentative réussirait en perdant le
+journal.
+
+⚠ **Et c'est un rappel sur la façon de vérifier une morsure.** La première tentative de casser la
+garde n'a fait échouer aucun test : n'avoir remis que `if (true)` laissait la ré-inscription en
+place, donc l'entrée survivait quand même. Il a fallu reproduire **les deux lignes d'origine** pour
+voir le test tomber. Casser à moitié une correction en deux parties prouve seulement que l'autre
+moitié fonctionne.
+

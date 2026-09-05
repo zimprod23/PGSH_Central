@@ -1124,6 +1124,33 @@ namespace PGSH.Infrastructure.Migrations
                     b.ToTable("Stages", "public");
                 });
 
+            modelBuilder.Entity("PGSH.Domain.Stages.StageAllowedService", b =>
+                {
+                    b.Property<int>("StageId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("ServiceId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Rank")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
+                    b.HasKey("StageId", "ServiceId");
+
+                    b.HasIndex("ServiceId");
+
+                    b.HasIndex("StageId", "Rank")
+                        .IsUnique()
+                        .HasDatabaseName("IX_StageAllowedServices_Stage_Rank");
+
+                    b.HasIndex("StageId", "ServiceId")
+                        .HasDatabaseName("IX_StageAllowedServices_Stage_Service");
+
+                    b.ToTable("StageAllowedServices", "public");
+                });
+
             modelBuilder.Entity("PGSH.Domain.Stages.StageObjective", b =>
                 {
                     b.Property<int>("Id")
@@ -1283,24 +1310,6 @@ namespace PGSH.Infrastructure.Migrations
                     b.HasDiscriminator<string>("UserType").HasValue("User");
 
                     b.UseTphMappingStrategy();
-                });
-
-            modelBuilder.Entity("StageAllowedServices", b =>
-                {
-                    b.Property<int>("StageId")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("ServiceId")
-                        .HasColumnType("integer");
-
-                    b.HasKey("StageId", "ServiceId");
-
-                    b.HasIndex("ServiceId");
-
-                    b.HasIndex("StageId", "ServiceId")
-                        .HasDatabaseName("IX_StageAllowedServices_Stage_Service");
-
-                    b.ToTable("StageAllowedServices", "public");
                 });
 
             modelBuilder.Entity("PGSH.Domain.Employees.Employee", b =>
@@ -1978,6 +1987,23 @@ namespace PGSH.Infrastructure.Migrations
                     b.Navigation("Level");
                 });
 
+            modelBuilder.Entity("PGSH.Domain.Stages.StageAllowedService", b =>
+                {
+                    b.HasOne("PGSH.Domain.Hospitals.Service", "Service")
+                        .WithMany()
+                        .HasForeignKey("ServiceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("PGSH.Domain.Stages.Stage", null)
+                        .WithMany()
+                        .HasForeignKey("StageId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Service");
+                });
+
             modelBuilder.Entity("PGSH.Domain.Stages.StageObjective", b =>
                 {
                     b.HasOne("PGSH.Domain.Stages.Stage", "Stage")
@@ -2085,21 +2111,6 @@ namespace PGSH.Infrastructure.Migrations
                     b.Navigation("Address");
 
                     b.Navigation("Status")
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("StageAllowedServices", b =>
-                {
-                    b.HasOne("PGSH.Domain.Hospitals.Service", null)
-                        .WithMany()
-                        .HasForeignKey("ServiceId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("PGSH.Domain.Stages.Stage", null)
-                        .WithMany()
-                        .HasForeignKey("StageId")
-                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 

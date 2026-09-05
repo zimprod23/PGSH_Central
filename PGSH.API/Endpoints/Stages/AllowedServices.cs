@@ -36,3 +36,26 @@ public sealed class RemoveAllowedService : IEndpoint
         .RequireAuthorization();
     }
 }
+
+/// <summary>
+/// Authors the order the stage's services are walked in when a rotation is arranged. A PUT of the
+/// whole list, not a move: the order is the resource, and a partial list is refused rather than
+/// completed — see <see cref="SetAllowedServiceOrderCommand"/>.
+/// </summary>
+public sealed class SetAllowedServiceOrder : IEndpoint
+{
+    public sealed record Request(IReadOnlyList<int> ServiceIds);
+
+    public void MapEndpoint(IEndpointRouteBuilder app)
+    {
+        app.MapPut("stages/{id:int}/allowed-services/order", async (
+            int id, Request request, ISender sender, CancellationToken ct) =>
+        {
+            var command = new SetAllowedServiceOrderCommand(id, request.ServiceIds ?? []);
+            var result = await sender.Send(command, ct);
+            return result.Match(Results.NoContent, CustomResults.Problem);
+        })
+        .WithTags(Tags.Stages)
+        .RequireAuthorization();
+    }
+}

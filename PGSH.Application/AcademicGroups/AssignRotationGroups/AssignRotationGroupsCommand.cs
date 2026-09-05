@@ -30,7 +30,21 @@ public sealed record AssignRotationGroupsCommand(
     int PartitionCount,
     int LevelId,
     PartitionStrategy Strategy = PartitionStrategy.Interleaved,
-    bool Reassign = false) : ICommand<PartitionAssignmentResult>;
+    bool Reassign = false) : ICommand<PartitionAssignmentResult>, IAuditableCommand
+{
+    // ⚠ Its undo, ClearRotationGroupsCommand, has been audited from the start while the act that
+    // *creates* a cut was not — so « qui a découpé cette promotion, et quand ? » had no answer, which
+    // is exactly the question 66 rosters appearing on the 7ᵉ MED raised on 02/09/2026. Recording the
+    // act that takes a cut away and not the one that makes it is the wrong way round.
+    public string AuditAction => "PARTITIONS_ASSIGNED";
+    public string AuditEntityType => "AcademicYear";
+    public string? AuditEntityId => AcademicYearId.ToString();
+    public string? AuditMetadata => AuditMetadataJson.Of(
+        ("levelId", LevelId),
+        ("partitionCount", PartitionCount),
+        ("strategy", Strategy.ToString()),
+        ("reassign", Reassign));
+}
 
 /// <summary>
 /// What the cut produced. <paramref name="Partitions"/> prints each partition's membership in the same

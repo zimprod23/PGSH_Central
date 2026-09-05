@@ -761,6 +761,36 @@ seules lignes qu'elle écrit sont des `AuditLogs` — `BACKUP_POINT_CREATED` / `
 restauration. Une clé absente y vaut **`null`, jamais 0** : « ce point n'en dit rien » et « rien n'a
 changé » sont deux réponses différentes, et une seule est une raison de continuer.
 
+## `StageAllowedServices.Rank` — l'ordre de rotation d'un stage
+
+Une colonne, sur la table de jointure qui n'était qu'une paire.
+
+| colonne | type | règle |
+|---|---|---|
+| `Rank` | `integer NOT NULL DEFAULT 0` | position **1-based** du service dans la file de rotation du stage |
+
+- `IX_StageAllowedServices_Stage_Rank` — **unique** sur `(StageId, Rank)`. Deux services partageant
+  une position laisseraient l'ordre à ce que le fournisseur renvoie, c'est-à-dire exactement l'état
+  que la colonne supprime. Même marché que `IX_CnpnLevelEffectivity_Version_Level` : le prochain
+  oubli de rebasage dégénère en violation de contrainte plutôt qu'en doublon silencieux.
+- ⚠ **Non différée**, donc un échange 1↔2 s'écrit en **deux instructions** (`ServiceRankWriter` gare
+  d'abord les lignes sur leurs rangs négatifs). Un seul `SaveChanges` laisserait à EF l'ordre des
+  deux `UPDATE`, et l'un des deux viole la contrainte à mi-chemin.
+- ⚠ **`0` veut dire « personne n'a choisi », et trie en dernier** — jamais en premier, sans quoi une
+  ligne écrite par un script correctif passerait devant tous les services placés à la main et
+  recevrait la première plage de numéros de groupe.
+- **Remplie par migration depuis `ROW_NUMBER() OVER (PARTITION BY "StageId" ORDER BY "ServiceId")`**,
+  c'est-à-dire exactement l'ordre que `RotationArranger` parcourait déjà : appliquer la migration ne
+  change aucun plan. Sans ce remplissage l'index unique échoue d'entrée, les 146 lignes portant
+  toutes le défaut 0.
+- La jointure reste **derrière la même skip navigation** (`UsingEntity<StageAllowedService>`), donc
+  `Stage.AllowedServices` est toujours une `ICollection<Service>` et aucune lecture existante ne
+  bouge.
+
+Ce que la colonne décide : `BuildServiceQueue` émet le bloc de chaque service **d'un seul tenant** et
+la première colonne de l'axe prend la phase 0, donc le service de rang 1 reçoit la première plage de
+numéros de groupe, à la première période.
+
 ## Ce que la recherche de placement n'ajoute pas au schéma
 
 `GET groups/placements` et `GET hospitals/{id}/stage-coverage` (phase 19.1) sont **entièrement en

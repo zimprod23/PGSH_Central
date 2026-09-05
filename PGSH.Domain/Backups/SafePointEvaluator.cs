@@ -12,13 +12,20 @@ public static class SafePointEvaluator
     /// How recent a point has to be to read as <see cref="SafePointState.Fresh"/>.
     /// </summary>
     /// <remarks>
-    /// Twenty-four hours, matched to the scheduled hourly dump: anything longer and the timer has
-    /// missed a run, which is a fact worth surfacing on its own. It is <em>not</em> a threshold for
-    /// « safe to apply » — the acts this warns about write a promotion each, so what matters to the
-    /// operator is that a point was taken since the last one, which is exactly what the
-    /// « Créer un point maintenant » button in the dialog is for.
+    /// <para><b>The rule is « the timer has not missed a run », not « the dump is recent ».</b> So
+    /// this is <em>one scheduled interval plus one</em>: at forty-eight hours against the daily dump
+    /// (<c>BackupOptions.ScheduleOptions.IntervalMinutes</c>), a point becomes stale only once a run
+    /// has actually been skipped, which is a fact worth surfacing on its own.</para>
+    /// <para>⚠ <b>The two constants are coupled and must move together.</b> Left at twenty-four
+    /// hours when the schedule went from hourly to daily (2026-09-04), every point would have read
+    /// <see cref="SafePointState.Stale"/> for the hours before each run, with nothing wrong — and a
+    /// warning that fires whatever the data says is noise, which is dismissed, which puts the real
+    /// one out of sight. Same rule as <c>ExportNotes</c>.</para>
+    /// <para>It is <em>not</em> a threshold for « safe to apply »: the acts this warns about write a
+    /// promotion each, so what matters to the operator is that a point was taken since the last one
+    /// — which is exactly what the « Créer un point maintenant » button in the dialog is for.</para>
     /// </remarks>
-    public static readonly TimeSpan DefaultFreshFor = TimeSpan.FromHours(24);
+    public static readonly TimeSpan DefaultFreshFor = TimeSpan.FromHours(48);
 
     public static SafePointVerdict Evaluate(
         bool archiveReachable,

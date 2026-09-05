@@ -464,10 +464,11 @@ roster**, jamais un transfert isolé ni une cellule épinglée si on peut l'évi
 |---|---|---|---|
 | ① | **Transférer vers un roster qui y va déjà** | un roster satisfait déjà la demande | rien |
 | ② | **Un roster partagé par contrainte récurrente** | la contrainte revient chaque année | rien — il atteint 6-7 étudiants tout seul |
-| ③ | **Épingler les cellules d'un roster existant** | aucun roster ne convient | déplace aussi les 6 autres du roster |
-| ④ | **Un roster dédié de 1-2 étudiants** | dernier recours | voir l'avertissement ci-dessous |
+| ③ | **Réordonner les services autorisés du stage** | aucun roster ne convient, mais le service voulu est déjà autorisé | déplace toute la promotion — et la répartition reste en plages propres |
+| ④ | **Épingler les cellules d'un roster existant** | ③ ne tombe pas juste | déplace aussi les 6 autres du roster, **et cela se voit sur le document** |
+| ⑤ | **Un roster dédié de 1-2 étudiants** | dernier recours | voir l'avertissement ci-dessous |
 
-⚠ **Ne pas faire ④ par réflexe.** `RotationArranger.BuildServiceQueue` pondère chaque service par le
+⚠ **Ne pas faire ⑤ par réflexe.** `RotationArranger.BuildServiceQueue` pondère chaque service par le
 nombre de cohortes *de taille moyenne* qu'il tient, et une cohorte est **atomique** : une cohorte de
 deux occupe une place dimensionnée pour sept, donc elle dépense une cohorte entière d'admission pour
 deux personnes. Rien ne le refuse, rien ne le signale, et l'équilibre de la promotion est faux.
@@ -505,6 +506,55 @@ n'a saisi la liste**, et une liste vide n'étant pas appliquée, le stage est ou
 ⚠ **Le cas qui existe pour de vrai** : le HMIMV couvre les 6 stages de la 6ᵉ année, et **6 des 7** de
 la 5ᵉ — *Santé Publique* n'autorise qu'un service et il est ailleurs. « Tout au militaire » est donc
 impossible en 5ᵉ année tant que cette liste n'est pas élargie.
+
+### ③ — l'ordre des services est **choisi**, et c'est lui qui décide qui va où
+
+```
+PUT stages/{id}/allowed-services/order      { "serviceIds": [ … ] }
+```
+
+Sur la fiche du stage, la carte « Services autorisés » est numérotée et se réordonne avec les
+flèches. **Le 1ᵉʳ service reçoit les premiers groupes de la 1ʳᵉ période**, et ce n'est pas une
+convention d'affichage : `BuildServiceQueue` émet le bloc de chaque service **d'un seul tenant**, et
+la première colonne de l'axe prend la phase 0 — donc le groupe en tête de l'ordre
+`(partition, n° de groupe)` tombe dans `queue[0]`.
+
+⚠ **Avant, personne n'avait choisi cet ordre** : l'arrangeur parcourait `OrderBy(Service.Id)`,
+c'est-à-dire l'ordre de création au catalogue, c'est-à-dire l'ordre de l'import Access. Et la fiche
+du stage affichait la liste **par hôpital puis par nom** — un quatrième ordre, ni celui-là ni un
+autre. Rien à l'écran ne disait quel service était le premier, dans le seul endroit où être le
+premier décide de quelque chose.
+
+**Pourquoi c'est moins cher que ④.** Une cellule retouchée à la main se **voit sur la répartition
+annuelle** : `GroupNumberRanges` refuse de fusionner par-dessus le trou qu'elle laisse, donc
+« 21-27 » devient « 21-23, 25-27 » d'un côté et un « 24 » solitaire de l'autre, sur une page où
+toutes les autres cellules sont des plages propres. Réordonner produit exactement le même placement
+en plages entières : le document ne dit pas que quelqu'un est intervenu.
+
+**Ce que le levier sait faire, et ce qu'il ne sait pas.**
+
+- ✅ **Par stage, donc indépendamment.** La liste appartient au stage, donc « S1 pour le stage A, S2
+  pour le stage B » se règle en deux ordres sans interférence.
+- ✅ **Déterministe.** Aucun aléa nulle part : à entrées égales, sortie égale.
+- ⚠ **Il déplace la promotion entière**, pas un groupe. Mettre le service voulu sur le bloc du
+  groupe 24 y envoie aussi 21-27. C'est en général *souhaitable* — c'est ce qui garde les plages
+  propres — mais ce n'est pas une épingle nominative.
+- ⚠ **La granularité est le bloc.** La largeur du bloc d'un service vient de sa propre capacité
+  (`(int)(capacité / effectif moyen)`), donc réordonner permute les blocs **en bloc** : on choisit
+  quel service couvre une position, pas quel numéro de groupe exact.
+- ⚠ **Deux demandes contradictoires sur un même stage** peuvent être insatisfaisables — chacune
+  épingle une position à un service. Là, ④.
+- ⚠ **Un service dont la capacité est inférieure à une cohorte moyenne reçoit le poids 0 et sort de
+  la rotation** : le mettre en premier ne le fait pas apparaître.
+
+**Ordre de lecture pour prédire un placement** : services admis (`Admits(levelId)`) et de poids ≥ 1,
+dans l'ordre autorisé → blocs consécutifs de largeur `(int)(capacité / effectif moyen)` → position du
+groupe dans `(partition, n° de groupe)` **parmi les cohortes réellement écrites dans cette colonne**
+→ décalage `phase × max(1, m / longueurDuCycle)`. Un groupe refusé (conflit de croisement, cellule
+publiée) décale tous les suivants d'un cran : c'est le piège de la prédiction à la main.
+
+⚠ **Réordonner n'écrit aucune cellule.** L'ordre est lu par la **prochaine** répartition automatique ;
+un plan déjà écrit ne bouge pas. L'acte est journalisé (`STAGE_SERVICE_ORDER_SET`).
 
 ### Après avoir posé le placement
 

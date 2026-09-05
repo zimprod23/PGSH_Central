@@ -63,6 +63,22 @@ public sealed record StageScheduleResponse(
 /// <c>RotationGroup</c>: they are the chips the user filters <i>with</i>, so filtering them by the
 /// current filter would leave no way back.</para>
 /// </remarks>
+/// <param name="DeclaredSlotCount">
+/// Columns authored for this stage and year, whether or not anything is arranged into them — the
+/// fact that separates « rien n'est réparti » from « aucun axe n'existe ici ». Never narrowed by the
+/// partition filter: an axis belongs to the stage, not to a partition.
+/// </param>
+/// <param name="ServedPeriodCount">
+/// Périodes recorded for this stage and year, whatever their origin — and <b>null</b> when the
+/// question was not asked, which is every grid that has an axis. ⚠ Null, never 0: « aucune période »
+/// and « on n'a pas regardé » are different answers, and the first is what makes an empty grid the
+/// ordinary start of planning rather than a year served before PGSH held a grid at all.
+/// </param>
+/// <param name="EmptyGridNote">
+/// What the empty table means, in one sentence — <see cref="StageScheduleNotes"/>. Silent as soon as
+/// a single cell exists: a note that fires whatever the data says is noise, and noise is dismissed,
+/// which puts the real one out of sight.
+/// </param>
 public sealed record StageScheduleSummary(
     int TotalCohorts,
     int PublishedCohorts,
@@ -71,7 +87,10 @@ public sealed record StageScheduleSummary(
     int SaturatedCellCount,
     IReadOnlyList<SaturatedCellResponse> Saturations,
     IReadOnlyList<int> OccupiedSlotIds,
-    IReadOnlyList<PartitionSlotUse> PartitionUsage);
+    IReadOnlyList<PartitionSlotUse> PartitionUsage,
+    int DeclaredSlotCount,
+    int? ServedPeriodCount,
+    string? EmptyGridNote);
 
 /// <summary>One rotation partition of the promotion, and how many of this stage's cohorts carry it.</summary>
 public sealed record PartitionSummary(string Label, int CohortCount);
@@ -146,6 +165,15 @@ public sealed record CohortScheduleRow(
 /// </list>
 /// <paramref name="AdmitsLevel"/> is false for a cell someone placed on a service that refuses this
 /// promotion outright — publish will reject it, so the grid must say so before they try.
+/// <para><paramref name="IsPublished"/> says whether <b>this cell</b> has been materialised into
+/// périodes, which is a narrower question than the row's <c>IsSchedulePublished</c> and the only one
+/// that says whether a given cell may still be moved.</para>
+/// <para>⚠ It is read from <c>ServicePeriodSlotCoverage</c> and never from
+/// <c>ServicePeriod.CohortSlotAssignmentId</c>. That FK names the <b>first</b> cell of a run, so
+/// under <c>StageRotationMode.SingleService</c> the trailing cells of a published run have nothing
+/// pointing at them: measured on Gynécologie Obstétrique 2026-2027, <b>363 cells of which the FK
+/// names 121</b>, so a per-cell flag built on it would show 242 published cells as free. The row flag
+/// survives that reading only because one période suffices to make it true.</para>
 /// </summary>
 public sealed record SlotCellResponse(
     int    AssignmentId,
@@ -156,4 +184,5 @@ public sealed record SlotCellResponse(
     int    Capacity,
     int    OccupiedSeats,
     bool   IsLevelQuota,
-    bool   AdmitsLevel);
+    bool   AdmitsLevel,
+    bool   IsPublished);

@@ -2,10 +2,13 @@
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Employees.MyServices;
 using PGSH.Application.AcademicGroups.Placements;
+using PGSH.Application.Audit;
 using PGSH.Application.Hospitals.Chefs;
 using PGSH.Application.Hospitals.Coverage;
 using PGSH.Application.Hospitals.Services.OccupancyReport;
 using PGSH.Domain.Stages;
+using PGSH.Application.Stages.AllowedServices;
+using PGSH.Application.Stages.Cohorts.UnpublishSchedule;
 using PGSH.Application.Stages.Planning;
 using PGSH.Application.Stages.Progression;
 using PGSH.Application.Stages.Cohorts.GetByStage;
@@ -603,6 +606,18 @@ public class SqlTranslationTests
 
         GetStageScheduleQueryHandler.PartitionSlotUseQuery(db, stageId: 1, academicYearId: 1)
             .ToQueryString().Should().Contain("DISTINCT");
+
+        // Two collection navigations deep — période → affectation → cohorte for the stage, and
+        // période → affectation → inscription for the year. It is what tells a year served before
+        // PGSH held a grid from a year nobody has started planning, so a provider refusing it would
+        // put the empty grid back to explaining nothing.
+        string served = GetStageScheduleQueryHandler
+            .ServedPeriodsQuery(db, stageId: 1, academicYearId: 1)
+            .ToQueryString();
+
+        served.Should().Contain("ServicePeriods");
+        served.Should().Contain("AcademicYearId",
+            "the year is read from the registration, never inferred from the period's own dates");
     }
 
     /// <summary>
@@ -992,5 +1007,83 @@ public class SqlTranslationTests
         GetHospitalStageCoverageQueryHandler.ServicesAtHospitalQuery(db, levelId: 3)
             .ToQueryString().Should().Contain("StageAllowedServices",
                 "the names are loaded through the join table; only the verdict comes from the counts");
+    }
+
+    /// <summary>
+    /// Les trois lectures du journal des actions.
+    ///
+    /// <para>⚠ <c>ActionCountsQuery</c> est la seule intéressante, et pour une raison inversée : son
+    /// <c>GroupBy</c> projeté dans un record <b>se traduit en SQL</b> alors que le fournisseur
+    /// in-memory refusait de l'ordonner — c'est lui qui a imposé de faire le tri en mémoire, pas
+    /// Npgsql. Ce cas dit donc que l'agrégat reste bien côté base, là où il doit être.</para>
+    ///
+    /// <para><c>ActorsQuery</c> pin l'autre moitié : la jointure vers l'auteur traverse un
+    /// <c>Guid</c> et une <c>string</c> sans clé étrangère, elle est donc faite en deux lectures
+    /// plates avec un <c>IN</c> — jamais par un <c>Guid.ToString()</c> dans un prédicat.</para>
+    /// </summary>
+    [Fact]
+    public void The_audit_journal_queries_compile_to_sql()
+    {
+        using var db = TestHarness.NewNpgsqlContext();
+
+        string scoped = GetAuditLogQueryHandler
+            .ScopedQuery(db, action: "PARTITIONS_ASSIGNED", entityType: "AcademicYear",
+                entityId: "21", from: new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+                to: new DateTime(2026, 9, 4, 0, 0, 0, DateTimeKind.Utc))
+            .ToQueryString();
+
+        scoped.Should().Contain("AuditLogs");
+        scoped.Should().ContainEquivalentOf("CreatedAt", "the window is a date range on the clock");
+
+        GetAuditLogQueryHandler.ActionCountsQuery(db)
+            .ToQueryString().Should().ContainEquivalentOf("count(",
+                "the tally stays where the rows are, however the ordering is done");
+
+        GetAuditLogQueryHandler.ActorsQuery(db, ["a", "b"])
+            .ToQueryString().Should().Contain("IdentityProviderId",
+                "the actor is matched on the Keycloak sub, in a second flat read");
+    }
+
+    /// <summary>
+    /// L'ordre de rotation d'un stage se lit par une requete plate calee sur l'id du stage, jamais
+    /// comme une collection dans la projection d'une ligne : le rang vit sur la table de jointure, et
+    /// une ligne de jointure projetee est un element calcule sans cle — la forme que Npgsql refuse,
+    /// celle qui avait tue le plan macro.
+    ///
+    /// <para>Deux appelants la partagent, <c>RotationArranger</c> et <c>GetStageByIdQueryHandler</c>,
+    /// donc un refus du fournisseur ferait tomber a la fois la repartition automatique et la fiche du
+    /// stage — avec toute la suite au vert, puisque le fournisseur in-memory ne traduit rien.</para>
+    /// </summary>
+    [Fact]
+    public void The_stage_service_rank_query_compiles_to_sql()
+    {
+        using var db = TestHarness.NewNpgsqlContext();
+
+        string sql = ServiceRankWriter.RanksQuery(db, stageId: 7).ToQueryString();
+
+        sql.Should().Contain("StageAllowedServices");
+        sql.Should().ContainEquivalentOf("Rank", "the authored position is what the read is for");
+    }
+
+    /// <summary>
+    /// Le bilan par cohorte de la dépublication groupée. Il agrège <b>sur les périodes</b> et non sur
+    /// les cohortes : replier un agrégat au-dessus d'une navigation de collection à l'intérieur d'un
+    /// second agrégat est exactement la forme que Npgsql refuse — la famille qui avait tué le plan
+    /// macro. Et <c>g.Sum(p =&gt; p.Attendance.Count)</c> est la partie qui le tenterait.
+    ///
+    /// <para>⚠ Un refus ici ferait tomber « Dépublier toutes » sur une promotion entière, avec toute
+    /// la suite au vert.</para>
+    /// </summary>
+    [Fact]
+    public void The_bulk_unpublish_toll_compiles_to_sql()
+    {
+        using var db = TestHarness.NewNpgsqlContext();
+
+        string sql = UnpublishStageScheduleCommandHandler
+            .CohortTollsQuery(db, [1, 2, 3])
+            .ToQueryString();
+
+        sql.Should().ContainEquivalentOf("ServicePeriods");
+        sql.Should().ContainEquivalentOf("count(", "les quatre décomptes restent côté base");
     }
 }

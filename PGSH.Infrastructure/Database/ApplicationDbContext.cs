@@ -1,4 +1,4 @@
-using MediatR;
+﻿using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using PGSH.Application.Abstractions.Data;
@@ -43,6 +43,7 @@ public sealed class ApplicationDbContext : DbContext, IApplicationDbContext
     // ===== Attendance & Evaluation =====
     public DbSet<AttendanceRecord> AttendanceRecords { get; set; }
     public DbSet<StageObjective> StageObjectives { get; set; }
+    public DbSet<StageAllowedService> StageAllowedServices { get; set; }
 
     // ===== Hospital =====
     public DbSet<Center> Centers { get; set; }
@@ -100,11 +101,32 @@ public sealed class ApplicationDbContext : DbContext, IApplicationDbContext
         // which would turn every wrapped handler into a 500 rather than into an atomic one.
         var strategy = Database.CreateExecutionStrategy();
 
+        // ⚠ Entities staged BEFORE this transaction began were staged deliberately by something
+        // upstream — `AuditLogPipelineBehavior` adds the act's journal entry ahead of the handler, so
+        // that a refused act writes nothing and a successful one records itself in the same unit of
+        // work. Clearing the tracker on the way in destroyed exactly that: the act succeeded and its
+        // trail vanished, silently, on the one table whose whole purpose is to be read back later.
+        // Measured 2026-09-05 on the live base — a reorder wrote its ranks and no STAGE_SERVICE_ORDER_SET.
+        var preStaged = ChangeTracker.Entries()
+            .Where(e => e.State == EntityState.Added)
+            .Select(e => e.Entity)
+            .ToList();
+
+        int attempt = 0;
+
         return await strategy.ExecuteAsync(async ct =>
         {
-            // A retry re-runs the operation from the top, so anything the failed attempt tracked has
-            // to go: left behind, it would be inserted a second time by the attempt that succeeds.
-            ChangeTracker.Clear();
+            // ⚠ Only from the second attempt. A retry re-runs the operation from the top, so anything
+            // the *failed* attempt tracked has to go — left behind it would be inserted twice — but on
+            // the first attempt there is no failed attempt to clean up, only what was staged above.
+            // Those are then re-staged, or a retry would succeed while losing the journal entry.
+            if (attempt++ > 0)
+            {
+                ChangeTracker.Clear();
+
+                foreach (var entity in preStaged)
+                    Add(entity);
+            }
 
             await using var transaction = await Database.BeginTransactionAsync(ct);
 

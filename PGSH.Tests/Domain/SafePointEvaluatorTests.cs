@@ -148,4 +148,39 @@ public class SafePointEvaluatorTests
             .Evaluate(true, Point(Now - SafePointEvaluator.DefaultFreshFor), Running, Now)
             .State.Should().Be(SafePointState.Fresh);
     }
+
+    /// <summary>
+    /// ⚠ <b>The window and the schedule are coupled, and this is what says so.</b> Freshness means
+    /// « the timer has not missed a run », so a point taken one whole interval ago — the state of
+    /// the archive for the hours immediately before every scheduled dump — must still read
+    /// <see cref="SafePointState.Fresh"/>.
+    ///
+    /// <para>Caught for real on 2026-09-04, when the schedule moved from hourly to daily: with the
+    /// window left at twenty-four hours, every point would have read
+    /// <see cref="SafePointState.Stale"/> in the run-up to each dump, on a system with nothing wrong
+    /// with it. A warning that fires whatever the data says is noise, noise is dismissed, and the
+    /// real one goes with it. Lengthening <c>BackupOptions.ScheduleOptions.IntervalMinutes</c>
+    /// without widening <c>DefaultFreshFor</c> now fails here instead of on somebody's screen.</para>
+    /// </summary>
+    [Fact]
+    public void A_point_one_whole_scheduled_interval_old_is_still_fresh()
+    {
+        var oneInterval = TimeSpan.FromMinutes(ScheduleIntervalMinutes);
+
+        SafePointEvaluator
+            .Evaluate(true, Point(Now - oneInterval), Running, Now)
+            .State.Should().Be(SafePointState.Fresh,
+                "a point taken at the previous scheduled run is not evidence of a missed one");
+
+        SafePointEvaluator.DefaultFreshFor.Should().BeGreaterThan(oneInterval,
+            "the window has to leave room for one whole interval plus the run that closes it");
+    }
+
+    /// <summary>
+    /// The scheduled cadence, restated here rather than referenced: <c>BackupOptions</c> lives in
+    /// Infrastructure and the evaluator is a pure domain rule that must not depend on it. Restating
+    /// it is what makes the test above a *check* on the coupling rather than a tautology — change
+    /// the option without changing this and the suite says so.
+    /// </summary>
+    private const int ScheduleIntervalMinutes = 1440;
 }

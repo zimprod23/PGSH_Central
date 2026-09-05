@@ -12,7 +12,17 @@ namespace PGSH.Application.AcademicGroups.Empty;
 /// its own once a rotation has begun: that refusal cannot be forced from here.
 /// </param>
 public sealed record EmptyGroupCommand(int GroupId, bool DropAffectations = false)
-    : ICommand<EmptyGroupReport>;
+    : ICommand<EmptyGroupReport>, IAuditableCommand
+{
+    // ⚠ Destructive and unrecorded until 04/09/2026. The trail's coverage was simply patchy — it did
+    // not split along « creates » versus « destroys », which is what made the gap hard to notice.
+    // DropAffectations belongs in the metadata because it is the whole difference between clearing
+    // roster pointers and deleting affectations together with their périodes.
+    public string AuditAction => "GROUP_EMPTIED";
+    public string AuditEntityType => "AcademicGroup";
+    public string? AuditEntityId => GroupId.ToString();
+    public string? AuditMetadata => AuditMetadataJson.Of(("dropAffectations", DropAffectations));
+}
 
 /// <param name="Unassigned">Registrations whose roster pointer was cleared.</param>
 /// <param name="AffectationsRemoved">Affectations deleted with them — 0 unless asked for.</param>

@@ -1,4 +1,4 @@
-using PGSH.Domain.Audit;
+﻿using PGSH.Domain.Audit;
 using PGSH.Domain.Calendar;
 using PGSH.Domain.Common.Utils;
 using PGSH.Domain.Employees;
@@ -28,6 +28,7 @@ public interface IApplicationDbContext
     DbSet<History> Histories { get; set; }
     DbSet<AttendanceRecord> AttendanceRecords { get; set; }
     DbSet<StageObjective> StageObjectives { get; set; }
+    DbSet<StageAllowedService> StageAllowedServices { get; set; }
     DbSet<ObjectiveScore> ObjectiveScores { get; set; }
     DbSet<AcademicYear> AcademicYears { get; set; }
     DbSet<AcademicGroup> AcademicGroups { get; set; }

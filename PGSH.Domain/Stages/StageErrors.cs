@@ -1,4 +1,4 @@
-using PGSH.Domain.Common.Utils;
+﻿using PGSH.Domain.Common.Utils;
 using PGSH.SharedKernel;
 
 namespace PGSH.Domain.Stages;
@@ -343,6 +343,45 @@ public static class StageErrors
         $"Aucun des services autorisés pour le stage « {stageName} » n'accueille les étudiants de {levelLabel}. "
         + "Ajoutez un quota pour cette promotion sur au moins un de ces services, ou élargissez la liste "
         + "des services autorisés du stage.");
+
+    /// <summary>
+    /// The order sent back is not a permutation of the services the stage actually allows. Named by
+    /// cause rather than as one flat "invalid order": a missing service means the page was opened
+    /// before somebody else authored one and the fix is to reload, while an unknown one means the
+    /// list has since shrunk — opposite acts, and a single sentence would send the user to the wrong
+    /// one.
+    /// </summary>
+    public static Error ServiceOrderNotAPermutation(
+        int missingCount, int unknownCount, int duplicateCount)
+    {
+        var causes = new List<string>();
+
+        if (missingCount > 0)
+            causes.Add($"{missingCount} service(s) autorisé(s) n'y figurent pas");
+        if (unknownCount > 0)
+            causes.Add($"{unknownCount} service(s) n'appartiennent plus à la liste du stage");
+        if (duplicateCount > 0)
+            causes.Add($"{duplicateCount} service(s) y figurent deux fois");
+
+        return Error.Conflict(
+            "Stages.ServiceOrderNotAPermutation",
+            "L'ordre envoyé ne correspond pas aux services autorisés du stage : "
+            + string.Join(", ", causes)
+            + ". Rechargez la fiche du stage et recommencez — l'ordre décide de la prochaine "
+            + "répartition automatique, il ne peut pas être enregistré partiellement.");
+    }
+
+    /// <summary>
+    /// The list of authorised services changed between the moment the order was decided and the
+    /// moment it was written. Distinct from <see cref="ServiceOrderNotAPermutation"/> on purpose:
+    /// what the caller sent was well-formed when it was checked, and blaming the payload for a
+    /// concurrent edit sends the user looking for a mistake that is not in it.
+    /// </summary>
+    public static Error ServiceOrderIsStale(int expected, int received) => Error.Conflict(
+        "Stages.ServiceOrderIsStale",
+        $"La liste des services autorisés a changé pendant l'enregistrement : {expected} service(s) "
+        + $"sur le stage, {received} dans l'ordre envoyé. Rien n'a été modifié — rechargez la fiche "
+        + "du stage et refaites le classement.");
 
     public static readonly Error ScheduleNotConfigured = Error.Validation(
         "Schedule.NotConfigured",

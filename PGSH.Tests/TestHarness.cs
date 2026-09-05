@@ -1,4 +1,4 @@
-using AcademicProgram = PGSH.Domain.Common.Utils.AcademicProgram;
+﻿using AcademicProgram = PGSH.Domain.Common.Utils.AcademicProgram;
 using Level = PGSH.Domain.Common.Utils.Level;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
@@ -294,6 +294,32 @@ public static class TestHarness
     {
         foreach (var service in services)
             stage.AllowedServices.Add(service);
+
+        return stage;
+    }
+
+    /// <summary>
+    /// Authorises <paramref name="services"/> <b>and</b> ranks them in the order given — the order
+    /// <c>RotationArranger</c> then walks them in.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ <c>Allow</c> deliberately leaves the rank at 0, i.e. « personne n'a choisi l'ordre », which
+    /// is the state of every stage before somebody authors one and the reason the arranger falls
+    /// back to id order. A fixture that wants to assert an authored order has to say so, or it is
+    /// asserting the fallback.
+    /// </remarks>
+    public static Stage AllowInOrder(
+        this ApplicationDbContext db, Stage stage, params Service[] services)
+    {
+        // ⚠ The join row only, never also stage.AllowedServices.Add — the navigation and the
+        // payload entity are two ways of writing the same row, and doing both makes EF track two
+        // instances of one key. The skip navigation is fixed up from the join once both ends are
+        // tracked, which is what every read here goes through.
+        for (int i = 0; i < services.Length; i++)
+            db.StageAllowedServices.Add(new StageAllowedService
+            {
+                StageId = stage.Id, ServiceId = services[i].Id, Rank = i + 1,
+            });
 
         return stage;
     }

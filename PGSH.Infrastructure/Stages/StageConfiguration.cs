@@ -35,20 +35,34 @@ internal sealed class StageConfiguration : IEntityTypeConfiguration<Stage>
                .HasForeignKey(sl => sl.StageId)
                .OnDelete(DeleteBehavior.Cascade);
 
+        // A payload join, kept behind the same skip navigation: every existing read of
+        // AllowedServices is untouched, while the rank the rotation is walked in becomes a
+        // first-class row somebody can author. See StageAllowedService.
         builder.HasMany(s => s.AllowedServices)
                .WithMany()
-               .UsingEntity("StageAllowedServices",
-                   r => r.HasOne(typeof(PGSH.Domain.Hospitals.Service)).WithMany()
-                          .HasForeignKey("ServiceId")
+               .UsingEntity<StageAllowedService>(
+                   r => r.HasOne(j => j.Service).WithMany()
+                          .HasForeignKey(j => j.ServiceId)
                           .OnDelete(DeleteBehavior.Cascade),
-                   l => l.HasOne(typeof(Stage)).WithMany()
-                          .HasForeignKey("StageId")
+                   l => l.HasOne<Stage>().WithMany()
+                          .HasForeignKey(j => j.StageId)
                           .OnDelete(DeleteBehavior.Cascade),
                    j =>
                    {
-                       j.HasKey("StageId", "ServiceId");
-                       j.HasIndex(new[] { "StageId", "ServiceId" })
+                       j.ToTable("StageAllowedServices");
+                       j.HasKey(x => new { x.StageId, x.ServiceId });
+
+                       j.Property(x => x.Rank).IsRequired().HasDefaultValue(0);
+
+                       j.HasIndex(x => new { x.StageId, x.ServiceId })
                         .HasDatabaseName("IX_StageAllowedServices_Stage_Service");
+
+                       // Unique, so the next forgotten re-base degrades to a constraint violation
+                       // rather than to two services silently sharing a position — the same bargain
+                       // as IX_CnpnLevelEffectivity_Version_Level.
+                       j.HasIndex(x => new { x.StageId, x.Rank })
+                        .IsUnique()
+                        .HasDatabaseName("IX_StageAllowedServices_Stage_Rank");
                    });
     }
 }

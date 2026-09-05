@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Domain.Stages;
 using PGSH.SharedKernel;
@@ -65,9 +65,22 @@ internal sealed class RotationArranger(
         int levelId = stage.LevelId;
         string levelLabel = stage.Level?.Label ?? $"niveau {levelId}";
 
+        // ⚠ The order is authored, and it is a planning input rather than a display preference:
+        // BuildServiceQueue emits each service's block consecutively and the earliest column takes
+        // phase 0, so whichever service is first here receives the first run of group numbers in the
+        // first période. That is what makes a nominative placement expressible as a plan instead of
+        // as a cell edited by hand afterwards — an edit the printed répartition shows, because
+        // GroupNumberRanges refuses to merge across the hole it leaves.
+        //
+        // ThenBy(Id) is the pre-Rank behaviour and is what an unranked row falls back to, so a stage
+        // nobody has ordered arranges exactly as it did before.
+        var rankByService = await AllowedServices.ServiceRankWriter.RanksQuery(dbContext, stageId)
+            .ToDictionaryAsync(x => x.ServiceId, x => x.Rank, cancellationToken);
+
         var services = stage.AllowedServices
             .Where(s => s.Admits(levelId))
-            .OrderBy(s => s.Id)
+            .OrderBy(s => ServiceRotationOrder.SortKeyOf(rankByService.GetValueOrDefault(s.Id)))
+            .ThenBy(s => s.Id)
             .Select(s => new ServiceInfo(s.Id, s.CapacityFor(levelId)))
             .Where(s => s.Capacity > 0)
             .ToList();

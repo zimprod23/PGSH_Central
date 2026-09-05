@@ -50,10 +50,27 @@ public sealed class BackupOptions
         /// </summary>
         public bool Enabled { get; set; } = true;
 
-        public int IntervalMinutes { get; set; } = 60;
+        /// <summary>
+        /// How often a scheduled point is taken. <b>Daily</b> (1 440 min) since 2026-09-04, at the
+        /// user's request — an hourly <c>pg_dump</c> of the whole faculty base costs more disk and
+        /// I/O than the recovery window is worth, and the acts that actually need an undo (a
+        /// déliberation, a réinscription roll, an axis apply) take their own point from the dialog
+        /// rather than relying on the timer.
+        /// </summary>
+        /// <remarks>
+        /// ⚠ <b>Coupled to <c>SafePointEvaluator.DefaultFreshFor</c>.</b> Freshness means « the timer
+        /// has not missed a run », so that constant is one interval plus one. Shortening this without
+        /// widening that reports nothing wrong; <em>lengthening</em> this without widening that makes
+        /// every point read stale between runs.
+        /// </remarks>
+        public int IntervalMinutes { get; set; } = 1440;
 
-        /// <summary>How long an hourly point is kept before retention may remove it.</summary>
-        public int KeepHourlyForHours { get; set; } = 24;
+        /// <summary>
+        /// Every scheduled point younger than this is kept, whatever the cadence; past it, retention
+        /// thins to one a day. Named for what it does rather than for an hourly schedule — the
+        /// interval is configurable and the tier has to stay true under any value of it.
+        /// </summary>
+        public int KeepAllForHours { get; set; } = 24;
 
         /// <summary>How long one point per day is kept after the hourly window has passed.</summary>
         public int KeepDailyForDays { get; set; } = 30;

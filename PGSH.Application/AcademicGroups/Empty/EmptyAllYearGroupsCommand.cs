@@ -13,4 +13,13 @@ namespace PGSH.Application.AcademicGroups.Empty;
 /// That act exists, per stage, where its cost is announced stage by stage:
 /// <c>DeleteAllCohortsCommand</c>.
 /// </remarks>
-public sealed record EmptyAllYearGroupsCommand(int AcademicYearId) : ICommand<int>;
+public sealed record EmptyAllYearGroupsCommand(int AcademicYearId) : ICommand<int>, IAuditableCommand
+{
+    public string AuditAction => "YEAR_GROUPS_EMPTIED";
+    public string AuditEntityType => "AcademicYear";
+    public string? AuditEntityId => AcademicYearId.ToString();
+
+    // The year *is* the whole scope of this act, and it is already on the entry as EntityId — there
+    // is nothing further to say, and `{}` would claim otherwise.
+    public string? AuditMetadata => null;
+}

@@ -8,7 +8,20 @@ public sealed record CreateGroupCommand(
     int     AcademicYearId,
     int?    LevelId,
     string? GeographicZone,
-    string? RotationGroup) : ICommand<int>;
+    string? RotationGroup) : ICommand<int>, IAuditableCommand
+{
+    public string AuditAction => "GROUP_CREATED";
+    public string AuditEntityType => "AcademicYear";
+    public string? AuditEntityId => AcademicYearId.ToString();
+
+    // ⚠ Through AuditMetadataJson rather than interpolated: Label is free text somebody typed, so a
+    // quote or a backslash in it would write metadata that is not JSON — in the one column whose
+    // whole purpose is to be read back later.
+    public string? AuditMetadata => AuditMetadataJson.Of(
+        ("label", Label),
+        ("levelId", LevelId),
+        ("rotationGroup", RotationGroup));
+}
 
 internal sealed class CreateGroupCommandValidator : AbstractValidator<CreateGroupCommand>
 {
