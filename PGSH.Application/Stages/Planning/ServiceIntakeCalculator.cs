@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Domain.Hospitals;
 
@@ -26,6 +26,22 @@ internal sealed class ServiceIntakeLookup(IReadOnlyDictionary<int, Service> serv
 
     public bool HasLevelRestrictions(int serviceId) =>
         services.TryGetValue(serviceId, out var service) && service.HasLevelRestrictions;
+
+    /// <summary>
+    /// Whether « autoriser le dépassement d'effectif » may lift this service's number — the chef's
+    /// own statement, read off <see cref="Service.AllowsOverCapacity"/> rather than restated here.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ An unknown service refuses, for the same reason it admits nobody: a caller asking about one
+    /// it never loaded is a bug, and the safe answer to a bug is the one that stops a publication
+    /// rather than the one that forces it through.
+    /// </remarks>
+    public bool AllowsOverCapacity(int serviceId) =>
+        services.TryGetValue(serviceId, out var service) && service.AllowsOverCapacity;
+
+    /// <summary>The services among <paramref name="serviceIds"/> whose number cannot be forced.</summary>
+    public IReadOnlyList<int> FirmServicesAmong(IEnumerable<int> serviceIds) =>
+        serviceIds.Where(id => !AllowsOverCapacity(id)).ToList();
 
     public string NameOf(int serviceId) =>
         services.TryGetValue(serviceId, out var service) ? service.Name : $"#{serviceId}";

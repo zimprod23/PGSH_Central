@@ -1,4 +1,4 @@
-using PGSH.Application.Hospitals.Chefs;
+﻿using PGSH.Application.Hospitals.Chefs;
 
 namespace PGSH.Application.Hospitals.Services.GetMany;
 
@@ -27,6 +27,12 @@ public record ServiceSummaryResponse(
     string ServiceType,
     string? Specialty,
     int Capacity,
+    /// <summary>
+    /// False when this service refuses to be published over its number. Carried on the row so the
+    /// list can mark it: a ceiling that is actually binding is not visible from the number alone,
+    /// and it is the one an admin has to plan around rather than tick past.
+    /// </summary>
+    bool AllowsOverCapacity,
     int RestrictedLevelCount,
     int HospitalId,
     string HospitalName,

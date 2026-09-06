@@ -4300,3 +4300,247 @@ n'en existe aucun dans la base — les deux seuls services rattachés portent to
 branche ne tient que par le test.
 
 **Rien n'a été écrit** : une recherche, deux ouvertures de fiche, une pagination.
+
+---
+
+## §47 — Changement de groupe et échange, sans trace (session 45)
+
+⚠ **À faire après avoir pris un point de sauvegarde** (« Sauvegardes » → « Prendre un point »). L'acte
+est irréversible au sens qui compte : le groupe d'origine n'est écrit nulle part sur le dossier après
+coup, seul le journal des actions le garde. Ce n'est pas un acte de masse, mais c'est le premier essai
+sur des données réelles.
+
+**Non piloté à la livraison.** La session ouverte était une session **étudiant** et l'espace admin
+répond 403 comme il doit ; la base étant celle de la faculté, l'acte n'a pas été exécuté pour
+vérifier. Tout ce qui suit reste à faire.
+
+### Où
+
+`Admin → Groupes → (un groupe de 2026-2027) → ligne d'un étudiant`. Deux icônes **orange** nouvelles à
+côté du transfert (bleu) et de la délocalisation (turquoise) :
+
+| icône | action |
+|---|---|
+| `IconUserEdit` | **Changer de groupe** — correction sans trace |
+| `IconArrowsExchange` | **Échanger** — deux étudiants permutent leurs groupes |
+
+### 1 · Ce que la fenêtre doit dire avant tout
+
+Ouvrir « Changer de groupe ». L'encart orange doit expliquer que **ce n'est pas un transfert**, que
+rien ne restera sur le dossier, que le groupe d'origine ne sera plus indiqué nulle part *sauf dans le
+journal*, et que l'action sera refusée si les rotations ont commencé. Le bouton reste **désactivé**
+tant que la case « Je comprends… » n'est pas cochée.
+
+### 2 · La liste des groupes proposés
+
+⚠ Elle doit contenir **uniquement des groupes de la même promotion**, jamais le groupe courant et
+jamais « Non réparti ». C'est la vérification la plus utile de l'écran : le serveur refuse les trois
+cas, mais une option qui ne peut produire qu'un refus est une option qu'il faut essayer pour
+apprendre qu'elle n'en est pas une. Chaque ligne indique l'effectif du groupe, ce qui est le chiffre
+sur lequel on choisit.
+
+### 3 · Le changement lui-même
+
+Choisir un groupe, cocher, valider. Le message de succès doit nommer **le groupe d'origine et celui
+d'arrivée**, le nombre d'affectations déplacées, le nombre de périodes reconstruites, et — s'il y en a
+— les périodes hors grille conservées. ⚠ C'est le seul endroit de l'application où le groupe d'origine
+sera affiché ; après cela, seul le journal.
+
+À vérifier ensuite :
+
+- **la fiche du groupe de départ** ne le liste plus, **celle du groupe d'arrivée** le liste ;
+- **le dossier de l'étudiant** (`Admin → Étudiants → …`) ne montre **aucune** ligne « transfert de
+  groupe » dans son historique — c'est toute la fonctionnalité ;
+- **ses stages** nomment les services du **nouveau** groupe, pas de l'ancien ;
+- **le journal des actions** (`Admin → Journal`) contient une entrée `STUDENT_GROUP_CHANGED` à son
+  nom, avec l'auteur et l'heure.
+
+### 4 · Le refus qui doit tomber
+
+Refaire la manœuvre sur un étudiant de **2025-2026** (année entièrement démarrée et close : 17 752
+périodes, toutes démarrées). Le refus doit nommer les quatre chiffres — périodes, démarrées,
+évaluations, journées de présence — et **désigner le transfert**. Il n'y a volontairement aucune case
+« forcer ».
+
+⚠ Vérifier ensuite que **rien n'a bougé** : l'étudiant est toujours dans son groupe, et le journal ne
+contient **aucune** entrée pour cette tentative (un acte refusé n'écrit rien).
+
+### 5 · L'échange
+
+Sur un groupe de 2026-2027, icône « Échanger » : choisir un **groupe**, puis un **étudiant** de ce
+groupe (la liste se charge à l'ouverture ; la recherche se déclenche à partir de 2 caractères).
+Valider. Les deux fiches de groupe doivent avoir **échangé** exactement un étudiant chacune, et les
+effectifs doivent être **inchangés** — c'est la raison d'être de l'échange.
+
+⚠ Le cas qui compte : tenter un échange où **l'un des deux** a une rotation démarrée. Le refus doit
+tomber et **aucun des deux** ne doit avoir bougé — pas même celui dont la moitié était valide.
+
+### 6 · Ce qui n'est pas pilotable par les données
+
+- **« Le groupe d'arrivée ne fait pas ce stage »** : tous les rosters d'une promotion portent
+  exactement les mêmes cohortes (mesuré le 06/09/2026), donc ce refus ne peut pas être atteint sans
+  fabriquer la situation. Il ne tient que par le test.
+- **« Il tient déjà une affectation dans la cohorte d'arrivée »** : il faudrait une revalidation posée
+  à la main dans le groupe cible.
+
+### §47 — **piloté pour de vrai le 06/09/2026**, session admin, quatre actes exécutés puis annulés
+
+Point de sauvegarde pris **avant** (« Avant essai changement de groupe », 21.4 Mo, schéma
+**COMPATIBLE**, 06/09/2026 11:03) — et la bannière disait justement, avant lui, que le dernier point
+avait été pris sous une autre migration. C'est le `SchemaChanged` de la Phase 18 sur données réelles.
+
+**Le sujet : Wail Aabaybou** (CNE E137200311), *Groupe 1 — Cinquième Année Médecine* 2026-2027, dont
+l'état a été relevé en base **avant** l'essai : 7 affectations, 7 périodes, 7 memberships, 1 ligne
+d'historique (`StatusChange` du 02/09), et — le cas qui compte — sa période de *Gynécologie
+Obstétrique* est un run `SingleService` **couvrant 3 cellules**.
+
+| étape | résultat |
+|---|---|
+| 1 · la fenêtre | encart orange complet, bouton **désactivé** tant que la case n'est pas cochée ✓ |
+| 2 · la liste des groupes | commence à « Groupe 2 », **toutes** Cinquième Année Médecine, chacune avec son effectif. Rechercher « Non r » → **aucune option** ; « Troisi » → **aucune option** ✓ |
+| 3 · le changement | `POST` 200. En base : pointeur 4121 → **4122**, les 7 cohortes passées à leurs homologues du Groupe 2 (15183→15184, 15197→15198, …), les 7 cellules idem, **couverture Gynéco toujours à 3** — le run n'a pas éclaté en trois périodes ✓ |
+| — la trace | `Histories` **toujours à 1**, **7** memberships (pas 14), toutes `EndDate` nulle, `StartDate` inchangée au 02/09, aucun motif ✓ |
+| — le journal | `STUDENT_GROUP_CHANGED`, objet = son inscription, critères `targetGroupId : 4122` ✓ |
+| 4 · le refus | sur *Groupe 1 — Sixième Année Médecine* **2025-2026** : « sur 6 période(s), 6 ont démarré, 0 portent une évaluation et 0 journée(s) de présence… Utilisez un transfert ». Effectifs inchangés (7/7) et le journal reste à **2** entrées — l'acte refusé n'écrit rien ✓ |
+| 5 · l'échange | Wail ↔ Aya Acharai (Groupe 3). Les deux ont permuté, **les deux effectifs sont restés à 7**, chacun garde 7/7/7 et 1 ligne d'historique, et le journal porte **une seule** ligne `STUDENT_GROUPS_SWAPPED` avec la seconde inscription en critère ✓ |
+| — retour | tout a été remis en place par les actes inverses. Vérifié en base : Wail retrouve **exactement** ses cohortes et cellules d'origine (15183/1501/couv=3, …), et sur toute l'année 2026-2027 il y a **0 membership close et 0 motif de transfert** ✓ |
+| 6 · le dossier | la fiche affiche « GROUPE 1 — CINQUIÈME ANNÉE MÉDECINE » et **aucune ligne de transfert** ✓ |
+| 7 · le journal | les quatre actes nommés en français, avec auteur et critères ; les tentatives refusées absentes ✓ |
+
+⚠ **Un défaut trouvé à l'écran, et lui seul pouvait le trouver.** Le premier changement a répondu 200,
+l'étudiant avait bougé en base, et **la page depuis laquelle l'acte venait d'être lancé continuait de
+le lister**. `getGroupById` fournit le tag `group-<id>`, différent de celui de la liste, et la mutation
+ne l'invalidait pas. Confirmé par le journal réseau : un refetch de `/api/groups`, **aucun** de
+`/api/groups/4121`. Corrigé (les deux pages de groupe sont nommées, l'origine passée en champ
+client-only), puis **revérifié sur l'acte suivant** : la liste est passée de 8 à 7 immédiatement, avec
+le toast nommant le groupe d'origine. `PGSH.Frontend/CLAUDE.md` §1j.
+
+⚠ **Second manque, même famille** : `STUDENT_GROUP_CHANGED` et `STUDENT_GROUPS_SWAPPED` n'avaient pas
+de libellé dans `auditActions.ts` et se seraient lus en `SCREAMING_SNAKE` — sur les deux seuls actes
+de l'application dont le journal est l'*unique* trace. Ajoutés.
+
+**Reste non piloté** : « le groupe d'arrivée ne fait pas ce stage » et « il tient déjà une affectation
+dans la cohorte d'arrivée » — aucun des deux états n'existe dans cette base (tous les rosters d'une
+promotion portent les mêmes cohortes). Ces deux branches ne tiennent que par les tests.
+
+---
+
+## §48 — Un service qui refuse le dépassement d'effectif (session 46)
+
+⚠ **La migration `ServiceOverCapacityPolicy` doit être appliquée**, c'est-à-dire la stack redémarrée
+une fois avec le nouveau code. Sans elle l'API interroge une colonne qui n'existe pas et la liste des
+services répond 500.
+
+⚠ Rien ici n'est destructeur (le drapeau ne touche aucune ligne publiée), mais l'étape 4 **publie** :
+elle se fait sur une cohorte qu'on accepte de publier pour de bon, ou pas du tout. Le résultat du
+premier passage est en fin de section.
+
+### 1 · L'état par défaut, qui est le plus important
+
+`Admin → Infrastructure → Services`. Sur les **148** lignes :
+
+- la colonne « Capacité » ne montre **aucun cadenas**. C'est ce qui est attendu : le drapeau vaut
+  `true` partout, et un marqueur qui s'affiche sur toutes les lignes ne dit rien.
+- Ouvrir n'importe quel service → la carte « Limite en vigueur » porte maintenant une ligne
+  **« Dépassement d'effectif autorisé »** avec sa conséquence écrite : un administrateur peut publier
+  au-delà en cochant la case.
+
+### 2 · Le rendre ferme
+
+Fiche d'un service → « Modifier le service et ses quotas ». Sous « Capacité totale », un interrupteur
+**« Autoriser le dépassement d'effectif »**, coché.
+
+- Le **décocher** : la description change et dit que la publication sera refusée au-delà, et une ligne
+  orange rappelle que **les plannings déjà publiés ne sont pas touchés**.
+- Enregistrer. La fiche doit afficher **« Dépassement d'effectif refusé »** (cadenas orange), et la
+  ligne de la liste porter un cadenas dans la colonne « Capacité ».
+- ⚠ Rouvrir le formulaire : l'interrupteur doit être **décoché**. S'il revient coché, le formulaire
+  n'envoie pas le champ et l'a silencieusement rouvert — le défaut exact que la commande
+  (`= true` par défaut) rend possible si le client se tait.
+
+### 3 · Ce que la grille en dit, avant tout clic
+
+Choisir un service **réellement saturé** (la 4ᵉ MED 2026-2027 en offre 138 : toutes ses paires
+service × créneau dépassent, la pire à 196 contre 20) et le rendre ferme. Puis
+`Stage → Grille de planning` :
+
+- le bandeau rouge de saturation porte un badge orange **« dont N non forçable(s) »** ;
+- « Voir le rapport » → les lignes du service ferme portent **« non forçable »** sous leur motif, et
+  elles sont **en tête** du tableau ;
+- « Publier tout » → la description de la case nomme les services concernés : *« ⚠ N affectation(s)
+  portent sur 1 service(s) qui refusent le dépassement (…) : elles seront refusées quoi qu'il
+  arrive. »*
+
+### 4 · Le refus lui-même
+
+Cocher « autoriser le dépassement d'effectif » et publier.
+
+- **Un seul service ferme en cause** → un refus nommant la période, le service, les chiffres, et la
+  phrase *« Ce service n'autorise pas le dépassement d'effectif : la case « autoriser le dépassement »
+  ne lève pas ce refus. »*
+- **Plusieurs cellules** → le refus agrégé, qui compte les deux moitiés séparément (« dont N sur un
+  service qui n'accueille pas cette promotion **et** M sur un service qui n'autorise pas le
+  dépassement ») et **ne propose plus la case** s'il ne reste rien de franchissable.
+- **Rien ne doit être écrit** : le nombre de périodes de la promotion est inchangé.
+
+### 5 · Le contrôle, sans lequel les étapes ci-dessus ne prouvent rien
+
+- Rouvrir le service, **recocher** l'interrupteur, republier : la publication passe (avec la case
+  cochée), ce qui montre que le refus venait bien du drapeau et non d'autre chose.
+- Sur un service ferme **dans** son effectif, publier doit réussir **sans** cocher quoi que ce soit :
+  un service ferme n'est pas un service fermé.
+
+### ⚠ Ce qui n'est pas couvert par cet écran
+
+« Charge des services » ne dit rien du drapeau — c'est délibéré (voir `PHASES.md` §24). Un service
+ferme et saturé y apparaît comme n'importe quel autre service saturé.
+
+### §48 — **piloté le 06/09/2026**, session admin, sur *Cardiologie B* (Maternité Souissi)
+
+Migration appliquée au redémarrage et vérifiée en base : **148 services sur 148 à `true`** — la
+valeur par défaut a bien porté, personne n'est devenu ferme sans l'avoir demandé.
+
+**Le sujet.** *Cardiologie B* (Maternité Souissi, service 25, capacité 20) était le meilleur cas
+possible : sa fiche annonce un pic de **118 étudiants** venant de **trois promotions à la fois**
+(3ᵉ MED 56 · 4ᵉ MED 56 · 5ᵉ Pharmacie 6), et il est **premier dans l'ordre de rotation** de la
+Cardiologie de 4ᵉ MED, promotion répartie mais **non publiée** (0 période).
+
+| étape | résultat |
+|---|---|
+| 1 · la liste | **aucun cadenas** sur les 15 lignes de la page. C'est l'attendu : le marqueur ne dessine que l'état rare ✓ |
+| 2 · la fiche | « **Dépassement d'effectif autorisé** », avec sa conséquence écrite ✓ |
+| 3 · le formulaire | l'interrupteur bascule, la description passe au refus, l'encart orange « les plannings déjà publiés ne sont pas touchés » apparaît ✓ |
+| — enregistrer | fiche : « **Dépassement d'effectif refusé** ». En base : **exactement 1 ligne** à `false`, nom / capacité / description intacts ✓ |
+| — rouvrir | l'interrupteur revient **décoché** — le formulaire envoie donc bien le champ et ne rouvre pas le service en silence ✓ |
+| — la liste | **un seul cadenas**, sur *Cardiologie B (Maternité Souissi)* ; l'autre *Cardiologie B (Ibn Sina)* reste nu ✓ |
+| 4 · la grille | « 18 AFFECTATIONS SATURÉES » + badge « **DONT 6 NON FORÇABLE(S)** » ✓ |
+| — le rapport | les **6** colonnes de *Cardiologie B* portent « **NON FORÇABLE** » et sont **en tête**, au-dessus de lignes au **même** dépassement (+98) qui, elles, sont forçables — l'ordre suit donc la forçabilité, pas les chiffres ✓ |
+| — le dialogue | « ⚠ 6 affectation(s) portent sur 1 service(s) qui refusent le dépassement (**Cardiologie B**) : elles seront refusées quoi qu'il arrive. » ✓ |
+| 5 · le refus | publication d'une cohorte dont l'unique cellule est ce service, **case cochée** : « La période 3 ne peut pas être publiée : le service « Cardiologie B » (09/11/2026 – 09/12/2026) accueillerait 118 étudiant(s) pour une capacité de 20. **Ce service n'autorise pas le dépassement d'effectif** : la case « autoriser le dépassement » ne lève pas ce refus. » ✓ |
+| — rien écrit | 0 période sur la cohorte, **0 période sur toute la 4ᵉ MED** avant comme après ✓ |
+| 6 · le contrôle | drapeau remis à `true` → **mêmes 18 saturations, badge disparu**. Le marqueur suit le drapeau et non les chiffres ✓ |
+| — retour | **148/148 à `true`**, service 25 identique à l'état initial ✓ |
+
+**Non piloté, délibérément** : la publication qui *réussit*. Elle écrirait 4 625 périodes réelles sur
+une promotion dont la publication est l'item `0d` — c'est un clic de l'utilisateur, pas une
+vérification. Le contrôle « le drapeau est bien la cause » a été fait autrement, ci-dessus : en le
+remettant et en regardant le marqueur disparaître sur des saturations inchangées.
+
+### ⚠ Deux défauts trouvés au clic, tous deux corrigés
+
+**① Le mien, et l'écran seul pouvait le voir.** Basculer l'interrupteur faisait tomber la fenêtre dans
+l'ErrorBoundary — « Un problème est survenu », rien d'autre. Cause :
+`onChange={(e) => setForm((p) => ({ …, e.currentTarget.checked }))}` — React remet `currentTarget` à
+`null` une fois l'événement propagé, et l'updater fonctionnel s'exécute au rendu **suivant**, donc il
+lit `null`. Invisible au type-check (la propriété est typée non-nullable), au lint et aux tests.
+
+**② Le même motif ailleurs, préexistant — et il cassait une page.** Cherché après coup : **cinq**
+autres occurrences, trois champs de `CnpnVersionsPanel` et deux de `HolidaysPage`. Vérifié en
+cliquant : « Date confirmée » faisait tomber la fenêtre « Ajouter un jour férié », c'est-à-dire que
+**saisir un jour férié était impossible** — sur la page où les fêtes lunaires *ne peuvent qu'être*
+saisies à la main. Les six sites sont corrigés et la règle est écrite dans
+`PGSH.Frontend/CLAUDE.md` §1l.
+
+**Au passage** : le refus s'affichait **deux fois** (« Conflit » puis « Erreur »), `errorMiddleware`
+et le `catch` du composant disant la même phrase. C'est l'item 4 de `HANDOFF.md`, qui nomme
+justement `ScheduleGridModal` ; corrigé sur ce chemin-là.

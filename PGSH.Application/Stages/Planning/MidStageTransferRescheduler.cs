@@ -75,7 +75,7 @@ internal sealed class MidStageTransferRescheduler(IApplicationDbContext dbContex
                 period.IsInterrupted = true;
                 CutShortAt(period, date);
 
-                assignment.ServicePeriods.Add(new ServicePeriod
+                assignment.ServicePeriods.Add(Covering(new ServicePeriod
                 {
                     InternshipAssignmentId = assignment.Id,
                     ServiceId              = target.ServiceId,
@@ -83,7 +83,7 @@ internal sealed class MidStageTransferRescheduler(IApplicationDbContext dbContex
                     StartDate              = RemainingWindowStart(date, target.StartDate, target.EndDate),
                     EndDate                = target.EndDate,
                     IsStarted              = true,
-                });
+                }, target.Id));
             }
             else
             {
@@ -91,7 +91,7 @@ internal sealed class MidStageTransferRescheduler(IApplicationDbContext dbContex
                 // against the target service, inactive until started in the normal flow.
                 assignment.ServicePeriods.Remove(period);
 
-                assignment.ServicePeriods.Add(new ServicePeriod
+                assignment.ServicePeriods.Add(Covering(new ServicePeriod
                 {
                     InternshipAssignmentId = assignment.Id,
                     ServiceId              = target.ServiceId,
@@ -99,11 +99,36 @@ internal sealed class MidStageTransferRescheduler(IApplicationDbContext dbContex
                     StartDate              = target.StartDate,
                     EndDate                = target.EndDate,
                     IsStarted              = false,
-                });
+                }, target.Id));
             }
         }
 
         return Result.Success();
+    }
+
+    /// <summary>
+    /// Marks the cell this période covers.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ <b>Not bookkeeping, and it was missing on all three of this class's creations.</b>
+    /// <c>CohortSlotAssignmentId</c> answers « did this come from the grid? »; only
+    /// <c>ServicePeriodSlotCoverage</c> answers « is <i>this cell</i> published? », and that is what
+    /// <c>PublishedCells</c> reads — hence <c>RotationArranger</c> (which cells it may overwrite),
+    /// <c>DeleteStageSlotCommandHandler</c>, <c>ClearCohortSlotAssignmentCommandHandler</c> and
+    /// <c>ClearSlotAssignmentsCommandHandler</c>. Without it a transferred student's cell reads as
+    /// free: the next auto-arrange rewrites it with another service while his période goes on naming
+    /// the old one, and deleting the column is allowed out from under him. <c>SchedulePublisher</c> and
+    /// <c>LateArrivalScheduler</c> have always written it.
+    /// <para>One cell per période here, deliberately: this class re-creates a période <i>per cell</i>,
+    /// so a run under <c>StageRotationMode.SingleService</c> is not folded on this path and each of its
+    /// périodes covers exactly the cell it names.</para>
+    /// </remarks>
+    private static ServicePeriod Covering(ServicePeriod period, int cellId)
+    {
+        // Do NOT pre-set the coverage row's Id — it is a child of a période added to an already-tracked
+        // assignment, and a store-generated key set by hand makes EF classify it Modified.
+        period.SlotCoverage.Add(new ServicePeriodSlotCoverage { CohortSlotAssignmentId = cellId });
+        return period;
     }
 
     /// <summary>
@@ -209,7 +234,7 @@ internal sealed class MidStageTransferRescheduler(IApplicationDbContext dbContex
         {
             if (coveredSlotIds.Contains(slot.Id)) continue;
 
-            assignment.ServicePeriods.Add(new ServicePeriod
+            assignment.ServicePeriods.Add(Covering(new ServicePeriod
             {
                 InternshipAssignmentId = assignment.Id,
                 ServiceId              = slot.ServiceId,
@@ -218,7 +243,7 @@ internal sealed class MidStageTransferRescheduler(IApplicationDbContext dbContex
                 EndDate                = slot.EndDate,
                 IsStarted              = startedSlotIds.Contains(slot.Id),
                 IsComplete             = completeSlotIds.Contains(slot.Id),
-            });
+            }, slot.Id));
         }
 
         return Result.Success();

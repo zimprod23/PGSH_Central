@@ -1,4 +1,4 @@
-using PGSH.Application.Hospitals.Chefs;
+﻿using PGSH.Application.Hospitals.Chefs;
 
 namespace PGSH.Application.Hospitals.Services.GetById;
 
@@ -16,6 +16,13 @@ public record ServiceDetailResponse(
     string ServiceType,
     string? Specialty,
     int Capacity,
+    /// <summary>
+    /// Whether « autoriser le dépassement d'effectif » may lift this service's number when a plan is
+    /// published. True on every service nobody has restricted, which is all 148 of the imported ones.
+    /// ⚠ The edit form writes this back, so it has to be here: a summary that fed the form without it
+    /// is exactly how a description column got erased once.
+    /// </summary>
+    bool AllowsOverCapacity,
     int HospitalId,
     string HospitalName,
     string HospitalCity,

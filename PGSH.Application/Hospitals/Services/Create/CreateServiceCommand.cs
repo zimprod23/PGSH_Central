@@ -1,4 +1,4 @@
-using PGSH.Application.Abstractions.Messaging;
+﻿using PGSH.Application.Abstractions.Messaging;
 using PGSH.Domain.Hospitals;
 
 namespace PGSH.Application.Hospitals.Services.Create;
@@ -13,4 +13,14 @@ public record CreateServiceCommand(
     string? LocalizationX = null,
     string? LocalizationY = null,
     string? LocalizationZ = null,
-    IReadOnlyCollection<ServiceLevelCapacityRequest>? LevelCapacities = null) : ICommand<int>;
+    IReadOnlyCollection<ServiceLevelCapacityRequest>? LevelCapacities = null,
+    /// <summary>
+    /// Whether a publication may be forced past the service's number — see
+    /// <c>Service.AllowsOverCapacity</c>. <b>Defaults to true</b>, and the default is load-bearing:
+    /// a request that says nothing describes a service which has refused nothing, so neither an API
+    /// client nor a form that has not been taught about the flag can silently make a service strict.
+    /// The other direction — silently re-opening one — is the same exposure every other field of
+    /// this full-replace command already carries, and the edit form is fed by the detail response,
+    /// which states it.
+    /// </summary>
+    bool AllowsOverCapacity = true) : ICommand<int>;

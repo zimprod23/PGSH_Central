@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Domain.Stages;
 using PGSH.SharedKernel;
@@ -249,21 +249,29 @@ internal sealed class SchedulePublisher(
     /// quotas refuses at 21. See <see cref="Domain.Hospitals.Service.CapacityFor"/>.
     /// </summary>
     /// <remarks>
-    /// ⚠ <b>Two rules of different kinds, and <paramref name="allowOverCapacity"/> waives only one.</b>
+    /// ⚠ <b>Three rules, and <paramref name="allowOverCapacity"/> is a request rather than a
+    /// decision.</b>
     /// <list type="bullet">
     /// <item><b>Admissibility</b> — the service carries intake rules and none of them name this
-    /// promotion. Not negotiable, and not waivable: publishing anyway sends students to a service that
-    /// does not take them, which no checkbox makes true.</item>
-    /// <item><b>Occupancy</b> — the service takes this promotion but would hold more than its number.
-    /// Negotiable, because the number is a target and this base is structurally over-subscribed:
-    /// measured 2026-08-14, <b>233 of 353 planned cells are over capacity (66%), worst 85 against
-    /// 20</b>, and not one of the 148 services has an authored quota — every capacity verdict today is
-    /// measured against the imported default of 20.</item>
+    /// promotion. Checked whatever the caller asks for, and never waived: publishing anyway sends
+    /// students to a service that does not take them, which no checkbox makes true.</item>
+    /// <item><b>Occupancy on a service that allows the override</b> — over the number, on a service
+    /// that has not refused. Waivable, because the number is a target and this base is structurally
+    /// over-subscribed: measured 2026-08-14, <b>233 of 353 planned cells are over capacity (66%),
+    /// worst 85 against 20</b>, and not one of the 148 services has an authored quota.</item>
+    /// <item><b>Occupancy on a service that refuses it</b> —
+    /// <see cref="Domain.Hospitals.Service.AllowsOverCapacity"/> is false. Same arithmetic, hard
+    /// verdict: the chef has said his number is not a target, so the checkbox does not reach it and
+    /// the refusal says so.</item>
     /// </list>
-    /// One flag governing both is what made this wrong: with two thirds of the plan over capacity the
-    /// checkbox is ticked as a matter of routine, and it was silently switching off the hard rule
-    /// alongside the soft one. A rule that is only enforced when nobody needs the override is not
-    /// enforced.
+    /// <para>The third exists because of what the second measured: with two thirds of the plan over
+    /// capacity the checkbox is ticked as a matter of routine, so a service's ceiling was in practice
+    /// advisory for everybody. Making it firm is a decision <i>per service</i>, taken by the people
+    /// the number is about, rather than a stricter default nobody could work under.</para>
+    /// <para>⚠ <b>The override no longer means the occupancy half can be skipped.</b> It used to, and
+    /// that was the cheap path the split of 2026-08-14 preserved; now the loads of the firm services
+    /// still have to be counted. The lookup is built over <i>exactly</i> those, so a publish touching
+    /// only permissive services measures nothing, as before.</para>
     /// </remarks>
     private async Task<Result> EnsureIntakeAsync(
         IReadOnlyCollection<SlotAssignmentInfo> slotAssignments, bool allowOverCapacity, CancellationToken ct)
@@ -275,12 +283,13 @@ internal sealed class SchedulePublisher(
         var intake = await intakeCalculator.BuildAsync(serviceIds, ct);
 
         // Admissibility is answered by the intake rules alone; only a capacity verdict needs to know
-        // how many students are actually there. So with the override on, the expensive half is never
-        // built — which is what keeps splitting the flag from making the common publish slower than
-        // it was when the flag skipped everything.
-        var occupancy = allowOverCapacity
-            ? null
-            : await occupancyCalculator.BuildAsync(serviceIds, ct);
+        // how many students are actually there. With the override on, that leaves exactly the
+        // services which refuse it — usually none, in which case the expensive half is never built.
+        var measured = allowOverCapacity ? intake.FirmServicesAmong(serviceIds) : serviceIds;
+
+        var occupancy = measured.Count > 0
+            ? await occupancyCalculator.BuildAsync(measured, ct)
+            : null;
 
         // ⚠ Every breach, not the first one. This runs over a whole stage — a hundred cohorts and
         // ten columns — and the base is structurally over-subscribed, so refusing on the first cell
@@ -294,6 +303,11 @@ internal sealed class SchedulePublisher(
                      .GroupBy(s => new { s.ServiceId, s.LevelId, s.StartDate, s.EndDate })
                      .Select(g => g.First()))
         {
+            // What the caller asked for, met with what this service allows. Asked per cell because
+            // one publish spans many services and they do not answer alike.
+            bool forceable = intake.AllowsOverCapacity(sa.ServiceId);
+            bool waived = allowOverCapacity && forceable;
+
             if (intake.HasLevelRestrictions(sa.ServiceId))
             {
                 // Checked whatever the caller asked for. This is the hard half.
@@ -303,49 +317,53 @@ internal sealed class SchedulePublisher(
                     continue;
                 }
 
-                if (allowOverCapacity) continue;
+                if (waived) continue;
 
                 // This promotion's students only: the quota is about them, and another promotion
                 // filling its own quota is not this one's problem.
                 int levelLoad = occupancy!.LoadOn(sa.ServiceId, sa.LevelId, sa.StartDate, sa.EndDate);
                 int levelCapacity = intake.CapacityFor(sa.ServiceId, sa.LevelId);
                 if (levelLoad > levelCapacity)
-                    breaches.Add(IntakeBreach.OverLevelQuota(sa, levelLoad, levelCapacity));
+                    breaches.Add(IntakeBreach.OverLevelQuota(sa, levelLoad, levelCapacity, forceable));
 
                 continue;
             }
 
-            // An unrestricted service admits every promotion by definition, so there is no hard half
-            // here — only the number, and the number is what the override is for.
-            if (allowOverCapacity) continue;
+            // An unrestricted service admits every promotion by definition, so there is no
+            // admissibility half here — only the number, and whether this service lets it be forced.
+            if (waived) continue;
 
             // One number for everybody, so the load is everybody. Blaming a "quota" here would send
             // the user looking for a rule nobody authored.
             int load = occupancy!.LoadOn(sa.ServiceId, sa.StartDate, sa.EndDate);
             int capacity = intake.TotalCapacity(sa.ServiceId);
             if (load > capacity)
-                breaches.Add(IntakeBreach.OverCapacity(sa, load, capacity));
+                breaches.Add(IntakeBreach.OverCapacity(sa, load, capacity, forceable));
         }
 
         if (breaches.Count == 0)
             return Result.Success();
 
         // One cell in trouble is the per-cohorte case, and its own sentence already says everything
-        // there is to say about it — including, for an inadmissible promotion, that no checkbox
-        // lifts it. Keep it: an aggregate wrapper around a single breach reads as evasion.
+        // there is to say about it — including, for an inadmissible promotion or a service that
+        // refuses the override, that no checkbox lifts it. Keep it: an aggregate wrapper around a
+        // single breach reads as evasion.
         if (breaches.Count == 1)
             return Result.Failure(breaches[0].AsError());
 
-        // Hardest first: an inadmissible service is not negotiable, so it is what the reader has to
-        // act on, and the ordering within each half is by how far over the cell is.
+        // Unforceable first: those are what the reader has to act on, since the checkbox will not
+        // move them. Admissibility leads within that half — it is a fact about the service rather
+        // than a matter of degree — and the rest is ordered by how far over each cell is.
         var ordered = breaches
-            .OrderByDescending(b => b.IsAdmissibility)
+            .OrderBy(b => b.Forceable)
+            .ThenByDescending(b => b.IsAdmissibility)
             .ThenByDescending(b => b.Overflow)
             .ToList();
 
         return Result.Failure(StageErrors.PublishRefusedByIntake(
             ordered.Count,
             ordered.Count(b => b.IsAdmissibility),
+            ordered.Count(b => !b.IsAdmissibility && !b.Forceable),
             ordered.Take(MaxReportedBreaches).Select(b => b.Summary).ToList()));
     }
 
@@ -355,19 +373,41 @@ internal sealed class SchedulePublisher(
     /// </summary>
     private const int MaxReportedBreaches = 3;
 
-    /// <summary>One cell a publish will not write, and why.</summary>
-    private sealed record IntakeBreach(
-        SlotAssignmentInfo Cell, bool IsAdmissibility, int Load, int Capacity)
+    /// <summary>Which of the three rules a cell fell foul of.</summary>
+    private enum BreachKind
     {
-        public static IntakeBreach NotAdmitted(SlotAssignmentInfo cell) => new(cell, true, 0, 0);
+        /// <summary>The service carries intake rules and none names this promotion.</summary>
+        NotAdmitted,
 
-        public static IntakeBreach OverLevelQuota(SlotAssignmentInfo cell, int load, int capacity) =>
-            new(cell, false, load, capacity) { IsLevelQuota = true };
+        /// <summary>Over the service's total, counted across every promotion sharing it.</summary>
+        OverTotal,
 
-        public static IntakeBreach OverCapacity(SlotAssignmentInfo cell, int load, int capacity) =>
-            new(cell, false, load, capacity);
+        /// <summary>Over the quota this service grants the stage's promotion.</summary>
+        OverQuota,
+    }
 
-        private bool IsLevelQuota { get; init; }
+    /// <summary>One cell a publish will not write, and why.</summary>
+    /// <param name="Forceable">
+    /// Whether « autoriser le dépassement d'effectif » would lift <i>this</i> cell — false for an
+    /// inadmissible promotion, and false on a service whose chef has refused the override. It is what
+    /// decides both the sentence and the order, because a refusal the checkbox cannot move is the one
+    /// the reader has to act on.
+    /// </param>
+    private sealed record IntakeBreach(
+        SlotAssignmentInfo Cell, BreachKind Kind, int Load, int Capacity, bool Forceable)
+    {
+        public static IntakeBreach NotAdmitted(SlotAssignmentInfo cell) =>
+            new(cell, BreachKind.NotAdmitted, 0, 0, Forceable: false);
+
+        public static IntakeBreach OverLevelQuota(
+            SlotAssignmentInfo cell, int load, int capacity, bool forceable) =>
+            new(cell, BreachKind.OverQuota, load, capacity, forceable);
+
+        public static IntakeBreach OverCapacity(
+            SlotAssignmentInfo cell, int load, int capacity, bool forceable) =>
+            new(cell, BreachKind.OverTotal, load, capacity, forceable);
+
+        public bool IsAdmissibility => Kind == BreachKind.NotAdmitted;
 
         /// <summary>How far over the governing limit the cell is — 0 for an admissibility refusal,
         /// which is not a matter of degree.</summary>
@@ -375,17 +415,29 @@ internal sealed class SchedulePublisher(
 
         public string Summary => IsAdmissibility
             ? $"P{Cell.PeriodNumber} « {Cell.ServiceName} » : {Cell.LevelLabel} non admise"
-            : $"P{Cell.PeriodNumber} « {Cell.ServiceName} » : {Load}/{Capacity}";
+            : $"P{Cell.PeriodNumber} « {Cell.ServiceName} » : {Load}/{Capacity}"
+              + (Forceable ? "" : " (dépassement refusé)");
 
-        public Error AsError() => IsAdmissibility
-            ? StageErrors.LevelNotAdmitted(
-                Cell.PeriodNumber, Cell.ServiceName, Cell.LevelLabel, Cell.StartDate, Cell.EndDate)
-            : IsLevelQuota
-                ? StageErrors.LevelCapacityExceeded(
-                    Cell.PeriodNumber, Cell.ServiceName, Cell.LevelLabel,
-                    Cell.StartDate, Cell.EndDate, Load, Capacity)
-                : StageErrors.CapacityExceeded(
-                    Cell.PeriodNumber, Cell.ServiceName, Cell.StartDate, Cell.EndDate, Load, Capacity);
+        public Error AsError() => Kind switch
+        {
+            BreachKind.NotAdmitted => StageErrors.LevelNotAdmitted(
+                Cell.PeriodNumber, Cell.ServiceName, Cell.LevelLabel, Cell.StartDate, Cell.EndDate),
+
+            // Its own sentence, not a variant of the two below: what has to be said first is that the
+            // checkbox on screen will not lift this one, and a message ending on « cochez… » would
+            // send the admin round a loop the service has already closed.
+            _ when !Forceable => StageErrors.OverCapacityRefusedByService(
+                Cell.PeriodNumber, Cell.ServiceName,
+                Kind == BreachKind.OverQuota ? Cell.LevelLabel : null,
+                Cell.StartDate, Cell.EndDate, Load, Capacity),
+
+            BreachKind.OverQuota => StageErrors.LevelCapacityExceeded(
+                Cell.PeriodNumber, Cell.ServiceName, Cell.LevelLabel,
+                Cell.StartDate, Cell.EndDate, Load, Capacity),
+
+            _ => StageErrors.CapacityExceeded(
+                Cell.PeriodNumber, Cell.ServiceName, Cell.StartDate, Cell.EndDate, Load, Capacity),
+        };
     }
 
     /// <summary>
@@ -409,16 +461,16 @@ internal sealed class SchedulePublisher(
                 {
                     InternshipAssignmentId = assignmentId,
                     ServiceId              = stay.ServiceId,
-                    CohortSlotAssignmentId = stay.Cells[0].Id,
+                    CohortSlotAssignmentId = stay.LeadCellId,
                     StartDate              = stay.StartDate,
                     EndDate                = stay.EndDate,
                     IsComplete             = false,
                 };
 
-                foreach (var cell in stay.Cells)
+                foreach (int cellId in stay.CellIds)
                     period.SlotCoverage.Add(new ServicePeriodSlotCoverage
                     {
-                        CohortSlotAssignmentId = cell.Id,
+                        CohortSlotAssignmentId = cellId,
                     });
 
                 periods.Add(period);
@@ -428,55 +480,29 @@ internal sealed class SchedulePublisher(
     }
 
     /// <summary>
-    /// Groups a cohort's cells into the stays they represent.
-    ///
-    /// <para>A run is a maximal set of that cohort's cells with <b>consecutive period numbers and the
-    /// same service</b>. Deriving it from the cells rather than from the caller's window is what makes
-    /// it general: publishing one concurrency block and publishing the whole stage both produce the
-    /// same stays, because each cohort only ever holds the cells of its own run. Breaking on a service
-    /// change matters too — a cell edited by hand to a different service is two stays, not one period
-    /// silently spanning both.</para>
+    /// Groups every cohorte's cells into the stays they represent, cohorte by cohorte.
     /// </summary>
-    private static List<Stay> BuildStays(IReadOnlyCollection<SlotAssignmentInfo> slotAssignments)
+    /// <remarks>
+    /// The rule itself is <see cref="CohortStayFolder"/>'s and lives in the domain, because a second
+    /// act now has to produce the périodes a cohorte's member holds — « changement de groupe ». Kept
+    /// private here is what would have made a student's <see cref="StageRotationMode.SingleService"/>
+    /// run fold one way when it was published and another way when he was moved into it.
+    /// </remarks>
+    private static List<CohortStay> BuildStays(IReadOnlyCollection<SlotAssignmentInfo> slotAssignments)
     {
-        var stays = new List<Stay>();
+        var stays = new List<CohortStay>();
 
         foreach (var group in slotAssignments.GroupBy(sa => sa.CohortId))
         {
-            var ordered = group.OrderBy(sa => sa.PeriodNumber).ToList();
+            var cells = group
+                .Select(sa => new CohortCell(sa.Id, sa.PeriodNumber, sa.ServiceId, sa.StartDate, sa.EndDate))
+                .ToList();
 
-            if (ordered[0].RotationMode != StageRotationMode.SingleService)
-            {
-                stays.AddRange(ordered.Select(sa => new Stay([sa], sa.ServiceId, sa.StartDate, sa.EndDate)));
-                continue;
-            }
-
-            var run = new List<SlotAssignmentInfo> { ordered[0] };
-            for (int i = 1; i < ordered.Count; i++)
-            {
-                var previous = ordered[i - 1];
-                var current  = ordered[i];
-
-                if (current.PeriodNumber == previous.PeriodNumber + 1 && current.ServiceId == previous.ServiceId)
-                {
-                    run.Add(current);
-                    continue;
-                }
-
-                stays.Add(Close(run));
-                run = [current];
-            }
-            stays.Add(Close(run));
+            stays.AddRange(CohortStayFolder.Fold(cells, group.First().RotationMode));
         }
 
         return stays;
-
-        static Stay Close(List<SlotAssignmentInfo> run) => new(
-            [.. run], run[0].ServiceId, run.Min(c => c.StartDate), run.Max(c => c.EndDate));
     }
-
-    private sealed record Stay(
-        IReadOnlyList<SlotAssignmentInfo> Cells, int ServiceId, DateOnly StartDate, DateOnly EndDate);
 
     /// <summary>One student assignment of a cohort, and whether it already holds a période.</summary>
     internal sealed record CandidateAssignment(Guid Id, int CohortId, bool AlreadyServed);

@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
 using PGSH.Application.Extensions;
@@ -45,6 +45,7 @@ internal sealed class GetServicesQueryHandler(
                 request.PageNumber, request.PageSize,
                 s => new ServiceRow(
                     s.Id, s.Name, s.ServiceType.ToString(), s.Specialty, s.Capacity,
+                    s.AllowsOverCapacity,
                     s.LevelCapacities.Count,
                     s.HospitalId, s.Hospital.Name,
                     s.ServiceChef != null ? s.ServiceChef.FirstName + " " + s.ServiceChef.LastName : null),
@@ -63,7 +64,8 @@ internal sealed class GetServicesQueryHandler(
 
         var items = page.Items
             .Select(i => new ServiceSummaryResponse(
-                i.Id, i.Name, i.ServiceType, i.Specialty, i.Capacity, i.RestrictedLevelCount,
+                i.Id, i.Name, i.ServiceType, i.Specialty, i.Capacity, i.AllowsOverCapacity,
+                i.RestrictedLevelCount,
                 i.HospitalId, i.HospitalName, i.ServiceChefName,
                 // Staff is a field not a property; EF cannot translate field navigation in LINQ-to-SQL
                 StaffCount: 0,
@@ -91,6 +93,7 @@ internal sealed class GetServicesQueryHandler(
         string ServiceType,
         string? Specialty,
         int Capacity,
+        bool AllowsOverCapacity,
         int RestrictedLevelCount,
         int HospitalId,
         string HospitalName,

@@ -115,6 +115,12 @@ internal sealed class ServiceConfiguration : IEntityTypeConfiguration<Service>
         builder.Property(s => s.Capacity)
                .IsRequired();
 
+        // Default true in the store as well as in the entity: the column is added to 148 existing
+        // rows, and a service nobody has restricted has refused nothing.
+        builder.Property(s => s.AllowsOverCapacity)
+               .IsRequired()
+               .HasDefaultValue(true);
+
         builder.OwnsOne(s => s.LocalisationMaps, loc =>
         {
             loc.Property(l => l.x)

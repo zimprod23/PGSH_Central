@@ -1,4 +1,4 @@
-using PGSH.Application.Abstractions.Messaging;
+﻿using PGSH.Application.Abstractions.Messaging;
 using PGSH.SharedKernel;
 
 namespace PGSH.Application.Stages.Schedule;
@@ -134,7 +134,20 @@ public sealed record SaturatedCellResponse(
     string HospitalName,
     int    OccupiedSeats,
     int    Capacity,
-    SaturationReason Reason);
+    SaturationReason Reason,
+    /// <summary>
+    /// Whether « autoriser le dépassement d'effectif » would let this cell through — false for
+    /// <see cref="SaturationReason.Refused"/>, and false on a service whose chef has refused the
+    /// override (<c>Service.AllowsOverCapacity</c>).
+    /// </summary>
+    /// <remarks>
+    /// ⚠ It is <b>not</b> derivable from <see cref="Reason"/>, which is why it is sent: the numbers
+    /// of a firm service and of a permissive one are identical, and only the service says which. Sent
+    /// rather than re-derived on the client for the reason <c>ServicePeriodResponse.State</c> is —
+    /// one rule, two sides of a network boundary, nothing able to catch them disagreeing. It is what
+    /// lets the publish dialog stop offering a checkbox that would change nothing.
+    /// </remarks>
+    bool Forceable);
 
 public sealed record StageSlotResponse(
     int      Id,

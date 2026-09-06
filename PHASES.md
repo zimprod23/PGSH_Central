@@ -2409,3 +2409,261 @@ deux se remet à classer les sources. Vérifié en cassant — la liste remise �
   apparaisse nulle part** : le compte de test ne fuit pas vers l'écran de l'étudiant.
 - ⚠ **« Non communiqué » reste impilotable** : il faudrait un service rattaché **et** sans note, et
   la base n'en a aucun. Cette branche ne tient que par le test.
+
+---
+
+## ✅ Phase 23 — « Changement de groupe » : corriger une répartition sans laisser de trace
+
+**Le besoin, tel qu'il a été posé (06/09/2026).** Il existait deux façons de déplacer un étudiant et
+aucune ne répondait à la question courante. Le **transfert** (temporaire ou définitif) *raconte* le
+déplacement : il écrit une ligne `HistoryType.GroupTransfer` sur le dossier, ferme une
+`CohortMembership` et en ouvre une autre, interrompt la rotation en cours. La **délocalisation** est
+autre chose encore — le stage entier se fait hors faculté. Ce qui manquait est le cas le plus
+banal : *la répartition s'est trompée de groupe*, et il faut que le dossier dise ce qui est vrai —
+qu'il est dans ce groupe-là, et qu'il y a toujours été.
+
+### La distinction, et c'est toute la phase
+
+|  | transfert | changement de groupe |
+|---|---|---|
+| ce qu'il affirme | « il était là, il est maintenant ici » | « il a toujours été ici » |
+| `CohortMembership` | l'ouverte est **close**, une seconde est ouverte | l'ouverte est **réécrite sur place** |
+| événement de domaine | `StudentGroupTransferredDomainEvent` → ligne d'historique | **aucun** |
+| périodes | la rotation en cours est coupée et conservée | reconstruites à l'identique de la cohorte d'arrivée |
+| quand c'est légitime | toujours | tant que **rien** n'a eu lieu |
+| trace | dossier + parcours + journal | **journal seulement** |
+
+⚠ **« Sans historique » veut dire « rien sur le dossier », jamais « rien nulle part ».** Les deux
+mots ne nomment pas la même chose : le *dossier* est le récit de l'étudiant et ne doit rien montrer ;
+le *registre* est le journal des actes d'administration et doit tout montrer. L'acte est
+**irréversible** — le groupe d'origine n'est plus écrit nulle part après coup — donc la commande est
+`IAuditableCommand` (`STUDENT_GROUP_CHANGED`) et l'entrée du journal est le seul endroit où ce groupe
+survit. *Un registre qu'un acte destructeur peut contourner n'est pas un registre.*
+
+### Ce qui est réellement repointé
+
+`Registration.AcademicGroupId` · chaque `InternshipAssignment.CurrentCohortId` vers la cohorte du
+groupe d'arrivée **pour le même stage** · la ligne `CohortMembership` ouverte, réécrite en gardant sa
+`StartDate` · les périodes, reconstruites depuis les cellules **publiées** de la cohorte d'arrivée,
+avec leurs lignes `ServicePeriodSlotCoverage`.
+
+- ⚠ **Les lignes de membership déjà closes ne sont pas touchées.** Elles enregistrent un transfert
+  qui a *réellement* eu lieu, et cet acte n'a pas à l'effacer. Le dossier se lit alors comme si
+  l'étudiant était passé directement de l'ancien groupe qu'il a vraiment quitté à celui où il est —
+  ce qui est la vérité une fois la correction appliquée.
+- ⚠ **`OriginalCohortId` est remis à null.** L'adresse de retour d'un prêt temporaire nommait la
+  cohorte que cette affectation ne tient plus ; laissée en place, l'auto-retour renverrait l'étudiant
+  vers un groupe dont le dossier ne dit plus qu'il en vient.
+
+### Ce qui est refusé, et pourquoi il n'y a pas de `Force`
+
+`GroupChangeErrors`. Une correction n'est vraie que tant que rien ne la contredit :
+
+- **`RotationsUnderway`** — une période démarrée, une note, une journée de présence. Le refus nomme
+  les quatre chiffres (les mêmes que ceux de la dépublication, lus par le même `AffectationToll`) et
+  **désigne le transfert**. ⚠ Pas forçable, exactement comme
+  `AcademicGroupErrors.RosterAffectationsUnderway` : l'acte qui détruit des notes est « Dépublier »,
+  qui annonce son coût et demande deux fois ; un bouton côté groupe ne doit jamais devenir la porte
+  de service.
+- **`TargetIsUnassignedRoster`** — « Non réparti » ne porte aucune cohorte, donc les affectations
+  resteraient dans celles du groupe de départ pendant que la fiche dit qu'il n'est nulle part.
+- **`TargetRosterMissingStage`** — le groupe d'arrivée ne fait pas ce stage. Refusé plutôt que
+  silencieusement perdu : c'est l'affectation qui enregistre qu'il doit le stage. Mesuré le
+  06/09/2026, tous les rosters d'une promotion portent exactement les mêmes cohortes (7/7 en 5ᵉ MED,
+  6/6 en 3ᵉ MED, 5/5 en 4ᵉ MED, 2/2 en 5ᵉ Pharmacie), donc ce refus ne mord pas en pratique — mais un
+  roster d'un autre CNPN diffère légitimement.
+- **`AlreadyAffectedInTargetCohort`** — il tient déjà une affectation là (une revalidation posée à la
+  main). En déplacer une seconde donnerait **deux** affectations sur une (inscription, cohorte).
+- **`NotInAGroup`** — il n'y a pas de groupe à corriger ; c'est « Affecter à un groupe » qu'il faut.
+- Plus les deux gardes que toute écriture sur un pointeur de roster fait : année et promotion.
+
+### L'échange, qui est deux changements et rien d'autre
+
+`SwapStudentGroupsCommand` — A prend le groupe de B et B celui de A. Il existe parce que déplacer un
+seul étudiant laisse un roster court et l'autre long. ⚠ **Les deux destinations sont lues avant que
+l'un ou l'autre ne bouge** : prise au moment où on en a besoin, la seconde enverrait B dans le groupe
+où A vient d'arriver — les deux dans un seul roster et l'autre vide. Un seul `SaveChanges` pour les
+deux moitiés, donc un refus sur la seconde laisse la première exactement où elle était.
+
+### Deux règles qui existaient en un seul exemplaire et devaient le rester
+
+- **`CohortStayFolder`** (domaine, pur) — plier les cellules d'une cohorte en *séjours*. La règle
+  était **privée dans `SchedulePublisher`** ; il a fallu la sortir dès qu'un second acte a dû
+  produire les périodes que tient un membre d'une cohorte. ⚠ Écrite deux fois, elle aurait fini par
+  diverger sur `SingleService` : l'étudiant déplacé aurait tenu *kₛ* périodes là où ses camarades en
+  tiennent **une**, on lui aurait demandé *kₛ* notes, et sa moyenne aurait été calculée autrement que
+  celle de toute sa promotion.
+- **`AffectationTollReader.ForRegistrationInRosterAsync`** — une portée de plus sur le lecteur
+  existant plutôt qu'un décompte maison, pour que deux refus ne décrivent pas les mêmes lignes
+  différemment.
+
+### ⚠ Un défaut latent corrigé au passage — `MidStageTransferRescheduler` n'écrivait aucune couverture
+
+Les trois créations de période de cette classe posaient `CohortSlotAssignmentId` **sans** la ligne
+`ServicePeriodSlotCoverage`. La FK répond « ça vient de la grille ? » ; seule la couverture répond
+« *cette cellule-là* est-elle publiée ? », et c'est elle que lit `PublishedCells` — donc
+`RotationArranger`, `DeleteStageSlot`, `ClearCohortSlotAssignment` et `ClearSlotAssignments`. Sans
+elle, la cellule d'un étudiant transféré se lit **libre** : le prochain auto-arrangement la réécrit
+sur un autre service pendant que sa période continue de nommer l'ancien, et supprimer la colonne est
+autorisé sous ses pieds. `SchedulePublisher` et `LateArrivalScheduler` l'ont toujours écrite.
+
+### Couverture
+
+31 tests (1 565 → 1 596 verts) : 7 sur `CohortStayFolderTests` (le pli, les deux ruptures, l'ordre),
+17 sur `StudentGroupChangeTests`, 7 dans `PGSH.Tests/Integration/GroupChangeEndpointTests.cs`, plus
+un cas de traduction SQL pour les deux requêtes nommées de `CohortMemberScheduler` et une portée de
+plus sur celles du toll.
+
+- **Le contrôle de la garantie de silence est un test à part** :
+  `A_transfer_of_the_same_student_does_raise_the_event_that_writes_history`. « Aucun événement » ne
+  vaut rien si la fixture ne peut pas en produire un.
+- **Vérifié en cassant, trois fois, une à la fois** : remplacer `ReassignToGroup` par
+  `TransferToGroup` fait tomber **exactement** `The_move_leaves_no_trace_on_the_student_file` ; ne
+  plus plier les runs `SingleService` fait tomber exactement
+  `A_single_service_run_becomes_one_periode_covering_every_cell` ; matérialiser les cellules non
+  publiées fait tomber exactement `An_unpublished_target_cohorte_gives_him_no_periode`.
+- **Le test d'intégration qui compte** est
+  `The_dossier_keeps_nothing_and_the_register_keeps_everything` : il assied les deux moitiés
+  ensemble, parce que « aucune trace » serait sinon indiscernable de « acte non enregistré ». Aucun
+  handler ne peut y répondre — la ligne du journal est posée par `AuditLogPipelineBehavior` avant le
+  handler et validée par le `SaveChanges` de celui-ci.
+
+### Piloté sur la base réelle le 06/09/2026
+
+Point de sauvegarde pris d'abord. **Quatre actes exécutés puis annulés** par leurs inverses ; l'état
+final a été comparé en SQL au relevé pris avant, et il est identique — mêmes cohortes, mêmes cellules,
+couverture Gynécologie toujours à 3. Détail complet : `SMOKE-TEST.md` §47.
+
+- **Le cas qui compte est tombé du premier coup** : le sujet portait un run `SingleService` couvrant
+  **3 cellules**, et il est resté **une** période après le déplacement. C'est `CohortStayFolder` sur
+  données réelles.
+- **La trace** : `Histories` inchangé à 1, **7** memberships et non 14, toutes ouvertes, `StartDate`
+  d'origine conservée, aucun motif — et sur toute l'année 2026-2027, **0 membership close, 0 motif**.
+- **Le refus** sur 2025-2026 a nommé ses quatre chiffres et renvoyé au transfert ; les effectifs sont
+  restés identiques et **le journal n'a pas bougé** — un acte refusé n'écrit rien.
+- **L'échange** a laissé les deux effectifs à 7 et n'a écrit **qu'une** ligne de journal.
+
+### ⚠ Deux défauts que seul l'écran pouvait trouver
+
+- **La page depuis laquelle l'acte est lancé ne se rafraîchissait pas.** `getGroupById` fournit le tag
+  `group-<id>`, différent de celui de la liste ; la mutation n'invalidait que le second. Le `POST`
+  répondait 200, l'étudiant avait bougé en base, et la fiche continuait de le lister — ce qui se lit
+  comme un bouton qui n'a rien fait. Invisible au type-check, au lint, aux 1 596 tests et à la
+  relecture ; confirmé par le journal réseau (refetch de `/api/groups`, aucun de `/api/groups/4121`).
+  ⚠ **Le tag du groupe de départ n'est connu que de l'appelant** — la requête ne nomme que la
+  destination — donc il se passe en champ client-only. `PGSH.Frontend/CLAUDE.md` §1j.
+- **Les deux codes d'acte n'avaient pas de libellé** dans `auditActions.ts` et se seraient lus en
+  `SCREAMING_SNAKE`, sur les deux seuls actes de l'application dont le journal est l'*unique* trace.
+
+### Ce qui reste
+
+- **Aucune migration** : la phase ne change ni table ni colonne. Elle réécrit des lignes existantes.
+- **Deux branches restent non pilotées parce que l'état n'existe pas dans cette base** :
+  « le groupe d'arrivée ne fait pas ce stage » et « il tient déjà une affectation dans la cohorte
+  d'arrivée ». Elles ne tiennent que par les tests.
+
+---
+
+## ✅ Phase 24 — Un service peut refuser d'être dépassé
+
+**Le besoin, tel qu'il a été posé (06/09/2026).** *« Quand on publie une cohorte, on nous propose
+d'autoriser le dépassement de capacité des services — mais certains chefs de service n'aiment pas ça.
+J'aimerais une petite case sur le service pour ne pas l'autoriser (autorisé par défaut) ; à la
+publication, on ne dépasserait alors que les services qui n'ont pas coché ce refus. »*
+
+### Pourquoi c'était la bonne demande
+
+La mesure était déjà au dossier et l'argument est celui qui avait servi un mois plus tôt : **233 des
+353 cellules planifiées dépassent la capacité (66 %)**, donc « autoriser le dépassement d'effectif »
+se coche par réflexe. C'est ce constat qui avait forcé, le 17/08, à sortir l'*admissibilité* du
+champ de la case — *une règle qu'on n'applique que lorsque personne n'a besoin de la contourner n'est
+pas appliquée*. La moitié « effectif », elle, **doit** rester franchissable : les 148 services portent
+tous la `Capacity = 20` par défaut de l'import, que personne n'a saisie, et la 4ᵉ MED ne pourrait pas
+publier une seule cellule sans la case.
+
+Les deux faits ensemble ne laissent qu'une issue : la décision est **par service**, prise par la
+personne que le nombre concerne. Pas un durcissement global, pas une seconde case globale.
+
+| | qui décide | franchissable ? |
+|---|---|---|
+| admissibilité (`LevelNotAdmitted`) | les quotas du service | **non**, jamais |
+| effectif sur un service permissif | l'administrateur qui publie | oui, c'est à ça que sert la case |
+| effectif sur un service **ferme** | le chef du service | **non** — nouveau |
+
+### Ce qui a été construit
+
+- **`Service.AllowsOverCapacity`**, `true` par défaut (migration `ServiceOverCapacityPolicy`, une
+  seule instruction : `ADD COLUMN ... NOT NULL DEFAULT TRUE`).
+- **`SchedulePublisher.EnsureIntakeAsync` lit trois règles** au lieu de deux, et `allowOverCapacity`
+  y devient une *demande* plutôt qu'une décision — la question « ce refus est-il franchissable ? » se
+  pose **par cellule**, une publication traversant plusieurs services qui ne répondent pas pareil.
+- **`Schedule.OverCapacityRefusedByService`**, son propre code d'erreur, qui distingue quota et
+  plafond total dans la phrase (les remèdes diffèrent) et dit d'emblée que la case ne le lèvera pas.
+- **`PublishRefusedByIntake` compte les deux moitiés infranchissables séparément** et cesse de
+  proposer la case quand il ne reste rien de franchissable.
+- **`SaturatedCellResponse.Forceable`** sur chaque saturation de la grille de planning, avec le tri
+  « non forçable d'abord » — qui absorbe l'ancien « non admis d'abord ».
+- **Quatre écrans** : la fiche du service (une ligne qui l'affirme dans les deux sens), le formulaire
+  (un `Switch` avec sa conséquence écrite), la liste (un cadenas sur l'état rare seulement), la grille
+  (compteur « non forçables », marque par ligne dans le rapport, et la description de la case qui
+  **nomme** les services fermes concernés).
+- **12 tests** (`ServiceOverCapacityPolicyTests`), dont le contrôle qui compte : un service ferme
+  **dans** son effectif publie comme les autres. Suite complète : **1 608 verts**.
+
+### ⚠ Le raccourci qu'il a fallu défaire, et c'est le cœur technique de la phase
+
+Depuis le 17/08, la case cochée signifiait *ne construis même pas la table d'occupation* — l'optimisation
+qui avait rendu la séparation de l'admissibilité gratuite. Sous ce raccourci, **un service ferme est
+injoignable** : son nombre n'est jamais lu, donc son refus n'existe pas. La table est désormais
+construite sur **exactement** les services fermes de l'appel (`ServiceIntakeLookup.FirmServicesAmong`),
+si bien qu'une publication qui n'en touche aucun — le cas courant, et le seul aujourd'hui — ne mesure
+toujours rien. Plusieurs tests publient avec `allowOverCapacity: true` pour cette seule raison, et
+c'est ce qui les fait tomber quand on rétablit le raccourci.
+
+### ⚠ Ce que le drapeau ne fait pas
+
+- **Il lie la publication, pas la planification.** `RotationArranger` continue d'équilibrer sur
+  `CapacityFor` et remplira un service ferme au-delà de son nombre. C'est le bon ordre : un plan est un
+  brouillon, et refuser de le dessiner ne laisse nulle part où voir le problème. Il apparaît alors
+  dans le rapport de saturation, marqué « non forçable ».
+- **Il ne touche rien de publié.** Le refus porte sur les publications à venir ; le formulaire le dit.
+- **Il n'est pas porté sur « Charge des services »**, volontairement : cette page et son document
+  imprimable devraient s'accorder, et les quatre endroits d'où une publication se décide sont couverts.
+  Nommé pour que ce soit une décision et non un oubli.
+
+### Piloté sur la base réelle le 06/09/2026
+
+Migration appliquée au redémarrage : **148 services sur 148 à `true`**. L'essai a porté sur
+*Cardiologie B* (Maternité Souissi), le meilleur cas possible — pic de **118 étudiants** venant de
+**trois promotions** contre une capacité de 20, et premier dans l'ordre de rotation de la Cardiologie
+de 4ᵉ MED. Rendu ferme, puis remis comme il était.
+
+- **Le refus** est arrivé mot pour mot, la case **cochée** : « … accueillerait 118 étudiant(s) pour
+  une capacité de 20. Ce service n'autorise pas le dépassement d'effectif… » — et **0 période écrite**,
+  sur la cohorte comme sur toute la promotion.
+- **La grille l'annonçait avant le clic** : « 18 affectations saturées, **dont 6 non forçables** », les
+  6 lignes marquées et **en tête** au-dessus de lignes au *même* dépassement (+98) qui, elles, sont
+  forçables — donc l'ordre suit bien la forçabilité et non les chiffres. Le dialogue nommait le
+  service.
+- **Le contrôle** : drapeau remis à `true` → **mêmes 18 saturations, badge disparu**. Le marqueur suit
+  le drapeau, pas les nombres.
+- **Non piloté délibérément** : la publication qui *réussit*. Elle écrirait 4 625 périodes réelles sur
+  une promotion dont la publication est un acte en attente (`HANDOFF.md` item `0d`) — c'est un clic de
+  l'utilisateur, pas une vérification.
+
+### ⚠ Deux défauts que seul le clic pouvait trouver
+
+- **Le mien** : `onChange={(e) => setForm((p) => ({ …e.currentTarget.checked }))}` — React remet
+  `currentTarget` à `null` une fois l'événement propagé, et l'updater fonctionnel s'exécute au rendu
+  suivant. Basculer l'interrupteur faisait tomber la fenêtre dans l'ErrorBoundary. Invisible au
+  type-check (la propriété est typée non-nullable), au lint et aux tests.
+- **Le même motif ailleurs, préexistant, et il cassait une page** : cinq autres occurrences, dont
+  « Date confirmée » de `HolidaysPage` — vérifiée en cliquant, elle faisait tomber « Ajouter un jour
+  férié », c'est-à-dire que **saisir un férié était impossible**, sur la page où les fêtes lunaires ne
+  peuvent qu'être saisies à la main. Les six corrigés ; règle en `PGSH.Frontend/CLAUDE.md` §1l.
+
+### Ce qui reste
+
+- **Aucun service n'est ferme dans la base** : le drapeau existe, il vaut `true` partout, et rien ne
+  change tant qu'un chef n'a pas demandé le contraire. C'est ce qui rend la phase non destructive et
+  ce qui la rend, pour l'instant, invisible.

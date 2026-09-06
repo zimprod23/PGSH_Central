@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
 using PGSH.Domain.Hospitals;
@@ -37,6 +37,7 @@ internal sealed class CreateServiceCommandHandler(
             Name = request.Name,
             ServiceType = request.ServiceType,
             Capacity = request.Capacity,
+            AllowsOverCapacity = request.AllowsOverCapacity,
             Description = request.Description,
             Specialty = request.Specialty,
             LocalisationMaps = LocalizationMapper.FromCoordinates(

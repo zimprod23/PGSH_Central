@@ -190,6 +190,12 @@ So the **only** levers are:
 checked only at **publish**, and is waivable via `AllowOverCapacity`. Note the faculty's own `MED05.png`
 also puts 7 rosters in Santé Publique: this load is reality, not a modelling error.
 
+⚠ **…unless the service has said otherwise** (06/09/2026). `Service.AllowsOverCapacity`, `true` on
+every row today, is one service declaring that its number is not a target: the publication is then
+refused past it and the checkbox does not lift the refusal. It binds **publication only** — the
+arithmetic on this page, and `RotationArranger`'s balance, are unchanged, and a plan that overfills a
+firm service is still drawn. It simply cannot be published until it is corrected.
+
 ---
 
 ## 5 · Concurrent partitions must be arranged together
@@ -472,6 +478,22 @@ roster**, jamais un transfert isolé ni une cellule épinglée si on peut l'évi
 nombre de cohortes *de taille moyenne* qu'il tient, et une cohorte est **atomique** : une cohorte de
 deux occupe une place dimensionnée pour sept, donc elle dépense une cohorte entière d'admission pour
 deux personnes. Rien ne le refuse, rien ne le signale, et l'équilibre de la promotion est faux.
+
+⚠ **Le geste de ① est « changer de groupe », pas « transférer », tant que rien n'a commencé.**
+Les deux mettent l'étudiant dans le roster ; ils ne disent pas la même chose. Un *transfert* affirme
+« il était là, il est maintenant ici » et l'écrit — ligne d'historique sur le dossier, membership
+close puis rouverte. Une demande nominative traitée avant le début des rotations n'est pas un
+déplacement, c'est une **répartition corrigée** : `POST groups/change-student-group` repointe tout et
+ne laisse rien, de sorte que le dossier se lit comme si la répartition l'avait mis là dès le départ.
+Le transfert redevient le bon geste dès qu'une rotation a commencé — et l'autre est alors refusé, en
+nommant ce qui a déjà eu lieu.
+
+- **« Ces deux-là doivent permuter »** est un acte à part, `POST groups/swap-students` : déplacer un
+  seul étudiant laisse un roster court et l'autre long, ce qui est exactement le déséquilibre que ①
+  cherche à éviter.
+- ⚠ **Le groupe d'origine n'est plus écrit nulle part** après un changement — seul le journal des
+  actions le garde. C'est le prix de « aucune trace sur le dossier », et c'est pour cela que
+  l'écran fait cocher une case avant.
 
 ⚠ **② est la leçon de la vraie base, pas une préférence.** En 2024-2025, la 6ᵉ MED tenait **cinq**
 rosters entièrement au HMIMV, de **6-7 étudiants** chacun — un groupe par *contrainte*, pas un groupe

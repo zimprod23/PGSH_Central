@@ -56,6 +56,8 @@ public static class DependencyInjection
         services.AddScoped<StagePauseRunner>();
         services.AddScoped<MidStageTransferRescheduler>();
         services.AddScoped<LateArrivalScheduler>();
+        services.AddScoped<CohortMemberScheduler>();
+        services.AddScoped<PGSH.Application.AcademicGroups.GroupChange.StudentGroupRelocator>();
         services.AddScoped<CohortProvisioner>();
         services.AddScoped<ExecutionAuthorizer>();
         services.AddScoped<CnpnAssignment>();

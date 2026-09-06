@@ -304,6 +304,38 @@ public static class StageErrors
         + "Choisissez un autre service, ou ajoutez un quota pour cette promotion depuis la fiche du service.");
 
     /// <summary>
+    /// Over the number on a service whose chef has refused « autoriser le dépassement d'effectif »
+    /// (<c>Service.AllowsOverCapacity</c> is false). Same arithmetic as
+    /// <see cref="CapacityExceeded"/> / <see cref="LevelCapacityExceeded"/>, opposite verdict: the
+    /// checkbox does not reach this one.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ <b>Its own code rather than a sentence appended to the other two</b>, for the reason
+    /// <see cref="LevelNotAdmitted"/> has one: what a reader needs first is not how far over the cell
+    /// is but that the control on screen will not move it. A message ending on « cochez « autoriser
+    /// le dépassement » » sends the admin round a loop the service has already closed, and that is
+    /// how a screen gets blamed for a refusal it is reporting correctly.
+    /// <para><paramref name="levelLabel"/> is the promotion when the ceiling in force is that
+    /// promotion's quota, and null when it is the service's total — the remedy differs, exactly as it
+    /// does between the two waivable errors.</para>
+    /// </remarks>
+    public static Error OverCapacityRefusedByService(
+        int periodNumber, string serviceName, string? levelLabel,
+        DateOnly start, DateOnly end, int occupancy, int capacity) => Error.Conflict(
+        "Schedule.OverCapacityRefusedByService",
+        $"La période {periodNumber} ne peut pas être publiée : le service « {serviceName} » "
+        + $"({start:dd/MM/yyyy} – {end:dd/MM/yyyy}) accueillerait {occupancy} étudiant(s)"
+        + (levelLabel is null
+            ? $" pour une capacité de {capacity}. "
+            : $" de {levelLabel} pour un quota de {capacity}. ")
+        + "Ce service n'autorise pas le dépassement d'effectif : la case « autoriser le dépassement » "
+        + "ne lève pas ce refus. Retirez des groupes de ce service"
+        + (levelLabel is null
+            ? ", ou augmentez sa capacité"
+            : ", ou augmentez son quota pour cette promotion")
+        + " — ou autorisez le dépassement depuis la fiche du service, en accord avec son chef.");
+
+    /// <summary>
     /// One publish, several cells refused at once — the ordinary shape of a stage-wide publication
     /// on a base that is structurally over-subscribed.
     /// </summary>
@@ -314,24 +346,53 @@ public static class StageErrors
     /// published cohorte by cohorte, so one press of « Publier tout » produced a refusal per cohorte,
     /// dozens of red toasts each naming a different service and none of them naming the scale of the
     /// problem. One refusal, an exact count, and the heaviest few named.
-    /// <para><paramref name="notAdmittedCount"/> is stated separately because that half cannot be
-    /// forced: « autoriser le dépassement » lifts the numbers, never a promotion a service does not
-    /// take.</para>
+    /// <para><paramref name="notAdmittedCount"/> and <paramref name="refusedOverrideCount"/> are
+    /// stated separately because <b>neither half can be forced</b> and the two are fixed in different
+    /// places: one is a promotion the service does not take, the other a service that does not accept
+    /// being over its number. What is left over is the waivable remainder — and only when there is
+    /// one does the sentence offer the checkbox, because offering it against refusals it cannot lift
+    /// is what teaches an admin that the screen is lying to them.</para>
     /// </remarks>
     public static Error PublishRefusedByIntake(
-        int refusedCells, int notAdmittedCount, IReadOnlyList<string> worst) => Error.Conflict(
+        int refusedCells, int notAdmittedCount, int refusedOverrideCount,
+        IReadOnlyList<string> worst) => Error.Conflict(
         "Schedule.PublishRefusedByIntake",
         $"La publication est refusée : {refusedCells} affectation(s) dépassent ce que le service accepte"
-        + (notAdmittedCount > 0
-            ? $", dont {notAdmittedCount} sur un service qui n'accueille pas cette promotion — "
-              + "ce refus-là ne peut pas être forcé. "
-            : ". ")
+        + UnforceableClause(notAdmittedCount, refusedOverrideCount)
         + $"Les plus lourdes : {string.Join(" · ", worst)}"
         + (refusedCells > worst.Count ? $" (+{refusedCells - worst.Count} autre(s))" : "")
         + ". Ouvrez la grille de planning pour les corriger"
-        + (notAdmittedCount < refusedCells
+        + (notAdmittedCount + refusedOverrideCount < refusedCells
             ? ", ou cochez « autoriser le dépassement d'effectif » pour publier malgré les effectifs."
-            : ".")); 
+            : "."));
+
+    /// <summary>
+    /// Names the halves the checkbox cannot lift, in one clause — or closes the sentence when there
+    /// are none. Written out rather than nested in the interpolation above: three combinations of two
+    /// counts is exactly where a chain of ternaries stops being readable.
+    /// </summary>
+    private static string UnforceableClause(int notAdmittedCount, int refusedOverrideCount)
+    {
+        var halves = new List<string>(2);
+
+        if (notAdmittedCount > 0)
+            halves.Add($"{notAdmittedCount} sur un service qui n'accueille pas cette promotion");
+
+        if (refusedOverrideCount > 0)
+            halves.Add($"{refusedOverrideCount} sur un service qui n'autorise pas le dépassement d'effectif");
+
+        if (halves.Count == 0)
+            return ". ";
+
+        // Agreed with the number of cells, not with the number of halves: « dont 1 sur un service… »
+        // followed by a plural verb is the kind of wrongness a reader stops on, and this sentence is
+        // read at the worst possible moment.
+        string verdict = notAdmittedCount + refusedOverrideCount == 1
+            ? "ce refus-là ne peut pas être forcé"
+            : "ces refus-là ne peuvent pas être forcés";
+
+        return $", dont {string.Join(" et ", halves)} — {verdict}. ";
+    }
 
     /// <summary>
     /// Every service the stage allows refuses its level. Raised by auto-arrange rather than
@@ -630,4 +691,22 @@ public static class StageErrors
         + $"{attendanceDays} journée(s) de présence. Réinitialiser effacerait définitivement les "
         + "évaluations et les présences. Dépubliez d'abord la répartition du stage — cette action "
         + "indique précisément ce qu'elle coûte — puis réinitialisez.");
+
+    /// <summary>
+    /// « Changement de groupe » met an affectation that is no longer a plan. The act asserts the
+    /// student was <i>always</i> in the target roster, and past <c>Planned</c> that is contradicted by
+    /// the record itself — a rotation begun, a mark, a verdict.
+    /// </summary>
+    /// <remarks>
+    /// It names the transfer rather than offering a force: moving a student whose stage has actually
+    /// started is what <c>TransferStudentCommand</c> is for, and it keeps the trace precisely because
+    /// there is now something to trace.
+    /// </remarks>
+    public static Error AffectationNotCorrectable(Guid assignmentId, InternshipStatus status) =>
+        Error.Conflict(
+            "Affectations.NotCorrectable",
+            $"L'affectation {assignmentId} n'est plus une simple prévision (état : {status}). Un "
+            + "changement de groupe déclare que l'étudiant a toujours été dans le groupe d'arrivée, ce "
+            + "que cette rotation contredit. Utilisez un transfert : il fait suivre la rotation en "
+            + "cours et en conserve la trace.");
 }

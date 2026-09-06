@@ -1653,6 +1653,82 @@ somebody registers.
   (read from its périodes, not from the calendar) gives him a started one, so he appears on the chef's
   screen the same day.
 
+#### Il y a trois actes sur un roster, et le troisième est une *correction*
+`AcademicGroups/GroupChange/` — `ChangeStudentGroupCommand` (`POST groups/change-student-group`) et
+`SwapStudentGroupsCommand` (`POST groups/swap-students`). Ils partagent `StudentGroupRelocator`,
+parce qu'un échange **est** deux changements.
+
+| acte | ce qu'il affirme |
+|---|---|
+| `AssignStudentToGroupCommand` | il n'est dans **aucun** roster et en rejoint un |
+| `TransferStudentCommand` | il se déplace, et le déplacement est un fait : la rotation en cours est coupée, la suivante réhébergée, et le dossier dit quand et pourquoi |
+| `ChangeStudentGroupCommand` | il a été **enregistré dans le mauvais roster** — il a toujours été dans celui-ci |
+
+- ⚠ **« Sans historique » nomme le dossier, jamais le registre.** Le *dossier* est le récit de
+  l'étudiant et ne doit rien montrer ; le *journal des actions* est la trace des actes
+  d'administration et doit tout montrer. L'acte ne peut pas être défait — le groupe d'origine n'est
+  écrit nulle part après coup — donc la commande est `IAuditableCommand` et son entrée est **le seul
+  endroit où ce groupe survit**. Un registre qu'un acte destructeur peut contourner n'est pas un
+  registre. Épinglé par `The_dossier_keeps_nothing_and_the_register_keeps_everything`, qui assied les
+  deux moitiés ensemble : « aucune trace » serait sinon indiscernable de « acte non enregistré ».
+- **Le silence est une propriété du domaine, pas du handler.** `Registration.ReassignToGroup` ne lève
+  **aucun** événement, là où `TransferToGroup` lève `StudentGroupTransferredDomainEvent` dont le
+  handler écrit la ligne `HistoryType.GroupTransfer`. ⚠ Le test de silence a besoin de son contrôle :
+  « aucun événement » ne vaut rien si la fixture ne peut pas en produire un.
+- **`InternshipAssignment.ReassignToCohort` réécrit la membership ouverte sur place** — pas de date
+  de fin, pas de seconde ligne. ⚠ **Mais les lignes déjà closes restent** : elles enregistrent un
+  transfert qui a réellement eu lieu et cet acte n'a pas à l'effacer. `OriginalCohortId` est remis à
+  null, sans quoi l'auto-retour d'un prêt renverrait l'étudiant vers un groupe dont le dossier ne dit
+  plus qu'il en vient.
+- ⚠ **La garde de l'agrégat est `Status`, et rien d'autre — délibérément.** Une correction n'est
+  vraie que tant que l'affectation est encore une prévision. Les faits plus profonds (période
+  démarrée, note, présence) pendent de collections qu'un chargement sans `Include` rapporte
+  **vides** : un agrégat qui répondrait « rien enregistré » à un appelant distrait laisserait passer
+  exactement le cas qu'il existe pour arrêter. Le store est interrogé par le handler
+  (`AffectationTollReader.ForRegistrationInRosterAsync`) et l'agrégat décide — la division que
+  `CnpnSpanFloor` fait déjà.
+- ⚠ **Aucun `Force`, pour la raison qui rend `RosterAffectationsUnderway` non forçable** : l'acte qui
+  détruit notes et présences est « Dépublier », qui annonce son coût et demande deux fois. Le refus
+  nomme les quatre chiffres — lus par le **même** `AffectationToll` que la dépublication, pour que
+  deux actes ne décrivent pas les mêmes lignes différemment — et désigne le transfert.
+- ⚠ **Aucun `Reason` non plus.** Tout autre acte sur un roster en prend un parce qu'il est écrit et
+  relu ; ici il n'aurait nulle part où aller — l'acte *est* l'absence de trace sur la fiche.
+- **Les périodes sont reconstruites depuis les cellules *publiées* de la cohorte d'arrivée**
+  (`CohortMemberScheduler`), jamais depuis ses cellules tout court. Une cellule est un plan ; une
+  période est l'étudiant qui s'y tient. Matérialiser toutes les cellules lui donnerait une rotation
+  que ses camarades n'ont pas, sur une cohorte que personne n'a publiée — visible du chef de service,
+  comptée dans l'effectif, et impossible à distinguer d'une vraie publication.
+- ⚠ **Les périodes hors grille voyagent intactes** : une délocalisation, une revalidation, un
+  historique importé ne viennent d'aucune répartition et aucune ne peut les reproduire.
+  `AdHocPeriodsKept` les compte, pour la raison que `UnpublishCohortScheduleCommand` les compte.
+- ⚠ **Les affectations manquantes sont créées ici et non par
+  `StudentAffectationService.AssignRegistrationAsync`.** Cette méthode demande au *store* dans
+  quelles cohortes l'étudiant est déjà ; les affectations qui viennent d'être repointées **ne sont
+  pas sauvegardées**, donc le store les montre encore dans le roster de départ et elle en créerait
+  une seconde par stage — la duplication qu'un re-découpage produisait.
+- **L'échange lit les deux destinations avant de bouger qui que ce soit.** Prise au moment où on en a
+  besoin, la seconde enverrait B dans le groupe où A vient d'arriver : les deux dans un roster et
+  l'autre vide. Un seul `SaveChanges` pour les deux moitiés, donc un refus sur la seconde laisse la
+  première exactement où elle était.
+
+##### `CohortStayFolder` — plier les cellules d'une cohorte en séjours
+`Domain/Stages/`, pur, comme `StageScoring` et `ServicePeriodLifecycle`. La règle était **privée dans
+`SchedulePublisher`** jusqu'à ce qu'un second acte ait à produire les périodes que tient un membre
+d'une cohorte.
+
+- ⚠ **Écrite deux fois, elle aurait divergé sur `SingleService`** : l'étudiant déplacé aurait tenu
+  *kₛ* périodes là où ses camarades en tiennent **une**, on lui aurait demandé *kₛ* notes, et sa
+  moyenne se serait calculée autrement que celle de toute sa promotion.
+- Un run rompt sur un **trou dans les numéros de colonne** *et* sur un **changement de service** : une
+  cellule modifiée à la main vers un autre service fait deux séjours, pas une période dont le service
+  est faux sur la moitié de sa durée.
+
+⚠ **Un défaut latent corrigé avec la phase : `MidStageTransferRescheduler` n'écrivait aucune ligne de
+couverture** sur ses trois créations de période. La FK répond « ça vient de la grille ? » ; seule
+`ServicePeriodSlotCoverage` répond « *cette cellule* est-elle publiée ? », et c'est elle que lit
+`PublishedCells`. Sans elle la cellule d'un étudiant transféré se lit **libre** : le prochain
+auto-arrangement la réécrit sur un autre service pendant que sa période nomme toujours l'ancien.
+
 #### The fourth shape — the faculty's own roll, which is acts 1 and 2 at once
 `Students/Registrations/ReinscriptionSheet/` — `POST reinscription/sheet[/preview]`. One spreadsheet,
 one line per student: `Code · NOM · PRENOM · Etape 25-26 · Etape 2026/2027`. Those two étapes carry
@@ -2347,6 +2423,58 @@ so one key expresses "10 first-year Médecine, 15 third-year, no pharmaciens" �
     does hold 126 on 10/10/2026 (56 MED3 Pneumo + 56 MED4 Pneumo + 14 MED3 Médecine). So this is not
     a defect in the occupancy maths; it is the calendar, and it is the first real reason to author
     quotas. `HANDOFF.md` item `0d`.
+
+#### …and a service may refuse to be forced — `Service.AllowsOverCapacity`
+The number above is a target on every service, and « autoriser le dépassement d'effectif » lifts it.
+`AllowsOverCapacity` (**true by default**) is how one service says its number is not a target.
+Requested by the faculty 2026-09-06: *« certains chefs de service n'acceptent pas qu'on dépasse leur
+effectif »*.
+
+- ⚠ **It exists because the override is ticked as a matter of routine**, which is the same
+  measurement that forced the admissibility split: with **233 of 353 planned cells over capacity**, a
+  ceiling nothing could make binding was in practice advisory *for every service in the faculty*.
+  Making it firm is therefore a decision **per service**, taken by the people the number is about —
+  not a stricter default nobody could work under, and not a second global flag.
+- **The publish guard now reads three rules, and `allowOverCapacity` is a *request*, not a decision**
+  (`SchedulePublisher.EnsureIntakeAsync`): admissibility (never waived) · occupancy on a permissive
+  service (waived) · occupancy on a firm one (**not** waived, `Schedule.OverCapacityRefusedByService`).
+  Forceability is asked **per cell**, because one publish spans many services and they do not answer
+  alike.
+- ⚠ **The override no longer means the occupancy half can be skipped.** That shortcut was the cheap
+  path the 2026-08-17 split preserved — with the box ticked, no load was ever counted — and under it a
+  firm service is *unreachable*, because its number is never read. The lookup is now built over
+  exactly the firm services of the call (`ServiceIntakeLookup.FirmServicesAmong`), so a publish
+  touching only permissive ones still measures nothing. Several tests publish with
+  `allowOverCapacity: true` for no other reason than to hold that shut.
+- **Its own error code, not a sentence appended to the other two.** Same reasoning as
+  `LevelNotAdmitted`: what a reader needs first is not how far over the cell is but that the control
+  on screen will not move it, and a message ending on « cochez « autoriser le dépassement » » sends
+  the admin round a loop the service has already closed. The message still distinguishes quota from
+  total, because the remedies differ.
+- **The aggregate refusal counts the two unforceable halves apart** (`PublishRefusedByIntake` takes
+  `notAdmittedCount` *and* `refusedOverrideCount`) and stops offering the checkbox when nothing
+  waivable is left. They are fixed in different places — a promotion the service does not take, versus
+  a service standing on its number.
+- ⚠ **True by default is what makes the migration safe.** The column lands on 148 services no chef has
+  been asked about; false would have refused the next publication of every promotion over a
+  restriction nobody authored. Same rule at every layer — the entity, both commands (a trailing
+  optional `= true`), and `Update`'s endpoint `Request`, where the field is **nullable** so an
+  omission reads « le client n'en dit rien » rather than binding to `false`.
+- ⚠ **It binds publication, never planning.** `RotationArranger` still balances by `CapacityFor` and
+  will fill a firm service past its number; what changes is that the plan cannot then be published.
+  That is the right order — a plan is a draft, and refusing to draw one leaves the admin nowhere to
+  see the problem.
+- **The screen says it before the click**: `SaturatedCellResponse.Forceable` travels on every
+  saturation of the planning grid, and the publish dialog names the firm services it is about to be
+  refused by. ⚠ It is **not derivable from `Reason`** — the numbers of a firm service and of a
+  permissive one are identical and only the service says which — so it is sent, never re-derived on
+  the client, for the reason `ServicePeriodResponse.State` is.
+- ⚠ **The list marks the rare state only.** A lock beside all 148 rows says nothing; what an admin
+  needs to spot is the handful whose number actually binds. Same rule as `ExportNotes`.
+- **Not carried onto the charge report** (`Services/OccupancyReport/`), deliberately and for now: that
+  page and its printable document would have to agree, and the four places a publish is decided from —
+  the fiche, the list, the grid, the two dialogs — are covered. Named here so the gap is a decision
+  rather than an oversight.
 
 ### A service's load is not readable one period at a time
 `Services/Occupancy/` answers "what does this service actually hold, and when" — the question

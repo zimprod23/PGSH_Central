@@ -1,4 +1,4 @@
-using PGSH.Domain.Common.Utils;
+﻿using PGSH.Domain.Common.Utils;
 using PGSH.Domain.Stages;
 using PGSH.Domain.Students;
 using PGSH.SharedKernel;
@@ -110,6 +110,30 @@ public sealed class Registration : Entity
         AcademicGroupId = newGroupId;
         Raise(new StudentGroupTransferredDomainEvent(Id, StudentId, previousGroupId, newGroupId, reason));
     }
+
+    /// <summary>
+    /// « Changement de groupe » — records that this registration's roster <b>is</b>, and always was,
+    /// <paramref name="newGroupId"/>. A correction of the record, not a movement inside it.
+    /// </summary>
+    /// <remarks>
+    /// <para>⚠ <b>It raises no event, and the silence is the whole point.</b>
+    /// <see cref="TransferToGroup"/> raises <see cref="StudentGroupTransferredDomainEvent"/>, whose
+    /// handler writes a <c>HistoryType.GroupTransfer</c> row the student's dossier and parcours then
+    /// print — « transféré de G7 vers G12 le 6 septembre ». That row is right for a transfer, which is
+    /// a thing that happened to a student, and wrong for a correction, which is somebody fixing what
+    /// PGSH said about him. Answering « je n'ai jamais été dans le groupe 7 » with a line saying he
+    /// was is exactly the trace this act exists to not leave.</para>
+    ///
+    /// <para><b>Silent toward the student's record, never toward the register.</b> The act is
+    /// unrecoverable — the roster it came from is not written down anywhere afterwards — so the
+    /// command carrying it is an <c>IAuditableCommand</c> and the journal keeps who asked for it, when
+    /// and from where. « Sans historique » is a statement about the dossier, and a register that can be
+    /// emptied by the acts it is meant to record is not a register.</para>
+    ///
+    /// <para>It deliberately does <b>not</b> erase the trace of <i>other</i> acts: a real transfer this
+    /// student went through last month stays on his parcours, because it happened.</para>
+    /// </remarks>
+    public void ReassignToGroup(int newGroupId) => AcademicGroupId = newGroupId;
 
     /// <summary>
     /// Closes the academic year with the verdict pronounced in deliberation. The only writer of

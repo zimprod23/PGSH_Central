@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
 using PGSH.Application.Hospitals.Chefs;
@@ -38,6 +38,7 @@ internal sealed class GetServiceByIdQueryHandler(
             service.ServiceType.ToString(),
             service.Specialty,
             service.Capacity,
+            service.AllowsOverCapacity,
             service.HospitalId,
             service.Hospital.Name,
             service.Hospital.City,

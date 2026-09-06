@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
 using PGSH.Application.AcademicYears;
@@ -155,7 +155,11 @@ internal sealed class GetStageScheduleQueryHandler(
             .Select(pair => Saturation(pair, slotById[pair.StageSlotId], levelId, intake, occupancy))
             .Where(s => s is not null)
             .Select(s => s!)
-            .OrderByDescending(s => s.Reason == SaturationReason.Refused)
+            // Unforceable first — those are the ones the publish will refuse whatever the admin
+            // ticks, so they are what the list is read for. It subsumes the old « Refused first »:
+            // an inadmissible promotion is never forceable.
+            .OrderBy(s => s.Forceable)
+            .ThenByDescending(s => s.Reason == SaturationReason.Refused)
             .ThenByDescending(s => s.OccupiedSeats - s.Capacity)
             .ToList();
 
@@ -235,7 +239,8 @@ internal sealed class GetStageScheduleQueryHandler(
             admits ? capacity : 0,
             !admits ? SaturationReason.Refused
                 : isLevelQuota ? SaturationReason.Quota
-                : SaturationReason.Total);
+                : SaturationReason.Total,
+            Forceable: admits && intake.AllowsOverCapacity(pair.ServiceId));
     }
 
     /// <summary>

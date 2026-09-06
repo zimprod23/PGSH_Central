@@ -230,6 +230,16 @@ Consequences to hold on to:
 | `Description` | varchar(500) | nullable |
 | `ServiceType` | varchar | NOT NULL, enum: `Biologie`, `Chirurgie`, `Medical` |
 | `Capacity` | int | NOT NULL, default 20 |
+| `AllowsOverCapacity` | boolean | NOT NULL, **default TRUE** |
+
+⚠ **`AllowsOverCapacity` — « ce service accepte-t-il d'être dépassé ? »** (migration
+`ServiceOverCapacityPolicy`, 06/09/2026). False makes the ceiling in force — `Capacity` or the
+promotion's quota — binding at publication: `SchedulePublisher` refuses with
+`Schedule.OverCapacityRefusedByService` and « autoriser le dépassement d'effectif » does **not** lift
+it. **The default is load-bearing**: the column lands on 148 services whose chefs have been asked
+nothing, and false would have refused the next publication of every promotion over a restriction
+nobody authored. It binds *publication only* — `RotationArranger` still balances by `CapacityFor` and
+will happily plan past the number.
 
 **Many-to-many:** `EmployeeService` shadow join table (ServiceId → Services, EmployeesId → Users)
 

@@ -3628,3 +3628,121 @@ place, donc l'entrée survivait quand même. Il a fallu reproduire **les deux li
 voir le test tomber. Casser à moitié une correction en deux parties prouve seulement que l'autre
 moitié fonctionne.
 
+## Un déplacement qui affirme « il a toujours été là » (06/09/2026)
+
+Trois actes déplacent un étudiant et ils diffèrent par **ce qu'ils affirment**, pas par ce qu'ils
+écrivent : rejoindre (« il n'était nulle part »), transférer (« il était là, il est ici maintenant »),
+changer de groupe (« il a toujours été ici »). Le troisième est nouveau et c'est le cas le plus
+banal — la répartition s'est trompée de groupe.
+
+- **Ce qui rend le troisième différent est une soustraction, pas un ajout** : pas d'événement de
+  domaine, donc pas de ligne d'historique ; la `CohortMembership` ouverte est réécrite au lieu d'être
+  close et remplacée. Tout le reste — repointer les affectations, reconstruire les périodes — est ce
+  qu'un transfert fait déjà.
+- ⚠ **La question qu'il faut se poser sur « sans historique » est : sans historique pour qui ?** Le
+  dossier de l'étudiant et le journal des actions n'ont pas le même lecteur. L'acte étant
+  irréversible (le groupe d'origine n'est plus écrit nulle part), le journal est le **seul** endroit
+  où il survit — le supprimer là aussi rendrait un acte destructeur invisible.
+- ⚠ **Les lignes de membership déjà closes restent.** Effacer la trace d'un transfert *réel* pour
+  faire place nette n'est pas la même chose que ne pas écrire la sienne.
+- **Il n'y a pas de `Force`, et le refus désigne le transfert.** Une correction cesse d'être vraie dès
+  qu'une rotation a commencé ; à ce moment-là l'acte juste est celui qui garde la trace, précisément
+  parce qu'il y a maintenant quelque chose à tracer.
+- ⚠ **Ce qui a failli être écrit deux fois** : le pli des cellules d'une cohorte en séjours, privé
+  dans `SchedulePublisher`. Sur un stage `SingleService`, deux copies auraient donné à l'étudiant
+  déplacé *kₛ* périodes là où ses camarades en tiennent une — *kₛ* notes demandées, et une moyenne
+  calculée autrement que celle de sa promotion. Sorti dans le domaine (`CohortStayFolder`).
+- ⚠ **Trouvé en passant** : `MidStageTransferRescheduler` posait `CohortSlotAssignmentId` sans écrire
+  la ligne `ServicePeriodSlotCoverage`, sur ses trois créations de période. La cellule d'un étudiant
+  transféré se lisait donc **libre** pour `PublishedCells` — réécrite par le prochain auto-arrangement
+  pendant que sa période nommait toujours l'ancien service.
+- **Mesuré ce jour-là, et c'est ce qui rend la garde vivable** : la 2026-2027 tient 12 340 périodes
+  dont **0 démarrée, 0 évaluation, 0 journée de présence**, tandis que la 2025-2026 est démarrée et
+  close de bout en bout. La correction est donc disponible exactement là où on en a besoin — sur
+  l'année qu'on est en train de planifier — et refusée sur celle qui a eu lieu.
+- ⚠ **Piloté le 06/09/2026, et l'écran a trouvé ce que rien d'autre ne pouvait trouver.** Le premier
+  changement a répondu 200, l'étudiant avait bougé en base — et la page depuis laquelle l'acte venait
+  d'être lancé continuait de le lister. `getGroupById` fournit le tag `group-<id>`, différent de celui
+  de la liste, et la mutation n'invalidait que le second. Rien dans les 1 596 tests, le type-check ou
+  le lint ne pouvait le voir ; ce qui le prouve est le journal réseau. **Le repère à retenir : lister
+  les *écrans* qu'un acte périme, pas les *entités* qu'il touche** — un déplacement en périme trois.
+  Et le tag du groupe de **départ** n'est connu que de l'appelant, la requête ne nommant que la
+  destination.
+- **Mesuré aussi** : tous les rosters d'une promotion portent exactement le même nombre de cohortes
+  (7/7 en 5ᵉ MED, 6/6 en 3ᵉ MED, 5/5 en 4ᵉ MED, 2/2 en 5ᵉ Pharmacie), donc « le groupe d'arrivée ne
+  fait pas ce stage » est un refus qui ne mord pas en pratique. Il reste parce qu'un roster d'un autre
+  CNPN diffère légitimement — `CohortProvisioner` saute les stages qu'un texte n'exige pas.
+
+---
+
+## Un plafond que la case à cocher ne franchit pas — `Service.AllowsOverCapacity` (06/09/2026)
+
+Demandé par l'utilisateur : *« quand on publie une cohorte on nous propose d'autoriser le dépassement
+de capacité, mais certains chefs de service n'aiment pas ça »*. La réponse est un drapeau **par
+service**, autorisé par défaut, que la publication lit.
+
+- ⚠ **Le motif est une mesure déjà au dossier** : 233 des 353 cellules planifiées dépassent la
+  capacité (66 %), donc « autoriser le dépassement » se coche par réflexe. C'est exactement le
+  raisonnement qui avait forcé la séparation de l'admissibilité le 17/08 — *une règle qu'on n'applique
+  que lorsque personne n'a besoin de la contourner n'est pas appliquée* — mais appliqué cette fois à
+  la moitié « effectif », qui **doit** rester franchissable en général. D'où un drapeau par service et
+  non un durcissement global : c'est la personne que le nombre concerne qui décide.
+- **La garde lit désormais trois règles** (`SchedulePublisher.EnsureIntakeAsync`), et
+  `allowOverCapacity` est une *demande*, plus une décision : admissibilité (jamais levée) · effectif
+  sur un service permissif (levé) · effectif sur un service ferme (**non levé**,
+  `Schedule.OverCapacityRefusedByService`). La question se pose **par cellule** — une publication
+  traverse plusieurs services et ils ne répondent pas pareil.
+- ⚠ **Ce qui a dû sauter : le raccourci qui rendait la moitié « effectif » gratuite.** Depuis le
+  17/08, la case cochée signifiait *ne construis même pas l'occupation* — donc aucune charge n'était
+  jamais comptée, et sous ce raccourci un service ferme est **injoignable**, son nombre n'étant jamais
+  lu. La table d'occupation est maintenant construite sur **exactement** les services fermes de
+  l'appel (`ServiceIntakeLookup.FirmServicesAmong`), donc une publication qui n'en touche aucun ne
+  mesure toujours rien. Plusieurs tests publient avec `allowOverCapacity: true` pour cette seule
+  raison.
+- **Un code d'erreur à lui, pas une phrase ajoutée aux deux autres.** Même raison que
+  `LevelNotAdmitted` : ce qu'un lecteur doit lire d'abord n'est pas de combien il dépasse, mais que la
+  commande à l'écran ne le lèvera pas. Un message finissant sur « cochez « autoriser le dépassement » »
+  renvoie l'administrateur dans une boucle que le service a déjà fermée. Le message distingue toujours
+  quota et plafond total, les remèdes n'étant pas les mêmes.
+- **Le refus agrégé compte les deux moitiés infranchissables séparément** (`PublishRefusedByIntake`
+  prend `notAdmittedCount` *et* `refusedOverrideCount`) et cesse de proposer la case quand il ne reste
+  rien de franchissable. Elles se corrigent à deux endroits différents.
+- ⚠ **`true` par défaut, et c'est ce qui rend la migration sûre.** La colonne arrive sur 148 services
+  dont aucun chef n'a été consulté. Même règle à chaque couche : l'entité, les deux commandes (un
+  paramètre optionnel final `= true`) et le `Request` de `PUT services/{id}`, où le champ est
+  **nullable** pour qu'une omission se lise « le client n'en dit rien » plutôt que de se lier à
+  `false`.
+- ⚠ **Ça lie la publication, jamais la planification.** `RotationArranger` continue d'équilibrer sur
+  `CapacityFor` et remplira un service ferme au-delà de son nombre ; ce qui change est qu'on ne pourra
+  pas publier. C'est le bon ordre — un plan est un brouillon, et refuser de le dessiner ne laisse
+  nulle part où voir le problème.
+- **L'écran le dit avant le clic** : `SaturatedCellResponse.Forceable` voyage sur chaque saturation de
+  la grille, le bandeau rouge compte les « non forçables », le rapport les marque ligne par ligne, et
+  la description de la case nomme les services concernés. ⚠ **Ce n'est pas dérivable de `Reason`** —
+  les chiffres d'un service ferme et d'un service permissif sont identiques, seul le service le sait —
+  donc c'est envoyé, jamais recalculé côté client, pour la raison que `ServicePeriodResponse.State`
+  l'est.
+- ⚠ **La liste des services ne marque que l'état rare.** Un cadenas sur 148 lignes ne dit rien ; ce
+  qu'un administrateur doit repérer est la poignée dont le nombre lie vraiment. Même règle que
+  `ExportNotes`.
+- **Volontairement pas porté sur « Charge des services »** : cette page et son document imprimable
+  devraient s'accorder, et les quatre endroits d'où une publication se décide — la fiche, la liste, la
+  grille, les deux dialogues — sont couverts. Nommé ici pour que le trou soit une décision et non un
+  oubli.
+
+- ⚠ **Piloté le 06/09/2026, et le clic a trouvé deux choses que rien d'autre ne trouve.**
+  L'essai lui-même est passé mot pour mot — *Cardiologie B* (pic 118 contre 20, trois promotions),
+  refus avec la case **cochée**, **0 période écrite**, et le contrôle (drapeau remis → mêmes 18
+  saturations, badge disparu) montre que le marqueur suit le drapeau et non les nombres. Mais :
+  - **`e.currentTarget` lu *dans* un updater fonctionnel vaut `null`.** React le remet à `null` une
+    fois l'événement propagé — la propriété change à chaque étape du bouillonnement et n'a de sens
+    que pendant le dispatch — tandis que l'updater s'exécute au rendu **suivant**. Basculer
+    l'interrupteur faisait donc tomber la fenêtre dans l'ErrorBoundary : « Un problème est survenu »,
+    et rien d'autre. ⚠ Invisible au **type-check** (`currentTarget` est typé non-nullable), au lint et
+    aux tests, parce qu'aucun d'eux ne monte le formulaire. `e.target`, lui, survit — ce qui explique
+    que la faute passe inaperçue à côté d'un `e.target.value` qui marche.
+  - **Le même motif existait cinq fois ailleurs, et il cassait une page.** Trois champs de
+    `CnpnVersionsPanel`, deux de `HolidaysPage` — dont « Date confirmée », vérifiée en cliquant :
+    elle faisait tomber « Ajouter un jour férié », c'est-à-dire que **saisir un jour férié était
+    impossible**, sur la page où les fêtes lunaires ne peuvent qu'être saisies à la main. Les six
+    sites corrigés en hissant la valeur, comme `EvaluationModal` le faisait déjà.

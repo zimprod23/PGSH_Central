@@ -29,6 +29,32 @@ public sealed class Service
     /// </remarks>
     public int Capacity { get; set; } = 20;
 
+    /// <summary>
+    /// Whether a publication may be forced past this service's number — « autoriser le dépassement
+    /// d'effectif ». <b>True by default</b>: the ceiling is a target the faculty routinely exceeds
+    /// (measured 2026-08-14, 233 of 353 planned cells are over it), and a service that has never
+    /// said otherwise has not refused anything.
+    /// </summary>
+    /// <remarks>
+    /// <para>Set to false, the service's number stops being negotiable: the checkbox no longer lifts
+    /// it, and the refusal says so. It is the chef's own statement about his service — some will not
+    /// take a group over the number whatever the planning needs — and it is the <b>only</b> way to
+    /// make an occupancy limit binding, since the override is ticked as a matter of routine on a base
+    /// this over-subscribed.</para>
+    ///
+    /// <para>⚠ <b>It governs the number, never admissibility.</b> <see cref="Admits"/> is already
+    /// unforceable whatever this says; this flag moves the <i>occupancy</i> half from the waivable
+    /// side to the hard one. So a service may refuse over-capacity and still take every promotion,
+    /// and the two rules are read separately — see <c>SchedulePublisher.EnsureIntakeAsync</c>.</para>
+    ///
+    /// <para>⚠ It binds <b>publication</b>, not planning. <c>RotationArranger</c> still balances by
+    /// <see cref="CapacityFor"/> and will happily fill a firm service past its number; what changes
+    /// is that the plan can no longer be published without being corrected first. That is the right
+    /// order — a plan is a draft, and refusing to draw one would leave the admin nowhere to see the
+    /// problem.</para>
+    /// </remarks>
+    public bool AllowsOverCapacity { get; set; } = true;
+
     public int HospitalId { get; set; }
     public Hospital Hospital { get; set; }
 

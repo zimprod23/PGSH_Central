@@ -419,6 +419,54 @@ public sealed class InternshipAssignment : Entity
         Raise(new StudentCohortTransferredDomainEvent(Id, RegistrationId, previousCohortId, newCohortId, reason, type));
     }
 
+    /// <summary>
+    /// « Changement de groupe », affectation side: this affectation <b>is</b>, and always was, in
+    /// <paramref name="newCohortId"/>. Re-points the affectation and rewrites its open membership row
+    /// in place — no closing date, no second row, no event.
+    /// </summary>
+    /// <remarks>
+    /// <para>⚠ <b>Rewriting the open row is what leaves no trace; keeping the closed ones is what
+    /// keeps the act honest.</b> <see cref="TransferToCohort"/> closes the current membership and opens
+    /// another, which is right for a move — the student was in one cohorte until a date and in another
+    /// afterwards — and is exactly the trace a correction must not leave. But a membership already
+    /// closed records a transfer that <i>did</i> happen, and this act has no business erasing it: the
+    /// dossier then reads as though the student went straight from the roster he really left to the one
+    /// he is really in, which is the truth once this correction is applied.</para>
+    ///
+    /// <para><b>The refusal is on <see cref="Status"/>, and only on it.</b> A correction is truthful
+    /// only while the affectation is still a plan; past <see cref="InternshipStatus.Planned"/> there is
+    /// a rotation, a mark or a verdict that says the student stood somewhere, and « il n'y a jamais été »
+    /// stops being a correction and becomes a falsification. ⚠ The deeper facts — a période started, a
+    /// mark entered, a day of attendance — are deliberately <b>not</b> counted here: they hang off
+    /// collections an un-<c>Include</c>d load reports as empty, and an aggregate that answers « rien
+    /// enregistré » to a caller who forgot one would wave through exactly the case it exists to stop.
+    /// The store is asked for those and the caller is refused before it gets here — the division
+    /// <c>CnpnSpanFloor</c> already makes. <see cref="Status"/> is a scalar, always loaded, so the half
+    /// the aggregate can see without ambiguity is the half it owns.</para>
+    /// </remarks>
+    public Result ReassignToCohort(int newCohortId)
+    {
+        if (Status != InternshipStatus.Planned)
+            return AppResult.Failure(StageErrors.AffectationNotCorrectable(Id, Status));
+
+        if (CurrentCohortId == newCohortId)
+            return AppResult.Success();
+
+        var active = MembershipHistory.FirstOrDefault(m => m.EndDate is null);
+
+        if (active is not null)
+        {
+            active.CohortId = newCohortId;
+            // A loan's return address named the cohorte this affectation is no longer in. Left as it
+            // was, the auto-revert would send the student back to a roster the record no longer says
+            // he came from.
+            active.OriginalCohortId = null;
+        }
+
+        CurrentCohortId = newCohortId;
+        return AppResult.Success();
+    }
+
     // ─── Score computation ────────────────────────────────────────────────────
 
     public void RecalculateFinalScore() => RecomputeFinalScore();

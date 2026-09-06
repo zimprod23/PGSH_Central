@@ -465,6 +465,7 @@ public class SqlTranslationTests
     [InlineData("roster")]
     [InlineData("year")]
     [InlineData("cohorts")]
+    [InlineData("registration")]
     public void The_affectation_toll_queries_compile_to_sql(string scope)
     {
         using var db = TestHarness.NewNpgsqlContext();
@@ -473,6 +474,8 @@ public class SqlTranslationTests
         {
             "roster"  => AffectationTollReader.AssignmentsOfRosterQuery(db, academicGroupId: 10),
             "year"    => AffectationTollReader.AssignmentsOfYearRostersQuery(db, academicYearId: 1),
+            "registration" => AffectationTollReader.AssignmentsOfRegistrationInRosterQuery(
+                db, Guid.NewGuid(), academicGroupId: 10),
             _         => AffectationTollReader.AssignmentsOfCohortsQuery(db, [1, 2, 3]),
         };
 
@@ -1085,5 +1088,28 @@ public class SqlTranslationTests
 
         sql.Should().ContainEquivalentOf("ServicePeriods");
         sql.Should().ContainEquivalentOf("count(", "les quatre décomptes restent côté base");
+    }
+
+    /// <summary>
+    /// « Changement de groupe » rebuilds a student's périodes from the cells of the cohorte he lands
+    /// in, so both of its reads run on the real base the first time somebody corrects a roster.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ The cells query reaches the rotation mode through <c>Cohort.Stage</c> — two navigations into a
+    /// constructor projection, which translates. Folding the cohorte's cells into a collection inside
+    /// that projection is the shape Npgsql refuses, and it is the shape the obvious version of this
+    /// query takes: « chaque cohorte avec ses cellules ».
+    /// </remarks>
+    [Fact]
+    public void The_cohort_member_scheduler_queries_compile_to_sql()
+    {
+        using var db = TestHarness.NewNpgsqlContext();
+
+        CohortMemberScheduler.CellsQuery(db, [101, 102]).ToQueryString()
+            .Should().Contain("CohortSlotAssignments");
+
+        string states = CohortMemberScheduler.CellStatesQuery(db, [1001, 1002]).ToQueryString();
+        states.Should().Contain("ServicePeriods");
+        states.Should().Contain("CohortSlotAssignmentId");
     }
 }

@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Domain.Common.Utils;
 using PGSH.Domain.Stages;
@@ -75,6 +75,20 @@ internal sealed class AffectationTollReader(IApplicationDbContext dbContext)
     public Task<AffectationToll> ForYearRostersAsync(int academicYearId, CancellationToken ct) =>
         ReadAsync(AssignmentsOfYearRostersQuery(dbContext, academicYearId), ct);
 
+    /// <summary>
+    /// One student's affectations inside one roster — what « changement de groupe » is about to
+    /// rewrite.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ <b>Narrowed to the roster on purpose.</b> A registration can hold affectations elsewhere — a
+    /// revalidation is placed by hand into whichever cohorte is currently running the stage — and those
+    /// are not the roster's doing, so they neither move with the student nor have any business refusing
+    /// the act.
+    /// </remarks>
+    public Task<AffectationToll> ForRegistrationInRosterAsync(
+        Guid registrationId, int academicGroupId, CancellationToken ct) =>
+        ReadAsync(AssignmentsOfRegistrationInRosterQuery(dbContext, registrationId, academicGroupId), ct);
+
     /// <remarks>
     /// Reached through the <b>cohorte</b>, never through <c>Registration.AcademicGroupId</c>: the
     /// pointer is the thing being removed, so counting through it would report zero at exactly the
@@ -91,6 +105,13 @@ internal sealed class AffectationTollReader(IApplicationDbContext dbContext)
         dbContext.InternshipAssignments
             .AsNoTracking()
             .Where(a => a.Cohort.AcademicGroup.AcademicYearId == academicYearId);
+
+    internal static IQueryable<InternshipAssignment> AssignmentsOfRegistrationInRosterQuery(
+        IApplicationDbContext dbContext, Guid registrationId, int academicGroupId) =>
+        dbContext.InternshipAssignments
+            .AsNoTracking()
+            .Where(a => a.RegistrationId == registrationId
+                     && a.Cohort.AcademicGroupId == academicGroupId);
 
     internal static IQueryable<InternshipAssignment> AssignmentsOfCohortsQuery(
         IApplicationDbContext dbContext, IReadOnlyCollection<int> cohortIds) =>

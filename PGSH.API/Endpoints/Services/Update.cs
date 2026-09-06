@@ -19,7 +19,14 @@ public sealed class Update : IEndpoint
         string? LocalizationX,
         string? LocalizationY,
         string? LocalizationZ,
-        IReadOnlyCollection<ServiceLevelCapacityRequest>? LevelCapacities);
+        IReadOnlyCollection<ServiceLevelCapacityRequest>? LevelCapacities,
+        /// <summary>
+        /// ⚠ Nullable so an omission is « le client n'en dit rien » rather than « refuser le
+        /// dépassement ». A non-nullable bool binds to false when the field is absent, which would
+        /// make every service strict the moment an older client saved one — a restriction nobody
+        /// authored, on the one flag whose whole purpose is that somebody authored it.
+        /// </summary>
+        bool? AllowsOverCapacity);
 
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
@@ -29,7 +36,8 @@ public sealed class Update : IEndpoint
                 id, request.Name, request.Description, request.ServiceType,
                 request.Capacity, request.HospitalId, request.Specialty,
                 request.LocalizationX, request.LocalizationY, request.LocalizationZ,
-                request.LevelCapacities);
+                request.LevelCapacities,
+                request.AllowsOverCapacity ?? true);
 
             var result = await sender.Send(command, ct);
             return result.Match(Results.NoContent, CustomResults.Problem);
