@@ -72,6 +72,7 @@ internal sealed class GetStageScheduleQueryHandler(
                 c.AcademicGroup.Label,
                 c.AcademicGroup.RotationGroup,
                 c.Assignments.Count,
+                c.Assignments.Count(a => a.ServicePeriods.Any(p => p.IsDelocalized)),
                 c.Assignments.Any(a => a.ServicePeriods.Any(p => p.CohortSlotAssignmentId != null))),
             cancellationToken);
 
@@ -96,7 +97,7 @@ internal sealed class GetStageScheduleQueryHandler(
 
             return new CohortScheduleRow(
                 c.Id, c.Label, c.AcademicGroupId, c.AcademicGroupLabel, c.RotationGroup,
-                c.StudentCount, c.IsSchedulePublished,
+                c.StudentCount, c.DelocalizedCount, c.IsSchedulePublished,
                 slots.Select(slot => cells.TryGetValue(slot.Id, out var cell)
                     ? CellFor(cell, slot, levelId, intake, occupancy, publishedCells.Contains(cell.Id))
                     : null).ToList());
@@ -372,7 +373,7 @@ internal sealed class GetStageScheduleQueryHandler(
     /// <summary>One cohorte of the page, before its cells are folded in.</summary>
     internal sealed record CohortRow(
         int Id, string Label, int AcademicGroupId, string AcademicGroupLabel,
-        string? RotationGroup, int StudentCount, bool IsSchedulePublished);
+        string? RotationGroup, int StudentCount, int DelocalizedCount, bool IsSchedulePublished);
 
     /// <summary>One cell of a cohorte on the page.</summary>
     internal sealed record CellDetail(

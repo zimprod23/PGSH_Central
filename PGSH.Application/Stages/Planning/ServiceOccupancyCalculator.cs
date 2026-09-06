@@ -118,9 +118,17 @@ internal sealed class ServiceOccupancyCalculator(IApplicationDbContext dbContext
     /// half of every capacity decision.
     /// </summary>
     /// <remarks>
-    /// ⚠ Named so <c>SqlTranslationTests</c> can compile it: the projection aggregates a navigation
-    /// collection (<c>a.Cohort.Assignments.Count</c>) across three hops, and a projection over a
-    /// navigation collection is the shape that took the macro plan down on 2026-08-26.
+    /// <para>⚠ Named so <c>SqlTranslationTests</c> can compile it: the projection aggregates a
+    /// navigation collection across three hops, and a projection over a navigation collection is the
+    /// shape that took the macro plan down on 2026-08-26.</para>
+    ///
+    /// <para>⚠ <b>A délocalisé does not occupy the cell his cohorte is on.</b> The count used to be
+    /// <c>a.Cohort.Assignments.Count</c> — every member of the cohorte, whether or not he is in the
+    /// country. A délocalisation drops the student's periods but deliberately leaves him in his
+    /// cohorte (that is what lets a cancellation put him back), so under the old count sending sixty
+    /// students to an external CHU relieved the grid, the arranger's balance and the pre-publish
+    /// guard by exactly nothing — while the service they left was, in fact, sixty lighter. The whole
+    /// point of a mass délocalisation is the number this query returns.</para>
     /// </remarks>
     internal static IQueryable<OccupancyEntry> EntriesQuery(
         IApplicationDbContext dbContext, IReadOnlyCollection<int> serviceIds) =>
@@ -134,5 +142,5 @@ internal sealed class ServiceOccupancyCalculator(IApplicationDbContext dbContext
                 a.StageSlotId,
                 a.StageSlot.StartDate,
                 a.StageSlot.EndDate,
-                a.Cohort.Assignments.Count));
+                a.Cohort.Assignments.Count(x => !x.ServicePeriods.Any(p => p.IsDelocalized))));
 }

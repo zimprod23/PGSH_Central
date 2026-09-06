@@ -2537,7 +2537,7 @@ unmounting a thousand cell components, each a `Box` + `Group` + `Stack` + two `T
 to open ». The remedy was right and the cause was the row count, which had since grown.
 
 Paging the rows is therefore the fix at both ends. What it costs is that **every number on the screen
-had to move to the server** — see `CLAUDE.md`, « The planning grid is a matrix ».
+had to move to the server** — see [`docs/planning-rotation.md`](docs/planning-rotation.md), « The planning grid is a matrix ».
 
 ### The affectation loop — 92 ms against 4 ms, before EF is counted
 
@@ -2993,7 +2993,7 @@ tab keeps showing the state from before the retake was opened.
 ## A test asserted a filter that was never applied (2026-09-02, found closing session 39)
 
 `SqlTranslationTests.The_registration_hold_exclusion_compiles_to_sql` asserts that
-`CohortProvisioner.GroupTextsQuery` mentions `RegistrationHolds`, and `CLAUDE.md` lists it as one of
+`CohortProvisioner.GroupTextsQuery` mentions `RegistrationHolds`, and [`docs/year-closing.md`](docs/year-closing.md) lists it as one of
 the three reads a held registration is excluded from. **It was not in the query.** The exclusion had
 been applied to `AutoArrangeGroupsCommandHandler` and to
 `StudentAffectationService.EligibleRegistrationsQuery`, documented for all three, and tested for two.
@@ -3163,7 +3163,7 @@ Les trois lecteurs de cette classe sont la saturation de la grille de planning, 
 charges qui n'existent pas.
 
 **Et la fiche du service et le rapport de charge avaient raison depuis le début** — ils passent par
-`OccupancyTimeline`, qui découpe à chaque frontière. Le CLAUDE.md affirmait que la fiche « mesure la
+`OccupancyTimeline`, qui découpe à chaque frontière. `docs/services.md` affirmait que la fiche « mesure la
 charge exactement comme la garde le fait » ; c'était vrai de l'intention et faux de l'arithmétique.
 `LoadOn` fait désormais le même balayage, si bien que les quatre ne peuvent plus diverger.
 
@@ -3746,3 +3746,79 @@ service**, autorisé par défaut, que la publication lit.
     elle faisait tomber « Ajouter un jour férié », c'est-à-dire que **saisir un jour férié était
     impossible**, sur la page où les fêtes lunaires ne peuvent qu'être saisies à la main. Les six
     sites corrigés en hissant la valeur, comme `EvaluationModal` le faisait déjà.
+
+## Délocaliser ne libérait pas la place (06/09/2026, session 48)
+
+L'utilisateur voulait envoyer une partie d'une promotion faire son stage à **Kénitra**, hors du réseau
+de la faculté, pour soulager la saturation. C'est exactement ce que la délocalisation dit — et en la
+lisant de bout en bout pour y répondre, un défaut est apparu que rien dans l'application ne signalait,
+parce que la base ne porte encore **aucune** délocalisation.
+
+### Le compte
+
+`ServiceOccupancyCalculator.EntriesQuery` mesurait la charge d'une cellule comme :
+
+```csharp
+a.Cohort.Assignments.Count
+```
+
+c'est-à-dire **tous les membres de la cohorte**. Or `InternshipAssignment.Delocalize` retire les
+périodes de l'étudiant et **le laisse dans sa cohorte** — délibérément : c'est ce qui permet
+d'annuler une délocalisation et de le rendre à la répartition sans rien reconstruire.
+
+Les deux faits ensemble donnent : **envoyer soixante étudiants à Kénitra ne soulage rien**. Ni la
+saturation de la grille, ni l'équilibrage de `RotationArranger`, ni la garde de pré-publication de
+`SchedulePublisher` — les trois lisent cette requête — alors que le service quitté est réellement
+soixante fois plus léger. Le nombre pour lequel toute l'opération existe n'aurait pas bougé.
+
+### Pourquoi personne ne l'aurait vu
+
+- **La base porte 0 délocalisation.** Le défaut ne peut se manifester qu'après le premier acte de
+  masse, c'est-à-dire au moment précis où l'on regarde le rapport de charge pour vérifier que
+  l'opération a marché.
+- **Aucun test ne pouvait le voir non plus** : la suite ne délocalisait jamais un étudiant *puis* ne
+  relisait l'occupation. Les deux moitiés étaient couvertes séparément, ce qui est la forme habituelle
+  de ce genre de trou.
+- **Le nombre reste plausible.** Comme le pic sommé des deux colonnes consécutives (03/09), c'est un
+  chiffre crédible, cohérent avec lui-même, et faux.
+
+### Cinq écritures d'un même calcul
+
+Le compte est désormais `Count(x => !x.ServicePeriods.Any(p => p.IsDelocalized))`, et il est écrit
+**cinq fois** : le calculateur (l'autorité), la page d'un service, le rapport de charge,
+`RotationArranger.CohortsQuery`, et l'hydratation d'occupation de `GenerateScheduleCommandHandler`.
+
+⚠ **Ce n'est pas la forme qu'on voudrait.** Une expression partagée serait mieux, et EF ne le permet
+pas ici : un `Expression<Func<…>>` référencé depuis l'intérieur d'un `Count(...)` dans une projection
+ne se traduit pas — le fournisseur ne sait pas quoi en faire. Les commentaires se citent donc
+mutuellement et `SqlTranslationTests` épingle la forme, mais **la garantie contre la divergence est
+sociale, pas mécanique**. C'est le prix, et il est noté ici pour qu'il ne se redécouvre pas.
+
+### Et ce qui se dit à l'écran
+
+La grille envoie `DelocalizedCount` **à côté** de `StudentCount` plutôt que de retrancher en silence.
+Un roster parti en masse affiche sinon un effectif plein devant des cellules qui ne chargent rien —
+ce qui se lit comme un bug, et la personne suivante réaffecte tout le monde dans le CHU. Même règle
+que partout : *un nombre qui vaut pour deux états a besoin de mots qui nomment la suite*.
+
+## Une note est la seule chose qu'on ne remet pas (06/09/2026, session 48)
+
+`Delocalize` refusait dès qu'une période avait **commencé**. C'est la règle qui *paraît* la plus
+prudente, et l'utilisateur l'a corrigée d'une phrase : *« logiquement oui, la délocalisation devrait
+commencer en même temps que les autres affectations ; pratiquement non — un étudiant qui va dans un
+hôpital peut y faire des périodes différentes. Ce qui nous intéresse c'est le résultat. »*
+
+C'est juste, et c'est vérifiable dans le modèle : nos dates sont celles du **créneau du stage**, que
+l'hôpital d'accueil ne connaît pas et ne suit pas. Une période commencée est donc supprimée comme une
+période planifiée.
+
+**Une période évaluée ne l'est pas.** La note est la seule chose ici que rien ne remet : le chef qui
+l'a donnée n'a aucune raison de la redonner, et un acte de masse qui peut l'effacer est un acte de
+masse qui l'effacera. `Delocalizations.OverMark` refuse, la ligne est nommée sur l'aperçu, et les
+autres passent quand même — refuser tout le lot aurait bloqué une promotion que l'opérateur ne peut
+pas éditer membre par membre, puisqu'un roster se désigne par **un** identifiant.
+
+⚠ **Le corollaire à ne pas manquer** : le garde lit `ServicePeriod.Evaluation`, donc la navigation
+doit être `Include`. Sans elle toute période paraît non notée, le refus ne se déclenche jamais, et la
+délocalisation efface exactement ce qu'elle existe pour protéger — **et la suite en mémoire ne peut
+pas le voir**, puisqu'elle recompose les navigations depuis le change tracker.

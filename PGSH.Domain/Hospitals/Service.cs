@@ -55,6 +55,33 @@ public sealed class Service
     /// </remarks>
     public bool AllowsOverCapacity { get; set; } = true;
 
+    /// <summary>
+    /// A place the faculty does not supervise — a CHU in another region, a private clinic, a
+    /// hospital abroad — held in the catalogue only so that a délocalisation has something to name.
+    /// <b>False for every service of the faculty's own network</b>, and the flag is what separates
+    /// the two kinds of row that would otherwise be indistinguishable.
+    /// </summary>
+    /// <remarks>
+    /// <para>An external service is <b>not a rotation candidate</b>: it cannot be added to a stage's
+    /// allowed services, and <c>RotationArranger</c> drops it from the pool even if an older row put
+    /// it there. Nobody is ever placed here by a plan — the only way in is
+    /// <c>InternshipAssignment.Delocalize</c>, which is a statement that the student went somewhere
+    /// we do not run.</para>
+    ///
+    /// <para>⚠ <b>It has no capacity, and that is the point.</b> <see cref="Capacity"/> and
+    /// <see cref="LevelCapacities"/> are not consulted for it, and its cells never enter
+    /// <c>ServiceOccupancyCalculator</c>. A number we invented for a hospital we do not run is not a
+    /// ceiling, and letting it into the saturation maths would put a fictional load beside the real
+    /// ones in the very report the délocalisation exists to relieve.</para>
+    ///
+    /// <para>⚠ <b>It has no chef and never will</b>, so no worklist covers it and no evaluation
+    /// arrives through the app: the verdict comes back on paper and scolarité records it. The stage
+    /// export writes « hors faculté » in its chef column for such a rotation rather than leaving it
+    /// blank — a blank reads as a name the export failed to resolve, and sends somebody looking for
+    /// it.</para>
+    /// </remarks>
+    public bool IsExternal { get; set; }
+
     public int HospitalId { get; set; }
     public Hospital Hospital { get; set; }
 

@@ -26,7 +26,13 @@ public sealed class Update : IEndpoint
         /// make every service strict the moment an older client saved one — a restriction nobody
         /// authored, on the one flag whose whole purpose is that somebody authored it.
         /// </summary>
-        bool? AllowsOverCapacity);
+        bool? AllowsOverCapacity,
+        /// <summary>
+        /// ⚠ Nullable, and null means « unchanged ». A service hors faculté that an older client
+        /// saved without this field would be pulled back into the rotation and into the saturation
+        /// of every service it borders — with students already délocalisés standing on it.
+        /// </summary>
+        bool? IsExternal);
 
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
@@ -37,7 +43,8 @@ public sealed class Update : IEndpoint
                 request.Capacity, request.HospitalId, request.Specialty,
                 request.LocalizationX, request.LocalizationY, request.LocalizationZ,
                 request.LevelCapacities,
-                request.AllowsOverCapacity ?? true);
+                request.AllowsOverCapacity ?? true,
+                request.IsExternal);
 
             var result = await sender.Send(command, ct);
             return result.Match(Results.NoContent, CustomResults.Problem);

@@ -44,6 +44,25 @@ public class GroupAndCohortPagingTests
         result.Value.StudentCount.Should().Be(120);
     }
 
+    // ⚠ The promotion travels on the row because every « quel autre groupe ? » picker scopes on it —
+    // the transfer, the change, the swap. They used to derive it by looking this roster up in the
+    // options list, which asks for 200 of the 1 003 rosters: past that page the promotion read null
+    // and the pickers silently offered every group of the year, across every promotion.
+    [Fact]
+    public async Task The_roster_carries_its_promotion_so_a_picker_need_not_derive_it()
+    {
+        await using var db = TestHarness.NewContext("group-promotion");
+        var group = SeedGroupWithStudents(db, 10, students: 3);
+        await db.SaveChangesAsync();
+
+        var result = await new GetGroupByIdQueryHandler(db).Handle(
+            new GetGroupByIdQuery(group.Id, 1, 25), default);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.LevelId.Should().Be(group.LevelId);
+        result.Value.LevelId.Should().NotBeNull();
+    }
+
     [Fact]
     public async Task A_later_page_returns_different_students()
     {

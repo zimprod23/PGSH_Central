@@ -530,10 +530,10 @@ internal sealed class GetOccupancyReportQueryHandler(
                 a.StageSlot.PeriodNumber,
                 a.CohortId,
                 a.Cohort.AcademicGroup.GroupNumber,
-                // ⚠ The same count ServiceOccupancyCalculator and the publish guard use. A report
-                // that measured the load differently from the guard would explain a refusal with a
-                // number that never produced it.
-                a.Cohort.Assignments.Count,
+                // ⚠ The same count ServiceOccupancyCalculator and the publish guard use, délocalisés
+                // excluded and all. A report that measured the load differently from the guard would
+                // explain a refusal with a number that never produced it.
+                a.Cohort.Assignments.Count(x => !x.ServicePeriods.Any(p => p.IsDelocalized)),
                 a.StageSlot.StartDate,
                 a.StageSlot.EndDate));
 

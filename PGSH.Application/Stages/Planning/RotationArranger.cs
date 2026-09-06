@@ -78,6 +78,9 @@ internal sealed class RotationArranger(
             .ToDictionaryAsync(x => x.ServiceId, x => x.Rank, cancellationToken);
 
         var services = stage.AllowedServices
+            // Belt and braces: an external service can no longer be added to the list, but a row
+            // authorised before the flag existed must not become a column of the rotation.
+            .Where(s => !s.IsExternal)
             .Where(s => s.Admits(levelId))
             .OrderBy(s => ServiceRotationOrder.SortKeyOf(rankByService.GetValueOrDefault(s.Id)))
             .ThenBy(s => s.Id)
@@ -555,7 +558,10 @@ internal sealed class RotationArranger(
                 c.AcademicGroupId,
                 c.AcademicGroup.GroupNumber,
                 c.AcademicGroup.RotationGroup,
-                c.Assignments.Count));
+                // ⚠ Délocalisés excluded, exactly as in ServiceOccupancyCalculator: a student serving
+                // his stage outside the faculty needs no place in the rotation, and weighting the
+                // queue by him spreads a cohorte over services to hold people who are not there.
+                c.Assignments.Count(x => !x.ServicePeriods.Any(p => p.IsDelocalized))));
 
     private sealed record ServiceInfo(int Id, int Capacity);
 

@@ -46,6 +46,7 @@ internal sealed class GetServicesQueryHandler(
                 s => new ServiceRow(
                     s.Id, s.Name, s.ServiceType.ToString(), s.Specialty, s.Capacity,
                     s.AllowsOverCapacity,
+                    s.IsExternal,
                     s.LevelCapacities.Count,
                     s.HospitalId, s.Hospital.Name,
                     s.ServiceChef != null ? s.ServiceChef.FirstName + " " + s.ServiceChef.LastName : null),
@@ -65,6 +66,7 @@ internal sealed class GetServicesQueryHandler(
         var items = page.Items
             .Select(i => new ServiceSummaryResponse(
                 i.Id, i.Name, i.ServiceType, i.Specialty, i.Capacity, i.AllowsOverCapacity,
+                i.IsExternal,
                 i.RestrictedLevelCount,
                 i.HospitalId, i.HospitalName, i.ServiceChefName,
                 // Staff is a field not a property; EF cannot translate field navigation in LINQ-to-SQL
@@ -94,6 +96,7 @@ internal sealed class GetServicesQueryHandler(
         string? Specialty,
         int Capacity,
         bool AllowsOverCapacity,
+        bool IsExternal,
         int RestrictedLevelCount,
         int HospitalId,
         string HospitalName,

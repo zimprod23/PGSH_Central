@@ -45,6 +45,10 @@ internal sealed class UpdateServiceCommandHandler(
         service.ServiceType = request.ServiceType;
         service.Capacity = request.Capacity;
         service.AllowsOverCapacity = request.AllowsOverCapacity;
+
+        // Only when the caller says so — see UpdateServiceCommand.IsExternal.
+        if (request.IsExternal is { } isExternal)
+            service.IsExternal = isExternal;
         service.LocalisationMaps = LocalizationMapper.FromCoordinates(
             request.LocalizationX, request.LocalizationY, request.LocalizationZ);
 

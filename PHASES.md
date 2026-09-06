@@ -655,8 +655,8 @@ canvas cheap — the redesign landed before the screen was written rather than a
 Four changes, one act of scolarité:
 
 **1 · The canvas is a list of exceptions, and one file covers the year.** Scolarité types only the
-students the year went badly for; everyone the file does not name is *Admis*. Read [CLAUDE.md → "The
-canvas is a list of exceptions"](CLAUDE.md) for the rules; the ones that decide the design:
+students the year went badly for; everyone the file does not name is *Admis*. Read [docs/year-closing.md → "The
+canvas is a list of exceptions"](docs/year-closing.md) for the rules; the ones that decide the design:
 - Year-wide matching is safe because a student holds one registration per year — it is *cross-year*
   matching that is ambiguous, and that is still impossible.
 - ⚠ **Superseded the same day by 14.3e:** this shipped as *Admis, or Diplômé where the year is the
@@ -1181,7 +1181,7 @@ nothing, the dry run *being* the plan. `IInscriptionSheetParser` + `ClosedXmlIns
 Four writing actions partitioning on two questions (known to PGSH? same programme?), plus
 `AlreadyRegistered` as a **skip** so the file survives being re-sent with the late arrivals appended.
 
-`PriorEnrolment` — one row per entry registration recording the équivalence. See CLAUDE.md for why it
+`PriorEnrolment` — one row per entry registration recording the équivalence. See [`docs/year-closing.md`](docs/year-closing.md) for why it
 had to exist *before* « owed » widens to the CNPN requirement set, not after.
 
 ### Two defects found on the way, both latent before this
@@ -1270,7 +1270,7 @@ Filters: `academicYearId`, `levelId`, `stageId`, `academicGroupId`, `onlyEvaluat
 The multi-période rule (`StagePeriodFolder`, pure, ten cases): **a stay is a maximal run of périodes
 in the same service with no worked day between them.** One stay prints as one span; several print
 joined, with the services in the same order. `Nb périodes` / `Nb services` / `Découpage` carry the
-multi-période fact as columns, never as the shape of a string. Full table in `CLAUDE.md` and
+multi-période fact as columns, never as the shape of a string. Full table in [`docs/exports.md`](docs/exports.md) and
 `NOTES.md`.
 
 Scoped by the **registration's** level so a rattrapage lands on its student's own promotion, with
@@ -2071,7 +2071,7 @@ preuve** : cinq tests tombent, dont celui de l'endpoint.
 
 ⚠ **Angle mort trouvé en chemin, et c'est l'inverse de l'habituel** : `SelectMany` sur une *skip
 navigation* lève `NotImplementedException` sur le fournisseur **in-memory** alors que Npgsql la
-traduit. Voir `CLAUDE.md`.
+traduit. Voir `CLAUDE.md` (« Testing »).
 
 ### 19.3 — ✅ Livré : l'ordre des services est choisi, pas hérité de l'import
 
@@ -2182,7 +2182,7 @@ question posée.
   `Roles.Administrative`. Renvoie aussi les **types d'actes présents avec leur effectif**, comptés
   sur tout le journal (jamais sur la fenêtre courante : réduits au filtre actif, il n'y aurait plus
   de chemin de retour vers les autres).
-- `AuditMetadataJson` — les critères d'un acte sérialisés plutôt qu'interpolés. Voir `CLAUDE.md`.
+- `AuditMetadataJson` — les critères d'un acte sérialisés plutôt qu'interpolés. Voir [`docs/audit-calendar.md`](docs/audit-calendar.md).
 - **Page « Journal des actions »** (`/admin/journal`, Système). Date, acte, objet, auteur, critères ;
   les actes destructeurs teintés ; un code sans libellé français affiché **tel quel** plutôt que
   masqué.
@@ -2667,3 +2667,90 @@ de 4ᵉ MED. Rendu ferme, puis remis comme il était.
 - **Aucun service n'est ferme dans la base** : le drapeau existe, il vaut `true` partout, et rien ne
   change tant qu'un chef n'a pas demandé le contraire. C'est ce qui rend la phase non destructive et
   ce qui la rend, pour l'instant, invisible.
+
+---
+
+## ✅ Phase 25 — Un stage fait hors faculté, pour toute une promotion
+
+**Le besoin, tel qu'il a été posé (06/09/2026).** *« Vu la saturation, on veut un formulaire où l'on
+demande aux étudiants d'accepter d'aller dans une autre région (KÉNITRA). Par la logique de
+l'application c'est une délocalisation. Mais comme cela peut concerner beaucoup d'étudiants, j'ai
+pensé créer un service appelé KENITRA, y affecter les étudiants sur chaque stage concerné, et quand
+ils rentrent ils déposent le papier de validation à la scolarité qui la saisit à la main. »*
+
+### Ce que la demande avait déjà juste, et la seule chose à en retrancher
+
+La délocalisation existait, et elle **attendait exactement cette ligne de catalogue** : son handler
+exige que le service externe existe et ne le contraint délibérément *pas* à la liste des services
+autorisés du stage. Un service « KENITRA » n'est donc pas un détournement, c'est la forme prévue.
+
+Ce qui a été écarté, c'est de passer par **la répartition** — mettre KENITRA dans les services
+autorisés et laisser l'arrangeur y placer les cohortes. Trois raisons, toutes mesurées dans le code :
+
+| en passant par la grille | conséquence |
+|---|---|
+| une rotation publiée attend un chef pour la démarrer, la clore et l'évaluer | KENITRA n'en a pas : les lignes restent `Planned` dans la liste de personne — le trou exact des 3 220 périodes d'un chef |
+| une cellule pèse dans l'occupation, la saturation et la garde de publication | un plafond inventé pour un hôpital que la faculté ne gère pas fausse le rapport que l'opération est censée soulager |
+| `IsDelocalized` est ce qui fait dire au dossier « fait hors faculté » | par la grille, le dossier dirait que l'application a supervisé un stage qu'elle n'a jamais vu |
+
+### ⚠ Le défaut que la demande a fait apparaître : délocaliser ne libérait pas la place
+
+`ServiceOccupancyCalculator.EntriesQuery` comptait la charge d'une cellule comme
+`a.Cohort.Assignments.Count` — **tous les membres de la cohorte**, présents ou non. Or une
+délocalisation retire les périodes de l'étudiant mais le **laisse dans sa cohorte** (c'est ce qui rend
+l'annulation possible). Envoyer soixante étudiants à Kénitra soulageait donc la grille, l'équilibrage
+de l'arrangeur et la garde de pré-publication de **rien du tout**, alors que le service quitté était
+bel et bien soixante fois plus léger.
+
+Le compte est désormais `Count(x => !x.ServicePeriods.Any(p => p.IsDelocalized))`, **écrit dans cinq
+endroits qui ne doivent jamais diverger** — le calculateur, la page d'un service, le rapport de
+charge, `RotationArranger.CohortsQuery` et l'hydratation d'occupation du générateur de planning.
+
+### Ce qui a été construit
+
+- **`Service.IsExternal`**, `false` par défaut (migration `ExternalServices`). Un service hors faculté
+  ne peut pas être autorisé sur un stage, ne peut pas être posé dans une cellule à la main
+  (⚠ 25 stages sur 27 n'autorisent aucun service, donc la liste blanche n'y garde rien), est retiré du
+  vivier de l'arrangeur, et n'entre jamais dans l'occupation.
+- **`Delocalize` ne refuse plus que sur une note.** Une période commencée est supprimée comme une
+  période planifiée — un étudiant qui part en cours de rotation est le cas ordinaire, et nos dates sont
+  une formalité que l'hôpital d'accueil ne suit pas. Une période **évaluée** est refusée :
+  `Delocalizations.OverMark`.
+- **Les dates deviennent facultatives** et retombent sur la fenêtre du stage pour cette promotion.
+  ⚠ Elle **refuse plutôt que d'inventer** quand le stage n'a aucun créneau — les années importées en
+  sont toutes là, et une paire de dates fabriquée ressemblerait à un fait enregistré.
+- **Le verdict accepte les trois modes** — note /20, validé/non validé, validation par objectif — avec
+  les mêmes règles que l'évaluation d'un chef, parce que c'est la même `ServiceEvaluation`.
+- **L'acte de masse** : aperçu + application, sélection par rosters entiers, étudiants nommés et liste
+  collée de CNE/Apogée, les trois réunies. Il **saute** ce qu'il ne peut pas faire, jamais en silence,
+  et il est gardé par `ConfirmedCount` — pas par une case à cocher.
+- **L'annulation**, qui n'existait pas : la période ad-hoc n'est pas une période publiée, donc
+  `RemovePublishedPeriods` la laissait délibérément en place et rien ne pouvait revenir en arrière.
+  Refusée une fois le verdict papier saisi.
+- **La grille dit ce qu'elle montre** : `DelocalizedCount` à côté de `StudentCount`, faute de quoi un
+  roster parti en masse affiche un effectif plein devant des cellules qui ne chargent rien.
+
+### Ce qui n'a **pas** été construit, et pourquoi
+
+- **Aucun second import pour les validations.** Le canevas d'évaluation existant les atteint déjà :
+  il refuse les périodes *non closes*, et une délocalisation naît close. Portée « stage entier »
+  obligatoire — une délocalisation n'a pas de numéro de période, puisqu'elle ne suit aucune grille.
+- **La validation par objectif reste unitaire** : `ImportEvaluationsCommand` refuse ce mode, faute
+  d'une colonne par objectif dans la feuille.
+- **Les cellules ne sont pas effacées** quand tout un roster part. C'est ce qui rend l'acte
+  réversible : annuler puis republier restaure la rotation, ce que supprimer les cellules ne ferait
+  pas.
+
+### Côté écran
+
+L'interrupteur « Service hors faculté » (formulaire, liste, fiche), `BulkDelocalizationModal` (aperçu
+→ application, le bouton porte le nombre de l'aperçu), la note /20 et l'annulation dans la modale d'un
+étudiant, et « dont N hors CHU » sur la ligne d'un roster. Voir `PGSH.Frontend/PHASES.md`.
+
+### Ce qui reste
+
+- **Aucun service externe n'existe dans la base.** Le drapeau existe, il vaut `false` partout, et rien
+  ne change tant que la scolarité n'a pas créé la ligne « Stage hors CHU — Kénitra ».
+- **Rien n'a été piloté au navigateur** — voir `SMOKE-TEST.md` §49 et `HANDOFF.md` item `0am`. Le
+  type-check, le lint et le build sont propres, et aucun des trois n'aurait vu les deux défauts que le
+  clic a trouvés la veille.

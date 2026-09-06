@@ -121,6 +121,12 @@ internal sealed class ServiceConfiguration : IEntityTypeConfiguration<Service>
                .IsRequired()
                .HasDefaultValue(true);
 
+        // Default false on the 148 existing rows: every service already in the catalogue is one of
+        // the faculty's own. An external one is created deliberately, and never by a migration.
+        builder.Property(s => s.IsExternal)
+               .IsRequired()
+               .HasDefaultValue(false);
+
         builder.OwnsOne(s => s.LocalisationMaps, loc =>
         {
             loc.Property(l => l.x)

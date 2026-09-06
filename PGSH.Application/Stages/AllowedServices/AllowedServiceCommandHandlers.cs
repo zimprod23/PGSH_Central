@@ -33,6 +33,12 @@ internal sealed class AddAllowedServiceCommandHandler(
         if (stage.AllowedServices.Any(s => s.Id == request.ServiceId))
             return Result.Success();
 
+        // A service outside the faculty is not a rotation candidate at all: nobody is planned there,
+        // it has no chef to run the périodes and no ceiling worth measuring. Students reach it
+        // through a délocalisation, which is a statement that the app did not supervise the stage.
+        if (service.IsExternal)
+            return Result.Failure(StageErrors.ExternalServiceNotAllowedInStage);
+
         // A service whose quotas exclude this stage's promotion can never host it: auto-arrange
         // would drop it from the rotation and publish would reject any cell placed on it. Catching
         // it here means the list only ever contains services the stage can actually use.

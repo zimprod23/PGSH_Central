@@ -52,10 +52,10 @@ internal sealed class GetServiceOccupancyQueryHandler(
                 a.StageSlot.PeriodNumber,
                 a.CohortId,
                 a.Cohort.AcademicGroup.GroupNumber,
-                // ⚠ The same count ServiceOccupancyCalculator uses. A page that measured the load
-                // differently from the guard would explain a refusal with a number that never
-                // produced it.
-                a.Cohort.Assignments.Count,
+                // ⚠ The same count ServiceOccupancyCalculator uses, délocalisés excluded and all. A
+                // page that measured the load differently from the guard would explain a refusal
+                // with a number that never produced it.
+                a.Cohort.Assignments.Count(x => !x.ServicePeriods.Any(p => p.IsDelocalized)),
                 a.StageSlot.StartDate,
                 a.StageSlot.EndDate))
             .ToListAsync(cancellationToken);

@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using FluentValidation.TestHelper;
 using PGSH.Application.AcademicGroups.Transfer;
 using PGSH.Application.Stages.Attendance.Record;
@@ -185,7 +185,7 @@ public class CommandValidatorTests
 
     private static DelocalizeStudentCommand NewDelocalization(
         string reason = "Stage à Casablanca", DateOnly? start = null, DateOnly? end = null) =>
-        new(RegistrationId, 1, 1, start ?? new DateOnly(2026, 3, 1), end ?? new DateOnly(2026, 3, 31), reason);
+        new(RegistrationId, 1, 1, reason, start ?? new DateOnly(2026, 3, 1), end ?? new DateOnly(2026, 3, 31));
 
     [Fact]
     public void A_delocalization_always_requires_a_motif()
@@ -215,9 +215,16 @@ public class CommandValidatorTests
     [Fact]
     public void A_fiche_reference_longer_than_the_column_is_refused()
     {
-        var command = NewDelocalization() with { FicheReference = new string('x', 1001) };
+        var command = NewDelocalization() with
+        {
+            Verdict = new DelocalizationVerdict(
+                EvaluationMode.ValidatePeriod,
+                Outcome: EvaluationOutcome.Validated,
+                FicheReference: new string('x', 1001)),
+        };
 
-        Delocalize.TestValidate(command).ShouldHaveValidationErrorFor(x => x.FicheReference);
+        Delocalize.TestValidate(command)
+            .ShouldHaveValidationErrorFor("Verdict.FicheReference");
     }
 
     [Fact]

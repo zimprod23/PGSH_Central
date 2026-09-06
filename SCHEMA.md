@@ -231,6 +231,18 @@ Consequences to hold on to:
 | `ServiceType` | varchar | NOT NULL, enum: `Biologie`, `Chirurgie`, `Medical` |
 | `Capacity` | int | NOT NULL, default 20 |
 | `AllowsOverCapacity` | boolean | NOT NULL, **default TRUE** |
+| `IsExternal` | boolean | NOT NULL, **default FALSE** |
+
+⚠ **`IsExternal` — « ce service est hors faculté »** (migration `ExternalServices`, 06/09/2026). A CHU
+in another region, a private clinic, a hospital abroad — held in the catalogue only so a
+délocalisation has something to name. It cannot be added to a stage's allowed services, cannot be
+placed in a cell of the planning grid, is dropped from `RotationArranger`'s pool, and never enters the
+occupancy maths. It has no chef and never will. **Default false on all 148 imported rows** — every
+service already in the base is one the faculty runs, and an external one is created deliberately,
+never by a migration. ⚠ On `UpdateServiceCommand` the field is `bool?` and **null means unchanged**:
+that command is a full replace, and an older client saving an external service without the field would
+pull it back into the rotation with students already délocalisés standing on it. See
+[`docs/delocalization.md`](docs/delocalization.md).
 
 ⚠ **`AllowsOverCapacity` — « ce service accepte-t-il d'être dépassé ? »** (migration
 `ServiceOverCapacityPolicy`, 06/09/2026). False makes the ceiling in force — `Capacity` or the
@@ -737,7 +749,13 @@ the resolver — the stage set is matched against the slots on disk instead.
 | `InternshipStatus` | `Planned`, `Ongoing`, `Completed`, `Evaluated`, `Validated`, `Rejected` | InternshipAssignment |
 | `StageAssignmentResult` | `NonÉvalué`, `Validé`, `NonValidé` | InternshipAssignment |
 | `AttendanceStatus` | `Present`, `Absent`, `JustifiedAbsent`, `Late` | AttendanceRecord |
-| `HistoryType` | `Inscription`, `ValidationStage`, `NonValidation`, `Fraud`, `Revalidation` | History |
+| `HistoryType` | `Inscription`, `ValidationStage`, `NonValidation`, `Fraud`, `Revalidation`, `GroupTransfer`, `CohortTransfer`, `Delocalization`, `DelocalizationCancelled`, `StatusChange` | History |
+
+⚠ **`AcademicGroups.LevelId` is nullable and that is load-bearing.** The level-less « Non réparti »
+roster holds every unassigned registration of every promotion — 4 725 of them in 2025-2026 — so a
+filter on the column alone would hide the bucket from the screen it is looked for on. `GET /groups`
+therefore matches `LevelId` **or** a registration of that level, and any picker offering a roster as a
+target drops the null-level rows itself. See [`docs/planning-rosters.md`](docs/planning-rosters.md).
 | `ServiceType` | `Biologie`, `Chirurgie`, `Medical` | Service |
 | `HospitalType` | `None`, `Autre`, `Spetialité`, `Central`, `CHU`, `LHOMA` | Hospital |
 | `CenterType` | `None`, `CHU`, `CHR`, `CHP`, `CSU` | Center |

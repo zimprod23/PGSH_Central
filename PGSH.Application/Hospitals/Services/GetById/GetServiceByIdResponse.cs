@@ -23,6 +23,12 @@ public record ServiceDetailResponse(
     /// is exactly how a description column got erased once.
     /// </summary>
     bool AllowsOverCapacity,
+    /// <summary>
+    /// True for a place the faculty does not run. Students reach it only through a délocalisation:
+    /// it cannot be authorised on a stage, nobody is arranged into it, and its number never enters
+    /// the saturation maths. See <c>Service.IsExternal</c>.
+    /// </summary>
+    bool IsExternal,
     int HospitalId,
     string HospitalName,
     string HospitalCity,

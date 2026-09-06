@@ -19,7 +19,11 @@ public sealed record InternshipAssignmentSummaryResponse(
     bool IsPaused = false,
     // True once every (non-interrupted) period has an evaluation — only then is FinalScore/Result a
     // final stage verdict worth showing in the notes list.
-    bool AllPeriodsEvaluated = false);
+    bool AllPeriodsEvaluated = false,
+    // True when the stage is served outside the faculty. Carried on the row because the two acts a
+    // screen can offer are opposites — délocaliser, or annuler la délocalisation — and the status
+    // alone cannot tell them apart: a délocalisation is Completed, exactly like a stage served here.
+    bool IsDelocalized = false);
 
 public sealed record InternshipAssignmentResponse(
     Guid Id,

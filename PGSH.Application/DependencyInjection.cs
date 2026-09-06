@@ -74,6 +74,9 @@ public static class DependencyInjection
         services.AddScoped<GroupScheduleConflictGuard>();
         services.AddScoped<EvaluationObjectiveResolver>();
         services.AddScoped<EvaluationImportPlanner>();
+        services.AddScoped<PGSH.Application.Stages.Delocalization.DelocalizationVerdictWriter>();
+        services.AddScoped<PGSH.Application.Stages.Delocalization.Bulk.DelocalizationTargetResolver>();
+        services.AddScoped<PGSH.Application.Stages.Delocalization.Bulk.BulkDelocalizationPlanner>();
         services.AddScoped<DeliberationPlanner>();
         services.AddScoped<ReinscriptionPlanner>();
         services.AddScoped<ReinscriptionSheetPlanner>();

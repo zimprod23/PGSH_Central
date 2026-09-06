@@ -39,6 +39,7 @@ internal sealed class GetServiceByIdQueryHandler(
             service.Specialty,
             service.Capacity,
             service.AllowsOverCapacity,
+            service.IsExternal,
             service.HospitalId,
             service.Hospital.Name,
             service.Hospital.City,

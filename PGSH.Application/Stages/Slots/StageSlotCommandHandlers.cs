@@ -128,9 +128,21 @@ internal sealed class SetCohortSlotAssignmentCommandHandler(
         if (!slotExists)
             return Result.Failure<int>(StageErrors.SlotNotFound(request.StageSlotId));
 
-        bool serviceExists = await dbContext.Services.AnyAsync(s => s.Id == request.ServiceId, cancellationToken);
-        if (!serviceExists)
+        // ⚠ Asked for the flag, not merely for existence. 25 of the 27 stages authorise no service at
+        // all, so the whitelist below guards nothing on them and a cell could be placed by hand on a
+        // hospital the faculty does not run — which would put an invented ceiling into the saturation
+        // of the very grid a délocalisation exists to relieve.
+        var service = await dbContext.Services
+            .AsNoTracking()
+            .Where(s => s.Id == request.ServiceId)
+            .Select(s => new { s.Id, s.IsExternal })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (service is null)
             return Result.Failure<int>(Error.NotFound("Services.NotFound", $"Service {request.ServiceId} was not found."));
+
+        if (service.IsExternal)
+            return Result.Failure<int>(StageErrors.ExternalServiceNotAllowedInStage);
 
         // Enforce allowed-services whitelist when configured
         int stageId = await dbContext.StageSlots

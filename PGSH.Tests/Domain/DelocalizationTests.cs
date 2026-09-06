@@ -104,28 +104,92 @@ public class DelocalizationTests
     }
 
     [Fact]
-    public void A_stage_already_underway_cannot_be_delocalized()
+    public void A_stage_already_underway_is_delocalized_and_its_started_periods_dropped()
     {
         var a = WithPlannedPeriods(2);
         a.Start().IsSuccess.Should().BeTrue();   // every period is now started
 
-        var result = Delocalize(a);
+        Delocalize(a).IsSuccess.Should().BeTrue();
 
-        result.IsFailure.Should().BeTrue();
-        result.Error.Should().Be(StageErrors.StageAlreadyUnderway);
-        a.ServicePeriods.Should().HaveCount(2, "nothing may be dropped when the move is refused");
+        a.ServicePeriods.Should().ContainSingle().Which.ServiceId.Should().Be(ExternalId);
     }
 
     [Fact]
-    public void A_stage_with_an_interrupted_period_cannot_be_delocalized()
+    public void An_interrupted_period_does_not_block_the_move_either()
     {
         var a = WithPlannedPeriods(1);
         a.ServicePeriods.Single().IsInterrupted = true;
 
+        Delocalize(a).IsSuccess.Should().BeTrue();
+
+        a.ServicePeriods.Should().ContainSingle().Which.IsDelocalized.Should().BeTrue();
+    }
+
+    // ⚠ The one refusal. A mark is the single thing here that nothing puts back: the chef who gave
+    // it has no reason to give it again, and no bulk act may be able to erase one.
+    [Fact]
+    public void A_period_carrying_an_evaluation_refuses_the_move_and_nothing_is_dropped()
+    {
+        var a = WithPlannedPeriods(2);
+        a.Start().IsSuccess.Should().BeTrue();
+        var period = a.ServicePeriods.First();
+        period.IsComplete = true;
+
+        a.SubmitEvaluation(period.Id, new ServiceEvaluation
+        {
+            ServicePeriodId = period.Id,
+            Mode            = EvaluationMode.ValidatePeriod,
+            Outcome         = EvaluationOutcome.Validated,
+        }).IsSuccess.Should().BeTrue();
+
         var result = Delocalize(a);
 
         result.IsFailure.Should().BeTrue();
-        result.Error.Should().Be(StageErrors.StageAlreadyUnderway);
+        result.Error.Should().Be(StageErrors.DelocalizationOverMark);
+        a.ServicePeriods.Should().HaveCount(2, "nothing may be dropped when the move is refused");
+    }
+
+    // What the bulk preview reads, and it reads the same expressions the guard enforces.
+    [Fact]
+    public void The_preflight_reports_what_the_move_would_cost()
+    {
+        var a = WithPlannedPeriods(3);
+        a.Start().IsSuccess.Should().BeTrue();
+
+        var preflight = a.PreflightDelocalization();
+
+        preflight.AlreadyDelocalized.Should().BeFalse();
+        preflight.MarkedPeriods.Should().Be(0);
+        preflight.DroppedPeriods.Should().Be(3);
+        preflight.UnderwayPeriods.Should().Be(3);
+        preflight.CanDelocalize.Should().BeTrue();
+    }
+
+    [Fact]
+    public void A_second_delocalization_replaces_the_first_rather_than_stacking()
+    {
+        var a = WithPlannedPeriods(1);
+        Delocalize(a).IsSuccess.Should().BeTrue();
+
+        a.PreflightDelocalization().AlreadyDelocalized.Should().BeTrue();
+        a.Delocalize(StageId, ExternalId, Start.AddDays(7), End.AddDays(7), "Dates corrigées", null)
+            .IsSuccess.Should().BeTrue();
+
+        var period = a.ServicePeriods.Should().ContainSingle().Subject;
+        period.StartDate.Should().Be(Start.AddDays(7));
+    }
+
+    [Fact]
+    public void Cancelling_removes_the_external_period_and_returns_the_student_to_the_repartition()
+    {
+        var a = WithPlannedPeriods(2);
+        Delocalize(a).IsSuccess.Should().BeTrue();
+
+        a.CancelDelocalization(StageId).IsSuccess.Should().BeTrue();
+
+        a.ServicePeriods.Should().BeEmpty("the in-faculty cells are still there and republishing restores them");
+        a.Status.Should().Be(InternshipStatus.Planned);
+        a.DomainEvents.OfType<DelocalizationCancelledDomainEvent>().Should().ContainSingle();
     }
 
     [Fact]

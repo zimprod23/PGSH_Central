@@ -24,4 +24,14 @@ public record UpdateServiceCommand(
     /// this full-replace command already carries, and the edit form is fed by the detail response,
     /// which states it.
     /// </summary>
-    bool AllowsOverCapacity = true) : ICommand;
+    bool AllowsOverCapacity = true,
+    /// <summary>
+    /// Whether this is a place the faculty does not run — see <c>Service.IsExternal</c>.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ <b>Null means « unchanged », not « interne ».</b> This is a full-replace command, so an older
+    /// client saving an external service without the field would quietly bring it back into the
+    /// rotation and into the saturation maths — with students already délocalisés on it. Unlike every
+    /// other field here that is not a value the caller can be assumed to hold an opinion about.
+    /// </remarks>
+    bool? IsExternal = null) : ICommand;

@@ -237,6 +237,11 @@ namespace PGSH.Infrastructure.Migrations
                     b.Property<int>("HospitalId")
                         .HasColumnType("integer");
 
+                    b.Property<bool>("IsExternal")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(100)

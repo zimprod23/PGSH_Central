@@ -23,6 +23,22 @@ public sealed record GroupDetailResponse(
     string? RotationGroup,
     int    AcademicYearId,
     string AcademicYearLabel,
+    /// <summary>
+    /// The promotion the roster belongs to — a roster is keyed (year, level, number), so this is half
+    /// of its identity rather than a decoration.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ <b>Every screen that offers « quel autre groupe ? » needs it, and it was not here.</b> The
+    /// transfer, the change and the swap all derived the promotion by looking the current roster up
+    /// in the *options list* — which asks for 200 of the 1 003 rosters, so past that page the
+    /// promotion came back null and the pickers fell back to offering every group of the year. Sent
+    /// from the row itself, it cannot be missing.
+    /// <para>Nullable because <c>AcademicGroup.LevelId</c> is: a roster the auto-arrange inferred
+    /// from its students may carry none. A picker with no promotion to scope by says so rather than
+    /// widening.</para>
+    /// </remarks>
+    int?   LevelId,
+    string? LevelLabel,
     /// <summary>Total students in the group, independent of the page being viewed.</summary>
     int    StudentCount,
     PaginatedResponse<GroupStudentResponse> Students,

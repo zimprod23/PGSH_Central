@@ -33,6 +33,13 @@ public record ServiceSummaryResponse(
     /// and it is the one an admin has to plan around rather than tick past.
     /// </summary>
     bool AllowsOverCapacity,
+    /// <summary>
+    /// True for a place the faculty does not run — a CHU in another region, a private clinic. It is
+    /// not a rotation candidate and has no capacity anyone should read, so the list marks it rather
+    /// than showing a ceiling that governs nothing. ⚠ It is on the summary and not only on the detail
+    /// because the list is where an admin picks the service a délocalisation names.
+    /// </summary>
+    bool IsExternal,
     int RestrictedLevelCount,
     int HospitalId,
     string HospitalName,

@@ -27,6 +27,8 @@ internal sealed class GetGroupByIdQueryHandler(IApplicationDbContext dbContext)
                 g.RotationGroup,
                 g.AcademicYearId,
                 AcademicYearLabel = g.AcademicYear.Label,
+                g.LevelId,
+                LevelLabel = g.Level != null ? g.Level.Label : null,
                 StudentCount = g.Registrations.Count,
             })
             .SingleOrDefaultAsync(cancellationToken);
@@ -103,6 +105,8 @@ internal sealed class GetGroupByIdQueryHandler(IApplicationDbContext dbContext)
             header.RotationGroup,
             header.AcademicYearId,
             header.AcademicYearLabel,
+            header.LevelId,
+            header.LevelLabel,
             header.StudentCount,
             students,
             incomingLoans);

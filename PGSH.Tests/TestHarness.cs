@@ -5,6 +5,10 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 using NSubstitute;
 using PGSH.Application.Abstractions.Authentication;
 using PGSH.Application.Abstractions.Authorization;
+using PGSH.Application.AcademicYears;
+using PGSH.Application.Stages.Delocalization;
+using PGSH.Application.Stages.Delocalization.Bulk;
+using PGSH.Application.Stages.Evaluations;
 using PGSH.Application.Stages.Planning;
 using PGSH.Application.Stages.Slots;
 using PGSH.Domain.Calendar;
@@ -104,6 +108,32 @@ public static class TestHarness
     internal static RotationArranger Arranger(this ApplicationDbContext db) =>
         new(db, new ServiceOccupancyCalculator(db), new PromotionPartitioning(db),
             new GroupScheduleConflictGuard(db));
+
+    /// <summary>
+    /// The délocalisation handler with its real collaborators, so a test cannot miss the verdict
+    /// writer resolving objectives or the year resolver reading the registration's own year.
+    /// </summary>
+    internal static DelocalizeStudentCommandHandler DelocalizeHandler(
+        this ApplicationDbContext db, ExecutionAuthorizer? authorizer = null)
+    {
+        var scope = authorizer ?? db.AdminAuthorizer();
+        return new DelocalizeStudentCommandHandler(
+            db,
+            new DelocalizationVerdictWriter(new EvaluationObjectiveResolver(db), scope),
+            new AcademicYearResolver(db),
+            scope);
+    }
+
+    internal static BulkDelocalizationPlanner BulkPlanner(this ApplicationDbContext db) =>
+        new(db, new DelocalizationTargetResolver(db), new AcademicYearResolver(db));
+
+    internal static ApplyBulkDelocalizationCommandHandler BulkDelocalizeHandler(
+        this ApplicationDbContext db, ExecutionAuthorizer? authorizer = null) =>
+        new(db, db.BulkPlanner(), authorizer ?? db.AdminAuthorizer());
+
+    internal static PreviewBulkDelocalizationQueryHandler BulkDelocalizePreview(
+        this ApplicationDbContext db, ExecutionAuthorizer? authorizer = null) =>
+        new(db.BulkPlanner(), authorizer ?? db.AdminAuthorizer());
 
     /// <summary>The current academic year plus the level and stage every cohort hangs off.</summary>
     public static Stage SeedCatalog(this ApplicationDbContext db, DateOnly? yearStart = null, DateOnly? yearEnd = null)
@@ -252,7 +282,7 @@ public static class TestHarness
     /// </summary>
     public static Service SeedService(
         this ApplicationDbContext db, int serviceId, string name, Employee? chef = null,
-        int? hospitalId = null)
+        int? hospitalId = null, bool isExternal = false)
     {
         int wanted = hospitalId ?? HospitalId;
 
@@ -269,6 +299,7 @@ public static class TestHarness
         {
             Id = serviceId, Name = name, Description = "",
             HospitalId = hospital.Id, Hospital = hospital, Capacity = 20,
+            IsExternal = isExternal,
         };
 
         if (chef is not null)

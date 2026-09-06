@@ -579,13 +579,37 @@ public static class StageErrors
         $"Service period '{periodId}' was interrupted by a mid-stage transfer; it is terminal history and cannot be started, closed or evaluated.");
 
     // === Delocalization ===
-    public static readonly Error StageAlreadyUnderway = Error.Conflict(
-        "Delocalizations.StageAlreadyUnderway",
-        "Ce stage est déjà commencé ou clôturé en interne ; la délocalisation concerne un stage effectué entièrement hors faculté.");
+    // ⚠ Replaces Delocalizations.StageAlreadyUnderway, which refused as soon as a period had begun.
+    // A student who leaves for an external hospital mid-rotation is the ordinary case, not the
+    // suspicious one; what may never be overwritten is a mark somebody gave.
+    public static readonly Error DelocalizationOverMark = Error.Conflict(
+        "Delocalizations.OverMark",
+        "Ce stage porte déjà une évaluation : la délocalisation supprimerait la note enregistrée. "
+        + "Corrigez ou supprimez l'évaluation d'abord si le stage a bien été effectué hors faculté.");
+
+    public static readonly Error NotDelocalized = Error.Conflict(
+        "Delocalizations.NotDelocalized",
+        "Ce stage n'est pas délocalisé ; il n'y a rien à annuler.");
+
+    public static readonly Error DelocalizationAlreadyMarked = Error.Conflict(
+        "Delocalizations.AlreadyMarked",
+        "La validation rapportée par l'étudiant est déjà enregistrée : annuler la délocalisation "
+        + "supprimerait la seule trace du stage. Corrigez l'évaluation si elle est erronée.");
+
+    public static readonly Error ExternalServiceNotAllowedInStage = Error.Conflict(
+        "Stages.ExternalServiceNotAllowed",
+        "Ce service est hors faculté : il ne peut pas figurer dans la rotation d'un stage. "
+        + "Les étudiants y sont placés par une délocalisation, jamais par la répartition.");
 
     public static readonly Error NoGroupForDelocalization = Error.Conflict(
         "Delocalizations.NoGroup",
         "L'étudiant n'est rattaché à aucun groupe pour cette année ; affectez-le à un groupe avant de délocaliser le stage.");
+
+    public static Error NoWindowForDelocalization(string stageName, string yearLabel) => Error.Conflict(
+        "Delocalizations.NoWindow",
+        $"Aucun créneau n'est défini pour « {stageName} » en {yearLabel} : le stage n'a pas de dates "
+        + "officielles à reprendre. Indiquez les dates de la délocalisation, ou créez d'abord les "
+        + "périodes du stage.");
 
     public static Error CohortMissingForStage(int stageId) => Error.Conflict(
         "Delocalizations.CohortMissing",

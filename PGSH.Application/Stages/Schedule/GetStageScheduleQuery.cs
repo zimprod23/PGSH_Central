@@ -156,6 +156,18 @@ public sealed record StageSlotResponse(
     DateOnly StartDate,
     DateOnly EndDate);
 
+/// <param name="StudentCount">
+/// How many students the cohorte holds — its membership, délocalisés included, because they are
+/// still members and a cancellation puts them straight back into the rotation.
+/// </param>
+/// <param name="DelocalizedCount">
+/// How many of them serve this stage outside the faculty, and therefore occupy none of the services
+/// on this row's cells.
+/// <para>⚠ Sent rather than left to be inferred. The cells are measured on
+/// <c>StudentCount - DelocalizedCount</c>, so a roster délocalisé en masse shows a full membership
+/// beside cells loading nothing — which reads exactly like a bug unless the screen can say why.
+/// Zero here is the ordinary case and means the whole roster is present.</para>
+/// </param>
 public sealed record CohortScheduleRow(
     int     CohortId,
     string  CohortLabel,
@@ -163,6 +175,7 @@ public sealed record CohortScheduleRow(
     string  AcademicGroupLabel,
     string? RotationGroup,
     int     StudentCount,
+    int     DelocalizedCount,
     bool    IsSchedulePublished,
     IReadOnlyList<SlotCellResponse?> Cells);
 

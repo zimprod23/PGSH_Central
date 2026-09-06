@@ -179,7 +179,9 @@ internal sealed class GenerateScheduleCommandHandler(IApplicationDbContext dbCon
                 a.ServiceId,
                 Start    = a.StageSlot.StartDate,
                 End      = a.StageSlot.EndDate,
-                Students = a.Cohort.Assignments.Count,
+                // Délocalisés excluded — see ServiceOccupancyCalculator.EntriesQuery, which is the
+                // authority on what counts as a student standing in a service.
+                Students = a.Cohort.Assignments.Count(x => !x.ServicePeriods.Any(p => p.IsDelocalized)),
             })
             .ToListAsync(ct);
 

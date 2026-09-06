@@ -1,20 +1,29 @@
 using PGSH.Application.Abstractions.Messaging;
-using PGSH.Domain.Stages;
 
 namespace PGSH.Application.Stages.Delocalization;
 
+/// <summary>
+/// Records that one student served a whole stage outside the faculty.
+/// </summary>
+/// <param name="StartDate">
+/// Omitted, the stage's own window for this student's promotion is used. The external hospital does
+/// not follow our calendar, so these dates are the faculty's statement of when the stage took place,
+/// not a schedule anyone enforced — see <see cref="DelocalizationWindow"/>.
+/// </param>
+/// <param name="Verdict">
+/// The paper validation, when it is already in hand. Null records the movement now and leaves the
+/// verdict to be entered later — by hand, or in bulk through the évaluation canvas, which reaches a
+/// délocalisation like any other closed rotation.
+/// </param>
 public sealed record DelocalizeStudentCommand(
-    Guid               RegistrationId,
-    int                StageId,
-    int                ServiceId,
-    DateOnly           StartDate,
-    DateOnly           EndDate,
-    string             Reason,
-    // Optional paper-validation verdict, recorded in the same step when the délocalisation is
-    // logged after the student returns. Null = record the movement now, enter the verdict later.
-    EvaluationOutcome? Outcome        = null,
-    string?            FicheReference = null,
-    Guid?              DemandeId      = null)
+    Guid                  RegistrationId,
+    int                   StageId,
+    int                   ServiceId,
+    string                Reason,
+    DateOnly?             StartDate = null,
+    DateOnly?             EndDate   = null,
+    DelocalizationVerdict? Verdict  = null,
+    Guid?                 DemandeId = null)
     : ICommand, IAuditableCommand
 {
     public string  AuditAction     => "STUDENT_DELOCALIZED";

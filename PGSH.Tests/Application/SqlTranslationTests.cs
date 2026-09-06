@@ -25,6 +25,7 @@ using PGSH.Application.Stages.Cnpn.Effectivity;
 using PGSH.Application.Stages.Cnpn.SeedFromHistory;
 using PGSH.Application.Stages.Cnpn.GetCnpnVersions;
 using PGSH.Application.Stages.Cnpn.Targeting;
+using PGSH.Application.Stages.Delocalization.Bulk;
 using PGSH.Application.Stages.GetMany;
 using PGSH.Application.Stages.Revalidation;
 using PGSH.Domain.Common.Utils;
@@ -258,6 +259,43 @@ public class SqlTranslationTests
 
         sql.Should().Contain("CohortSlotAssignments");
         sql.Should().Contain("count(*)");
+
+        // ⚠ The count is now a correlated COUNT with a NOT EXISTS inside it — délocalisés do not
+        // occupy the cell their cohorte stands on. That is a collection subquery nested in another
+        // collection subquery, inside a projection: the family of shapes that took the macro plan
+        // down. Same arithmetic in the arranger, the per-service page and the charge report.
+        sql.Should().Contain("ServicePeriods");
+        sql.Should().Contain("IsDelocalized");
+    }
+
+    /// <summary>
+    /// The mass délocalisation's two queries — the students a pasted list names, and the assignments
+    /// the apply then mutates.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ The identifier match is the one worth pinning: it lowers a <b>nullable</b> column inside a
+    /// <c>Contains</c> over an in-memory list, and it does it in a <c>Where</c>. A client-side call
+    /// in a predicate is what a provider refuses — the same call in a projection quietly evaluates
+    /// on the client and proves nothing.
+    /// </remarks>
+    [Fact]
+    public void The_bulk_delocalization_queries_compile_to_sql()
+    {
+        using var db = TestHarness.NewNpgsqlContext();
+
+        string matches = DelocalizationTargetResolver
+            .MatchedIdentifiersQuery(db, ["r130896", "ap2200a"])
+            .ToQueryString();
+
+        matches.Should().Contain("lower(");
+        matches.Should().Contain("Appogee");
+
+        string assignments = BulkDelocalizationPlanner
+            .AssignmentsQuery(db, stageId: 40, registrationIds: [Guid.NewGuid()])
+            .ToQueryString();
+
+        assignments.Should().Contain("InternshipAssignments");
+        assignments.Should().Contain("ServiceEvaluation");
     }
 
     /// <summary>

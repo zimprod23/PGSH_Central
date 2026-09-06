@@ -38,6 +38,7 @@ internal sealed class CreateServiceCommandHandler(
             ServiceType = request.ServiceType,
             Capacity = request.Capacity,
             AllowsOverCapacity = request.AllowsOverCapacity,
+            IsExternal         = request.IsExternal,
             Description = request.Description,
             Specialty = request.Specialty,
             LocalisationMaps = LocalizationMapper.FromCoordinates(

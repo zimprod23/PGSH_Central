@@ -63,7 +63,8 @@ internal sealed class GetInternshipAssignmentsQueryHandler(IApplicationDbContext
                     a.Result,
                     a.ServicePeriods.Any(p => p.IsPaused),
                     a.ServicePeriods.Any(p => !p.IsInterrupted)
-                        && a.ServicePeriods.All(p => p.IsInterrupted || p.Evaluation != null)),
+                        && a.ServicePeriods.All(p => p.IsInterrupted || p.Evaluation != null),
+                    a.ServicePeriods.Any(p => p.IsDelocalized)),
                 cancellationToken);
 
         return Result.Success(response);

@@ -23,4 +23,11 @@ public record CreateServiceCommand(
     /// this full-replace command already carries, and the edit form is fed by the detail response,
     /// which states it.
     /// </summary>
-    bool AllowsOverCapacity = true) : ICommand<int>;
+    bool AllowsOverCapacity = true,
+    /// <summary>
+    /// Whether this is a place the faculty does not run — see <c>Service.IsExternal</c>.
+    /// <b>Defaults to false</b>, which is what every service of the CHU is: an external one is a
+    /// deliberate act, and a client that has not been taught about the flag must not be able to
+    /// create one by omission.
+    /// </summary>
+    bool IsExternal = false) : ICommand<int>;

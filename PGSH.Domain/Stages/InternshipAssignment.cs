@@ -355,19 +355,53 @@ public sealed class InternshipAssignment : Entity
 
     // ─── Délocalisation ──────────────────────────────────────────────────────
 
-    // The whole stage is served outside the faculty. The in-faculty rotation never happens, so any
-    // planned (not-yet-started) periods are dropped and replaced by a single ad-hoc period at the
-    // external service — created already started + complete since the stage is done by the time it
-    // is recorded; an administrator enters the validate-only verdict + fiche afterwards. Refuses to
-    // run once any in-faculty period has begun (délocalisation is whole-stage, not partial).
+    /// <summary>
+    /// What a délocalisation would cost on this assignment, without performing one. The bulk preview
+    /// reads this so the operator sees the damage before authorising it, and reads it through the
+    /// same expressions <see cref="Delocalize"/> then enforces — a preview computed one way and a
+    /// guard written another is two rules with nothing to catch them disagreeing.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ <b>Every field here reads <c>ServicePeriod.Evaluation</c></b>, so the navigation has to be
+    /// loaded. An un-Included evaluation is indistinguishable from an absent one, and the answer it
+    /// produces then is « rien à perdre » on a stage that carries a mark.
+    /// </remarks>
+    public DelocalizationPreflight PreflightDelocalization() => new(
+        AlreadyDelocalized: ServicePeriods.Any(p => p.IsDelocalized),
+        MarkedPeriods:      ServicePeriods.Count(p => p.Evaluation is not null),
+        DroppedPeriods:     ServicePeriods.Count,
+        // ⚠ « not merely Planned », asked through the lifecycle rather than by restating its flags.
+        // A fifth hand-written triple beside the four the class owns is the drift it exists to stop —
+        // and the class is also right about the edge this would have missed: a period complete but
+        // never started is movement the store can hold, and it is not Planned.
+        UnderwayPeriods:    ServicePeriods.Count(p =>
+            p.Evaluation is null && !ServicePeriodLifecycle.IsPlanned(p)));
+
+    /// <summary>
+    /// The whole stage is served outside the faculty. The in-faculty rotation never happens, so the
+    /// periods it produced are dropped and replaced by a single ad-hoc period at the external
+    /// service — created already started + complete, since the stage is done by the time anyone
+    /// records it. The verdict is entered afterwards, or in the same act by the caller.
+    /// </summary>
+    /// <remarks>
+    /// <para>⚠ <b>The one thing it refuses is a mark.</b> It used to refuse as soon as any period had
+    /// <i>begun</i>, which reads as the safer rule and is not the useful one: a student leaves for an
+    /// external hospital mid-rotation, and our dates are a formality the place he actually goes to
+    /// does not follow — what comes back is a verdict, not a schedule. So a started period is dropped
+    /// like a planned one. An <b>evaluated</b> one is not: a mark is the single thing here that
+    /// nothing puts back, and no bulk act may be able to erase one.</para>
+    ///
+    /// <para>Délocalising a stage already délocalisé therefore replaces it, which is what makes the
+    /// same list safe to re-send after a correction.</para>
+    /// </remarks>
     public Result Delocalize(int stageId, int serviceId, DateOnly startDate, DateOnly endDate,
         string reason, Guid? demandeId)
     {
-        if (ServicePeriods.Any(p => p.IsStarted || p.IsComplete || p.IsInterrupted))
-            return AppResult.Failure(StageErrors.StageAlreadyUnderway);
+        if (ServicePeriods.Any(p => p.Evaluation is not null))
+            return AppResult.Failure(StageErrors.DelocalizationOverMark);
 
-        foreach (var planned in ServicePeriods.ToList())
-            ServicePeriods.Remove(planned);
+        foreach (var existing in ServicePeriods.ToList())
+            ServicePeriods.Remove(existing);
 
         // Do NOT pre-set the Id of the period or its Delocalization child: when this assignment is
         // already tracked, a non-sentinel store-generated key makes EF classify the child as
@@ -385,8 +419,44 @@ public sealed class InternshipAssignment : Entity
             Delocalization         = new Delocalization { Reason = reason, DemandeId = demandeId },
         });
 
+        // The dropped periods may have carried nothing, but FinalScore is stored rather than derived
+        // on read, and an assignment whose evidence has just been deleted must not keep a note.
+        RecomputeFinalScore();
         Status = InternshipStatus.Completed;
         Raise(new StudentDelocalizedDomainEvent(Id, RegistrationId, stageId, serviceId, reason));
+        return AppResult.Success();
+    }
+
+    /// <summary>
+    /// Walks a délocalisation back: removes the ad-hoc period and returns the student to the
+    /// répartition. The planning grid was never touched by the délocalisation itself, so where the
+    /// cohort still holds its cells a re-publication restores the in-faculty rotation; where they
+    /// were cleared the student lands in « non réparti », which is the truth about him.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ <b>Refused once the paper verdict is on record.</b> That mark is the only trace the faculty
+    /// holds of a stage nobody here supervised — there is no chef to ask again and no attendance
+    /// behind it. Correcting it is <see cref="AmendEvaluation"/>'s job; undoing the délocalisation
+    /// would delete it.
+    /// </remarks>
+    public Result CancelDelocalization(int stageId)
+    {
+        var delocalized = ServicePeriods.Where(p => p.IsDelocalized).ToList();
+
+        if (delocalized.Count == 0)
+            return AppResult.Failure(StageErrors.NotDelocalized);
+
+        if (delocalized.Any(p => p.Evaluation is not null))
+            return AppResult.Failure(StageErrors.DelocalizationAlreadyMarked);
+
+        int serviceId = delocalized[0].ServiceId;
+
+        foreach (var period in delocalized)
+            ServicePeriods.Remove(period);
+
+        RecomputeFinalScore();
+        RecomputeStatusFromPeriods();
+        Raise(new DelocalizationCancelledDomainEvent(Id, RegistrationId, stageId, serviceId));
         return AppResult.Success();
     }
 

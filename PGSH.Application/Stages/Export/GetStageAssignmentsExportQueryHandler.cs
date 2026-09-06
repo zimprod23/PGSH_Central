@@ -445,6 +445,11 @@ internal sealed class GetStageAssignmentsExportQueryHandler(
                 // whoever leads the service the day the file is downloaded.
                 var chef = chefs.For(period.ServiceId, period.Start);
 
+                // ⚠ A délocalisation has no chef and never will — the service is outside the faculty
+                // and nobody here supervised it. Blank in that column reads as a name the export
+                // failed to resolve, which is a different thing and sends somebody looking for it.
+                string chefText = period.IsDelocalized ? "hors faculté" : chef.Name ?? "";
+
                 rows.Add(
                 [
                     ExportCell.Text(assignment.LastName),
@@ -458,8 +463,8 @@ internal sealed class GetStageAssignmentsExportQueryHandler(
                     ExportCell.Count(ordinal),
                     ExportCell.Text(period.ServiceName),
                     ExportCell.Text(period.HospitalName),
-                    ExportCell.Text(chef.Name),
-                    ExportCell.Text(ExportLabels.ChefOrigin([chef])),
+                    ExportCell.Text(chefText),
+                    ExportCell.Text(period.IsDelocalized ? "" : ExportLabels.ChefOrigin([chef])),
                     ExportCell.Day(period.Start),
                     ExportCell.Day(period.End),
                     ExportCell.Count(calendar.Count(period.Start, period.End)),

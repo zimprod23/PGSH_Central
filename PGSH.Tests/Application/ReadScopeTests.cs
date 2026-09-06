@@ -182,10 +182,11 @@ public class ReadScopeTests
         var s = await SeedAsync(db, started: false);
 
         // The shape of the attack: post your own registration with a passing verdict.
-        var result = await new DelocalizeStudentCommandHandler(db, As(db, OwnerIdentity, Roles.Student))
+        var result = await db.DelocalizeHandler(As(db, OwnerIdentity, Roles.Student))
             .Handle(new DelocalizeStudentCommand(
-                s.RegistrationId, TestHarness.StageId, ForeignServiceId, Start, End,
-                "Stage à l'étranger", EvaluationOutcome.Validated), default);
+                s.RegistrationId, TestHarness.StageId, ForeignServiceId, "Stage à l'étranger", Start, End,
+                new DelocalizationVerdict(EvaluationMode.ValidatePeriod, Outcome: EvaluationOutcome.Validated)),
+                default);
 
         result.IsFailure.Should().BeTrue();
         result.Error.Should().Be(StageErrors.DelocalizationNotAllowed);
@@ -197,9 +198,9 @@ public class ReadScopeTests
         await using var db = TestHarness.NewContext("scope-deloc-chef");
         var s = await SeedAsync(db, started: false);
 
-        var result = await new DelocalizeStudentCommandHandler(db, As(db, ChefIdentity))
+        var result = await db.DelocalizeHandler(As(db, ChefIdentity))
             .Handle(new DelocalizeStudentCommand(
-                s.RegistrationId, TestHarness.StageId, ForeignServiceId, Start, End, "Motif"), default);
+                s.RegistrationId, TestHarness.StageId, ForeignServiceId, "Motif", Start, End), default);
 
         result.IsFailure.Should().BeTrue();
         result.Error.Should().Be(StageErrors.DelocalizationNotAllowed);
@@ -211,9 +212,9 @@ public class ReadScopeTests
         await using var db = TestHarness.NewContext("scope-deloc-admin");
         var s = await SeedAsync(db, started: false);
 
-        var result = await new DelocalizeStudentCommandHandler(db, As(db, Guid.NewGuid(), Roles.Scolarite))
+        var result = await db.DelocalizeHandler(As(db, Guid.NewGuid(), Roles.Scolarite))
             .Handle(new DelocalizeStudentCommand(
-                s.RegistrationId, TestHarness.StageId, ForeignServiceId, Start, End, "Motif"), default);
+                s.RegistrationId, TestHarness.StageId, ForeignServiceId, "Motif", Start, End), default);
 
         result.IsSuccess.Should().BeTrue();
     }
