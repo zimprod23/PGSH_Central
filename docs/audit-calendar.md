@@ -35,6 +35,14 @@
   le pipeline qui tient l'`IDateTimeProvider`. **Pas d'héritage d'`Entity`**, délibérément : une
   entrée n'a pas d'invariant sur des enfants et n'a rien à faire observer — lever un événement de
   domaine *à propos de l'enregistrement d'un acte* serait de la symétrie pour la symétrie.
+- **Trois codes de plus le 06/09/2026 (session 49)** : `PROMOTION_PAUSE_DECLARED` (entité `Level` —
+  l'acte nomme une promotion, et la métadonnée porte l'année, les bornes, le type, le motif et le
+  drapeau « confirmée »), `PROMOTION_PAUSE_CORRECTED` et `PROMOTION_PAUSE_REVOKED` (entité
+  `PromotionPause`). ⚠ **Le retrait est audité parce que c'est la *seule* trace qu'il laisse** : il
+  supprime la racine d'agrégat, et EF détache une entité supprimée **avant** qu'`ApplicationDbContext`
+  ne relève les événements de domaine — un événement levé là serait perdu sans bruit. La déclaration,
+  elle, lève `PromotionPauseDeclaredDomainEvent` : c'est l'acte le plus large de la planification et
+  rien d'autre ne l'observe.
 - **Deux codes de plus depuis le 06/09/2026** : `BULK_DELOCALIZATION_APPLIED` (entité `Stage`, la
   métadonnée porte le service, le motif, le nombre confirmé et la taille de chaque sélection) et
   `DELOCALIZATION_CANCELLED` (entité `Registration`). ⚠ **L'annulation est auditée parce que l'acte de
@@ -85,9 +93,44 @@
 
 ## Jours ouvrables — the calendar is entered, and half of it cannot be computed
 `WorkingDayCalendar` in `Domain/Calendar/` is the single answer to "how long is this really": calendar
-days minus the weekly rest days (`WorkingWeek.Moroccan` = Sat + Sun) minus every declared `Holiday`.
-Pure and immutable, built once by `WorkingDayProvider`, which loads the **whole** table (~15 rows a
-year — a date range would need an unknowable forward margin anyway).
+days minus the weekly rest days (`WorkingWeek.Moroccan` = Sat + Sun) minus every declared
+`ICalendarClosure`. Pure and immutable, built once by `WorkingDayProvider`, which loads the **whole**
+holiday table (~15 rows a year — a date range would need an unknowable forward margin anyway).
+
+### ⚠ There are **two** calendars, and which one a caller gets is decided by whether it holds a promotion
+Two things are "days on which the people covered are not in a service", and they differ in **scope and
+in nothing else** — so both implement `ICalendarClosure` rather than growing a second, parallel notion:
+
+| | scope | who declares it |
+|---|---|---|
+| `Holiday` | the faculty | law (national), decree (religious), the faculty itself (academic) |
+| `PromotionPause` | one **(année, niveau)** | the faculty, per promotion — an exam session |
+
+- `WorkingDayProvider.BuildAsync` is the faculty calendar; `ForPromotionAsync(yearId, levelId, ct)`
+  adds that promotion's windows. ⚠ **Two promotions rotate through the same services on the same
+  morning and only one of them is sitting an exam**, so a calendar showing both promotions' windows to
+  both of them would be wrong for each. `levelId: null` — a caller that genuinely spans promotions —
+  gets the faculty calendar, because quietly picking one promotion's exam weeks is worse than counting
+  none. **That split is the whole mechanism; the CRUD around it is not.**
+- ⚠ **Declaring a window moves no date.** It is a calendar fact: the axis laid afterwards steps over
+  it, in worked days, and the grid and the périodes published from it are laid against the same days.
+  Declared *after* a grid exists it leaves every créneau where it is — the preview counts what each one
+  then loses, and re-laying the axis is the act that catches up. Full reasoning in
+  [`planning-rotation.md`](planning-rotation.md) and `PHASES.md` §17.
+- ⚠ **A window's cost is measured on a calendar that does *not* contain it.** Asked of one that does,
+  every window ever declared costs zero — the same trap `HolidayResponse.WorkingDaysLost` avoids by
+  counting against the weekend-only calendar. Hence `ForPromotionAsync(..., excludingPauseId)` and
+  `WorkingDayCalendar.With(closure)`: the cost is the difference between two calendars.
+- ⚠ **A window's « aucun jour férié » caption is about the academic *year*, not about the window** —
+  corrected on 2026-09-06 after driving the real screen. An exam week holds no jour férié in the
+  ordinary case, so measured on its own five days the flag fired on nearly every window and said
+  nothing worth acting on; measured on the year it says the one thing that is: nobody has entered this
+  year's calendar. Same widening, and the same reason, as `MissingReligious` being asked of whole
+  Gregorian years. **A caption that fires whatever the data says is noise, and noise is dismissed.**
+- ⚠ **`MissingReligious` counts faculty closures only.** A pause named « Aïd al-Fitr » is a promotion
+  saying it is out that week, not the decree naming the date; counting it would report the faculty's
+  calendar complete on the strength of one promotion's own window, and silence the one report that
+  says a lunar date is still missing.
 
 - ⚠ **`Stage.DurationInDays` is already in worked days for 25 of 27 stages — measured 2026-08-13.**
   The distribution is 14×7, 22×7, 30×2, 42×3, 44×6, 66×2: 22 is a month of worked days, 44 two, 66

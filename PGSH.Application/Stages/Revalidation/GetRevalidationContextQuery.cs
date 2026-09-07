@@ -70,7 +70,11 @@ internal sealed class GetRevalidationContextQueryHandler(
             text.DurationInDays,
             text.Coefficient);
 
-        var calendar = await workingDays.BuildAsync(cancellationToken);
+        // ⚠ The student's OWN promotion, not the stage's. A sixth-year re-taking a third-year stage
+        // sits the sixth year's exams, so the window proposed below has to step over those and not over
+        // a promotion he left three years ago.
+        var calendar = await workingDays.ForPromotionAsync(
+            registration.AcademicYearId, registration.LevelId, cancellationToken);
 
         var failure = RevalidationPlanner.LastFailure(priorAttempts);
         var lastFailure = failure is null
@@ -132,7 +136,7 @@ internal sealed class GetRevalidationContextQueryHandler(
     }
 
     internal sealed record RegistrationRow(
-        Guid StudentId, int AcademicYearId, int? AcademicGroupId, int? CnpnVersionId,
+        Guid StudentId, int AcademicYearId, int LevelId, int? AcademicGroupId, int? CnpnVersionId,
         RegistrationCnpnSource? CnpnSource, int? StudentCnpnVersionId);
 
     internal static IQueryable<RegistrationRow> RegistrationQuery(
@@ -141,8 +145,8 @@ internal sealed class GetRevalidationContextQueryHandler(
             .AsNoTracking()
             .Where(r => r.Id == registrationId)
             .Select(r => new RegistrationRow(
-                r.StudentId, r.AcademicYearId, r.AcademicGroupId, r.CnpnVersionId, r.CnpnSource,
-                r.Student.CnpnVersionId));
+                r.StudentId, r.AcademicYearId, r.LevelId, r.AcademicGroupId, r.CnpnVersionId,
+                r.CnpnSource, r.Student.CnpnVersionId));
 
     internal sealed record StageRow(
         string Name, int LevelId, string? LevelLabel, int Coefficient, int DurationInDays);

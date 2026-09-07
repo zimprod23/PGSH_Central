@@ -3,6 +3,8 @@ using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Employees.MyServices;
 using PGSH.Application.AcademicGroups.Placements;
 using PGSH.Application.Audit;
+using PGSH.Application.Calendar;
+using PGSH.Application.Calendar.Pauses;
 using PGSH.Application.Hospitals.Chefs;
 using PGSH.Application.Hospitals.Coverage;
 using PGSH.Application.Hospitals.Services.OccupancyReport;
@@ -1149,5 +1151,66 @@ public class SqlTranslationTests
         string states = CohortMemberScheduler.CellStatesQuery(db, [1001, 1002]).ToQueryString();
         states.Should().Contain("ServicePeriods");
         states.Should().Contain("CohortSlotAssignmentId");
+    }
+
+    /// <summary>
+    /// The promotion-pause reads. Two of the three are joins the store has never been asked for — a
+    /// créneau reached through <c>Stage.LevelId</c>, and a période reached through
+    /// <c>InternshipAssignment.Registration</c> — and the third is the calendar read that every
+    /// promotion-scoped working-day count now goes through, so it runs on the first request that lays
+    /// an axis.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ The cells query is the one that could have gone wrong. « Chaque créneau avec ses cellules » is
+    /// the obvious way to write it and is a collection subquery inside a projection — the shape that
+    /// killed the macro plan. It is written flat, keyed on the créneau, and folded in memory.
+    /// </remarks>
+    [Fact]
+    public void The_promotion_pause_queries_compile_to_sql()
+    {
+        using var db = TestHarness.NewNpgsqlContext();
+
+        var from = new DateOnly(2026, 1, 12);
+        var to = new DateOnly(2026, 1, 16);
+
+        string slots = PromotionPauseQueries.SlotsQuery(db, 1, 3, from, to).ToQueryString();
+        slots.Should().Contain("StageSlots");
+        slots.Should().Contain("Stages");
+
+        PromotionPauseQueries.CellsQuery(db, 1, 3, from, to).ToQueryString()
+            .Should().Contain("CohortSlotAssignments");
+
+        string periods = PromotionPauseQueries.PeriodsQuery(db, 1, 3, from, to).ToQueryString();
+        periods.Should().Contain("ServicePeriods");
+        periods.Should().Contain("Registrations");
+
+        WorkingDayProvider.PausesQuery(db, 1, 3, excludingPauseId: null).ToQueryString()
+            .Should().Contain("PromotionPauses");
+
+        // Two navigations deep through the coverage table into the stage, plus a DISTINCT — the shape
+        // that answers « peut-on encore reposer cet axe ? ».
+        string published = PromotionPauseQueries.PublishedCellsQuery(db, 1, 3).ToQueryString();
+        published.Should().Contain("ServicePeriodSlotCoverage");
+        published.Should().Contain("DISTINCT");
+    }
+
+    /// <summary>
+    /// The lifecycle filters the impact reader composes onto <c>PeriodsQuery</c>. They are
+    /// <c>Expression</c>s for exactly this reason — a method call in a <c>Where</c> is refused by the
+    /// provider — and this is where that claim is checked rather than assumed.
+    /// </summary>
+    [Fact]
+    public void The_promotion_pause_period_counts_compile_to_sql()
+    {
+        using var db = TestHarness.NewNpgsqlContext();
+
+        var periods = PromotionPauseQueries.PeriodsQuery(
+            db, 1, 3, new DateOnly(2026, 1, 12), new DateOnly(2026, 1, 16));
+
+        periods.Where(ServicePeriodLifecycle.Underway).ToQueryString().Should().Contain("IsStarted");
+        periods.Where(ServicePeriodLifecycle.Planned).ToQueryString().Should().Contain("IsComplete");
+
+        periods.Select(p => p.InternshipAssignment.RegistrationId).Distinct().ToQueryString()
+            .Should().Contain("DISTINCT");
     }
 }

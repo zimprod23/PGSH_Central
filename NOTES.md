@@ -3822,3 +3822,88 @@ pas éditer membre par membre, puisqu'un roster se désigne par **un** identifia
 doit être `Include`. Sans elle toute période paraît non notée, le refus ne se déclenche jamais, et la
 délocalisation efface exactement ce qu'elle existe pour protéger — **et la suite en mémoire ne peut
 pas le voir**, puisqu'elle recompose les navigations depuis le change tracker.
+
+## Une pause qui ne pousse aucune date (06/09/2026, session 49)
+
+Phase 17. La question posée trois sessions plus tôt était : *« une semaine d'examens, c'est une
+affaire de promotion entière, parce que certaines promos ont des examens et d'autres non »*. Ce qui
+existait — `StagePauseRunner` — répondait à une autre question, et de quatre façons :
+
+1. Suspendre une promotion se faisait **un appel par stage**, sans rien qui enregistre que c'était un
+   seul événement. Rien à corriger, rien à révoquer.
+2. Le décalage était en **jours calendaires** : `WorkingDayCalendar` n'était pas consulté du tout, sur
+   un projet où 25 des 27 stages ont leur durée en jours ouvrables.
+3. Seules les `ServicePeriod` bougeaient — la grille et ce qui en avait été publié divergeaient en
+   silence.
+4. Rien ne pouvait se déclarer à l'avance, et un « resume » oublié gelait les rotations sans fin ni
+   compensation.
+
+### Ce que la forme a tranché — et c'est la décision de la phase
+
+**Une suspension est un fait de calendrier, pas un second mécanisme qui pousse des dates.** Un
+`Holiday` est déjà « des jours où personne ne sert » ; une semaine d'examens est le **même genre de
+fait**, avec une portée plus étroite. Les deux implémentent donc `ICalendarClosure`, et le travail
+réel est le partage dans `WorkingDayProvider` : `BuildAsync` pour la faculté, `ForPromotionAsync` pour
+un couple (année, niveau).
+
+À partir de là **tout se compense tout seul, en jours ouvrables** : l'axe posé enjambe la fenêtre, la
+grille est écrite depuis cet axe, les périodes sont publiées depuis la grille — les trois sont posées
+contre les mêmes jours. Le défaut n°3 devient impossible par construction sur ce chemin.
+
+⚠ **Et déclarer une fenêtre sur une grille déjà posée ne déplace rien, volontairement.** C'est la
+partie qu'il fallait *écrire*, pas laisser deviner. Les créneaux gardent leurs dates et sont désormais
+courts de ce que la fenêtre prend ; l'aperçu compte exactement cela, stage par stage et colonne par
+colonne, plus les rotations traversées par état de cycle de vie. Reposer l'axe est le geste qui
+rattrape — il écrit des cellules, donc c'est un clic et pas un effet de bord. **Réécrire en silence
+les dates d'une promotion publiée est la seule chose que cet acte ne doit pas faire.**
+
+Le corollaire est que « rejouer » ne coûte rien : la même fenêtre deux fois donne les mêmes dates,
+parce que rien n'est *ajouté* à ce qui est stocké. `ResumePeriod`, lui, **accumule** — c'est
+exactement pourquoi il ne peut être ni corrigé ni révoqué, et pourquoi celui-ci le peut.
+
+### Deux pièges que la mesure impose
+
+- ⚠ **Le coût d'une fenêtre se mesure sur un calendrier qui ne la contient pas.** Mesurée sur celui
+  qui la contient déjà, *toute* fenêtre coûte zéro jour ouvrable — le même piège que
+  `HolidayResponse.WorkingDaysLost` évite en comptant sur le calendrier week-ends seuls. D'où
+  `ForPromotionAsync(..., excludingPauseId)` : sans lui, l'aperçu d'une **correction** annonce
+  tranquillement 0.
+- ⚠ **`MissingReligious` ne compte que les fermetures de la faculté.** Une suspension nommée « Aïd
+  al-Fitr » est une promotion qui dit qu'elle est absente cette semaine-là, pas le décret qui fixe la
+  date : la compter ferait dire au calendrier qu'il est complet sur la foi de la fenêtre d'une seule
+  promotion, et éteindrait le seul avertissement qui signale une date lunaire manquante.
+
+### Et une chose que le retrait ne peut pas faire
+
+Révoquer supprime la **racine d'agrégat**, et EF détache une entité supprimée *avant*
+qu'`ApplicationDbContext` ne relève les événements de domaine depuis le change tracker : un
+`PromotionPauseRevokedDomainEvent` levé là serait perdu sans une ligne nulle part. Il n'y en a donc
+pas — le registre porte `PROMOTION_PAUSE_REVOKED`, et c'est dit dans le code plutôt que découvert par
+quelqu'un qui cherchera l'événement.
+
+### ⚠ Le remède que le rapport prescrivait n'existait pas (06/09/2026, même session)
+
+Tout ce qui précède était juste, sauf une phrase — répétée dans l'agrégat, dans le lecteur d'impact,
+dans deux toasts, dans `planning-rotation.md` et dans `PHASES.md` : **« reposer l'axe est le geste qui
+rattrape »**.
+
+Dérouler `SMOKE-TEST.md` §50.5 pour de vrai, sur la 3ᵉ MED, l'a démentie en un clic :
+`ApplyRotationCycleCommand` refuse sur `PublishedCells > 0` **pour le bloc entier**, la promotion en
+porte **804**, et « Appliquer l'axe » est tout simplement désactivé. Le geste prescrit n'existe pas —
+et il n'existe pas précisément pour la population qu'une fenêtre déclarée tardivement pénalise, celle
+dont la grille est déjà publiée.
+
+- **Ce qui reste vrai** : la fenêtre est enregistrée, le calendrier de la promotion est juste, tout axe
+  posé *ensuite* l'enjambe, et le manque s'affiche — « Durée réelle par stage » est passée de
+  « 30 – 30 » à **« 25 – 30 »** jours ouvrables sur les six stages dès la déclaration. Rien n'est faux
+  dans le mécanisme.
+- **Ce qui était faux** : la suite prescrite. `PublishedCellsInGrid` est désormais mesuré (à travers
+  `ServicePeriodSlotCoverage`, jamais par `ServicePeriod.CohortSlotAssignmentId`, qui ne nomme que la
+  cellule de tête d'un enchaînement `SingleService`) et l'avertissement **branche** dessus : avec un
+  axe publié il dit que les jours sont perdus et que déplacer une colonne publiée n'existe pas encore.
+- ⚠ **La leçon, et elle est générale : un rapport qui prescrit un bouton qui refuse est pire qu'un
+  rapport qui ne prescrit rien.** Il envoie l'opérateur se heurter à un refus, et le refus a l'air
+  d'un défaut du bouton plutôt que d'une limite connue. Même famille que « dire ce que veut dire un
+  blanc » : ici c'est *dire ce que veut dire un manque*, et ne le dire que quand on sait quoi en faire.
+- **Rien de tout cela n'était visible aux tests.** Les 1 696 étaient verts, la traduction SQL passait,
+  le pipeline HTTP passait. Ce qui l'a montré est un clic sur un bouton désactivé.

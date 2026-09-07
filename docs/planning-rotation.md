@@ -74,6 +74,37 @@ Lₛ = P · kₛ / T      partitions concurrently in stage s — must be a whole
   to a fixed count of worked days, and it is the **only** unit under which two columns are the same
   amount of stage — février and mars are not.
 
+## ⚠ The axis is laid on the **promotion's** calendar, not the faculty's
+`GenerateAxisWindowsQuery` takes `LevelId` (and `AcademicYearId`) and resolves its calendar through
+`WorkingDayProvider.ForPromotionAsync` — the faculty's holidays **plus** the exam windows that
+promotion declared (`PromotionPause`, `PHASES.md` §17). `PreviewRotationCycleQuery` does the same for
+its `DurationChecks`, so what the screen says a stage gets is what the axis actually gives it.
+
+- ⚠ **Send the level.** Omitted, the columns are laid on the faculty calendar alone, land squarely on
+  a week the promotion is sitting exams, and nothing on either side says so. `RotationCyclePage`
+  disables « Générer les fenêtres » until a promotion is chosen for exactly this reason — it is a
+  precondition of the act, not a detail of the form.
+- **This is where the compensation happens, and it is the whole of it.** A window declared in
+  September makes the axis generated afterwards put its *kₛ* worked days in a column that ends later on
+  the wall calendar; the grid is written from those windows and the périodes are published from the
+  grid, so all three are laid against the same days. Nothing is pushed onto an assignment —
+  `InternshipAssignment.ResumePeriod` *accumulates*, which is why it can be neither corrected nor
+  revoked and this can.
+- ⚠ **Declaring a window over a grid already laid moves nothing**, deliberately. The créneaux keep
+  their dates and are now short by what the window takes; `PreviewPromotionPauseQuery` counts that per
+  stage and per créneau, plus the rotations crossing it split by lifecycle state. Silently rewriting
+  the dates of a published promotion is the one thing this must not do.
+- ⚠ **…and whether that shortfall can be repaired at all is a fact about the promotion, not about the
+  window — measured on the live base 2026-09-06.** Re-laying the axis is a real act *only while nothing
+  has been published from it*: `ApplyRotationCycleCommand` refuses on `PublishedCells > 0` for the
+  **whole block**, and the 3ᵉ MED holds **804**. So for a published promotion — precisely the one a
+  late window hurts — there is **no remedy today**, and the days are lost until §17.1 exists. The
+  preview therefore carries `PublishedCellsInGrid` and its warning branches on it: **a report that
+  prescribes a refused button is worse than one that prescribes nothing.**
+- **`GeneratedAxisColumn.Pauses` is reported apart from `Holidays`.** A holiday is everyone's; a pause
+  is this promotion's, and the promotion rotating through the same service the same morning does not
+  have it. Merging them would make a column's explanation false for the neighbour reading it.
+
 ## A service holds who is standing in it, so the balance is per **column**
 `RotationArranger` builds the capacity-weighted service queue over the cohorts of **one period**, and
 indexes it by their position *within that period*. Not over the cohorts of the call: the two coincide

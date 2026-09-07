@@ -1,4 +1,5 @@
 using FluentAssertions;
+using PGSH.Application.AcademicYears;
 using PGSH.Application.Calendar;
 using PGSH.Application.Stages.RotationCycle;
 using PGSH.Domain.Calendar;
@@ -15,7 +16,7 @@ namespace PGSH.Tests.Application;
 public class AxisWindowGenerationTests
 {
     private static GenerateAxisWindowsQueryHandler Handler(ApplicationDbContext db) =>
-        new(db, new WorkingDayProvider(db));
+        new(db, new AcademicYearResolver(db), new WorkingDayProvider(db));
 
     [Fact]
     public async Task Monthly_columns_are_contiguous_and_inclusive_of_both_ends()

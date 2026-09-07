@@ -8,8 +8,7 @@
 > | # | Do this | Why it is not done |
 > |---|---|---|
 > | **A1** | **Phase 18.2 — la restauration, pour de vrai.** 18.1 est **livré** (session 40) : dumps planifiés, points nommés, manifeste, plan de restauration chiffré, et la bannière « y a-t-il un retour en arrière ? » dans la déliberation, la réinscription et l'application d'un axe. Reste : **une restauration que quelqu'un a réellement exécutée** (contre une base de rebut), `pgsh-snapshot`/`pgsh-restore` en scripts hors API, l'assertion des effectifs en SQL, le volume **Keycloak**, et l'undo par acte pour la déliberation et le rouleau. | ⚠ **`BackupVerification.Restored` est une valeur que rien ne pose aujourd'hui** — l'application sait relire la table des matières d'une archive (`pg_restore -l`), ce qui attrape une archive tronquée et rien de plus. **Une sauvegarde que personne n'a restaurée est une hypothèse.** Et il n'y a **volontairement pas** de bouton « Restaurer » : un processus ne peut pas remplacer la base dont il se sert ; le plan affiche la commande, la pile arrêtée. `PHASES.md` §18.2, `SMOKE-TEST.md` §41. |
-> | **A2** | **Phase 17 — « suspension d'examens » scoped to a promotion.** Declared as a window on `(année, niveau)`, previewed, correctable and revocable, compensating in **jours ouvrables** through a promotion-scoped `WorkingDayCalendar` rather than by pushing dates on each assignment. | Some promotions sit exams while others rotate through the same services the same morning, so the unit is the promotion — but `StagePauseRunner` is scoped to one **stage**, so an exam week is one call per stage with nothing recording that they were one event. Three further gaps read from the code 2026-09-03: the shift is in **calendar** days (`WorkingDayCalendar` is not consulted at all), only the `ServicePeriod`s move so the **grid silently drifts** from what was published, and nothing can be declared in advance — a forgotten resume leaves rotations frozen with no end date and no compensation. `PHASES.md` §17. |
-> | **A3** | **Decide the mid-flight reschedule** — « on est en P3, peut-on changer P7 ? » Today no, and `UpdateStageSlotCommandHandler` is the dangerous half: it has **no published-guard at all** and rewrites a window without touching the périodes published from it. `SetCohortSlotAssignment` refuses on « the cohorte is published » where `PublishedCells.IsCellPublishedAsync` would answer « is *this cell* published », and `UnpublishCohortSchedule` has no period scope, so undoing P7 undoes P1-P10 and `Force` takes the marks and attendance with it. | Same machinery as A2 — "shift the later périodes *and their cells*" is one operation — which is why it is filed as `PHASES.md` §17.1 rather than on its own. ⚠ `SingleService` complicates all three: the *kₛ* cells fold into one `ServicePeriod`, so editing a column mid-run splits a stay. |
+> | **A2** | **Phase 17.1 — the mid-flight reschedule.** « On est en P3, peut-on changer P7 ? » ⚠ **Phase 17 itself is done (session 49)**, and it built the calendar half this needs: a promotion's window now joins its own `WorkingDayCalendar` and the axis laid afterwards steps over it, in jours ouvrables, with no date pushed onto any assignment. What remains is the *other* direction — moving a column that is **already published**. ⚠ **Measured on the live base 06/09/2026 and no longer a guess**: the 3ᵉ MED holds **804 published cells**, so « Appliquer l'axe » is disabled and `ApplyRotationCycleCommand` refuses on `PublishedCells > 0` — a promotion pause declared after publication therefore has **no remedy at all** today, and the preview now says so instead of prescribing a refused button. Today: no, and `UpdateStageSlotCommandHandler` is the dangerous half: it has **no published-guard at all** and rewrites a window without touching the périodes published from it. `SetCohortSlotAssignment` refuses on « the cohorte is published » where `PublishedCells.IsCellPublishedAsync` would answer « is *this cell* published », and `UnpublishCohortSchedule` has no period scope, so undoing P7 undoes P1-P10 and `Force` takes the marks and attendance with it. | Filed as `PHASES.md` §17.1 because "shift the later périodes *and their cells*" is one operation. ⚠ Phase 17's answer does **not** cover it: a declared window changes what a *future* axis is laid against, and says nothing about a column already published. ⚠ `SingleService` complicates all three: the *kₛ* cells fold into one `ServicePeriod`, so editing a column mid-run splits a stay. |
 > | **0am** | **Relancer l'AppHost (migration `ExternalServices`), créer le service « Stage hors CHU — Kénitra », puis dérouler `SMOKE-TEST.md` §49.** Sans la migration l'API interroge une colonne qui n'existe pas et la liste des services répond **500**. Back **et** front sont faits : 31 tests neufs (1 650 verts), `tsc`, `eslint` et `npm run build` propres. Rien n'a été **cliqué**. | ⚠ **Aucun service externe n'existe dans la base** : le drapeau vaut `false` partout et rien de la phase n'est visible tant que la ligne n'est pas créée. La seule étape destructrice est §49.5 (elle supprime les rotations planifiées des étudiants nommés) — **point de sauvegarde avant**. Le contrôle qui compte est le `ConfirmedCount` : lancer l'aperçu, inscrire un étudiant de plus dans le roster depuis un autre onglet, appliquer → doit **refuser** en nommant les deux nombres, et n'écrire **rien**. `PHASES.md` §25. |
 > | 0ae | **Relancer l'AppHost, puis dérouler `SMOKE-TEST.md` §41.** Les routes `/api/backups*` n'existent pas dans un processus antérieur à cette session : le contrôle qui distingue « route absente » de « non authentifié » est que `safe-point` répond **404** sur l'ancien processus et **401** sans jeton. | Rien dans §41 n'écrit dans la base (un `pg_dump` est une lecture) — sauf les entrées d'audit `BACKUP_POINT_*`. Les deux étapes qui comptent : **arrêter Docker** et vérifier que le bandeau dit « service indisponible » et non « aucune sauvegarde », et **prendre un point depuis la bannière de la déliberation** sans perdre le fichier chargé. ⚠ Ne **pas** exécuter la commande de restauration sur la base vivante ; §18.2 est exactement ce qui manque pour l'éprouver proprement. |
 > | 0ac | **Répartir la 3ᵉ MED 2026-2027** — l'axe est posé, les cohortes ne le sont pas. Depuis « Bloc de rotation » ou la grille d'un stage : auto-répartir, puis publier. C'est le geste qui remplit « Charge des services ». | Fait 02/09/2026 : 6 partitions (A-F, 94 rosters, 933 inscrits, 0 non placé), **4 fêtes lunaires estimées** (non confirmées) et **36 créneaux** — 6 stages × 6 colonnes de **30 jours ouvrables exactement**, coupure de 2 jours, 01/09/2026 → 31/05/2027. ⚠ **Écrits en SQL, donc sans entrée d'audit** : `HolidayCommands` et `ApplyRotationCycleCommand` sont tous deux `IAuditableCommand` et l'automatisation du navigateur n'a pas tenu (le viewport se redimensionnait sous les clics). Même angle mort que l'item 0e. Sauvegarde : `pgsh-avant-axe-3med.dump` dans le conteneur. |
@@ -36,6 +35,164 @@
 > | 18 | **The pre-validation export.** | Agreed with the user as a second document: the same population without the note/verdict columns, showing where everyone *is going*. `onlyEvaluated` is already the switch and `ExportWorkbook` already the shape, so it is a column set and a caption, not a second pipeline. Deferred deliberately — the post-validation one was the ask. |
 >
 >
+
+## Session 49 — 2026-09-06 · Une semaine d'examens appartient à une promotion, et elle ne pousse aucune date
+
+> ✅ **Vérifié au navigateur sur la base vivante, le 06/09/2026**, après redémarrage de l'AppHost par
+> l'utilisateur. Migration `PromotionPauses` appliquée, `GET /calendar/promotion-pauses` → **200**.
+> Déroulé : le sélecteur n'offre pas « Retrait » ; l'aperçu de la 3ᵉ MED sur le 18→22/01/2027 donne
+> **5 jours ouvrables**, **6 créneaux** (un par stage), **0 rotation en cours**, **933 étudiants** —
+> l'effectif exact de la promotion, ce qui vérifie le cadrage par l'inscription — et chaque stage passe
+> de **30 à 25** jours ouvrables sur sa colonne ; l'aperçu n'écrit rien (vérifié au réseau : seul
+> `POST …/preview` part) ; déclaration **201**.
+>
+> **L'A/B qui compte, à entrées identiques** (3ᵉ MED, départ 07/09/2026, 30 j. ouvr.) :
+>
+> | | avec la fenêtre | après retrait |
+> |---|---|---|
+> | C3 | déc 2 → **janv 15** | déc 2 → **janv 15** (inchangée, avant la fenêtre) |
+> | C4 | **janv 25 → mars 5** | **janv 18 → févr 26** |
+> | C5 | mars 8 → avril 20 | mars 1 → avril 13 |
+> | C6 | avril 21 → juin 3 | avril 14 → mai 27 |
+>
+> L'axe **enjambe** la semaine d'examens — C4 démarre le lundi suivant — et les six colonnes gardent
+> leurs 30 jours ouvrables. Le retrait le repose **exactement** sur l'axe stocké. La base est revenue
+> à son état d'origine ; il ne reste que les deux entrées d'audit, ce qui est le but.
+>
+> ⚠ **Un défaut trouvé à l'écran et corrigé** : la mention « aucun jour férié n'est enregistré » était
+> mesurée **sur la fenêtre**, donc s'affichait sur presque toutes — du bruit, exactement ce que la
+> règle maison interdit. Elle porte désormais sur l'**année universitaire**. Morsure prouvée.
+> **1 696 tests verts.** ✅ **Correctif revérifié au navigateur après un second redémarrage** : sur le
+> même aperçu la mention a disparu (l'année porte 14 fériés) et il ne reste que l'avertissement qui
+> sert à quelque chose.
+>
+> **Le reste de §50, déroulé au second passage :**
+> - **Chevauchement** : une seconde fenêtre 22→26/01 pour la 3ᵉ MED — elle ne *touche* la première que
+>   le 22 — est **refusée** en nommant l'existante et ses dates. Rien n'est écrit. Bornes incluses.
+> - **Le contrôle** : les **mêmes** dates pour la **4ᵉ** MED sont acceptées. Le garde porte bien sur le
+>   couple (année, niveau) et non sur les dates.
+> - **Correction sans mouvement** : ne cocher que « dates confirmées » → **un seul toast**, aucun
+>   message sur les créneaux (la garde `DatesMoved`), et la ligne prend le badge « provisoire » —
+>   dessiné sur l'état **rare** seulement (§1k).
+> - **Correction avec mouvement** : janvier → mars annonce **12 créneaux**, soit les 6 colonnes de la
+>   fenêtre quittée **plus** les 6 de celle rejointe, comptées une fois. C'est l'union, exactement.
+> - ⚠ **Et un chiffre qui vaut confirmation** : la fenêtre déplacée au 08→12/03/2027 coûte **3** jours
+>   ouvrables et non 5, parce que l'Aïd al-Fitr estimé tombe les 9 et 10. Une fenêtre posée sur des
+>   jours déjà fériés coûte moins que sa longueur, et l'écran le dit.
+> - **Deux toasts au maximum, jamais un doublon** (§1e), sur les six actes déclenchés.
+>
+> **La base est revenue à son état d'origine** aux deux passages : 0 fenêtre déclarée, seules les
+> entrées d'audit demeurent.
+>
+> ### ⚠ §50.5 a été déroulé, et il a corrigé la phase
+>
+> Troisième passage, sur autorisation explicite de l'utilisateur, **précédé d'un `pg_dump -Fc`**
+> (`pgsh-avant-relais-axe-3med-20260906-233106.dump`, 22 Mo, 298 entrées de table des matières,
+> **sorti du conteneur** vers `C:/Users/LEGION/pgsh-backups/`).
+>
+> **Reposer l'axe est refusé sur une promotion publiée.** « Simuler » passe, puis le bandeau dit
+> « 804 créneau(x) déjà publiés — ce bloc ne peut plus être redéfini » et **« Appliquer l'axe » est
+> désactivé** : `ApplyRotationCycleCommand` refuse sur `PublishedCells > 0`, pour le bloc **entier**.
+> Donc le geste que la documentation prescrivait — « reposez l'axe, il rattrape » — **n'existe pas
+> pour la promotion qu'une fenêtre tardive pénalise**. C'est §17.1, et §17.1 n'est pas fait.
+>
+> **Le manque, lui, s'affiche correctement** : « Durée réelle par stage » passe de « 30 – 30 » à
+> **« 25 – 30 »** jours ouvrables dès la fenêtre déclarée, sur les six stages. La grille garde ses
+> dates et perd bien les cinq jours. Store vérifié inchangé après la simulation : 36 créneaux, 804
+> cellules, 5 598 couvertures, P4 toujours 18/01 → 26/02.
+>
+> **Corrigé en conséquence** — le rapport ne prescrit plus un bouton qui refuse :
+> `PromotionPauseQueries.PublishedCellsQuery` (à travers la table de couverture, jamais par le FK de
+> tête), `PromotionPauseImpactResponse.PublishedCellsInGrid`, l'avertissement qui **branche** dessus,
+> la tuile « Cellules publiées » sur l'aperçu, et les deux toasts qui disaient « reposez l'axe ».
+> Les commentaires de `PromotionPause`, du lecteur d'impact, de `planning-rotation.md` et de
+> `PHASES.md` §17 disaient tous la même chose fausse : réécrits. **1 697 tests verts** (+1), morsure
+> prouvée. `SMOKE-TEST.md` §50.5 est réécrit autour de ce qui s'est réellement passé.
+>
+> ⚠ **Le bandeau de sauvegarde a bien fait son travail au passage** : il a signalé que le dernier point
+> datait de la migration `StageAllowedServiceRank` alors que la base tourne sous `PromotionPauses`, et
+> que le restaurer demanderait donc une étape de schéma. C'est exactement le cas que §18.1 existe pour
+> nommer.
+>
+> ✅ **Correctif revérifié à l'écran après redémarrage**, en aperçu seul (n'écrit rien), avec son
+> contrôle :
+>
+> | | 3ᵉ MED (publiée) | 4ᵉ MED (répartie, non publiée) |
+> |---|---|---|
+> | Cellules publiées | **804**, en rouge | **0** |
+> | Avertissement | « l'axe … est déjà publié (804 cellule(s)), donc le reposer est refusé … déplacer une colonne déjà publiée n'est pas encore possible » | « **Reposez l'axe** de la promotion pour que les colonnes l'enjambent » |
+> | Étudiants concernés | 933 | 0 — la 4ᵉ n'a aucune période, elle n'est pas publiée |
+>
+> La prescription n'apparaît donc plus que là où elle est réalisable. Les autres chiffres sont
+> inchangés (5 jours ouvrables, 6 créneaux sur la 3ᵉ, 5 sur la 4ᵉ), et le rapport se vide bien quand la
+> promotion change dans le formulaire — un aperçu décrit la fenêtre saisie, pas la précédente.
+>
+> **Reste non exécuté** : reposer un axe pour de vrai. Ce n'est possible que sur une promotion **non
+> publiée** — dépublier d'abord emporterait notes et présences. La 4ᵉ MED est la candidate naturelle
+> le jour où on voudra l'éprouver.
+
+**Phase 17**, prise en tête de file après que l'utilisateur a demandé de suivre la recommandation.
+Elle traînait depuis la session 40, où il l'avait posée en une phrase : *« a pause and a matter of
+exams … is a matter of whole promotion because some promos does not have exams while others have »*.
+
+### La décision, parce que c'est elle qui fait la phase
+
+**Une suspension est un fait de calendrier, pas un second mécanisme qui pousse des dates.** `Holiday`
+et le nouveau `PromotionPause` implémentent tous deux `ICalendarClosure` — « des jours où les gens
+qu'elle couvre ne sont pas en service » — et `WorkingDayCalendar` se construit désormais depuis des
+*fermetures* et non depuis des jours fériés. Le travail réel est le partage dans `WorkingDayProvider` :
+`BuildAsync` pour la faculté, `ForPromotionAsync(année, niveau)` pour une promotion. **Cinq lecteurs**
+ont changé de calendrier — l'axe, l'aperçu du bloc de rotation, l'export d'un stage (`LevelId ??
+stage.LevelId`), la revalidation (la promotion **de l'étudiant**, pas celle du stage) — et deux gardent
+volontairement le calendrier facultaire.
+
+**La compensation est donc en jours ouvrables et se produit au moment où l'axe est posé.** Déclarée en
+septembre, la fenêtre fait qu'une colonne de quinze jours ouvrables se termine une semaine plus tard
+sur le calendrier mural ; la grille est écrite depuis cet axe et les périodes publiées depuis la
+grille. Le défaut « la grille dérive de ce qui a été publié » devient impossible sur ce chemin.
+
+⚠ **Et déclarée sur une grille déjà posée, elle ne déplace rien — volontairement.** C'est l'inverse de
+`ResumePeriod`, qui **accumule** : c'est exactement pourquoi celui-là ne peut être ni corrigé ni
+révoqué, et pourquoi celui-ci le peut. Les créneaux gardent leurs dates ; l'aperçu compte ce qu'ils y
+perdent, stage par stage et colonne par colonne, avec les rotations traversées réparties par état de
+cycle de vie. **Reposer l'axe est le geste qui rattrape**, et c'est un clic parce qu'il écrit des
+cellules.
+
+### Livré
+
+`PromotionPause` (agrégat, `Entity`, `init` sur champs explicites) · `ICalendarClosure` +
+`CalendarClosureScope` · `WorkingDayCalendar.With(closure)` et `ProposedClosure`, pour que « ce que
+coûterait cette fenêtre » et « ce que coûte cette fenêtre » soient la **même** arithmétique · les
+quatre actes (aperçu / déclarer / corriger / retirer) + la liste paginée et scopée à l'année ·
+`PromotionPauseCalendarGuard` (le partage d'`AcademicYearCalendarGuard`) · migration `PromotionPauses`
+(table neuve, deux FK **RESTRICT**, aucun backfill).
+
+⚠ **Deux pièges que la mesure impose**, tous deux écrits dans le code : le coût d'une fenêtre se mesure
+sur un calendrier qui **ne la contient pas** (sinon toute fenêtre coûte 0 — l'aperçu d'une correction
+l'annonçait tranquillement), et `MissingReligious` ne compte que les fermetures **facultaires**, sans
+quoi une suspension nommée « Aïd al-Fitr » éteindrait l'avertissement qui signale la date manquante.
+
+⚠ **Pas d'événement de domaine sur le retrait**, et c'est dit dans le code : il supprime la racine
+d'agrégat, EF détache une entité supprimée avant qu'`ApplicationDbContext` ne relève les événements —
+un événement levé là serait perdu sans trace. Le registre porte `PROMOTION_PAUSE_REVOKED`.
+
+**1 695 tests verts** (+46) : 15 de domaine pur, 19 de handler, 12 par le vrai pipeline HTTP, 2 cas de
+traduction SQL (le créneau atteint par `Stage.LevelId` et la période atteinte par
+`InternshipAssignment.Registration` sont des jointures que la base n'avait jamais eu à faire). Les deux
+gardes neuves ont été cassées puis restaurées pour prouver qu'elles mordent.
+
+### Côté écran
+
+`PromotionPausesPanel` sur la page Calendrier — c'est là qu'il va, parce que c'est ce que c'est : un
+second calendrier, plus étroit. Déclaration, aperçu, correction, retrait, et un rapport d'impact
+**borné par construction** (des lignes par créneau et par stage ; cohortes, rotations et étudiants
+**comptés**, jamais listés — la forme des 4 725 étudiants, §1b).
+
+⚠ **Et le changement sans lequel toute la phase est invisible** : `RotationCyclePage` envoie désormais
+`levelId` au générateur d'axe, et le bouton « Générer les fenêtres » est **désactivé tant qu'aucune
+promotion n'est choisie**. Les colonnes sont posées sur *son* calendrier ; sans le niveau elles sont
+posées sur celui de la faculté et tombent en plein sur une semaine d'examens, sans que rien ne le dise.
+`GeneratedAxisColumn.Pauses` est rendu à part de `Holidays` : un jour férié est celui de tout le monde.
 
 ## Session 48 — 2026-09-06 · Une promotion entière peut faire son stage hors faculté, et délocaliser libère enfin la place
 

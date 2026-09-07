@@ -600,4 +600,29 @@ public static class TestHarness
         db.Holidays.Add(holiday);
         return holiday;
     }
+
+    /// <summary>
+    /// A window during which one promotion is out of its services. ⚠ Keyed on (année, niveau) — a level
+    /// alone is not a promotion, and a pause on one is a pause on none.
+    /// </summary>
+    public static PromotionPause SeedPromotionPause(
+        this ApplicationDbContext db, DateOnly start, DateOnly end, string reason = "Examens",
+        int levelId = LevelId, int academicYearId = CurrentYearId,
+        PauseKind kind = PauseKind.Exam, bool confirmed = true)
+    {
+        var pause = new PromotionPause
+        {
+            AcademicYearId = academicYearId,
+            LevelId = levelId,
+            StartDate = start,
+            EndDate = end,
+            Reason = reason,
+            Kind = kind,
+            IsConfirmed = confirmed,
+            RecordedOn = new DateTime(2026, 9, 1, 12, 0, 0, DateTimeKind.Utc),
+        };
+
+        db.PromotionPauses.Add(pause);
+        return pause;
+    }
 }

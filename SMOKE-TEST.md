@@ -3444,3 +3444,129 @@ Sélectionner **un roster entier**, ajouter deux ou trois noms, et coller une li
   enregistrée »**.
 - ⚠ Le mode « validation par objectif » n'est **pas** disponible à l'import ; il se saisit étudiant par
   étudiant.
+
+---
+
+## §50 — Une semaine d'examens appartient à une promotion (session 49)
+
+> ✅ **Toutes les étapes exécutées au navigateur le 06/09/2026** sur la base vivante, en trois passages
+> — voir `HANDOFF.md`, session 49, pour tous les chiffres. La base est revenue à son état d'origine à
+> chaque fois (36 créneaux, 804 cellules, 5 598 couvertures, P4 = 18/01 → 26/02, 0 fenêtre).
+>
+> ⚠ **Et §50.5 a répondu autre chose que ce qui était écrit** : sur une promotion **publiée**, reposer
+> l'axe est **refusé**. Voir l'étape ci-dessous, réécrite.
+
+> **Phase 17.** Aucune étape ici n'est destructrice **sauf la 5**, qui repose un axe et remplace donc
+> les créneaux et les cellules d'une promotion. Point de sauvegarde avant celle-là, et faites-la sur
+> une promotion dont la grille peut être reposée.
+>
+> ⚠ **Le point à ne pas manquer : déclarer une fenêtre ne déplace *rien* par elle-même.** Ce n'est pas
+> un oubli, c'est la décision de la phase — c'est l'axe posé *ensuite* qui l'enjambe, en jours
+> ouvrables. Une fenêtre déclarée sur une grille déjà posée laisse chaque créneau où il est, et
+> l'aperçu compte exactement ce qu'ils y perdent.
+
+### 1 · La fenêtre existe et se déclare
+
+`Admin → Calendrier` (« Jours fériés et fermetures »). Le panneau **« Suspensions de promotion »**
+apparaît sous la table des jours fériés.
+
+- Sur un processus antérieur à cette session la liste répond **404** : c'est le contrôle qui distingue
+  « route absente » de « non authentifié » (sans jeton, elle répondrait **401**).
+- « Déclarer une suspension » → le sélecteur de promotion ne doit **pas** proposer « Retrait ».
+- Choisir la **3ᵉ année Médecine 2026-2027**, une fenêtre du **lundi au vendredi** d'une semaine que la
+  promotion traverse, motif « Examens du premier semestre ».
+
+### 2 · L'aperçu, avant d'écrire
+
+Cliquer **« Aperçu »** dans la fenêtre de saisie.
+
+- « Ouvrables perdus » doit valoir **5** (lundi → vendredi). Sur une fenêtre samedi–dimanche il doit
+  valoir **0** — la fenêtre est réelle et ne coûte aucun jour de stage.
+- « Créneaux traversés » doit être non nul si la promotion a une grille : l'axe 3MED est posé
+  (item 0ac), donc une semaine de janvier en traverse **6** (un par stage).
+- Le tableau par stage doit dire, pour chacun, combien de jours ouvrables la colonne perd et ce qu'il
+  lui reste — à comparer avec la durée annoncée au catalogue, affichée à côté et **jamais** comme un
+  verdict.
+- ⚠ **Rien ne doit être écrit.** Fermer sans enregistrer, recharger la page : la liste est toujours
+  vide.
+- Sur une promotion **sans grille** (la 6ᵉ MED, item 0ai) l'aperçu doit dire en toutes lettres
+  *« Aucun créneau ni aucune rotation ne traverse cette fenêtre »* — et non pas afficher un 0 nu. Les
+  deux zéros veulent dire des choses opposées.
+
+### 3 · Déclarer, et ce que le message dit
+
+Enregistrer.
+
+- Le message de succès nomme les dates et le nombre de jours ouvrables.
+- Un second message doit apparaître **seulement s'il y a des créneaux** : *« N créneau(x) traversent
+  cette fenêtre et gardent leurs dates… Reposez l'axe. »* Sur une promotion sans grille il ne doit
+  **pas** apparaître.
+- La ligne apparaît dans la table avec sa promotion, ses dates et « ouvrables perdus ».
+- `Admin → Journal des actions` doit porter **`PROMOTION_PAUSE_DECLARED`**.
+
+### 4 · Ce qu'elle ne fait pas — et le contrôle qui compte
+
+- `Admin → Stages →` un stage de la 3ᵉ MED **→ Grille de planning** : les colonnes n'ont **pas
+  bougé**. C'est voulu.
+- `Admin → Rotation` sur la **4ᵉ** année : « Générer les fenêtres » avec la même date de départ et la
+  même durée doit donner **exactement** les mêmes colonnes qu'avant. Une promotion voisine ne partage
+  pas les examens de l'autre — c'est la raison d'être de toute la phase.
+
+### 5 · L'axe posé ensuite l'enjambe — et ce qu'une promotion **publiée** peut réellement faire
+
+`Admin → Rotation`, promotion **3ᵉ MED**, unité **« jours ouvrables »**.
+
+- ⚠ Le bouton « Générer les N fenêtre(s) » doit être **désactivé tant qu'aucune promotion n'est
+  choisie** : les colonnes sont posées sur *son* calendrier.
+- Générer (**une lecture, n'écrit rien**) : la colonne qui contenait la semaine d'examens doit
+  **enjamber** celle-ci — sur la 3ᵉ MED, C4 passe du 18/01 au **25/01** — en gardant le **même nombre
+  de jours ouvrables** (30). Toutes les colonnes suivantes se décalent d'autant.
+- Regénérer **sans rien changer** : dates **identiques**. Une fenêtre est *dérivée*, jamais *ajoutée*.
+- Retirer la suspension et regénérer : l'axe doit revenir **exactement** sur l'axe stocké.
+
+#### ⚠ Et le résultat qui a corrigé la phase — mesuré le 06/09/2026
+
+Cliquer **« Simuler »** sur la 3ᵉ MED. Le bandeau dit « 804 créneau(x) déjà publiés — ce bloc ne peut
+plus être redéfini » et **« Appliquer l'axe » est désactivé** : `ApplyRotationCycleCommand` refuse sur
+`PublishedCells > 0`.
+
+- **Donc « reposez l'axe » n'est pas un geste disponible sur une promotion publiée** — c'est-à-dire
+  exactement celle qu'une fenêtre déclarée tardivement pénalise. Le rapport ne le prescrit plus : il
+  affiche « Cellules publiées » et, quand ce nombre est non nul, dit que les jours sont perdus et que
+  déplacer une colonne publiée n'existe pas encore (`PHASES.md` §17.1).
+- **Le contrôle qui le prouve sans rien écrire** : « Durée réelle par stage » passe de « 30 – 30 » à
+  **« 25 – 30 »** jours ouvrables dès que la fenêtre est déclarée. La grille garde ses dates et perd
+  bien les 5 jours ; c'est le manque, affiché.
+- **Vérifier ensuite que rien n'a été écrit** : 36 créneaux, 804 cellules, 5 598 couvertures, P4
+  toujours 18/01 → 26/02.
+- ⚠ **Reposer l'axe pour de vrai reste non exécuté**, et ne peut l'être que sur une promotion **non
+  publiée** (dépublier d'abord détruirait notes et présences). Sur une telle promotion, l'acte écrit
+  des cellules : **point de sauvegarde avant**.
+
+### 6 · Corriger
+
+Crayon sur la ligne → décaler la fenêtre d'un jour.
+
+- Le message doit dire que les dates ont changé et nommer les créneaux couvrant **l'ancienne ou la
+  nouvelle** période, comptés une seule fois.
+- Rouvrir, ne changer que « Dates confirmées », enregistrer : **aucun** message sur les créneaux. Une
+  case cochée sur des dates déjà justes ne coûte aucun jour.
+- La promotion n'est **pas** modifiable en correction : une fenêtre appartient à celle qui l'a
+  déclarée.
+
+### 7 · Les refus
+
+- Déclarer une **seconde** fenêtre pour la même promotion qui **touche** la première ne serait-ce que
+  d'un jour → refus nommant l'existante. Un jour plus loin → accepté.
+- La **même** fenêtre pour une **autre** promotion → acceptée. C'est le contrôle.
+- Une fenêtre qui sort des dates de l'année universitaire → refus nommant l'année.
+- Motif vide → refus, et **rien n'est écrit** (recharger pour le vérifier).
+
+### 8 · Retirer
+
+Corbeille sur la ligne.
+
+- La confirmation doit dire que le retrait est **prospectif**.
+- Si la fenêtre avait déjà commencé, un message le dit après coup : rien n'est rattrapé.
+- `Journal des actions` doit porter **`PROMOTION_PAUSE_REVOKED`**.
+- Regénérer l'axe de la promotion : les colonnes doivent revenir où elles étaient.

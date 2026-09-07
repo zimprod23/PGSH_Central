@@ -57,16 +57,20 @@ internal sealed class GetStageAssignmentsExportQueryHandler(
         }
 
         string? stageName = null;
+        int? stageLevelId = null;
         if (request.StageId is { } requestedStage)
         {
-            stageName = await dbContext.Stages
+            var stage = await dbContext.Stages
                 .AsNoTracking()
                 .Where(s => s.Id == requestedStage)
-                .Select(s => s.Name)
+                .Select(s => new { s.Name, s.LevelId })
                 .FirstOrDefaultAsync(cancellationToken);
 
-            if (stageName is null)
+            if (stage is null)
                 return Result.Failure<ExportFile>(StageErrors.NotFound(requestedStage));
+
+            stageName = stage.Name;
+            stageLevelId = stage.LevelId;
         }
 
         var assignmentsQuery = StageAssignmentExportQueries.AssignmentsQuery(
@@ -95,7 +99,12 @@ internal sealed class GetStageAssignmentsExportQueryHandler(
                 request.AcademicGroupId, request.OnlyEvaluated)
             .ToListAsync(cancellationToken);
 
-        var calendar = await workingDayProvider.BuildAsync(cancellationToken);
+        // ⚠ The promotion's calendar whenever the file has one. A stage belongs to a level, so a file
+        // scoped to a stage is one promotion even when no level was asked for; a file left open on both
+        // genuinely spans promotions and gets the faculty calendar, because there is no single set of
+        // exam weeks that applies and quietly picking one promotion's would be worse than counting none.
+        var calendar = await workingDayProvider.ForPromotionAsync(
+            yearId, request.LevelId ?? stageLevelId, cancellationToken);
 
         // ⚠ As of each période's own start, never one date for the file: a document covering a year
         // of rotations spans months, and a chef who took over in January did not lead the students

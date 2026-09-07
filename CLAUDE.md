@@ -21,7 +21,7 @@ planning a change to it, not after a review finds the same defect again.
 | Touching this | Read | Because |
 |---|---|---|
 | a requirement set, a CNPN stamp, `Curriculum`, the Stages catalogue figures | [`docs/cnpn.md`](docs/cnpn.md) | what a student owes is a fact about a **registration**, not about the student — and the read order is always `r.CnpnVersionId ?? r.Student.CnpnVersionId` |
-| the rotation cycle, the macro plan, `RotationArranger`, `SchedulePublisher`, the planning grid, a stage's allowed services | [`docs/planning-rotation.md`](docs/planning-rotation.md) | the axis is `T = Σkₛ`, the balance is per **column**, and an unscoped auto-arrange is a fill that silently decides the year |
+| the rotation cycle, the macro plan, `RotationArranger`, `SchedulePublisher`, the planning grid, a stage's allowed services | [`docs/planning-rotation.md`](docs/planning-rotation.md) | the axis is `T = Σkₛ`, the balance is per **column**, an unscoped auto-arrange is a fill that silently decides the year — and the axis is laid on the **promotion's** calendar, exam weeks included |
 | `AcademicGroup`, partition labels, pauses, unpublishing, clearing or deleting part of a plan | [`docs/planning-rosters.md`](docs/planning-rosters.md) | a roster is keyed **(year, level, number)**, and an affectation does not hang off the roster pointer — so « vider le groupe » leaves every one of them where it was |
 | `Registration.Status`, a bulk canvas or roll, `RegistrationHold` | [`docs/year-closing.md`](docs/year-closing.md) | PGSH cannot know who passed — the faculty declares it, silence means opposite things on the two documents, and a refused row loses the faculty's statement |
 | what a student owes, who may enter a final year, re-opening a failed stage | [`docs/progression.md`](docs/progression.md) | « entrer » means *begin*, not *be registered in* — reading it the other way refused a quarter of a promotion the faculty had named |
@@ -30,7 +30,7 @@ planning a change to it, not after a review finds the same defect again.
 | a stage served outside the faculty, `Service.IsExternal`, the mass délocalisation, how many students *stand* in a service | [`docs/delocalization.md`](docs/delocalization.md) | a délocalisé stays in his cohorte and must stop occupying the service he left — counted per membership, sending sixty students away relieved the grid by **nothing** |
 | an export sheet, column, or a second export | [`docs/exports.md`](docs/exports.md) | an export is the one read deliberately exempt from pagination, and a column blank on every row reads as a column the export forgot |
 | a bulk act on the live base, a transaction, rebuilding from `Medecine.mdb` | [`docs/operations.md`](docs/operations.md) | the base **is** the faculty's data; the rebuild is not « migrate then import », and it fails silently |
-| an audited act or act code, anything measured in worked days | [`docs/audit-calendar.md`](docs/audit-calendar.md) | a refused act must write nothing, and an empty holiday calendar quietly means "minus weekends" |
+| an audited act or act code, anything measured in worked days, a « suspension d'examens » | [`docs/audit-calendar.md`](docs/audit-calendar.md) | a refused act must write nothing, an empty holiday calendar quietly means "minus weekends" — and there are **two** calendars, the faculty's and each promotion's, so a reader that knows its (année, niveau) must ask for that one |
 
 ### The other documents at the repo root
 

@@ -123,7 +123,10 @@ internal sealed class PreviewRotationCycleQueryHandler(
         if (layout.IsFailure)
             return Result.Failure<RotationCyclePreview>(layout.Error);
 
-        var calendar = await workingDays.BuildAsync(cancellationToken);
+        // ⚠ The promotion's own calendar. The duration checks below say what each stage actually gets
+        // in jours ouvrables, and a promotion sitting exams inside the axis gets fewer of them than the
+        // faculty calendar would suggest — which is precisely the number this screen exists to show.
+        var calendar = await workingDays.ForPromotionAsync(yearId, request.LevelId, cancellationToken);
 
         var span = (
             From: request.Windows.Min(w => w.StartDate),
@@ -139,7 +142,8 @@ internal sealed class PreviewRotationCycleQueryHandler(
             resolved.Value.PlannedCells,
             CanApply: resolved.Value.PublishedCells == 0,
             DurationChecks: Check(request.Stages, resolved.Value.Stages, layout.Value, calendar),
-            CalendarIsEmpty: calendar.HolidaysBetween(span.From, span.To).Count == 0);
+            CalendarIsEmpty: calendar.HolidaysBetween(span.From, span.To)
+                .All(c => c.Scope != CalendarClosureScope.Faculty));
     }
 
     /// <summary>

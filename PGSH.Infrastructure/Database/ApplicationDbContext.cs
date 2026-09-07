@@ -73,6 +73,7 @@ public sealed class ApplicationDbContext : DbContext, IApplicationDbContext
     public DbSet<ServicePeriod> ServicePeriods { get; set; }
     public DbSet<ServicePeriodSlotCoverage> ServicePeriodSlotCoverage { get; set; }
     public DbSet<Holiday> Holidays { get; set; }
+    public DbSet<PromotionPause> PromotionPauses { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

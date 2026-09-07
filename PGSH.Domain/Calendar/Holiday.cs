@@ -34,7 +34,7 @@ public enum HolidayKind
 /// al-Adha is two days, and vacances universitaires are two weeks. One row per day would make the
 /// common case the tedious one.</para>
 /// </summary>
-public sealed class Holiday
+public sealed class Holiday : ICalendarClosure
 {
     public int Id { get; set; }
 
@@ -55,6 +55,12 @@ public sealed class Holiday
     /// being a day out. Fixed national dates are confirmed by construction.
     /// </summary>
     public bool IsConfirmed { get; set; } = true;
+
+    /// <summary>
+    /// The faculty's whole calendar — a holiday is nobody's exam week. See
+    /// <see cref="PromotionPause"/> for the closure that belongs to one promotion.
+    /// </summary>
+    public CalendarClosureScope Scope => CalendarClosureScope.Faculty;
 
     public int DayCount => EndDate.DayNumber - StartDate.DayNumber + 1;
 

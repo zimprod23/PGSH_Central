@@ -11,7 +11,7 @@ Two items the user asked for explicitly, both ahead of everything still open in 
 
 | | what | why now |
 |---|---|---|
-| **Phase 17** | « Suspension d'examens » scoped to a **promotion**, declared as a window | some promotions sit exams while others rotate through the same services on the same morning; the pause that exists is per *stage*, cannot be declared in advance, and compensates in calendar days |
+| ~~**Phase 17**~~ ✅ | « Suspension d'examens » scoped to a **promotion**, declared as a window | **Built 2026-09-06.** A promotion's window joins its own working-day calendar and the axis laid afterwards steps over it, in jours ouvrables — no date is pushed onto anything. **§17.1 (moving P7 while P3 runs) remains open.** |
 | **Phase 18** | Scheduled backups and a **named safe point** before every bulk act | the app is live on the real base — 10 203 students, 43 605 registrations, 105 626 périodes — and the only undo today is a `pg_dump` somebody remembered to take |
 
 ---
@@ -1702,10 +1702,91 @@ all, and which one of the effectivity rules takes effect from, so it is restored
 
 ---
 
-## 🔲 Phase 17 — Une pause est un fait de promotion, pas de stage
+## ✅ Phase 17 — Une pause est un fait de promotion, pas de stage
 
-**Status: Not started — ASAP. Raised by the user 2026-09-03 (session 40), after asking whether a
-période can be moved mid-rotation.**
+**Status: BUILT 2026-09-06 (session 49).** Raised by the user 2026-09-03 (session 40), after asking
+whether a période can be moved mid-rotation. 17.1 — moving P7 while P3 runs — **remains open**; see
+below.
+
+### What was built, and the decision it rests on
+
+`PromotionPause` (`Domain/Calendar/`), an aggregate keyed on **(AcademicYearId, LevelId)** carrying
+`StartDate`/`EndDate` (inclusive), `PauseKind`, `Reason`, `IsConfirmed`, `RecordedOn`.
+
+⚠ **It is a scoped calendar, and declaring one moves no date.** That is the answer the phase demanded
+be *written down* rather than inherited. `Holiday` and `PromotionPause` now both implement
+`ICalendarClosure` — "a stretch of days on which the people it covers are not in a service" — and
+`WorkingDayCalendar` is built from closures rather than from holidays. `WorkingDayProvider` grew the
+split the phase called the substantive work:
+
+| caller | calendar | why |
+|---|---|---|
+| `GenerateAxisWindowsQuery` (+ `LevelId`, `AcademicYearId`) | promotion | the columns must step over the window; this is where the compensation happens |
+| `PreviewRotationCycleQuery` | promotion | `DurationChecks` says what each stage actually gets |
+| `GetStageAssignmentsExportQueryHandler` | promotion when the file has one — `request.LevelId ?? stage.LevelId` | a file scoped to a stage is one promotion, since a stage belongs to a level |
+| `GetRevalidationContextQuery` | the **registration's** promotion, not the stage's | a 6ᵉ année re-taking a 3ᵉ année stage sits the sixth year's exams |
+| `GetHolidayCoverageQuery`, an export left open on both level and stage | faculty | no single promotion applies, and quietly picking one would be worse than counting none |
+
+**The compensation is therefore in *jours ouvrables*, and it happens when the axis is laid.** Declare
+the window in September; the axis generated afterwards puts fifteen worked days in a column that ends
+a week later on the wall calendar, and the grid and the périodes published from it are laid against
+the same days from the start. Gap 3 — the grid drifting from the périodes — is impossible by
+construction on that path.
+
+**Declared after a grid is laid, it moves nothing**, deliberately: the créneaux keep their dates and
+are now short by what the window takes. `PreviewPromotionPauseQuery` counts exactly that — per stage
+and per créneau, worked days before and after — plus the rotations crossing it split by lifecycle
+state. Silently rewriting the dates of a published promotion is the one thing this must not do.
+
+⚠ **And whether that shortfall can be repaired is a fact about the promotion, found by running §50.5
+on the live base rather than by reasoning.** Re-laying the axis is a real act *only while nothing has
+been published from it*: `ApplyRotationCycleCommand` refuses on `PublishedCells > 0` for the whole
+block, and the 3ᵉ MED holds **804** — « Appliquer l'axe » is disabled and the page says « ce bloc ne
+peut plus être redéfini ». So for a published promotion there is **no remedy today**; the window is
+recorded, the report is honest, and the days are lost until §17.1 exists. The preview carries
+`PublishedCellsInGrid` and its warning branches on it, because **a report that prescribes a refused
+button is worse than one that prescribes nothing**.
+
+**Re-applying moves nothing** — the property the phase asked for, and here it is trivially true
+rather than carefully arranged: nothing is added to what is stored, so the same window twice is the
+same dates (`PromotionPauseTests.Declaring_the_same_window_twice_gives_the_same_days`).
+
+**Revoking is prospective, and the same reasoning makes it free.** Nothing was pushed, so nothing is
+walked back: the days go back into the calendar, créneaux keep the dates they were given, and périodes
+already served keep what happened. The result says whether the window `HadBegun` and how many créneaux
+were laid across it. ⚠ **No domain event on the revocation** — the aggregate root is removed, and EF
+detaches a deleted entity before `ApplicationDbContext` collects events, so one raised there would be
+dropped without a trace. `PROMOTION_PAUSE_REVOKED` in the register is what records it.
+
+**The four acts:** preview (writes nothing, same reader as the act, `ExcludingPauseId` so a correction
+is measured against a calendar that does not still hold the old dates), declare
+(`PromotionPauseDeclaredDomainEvent`, `PROMOTION_PAUSE_DECLARED`), correct (union of the span it leaves
+and the span it reaches, counted **before** the write, gated on `PromotionPause.WouldMove`), revoke.
+Plus `GET calendar/promotion-pauses`, paginated and year-scoped.
+
+**Guards:** `Level.IsPromotion`; two windows of one promotion may not overlap
+(`PromotionPauseCalendarGuard`, the `AcademicYearCalendarGuard` division — the aggregate decides what
+it can alone, the guard decides about the *other* rows); the window falls inside the year it names; a
+ceiling of `MaxSpanDays = 120` because beyond a term the right row is a faculty `Holiday`.
+
+**`MissingReligious` counts faculty closures only** — a pause named « Aïd al-Fitr » is a promotion
+saying it is out that week, not the decree naming the date, and counting it would report the calendar
+complete on the strength of one promotion's window.
+
+**The stage-scoped pause stays.** `StagePauseRunner` answers a different question — a service closing
+for a week — and is untouched.
+
+**Côté écran:** `PromotionPausesPanel` on the calendar page (declare / preview / correct / revoke, the
+impact report bounded to créneaux and stages with cohortes, rotations and students *counted*), and
+`RotationCyclePage` now sends `levelId` to the axis generator — without which the whole mechanism is
+invisible. `GeneratedAxisColumn.Pauses` is reported apart from `Holidays`: a holiday is everyone's.
+
+**46 tests** (1 695 green): 15 pure-domain, 19 handler-level, 12 through the real HTTP pipeline, and
+2 `SqlTranslationTests` cases — the créneau reached through `Stage.LevelId` and the période reached
+through `InternshipAssignment.Registration` are joins the store had never been asked for. Both new
+guards were broken and restored to prove they bite.
+
+### The gap analysis this replaced — kept because it is why the shape is what it is
 
 > **The sentence that settles the scope:** « a pause and a matter of exams … is a matter of whole
 > promotion because some promos does not have exams while others have ». Two promotions rotate
@@ -1713,7 +1794,7 @@ période can be moved mid-rotation.**
 > The unit of the act is therefore **(année académique, niveau)** — never the stage, and never the
 > faculty.
 
-### What exists today, read from the code 2026-09-03
+#### What existed, read from the code 2026-09-03
 
 `StagePauseRunner` (`Application/Stages/Planning/`) with `InternshipAssignment.PausePeriod` /
 `ResumePeriod`. It works, and it answers a different question:
@@ -1745,7 +1826,7 @@ Four gaps, and each is a design fault rather than a missing option:
    last. A pause never resumed leaves rotations frozen with no end date, no compensation, and nothing
    on any screen that reads as wrong.
 
-### The shape to build
+#### The shape that was built
 
 **A `PromotionPause` is a declared window, not an event that has to happen twice.**
 
@@ -1814,7 +1895,17 @@ work above, because "shift the later périodes *and their cells*" is the same op
 run into one `ServicePeriod`, so editing a column mid-run splits a stay rather than editing a row —
 and 5ᵉ/6ᵉ année are `SingleService` in 51 923 of 51 924 imported placements.
 
-### Definition of done
+#### Definition of done — met, and rehearsed on the live base 06/09/2026
+
+✅ **Driven end to end in a browser on the real faculty base** the day it was built: preview (5 j.
+ouvrables, 6 créneaux, 933 étudiants — the 3ᵉ MED's exact roll, which is what verifies the scoping
+through the registration), declaration, the A/B on the axis (C4 janv 18 → **janv 25**, every column
+still 30 j. ouvrables), and revocation putting the axis back exactly. ⚠ **One thing was NOT run and
+deliberately so:** re-laying the axis for real, which would replace the 3ᵉ MED's 804 published cells.
+
+⚠ **The screen found a defect the tests could not**: the « aucun jour férié » caption was measured on
+the *window* rather than on the academic year, so it fired on nearly every window — noise, by this
+project's own rule. Corrected, with a test that bites.
 
 - The pure calendar half tested exhaustively, the way `RotationTiling`, `PeriodAxis` and
   `OccupancyTimeline` are — no store, no clock, so the boundary cases are exact rather than

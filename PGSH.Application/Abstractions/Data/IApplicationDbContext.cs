@@ -48,6 +48,7 @@ public interface IApplicationDbContext
     DbSet<ServicePeriodSlotCoverage> ServicePeriodSlotCoverage { get; set; }
     DbSet<AuditLog> AuditLogs { get; set; }
     DbSet<Holiday> Holidays { get; set; }
+    DbSet<PromotionPause> PromotionPauses { get; set; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 

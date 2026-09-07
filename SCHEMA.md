@@ -548,6 +548,35 @@ ouvrables » then quietly means "minus weekends".
 
 ---
 
+### `PromotionPauses` — the other half of the calendar, scoped to one promotion
+
+| Column | Type | Notes |
+|---|---|---|
+| `Id` | int (PK) | |
+| `AcademicYearId` | int (FK) | **RESTRICT** |
+| `LevelId` | int (FK) | **RESTRICT** |
+| `StartDate` / `EndDate` | date | inclusive, as `Holidays` and `StageSlot` are |
+| `Kind` | varchar(20) | `Exam`, `Holiday`, `Other` — the `PauseKind` vocabulary `PeriodPause` already uses |
+| `Reason` | varchar(300) | required: this window moves what every stage of a promotion is measured against |
+| `IsConfirmed` | bool | same bargain as `Holiday.IsConfirmed` — a provisional window still blocks its days |
+| `RecordedOn` | timestamptz | the clock is passed in, never read from the entity |
+
+**Indexes:** `(AcademicYearId, LevelId, StartDate)` — **not** unique, deliberately: a promotion
+legitimately declares several windows in a year, and « they may not overlap » is not a rule an index
+can state. `PromotionPauseCalendarGuard` enforces it, the way `AcademicYearCalendarGuard` does for years.
+
+⚠ **Both FKs are RESTRICT.** A window means nothing without either half of (année, niveau): cascading
+it away with the year would silently take the calendar that year's créneaux were laid against, and
+deleting a level out from under a declared exam session should refuse rather than succeed quietly.
+
+⚠ **The row moves no date.** It joins that promotion's working-day calendar
+(`WorkingDayProvider.ForPromotionAsync`), and every reader measuring or laying in *jours ouvrables*
+compensates on its own. Nothing points at this table, so nothing breaks when a row goes — but créneaux
+laid while it stood keep dates that no longer reproduce from the count that produced them, which is
+what the revocation reports. Same shape as deleting a `Holiday`.
+
+---
+
 ### `FinalYearEntryWaivers` — the exception to the final-year rule, as a row
 
 | Column | Type | Notes |

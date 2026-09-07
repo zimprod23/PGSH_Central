@@ -118,6 +118,51 @@ namespace PGSH.Infrastructure.Migrations
                     b.ToTable("Holidays", "public");
                 });
 
+            modelBuilder.Entity("PGSH.Domain.Calendar.PromotionPause", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("AcademicYearId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateOnly>("EndDate")
+                        .HasColumnType("date");
+
+                    b.Property<bool>("IsConfirmed")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<int>("LevelId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<DateTime>("RecordedOn")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateOnly>("StartDate")
+                        .HasColumnType("date");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("LevelId");
+
+                    b.HasIndex("AcademicYearId", "LevelId", "StartDate");
+
+                    b.ToTable("PromotionPauses", "public");
+                });
+
             modelBuilder.Entity("PGSH.Domain.Common.Utils.Level", b =>
                 {
                     b.Property<int>("Id")
@@ -1426,6 +1471,25 @@ namespace PGSH.Infrastructure.Migrations
                         .HasForeignKey("StaffId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("PGSH.Domain.Calendar.PromotionPause", b =>
+                {
+                    b.HasOne("PGSH.Domain.Registrations.AcademicYear", "AcademicYear")
+                        .WithMany()
+                        .HasForeignKey("AcademicYearId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("PGSH.Domain.Common.Utils.Level", "Level")
+                        .WithMany()
+                        .HasForeignKey("LevelId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("AcademicYear");
+
+                    b.Navigation("Level");
                 });
 
             modelBuilder.Entity("PGSH.Domain.Hospitals.Center", b =>

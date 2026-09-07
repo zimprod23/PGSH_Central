@@ -84,6 +84,9 @@ public static class DependencyInjection
         services.AddScoped<InscriptionApplier>();
         services.AddScoped<RotationCycleContext>();
         services.AddScoped<WorkingDayProvider>();
+        services.AddScoped<PGSH.Application.Calendar.Pauses.PromotionPauseContext>();
+        services.AddScoped<PGSH.Application.Calendar.Pauses.PromotionPauseCalendarGuard>();
+        services.AddScoped<PGSH.Application.Calendar.Pauses.PromotionPauseImpactReader>();
         services.AddScoped<ServiceChefProvider>();
 
         return services;

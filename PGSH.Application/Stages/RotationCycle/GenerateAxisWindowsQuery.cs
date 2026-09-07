@@ -2,6 +2,7 @@ using FluentValidation;
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
+using PGSH.Application.AcademicYears;
 using PGSH.Application.Calendar;
 using PGSH.Domain.Calendar;
 using PGSH.SharedKernel;
@@ -40,12 +41,28 @@ public enum AxisColumnUnit
 /// silently wrong the moment "duration" means worked days: no client has the holiday table, so a window
 /// generated there is a window that counted Aïd as four days of stage.
 /// </remarks>
+/// <param name="LevelId">
+/// The promotion the axis is being laid for. ⚠ <b>Supply it.</b> Omitted, the columns are laid on the
+/// faculty calendar alone and step over no exam week — and an axis authored that way puts the grid and
+/// the rotations published from it out of agreement with the promotion's own calendar from the first
+/// day. Null is accepted only because « quelles fenêtres feraient dix colonnes d'un mois » is a
+/// legitimate question with no promotion behind it.
+/// </param>
 public sealed record GenerateAxisWindowsQuery(
     int Columns,
     DateOnly StartDate,
     AxisColumnUnit Unit = AxisColumnUnit.Months,
-    int Length = 1) : IQuery<GeneratedAxisResponse>;
+    int Length = 1,
+    int? LevelId = null,
+    int? AcademicYearId = null) : IQuery<GeneratedAxisResponse>;
 
+/// <param name="Holidays">The faculty's own closures inside the column — jours fériés, vacances.</param>
+/// <param name="Pauses">
+/// The promotion's own windows inside it — an exam session. Reported apart from
+/// <paramref name="Holidays"/> because they are not the same fact: a holiday is everyone's, a pause is
+/// this promotion's, and the promotion rotating through the same service the same morning does not have
+/// it. Always empty when the query named no promotion.
+/// </param>
 public sealed record GeneratedAxisColumn(
     int Number,
     DateOnly StartDate,
@@ -53,7 +70,8 @@ public sealed record GeneratedAxisColumn(
     int CalendarDays,
     int WorkingDays,
     IReadOnlyList<string> Holidays,
-    bool HasProvisionalDates);
+    bool HasProvisionalDates,
+    IReadOnlyList<string> Pauses);
 
 /// <param name="CalendarIsEmpty">
 /// No holiday is recorded anywhere in the span, so every count below is calendar days minus weekends. On a
@@ -87,13 +105,21 @@ internal sealed class GenerateAxisWindowsQueryValidator : AbstractValidator<Gene
 
 internal sealed class GenerateAxisWindowsQueryHandler(
     IApplicationDbContext dbContext,
+    AcademicYearResolver yearResolver,
     WorkingDayProvider workingDays)
     : IQueryHandler<GenerateAxisWindowsQuery, GeneratedAxisResponse>
 {
     public async Task<Result<GeneratedAxisResponse>> Handle(
         GenerateAxisWindowsQuery request, CancellationToken cancellationToken)
     {
-        var calendar = await workingDays.BuildAsync(cancellationToken);
+        var year = await yearResolver.ResolveAsync(request.AcademicYearId, cancellationToken);
+        if (year.IsFailure)
+            return Result.Failure<GeneratedAxisResponse>(year.Error);
+
+        // ⚠ The promotion's calendar, not the faculty's: the whole point of a promotion pause is that
+        // the columns laid here step over it, so that the grid and the périodes published from it are
+        // laid against the same days from the start. A query naming no level gets the faculty calendar.
+        var calendar = await workingDays.ForPromotionAsync(year.Value, request.LevelId, cancellationToken);
 
         var windows = request.Unit == AxisColumnUnit.WorkingDays
             ? calendar.LaySeries(request.StartDate, request.Columns, request.Length)
@@ -106,14 +132,7 @@ internal sealed class GenerateAxisWindowsQueryHandler(
                 request.Columns, windows.Count));
 
         var columns = windows
-            .Select((w, i) => new GeneratedAxisColumn(
-                i + 1,
-                w.Start,
-                w.End,
-                w.End.DayNumber - w.Start.DayNumber + 1,
-                calendar.Count(w.Start, w.End),
-                calendar.HolidaysBetween(w.Start, w.End).Select(h => h.Name).ToList(),
-                calendar.HolidaysBetween(w.Start, w.End).Any(h => !h.IsConfirmed)))
+            .Select((w, i) => Column(i + 1, w.Start, w.End, calendar))
             .ToList();
 
         var span = (From: columns[0].StartDate, To: columns[^1].EndDate);
@@ -122,12 +141,29 @@ internal sealed class GenerateAxisWindowsQueryHandler(
             columns,
             columns.Sum(c => c.WorkingDays),
             columns.Sum(c => c.CalendarDays),
-            calendar.HolidaysBetween(span.From, span.To).Count == 0,
+            calendar.HolidaysBetween(span.From, span.To)
+                .All(c => c.Scope != CalendarClosureScope.Faculty),
             // Asked of the whole Gregorian years the axis touches, never of the axis span: a lunar date
             // drifts ~11 days a year, so an autumn axis would otherwise report every spring holiday
             // "missing" and send the user hunting for rows that are already on file.
             calendar.MissingReligious(span.From, span.To),
             Warnings(columns, request, await SpansYear(span, cancellationToken)));
+    }
+
+    private static GeneratedAxisColumn Column(
+        int number, DateOnly start, DateOnly end, WorkingDayCalendar calendar)
+    {
+        var closures = calendar.HolidaysBetween(start, end);
+
+        return new GeneratedAxisColumn(
+            number,
+            start,
+            end,
+            end.DayNumber - start.DayNumber + 1,
+            calendar.Count(start, end),
+            closures.Where(c => c.Scope == CalendarClosureScope.Faculty).Select(c => c.Name).ToList(),
+            closures.Any(c => !c.IsConfirmed),
+            closures.Where(c => c.Scope == CalendarClosureScope.Promotion).Select(c => c.Name).ToList());
     }
 
     /// <summary>
@@ -191,6 +227,15 @@ internal sealed class GenerateAxisWindowsQueryHandler(
 
         if (columns.Any(c => c.WorkingDays == 0))
             warnings.Add("Une colonne ne contient aucun jour ouvrable.");
+
+        // Said only when a window was actually stepped over — the columns are already correct, and the
+        // point of saying so is that the dates will not match a table drawn on the faculty calendar.
+        int pausedColumns = columns.Count(c => c.Pauses.Count > 0);
+        if (pausedColumns > 0)
+            warnings.Add(
+                $"{pausedColumns} colonne(s) enjambent une suspension de la promotion "
+                + $"({string.Join(", ", columns.SelectMany(c => c.Pauses).Distinct())}) : "
+                + "elles sont plus longues sur le calendrier que leur durée en jours ouvrables.");
 
         return warnings;
     }

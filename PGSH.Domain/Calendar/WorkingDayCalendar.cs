@@ -37,21 +37,25 @@ public sealed record WorkingWeek(IReadOnlySet<DayOfWeek> RestDays)
 /// swallowed into the window, so two consecutive windows do not overlap a rest day between them.
 /// </param>
 /// <param name="CalendarDays">How long the window is on a wall calendar, for comparison with the count.</param>
-/// <param name="HolidaysHit">The holidays that fell inside, in date order — what makes the gap explainable.</param>
+/// <param name="HolidaysHit">
+/// The closures that fell inside, in date order — what makes the gap explainable. Faculty holidays and,
+/// when the calendar was built for a promotion, that promotion's own pauses.
+/// </param>
 public sealed record WorkingDayWindow(
     DateOnly Start,
     DateOnly End,
     int WorkingDays,
     int CalendarDays,
-    IReadOnlyList<Holiday> HolidaysHit)
+    IReadOnlyList<ICalendarClosure> HolidaysHit)
 {
     /// <summary>True when a date inside the window is still an estimate, so the window may move.</summary>
-    public bool HasProvisionalDates => HolidaysHit.Any(h => !h.IsConfirmed);
+    public bool HasProvisionalDates => HolidaysHit.Any(c => !c.IsConfirmed);
 }
 
 /// <summary>
 /// Counts and lays out <em>jours ouvrables</em>: calendar days minus the weekly rest days and minus every
-/// declared <see cref="Holiday"/>.
+/// declared <see cref="ICalendarClosure"/> — the faculty's holidays, plus one promotion's own pauses when
+/// the calendar was built for a promotion.
 ///
 /// <para>Pure and immutable — built once from the holiday table, then asked as many questions as needed.
 /// It holds no clock and no database, which is what lets the awkward cases (a window starting on a
@@ -73,19 +77,19 @@ public sealed class WorkingDayCalendar
     /// </summary>
     private const int MaxScanDays = 3_650;
 
-    private readonly List<Holiday> _holidays;
+    private readonly List<ICalendarClosure> _closures;
     private readonly HashSet<DateOnly> _closed;
 
     public WorkingWeek Week { get; }
 
-    private WorkingDayCalendar(WorkingWeek week, List<Holiday> holidays)
+    private WorkingDayCalendar(WorkingWeek week, List<ICalendarClosure> closures)
     {
         Week = week;
-        _holidays = holidays;
-        _closed = holidays
-            .SelectMany(h => Enumerable
-                .Range(0, Math.Max(1, h.DayCount))
-                .Select(offset => h.StartDate.AddDays(offset)))
+        _closures = closures;
+        _closed = closures
+            .SelectMany(c => Enumerable
+                .Range(0, Math.Max(1, c.EndDate.DayNumber - c.StartDate.DayNumber + 1))
+                .Select(offset => c.StartDate.AddDays(offset)))
             .ToHashSet();
     }
 
@@ -96,8 +100,21 @@ public sealed class WorkingDayCalendar
     public static WorkingDayCalendar WeekendsOnly(WorkingWeek? week = null) =>
         new(week ?? WorkingWeek.Moroccan, []);
 
-    public static WorkingDayCalendar Build(IEnumerable<Holiday> holidays, WorkingWeek? week = null) =>
-        new(week ?? WorkingWeek.Moroccan, holidays.OrderBy(h => h.StartDate).ToList());
+    public static WorkingDayCalendar Build(IEnumerable<ICalendarClosure> closures, WorkingWeek? week = null) =>
+        new(week ?? WorkingWeek.Moroccan, closures.OrderBy(c => c.StartDate).ToList());
+
+    /// <summary>
+    /// The same calendar with one more closure — what it <em>would</em> be if <paramref name="closure"/>
+    /// were declared.
+    /// </summary>
+    /// <remarks>
+    /// This is how a window's cost is measured: the days it takes are the difference between a count on
+    /// this calendar and a count on that one. ⚠ Asked of a calendar that <i>already</i> contains the
+    /// window, the answer is always zero — the same trap <c>HolidayResponse.WorkingDaysLost</c> avoids by
+    /// counting against the weekend-only calendar.
+    /// </remarks>
+    public WorkingDayCalendar With(ICalendarClosure closure) =>
+        Build(_closures.Append(closure), Week);
 
     public bool IsWorkingDay(DateOnly date) => !Week.IsRestDay(date) && !_closed.Contains(date);
 
@@ -125,8 +142,8 @@ public sealed class WorkingDayCalendar
         return count;
     }
 
-    public IReadOnlyList<Holiday> HolidaysBetween(DateOnly from, DateOnly toInclusive) =>
-        _holidays.Where(h => h.EndDate >= from && h.StartDate <= toInclusive).ToList();
+    public IReadOnlyList<ICalendarClosure> HolidaysBetween(DateOnly from, DateOnly toInclusive) =>
+        _closures.Where(c => c.EndDate >= from && c.StartDate <= toInclusive).ToList();
 
     /// <summary>
     /// Which of the lunar holidays a complete calendar needs have no row recorded near
@@ -142,8 +159,12 @@ public sealed class WorkingDayCalendar
     /// </remarks>
     public IReadOnlyList<string> MissingReligious(DateOnly from, DateOnly toInclusive)
     {
+        // ⚠ Faculty closures only. A promotion pause named « Aïd » is a promotion saying it is out that
+        // week, not the decree naming the date — counting it would report the faculty's calendar complete
+        // on the strength of one promotion's own window.
         var recorded = HolidaysBetween(new DateOnly(from.Year, 1, 1), new DateOnly(toInclusive.Year, 12, 31))
-            .Select(h => h.Name)
+            .Where(c => c.Scope == CalendarClosureScope.Faculty)
+            .Select(c => c.Name)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         return MoroccanPublicHolidays.ExpectedReligious
