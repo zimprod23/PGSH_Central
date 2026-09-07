@@ -1,6 +1,7 @@
 ﻿using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Employees.MyServices;
+using PGSH.Application.AcademicGroups;
 using PGSH.Application.AcademicGroups.Placements;
 using PGSH.Application.Audit;
 using PGSH.Application.Calendar;
@@ -21,7 +22,6 @@ using PGSH.Application.Stages.Export;
 using PGSH.Application.Students.Registrations.Holds;
 using PGSH.Application.Students.Registrations.ReinscriptionSheet;
 using PGSH.Application.Students.Registrations.Inscription;
-using PGSH.Application.Students.Registrations.ReinscriptionSheet;
 using PGSH.Application.Stages.Cnpn;
 using PGSH.Application.Stages.Cnpn.Effectivity;
 using PGSH.Application.Stages.Cnpn.SeedFromHistory;
@@ -492,7 +492,28 @@ public class SqlTranslationTests
     }
 
     /// <summary>
-    /// The three scopes a teardown refusal counts over, and the two aggregates it counts with.
+    /// Which rosters the two bulk acts touch — « Vider » and « Supprimer », one predicate.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ <c>AcademicGroup.LevelId</c> is <b>nullable</b> (« Non réparti » belongs to no promotion), so
+    /// the optional narrowing is a lifted comparison rather than a plain equality. Flat, but it is the
+    /// predicate that decides what a year-wide destructive act deletes, which is reason enough to
+    /// compile it here rather than discover it on the first real request.
+    /// </remarks>
+    [Theory]
+    [InlineData(null)]
+    [InlineData(3)]
+    public void The_roster_scope_query_compiles_to_sql(int? levelId)
+    {
+        using var db = TestHarness.NewNpgsqlContext();
+
+        string sql = RosterScope.Query(db, academicYearId: 1, levelId).ToQueryString();
+
+        sql.Should().Contain("AcademicGroups");
+    }
+
+    /// <summary>
+    /// The scopes a teardown refusal counts over, and the two aggregates it counts with.
     /// </summary>
     /// <remarks>
     /// ⚠ The period counts fold an aggregate over a collection navigation. Written as extra columns
@@ -504,6 +525,7 @@ public class SqlTranslationTests
     [Theory]
     [InlineData("roster")]
     [InlineData("year")]
+    [InlineData("promotion")]
     [InlineData("cohorts")]
     [InlineData("registration")]
     public void The_affectation_toll_queries_compile_to_sql(string scope)
@@ -514,6 +536,10 @@ public class SqlTranslationTests
         {
             "roster"  => AffectationTollReader.AssignmentsOfRosterQuery(db, academicGroupId: 10),
             "year"    => AffectationTollReader.AssignmentsOfYearRostersQuery(db, academicYearId: 1),
+            // Two hops through the roster, and LevelId is nullable on the far side — the comparison
+            // EF has to lift rather than translate as a plain equality.
+            "promotion" => AffectationTollReader.AssignmentsOfPromotionRostersQuery(
+                db, academicYearId: 1, levelId: 3),
             "registration" => AffectationTollReader.AssignmentsOfRegistrationInRosterQuery(
                 db, Guid.NewGuid(), academicGroupId: 10),
             _         => AffectationTollReader.AssignmentsOfCohortsQuery(db, [1, 2, 3]),

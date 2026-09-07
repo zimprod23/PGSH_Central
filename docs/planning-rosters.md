@@ -65,9 +65,30 @@ counting the students who left. See [`delocalization.md`](delocalization.md).
   « Dépublier », which names its cost and asks twice. A roster-side button must never become the way
   round it — same reason `AllowOverCapacity` had to stop waiving admissibility.
 - **`EmptyAllYearGroupsCommand` has no `DropAffectations` at all.** A roster's affectations are a
-  handful of rows an admin can be shown a number for; a year's are the whole faculty's planning, and
-  destroying them is not what anybody means by « retirer les étudiants des groupes ». It refuses while
-  any exist and points at the per-stage reset, where the cost is announced stage by stage.
+  handful of rows an admin can be shown a number for; a promotion's are its whole planning and a
+  year's are the faculty's, and destroying them is not what anybody means by « retirer les étudiants
+  des groupes ». It refuses while any exist and points at the per-stage reset, where the cost is
+  announced stage by stage.
+- ⚠ **…and until 2026-09-07 it had no scope between one roster and the whole year, which made a
+  re-découpage impossible.** Every other act on rosters is per promotion — the cut
+  (`AssignRotationGroupsCommand`), the arrangement (`AutoArrangeGroupsCommand`), the rotation block —
+  and `AutoArrangeGroupsCommand` only picks up registrations whose `AcademicGroupId` is **null**, so
+  redoing a promotion's groups *requires* emptying its rosters first. Emptying was the one act that
+  jumped straight to the year. Measured on the live base that day: 4ᵉ année Médecine 2026-2027 held
+  116 rosters, 925 students, **0 cohortes and 0 affectations** — its block had just been deleted — and
+  « Vider » was refused over **11 916 affectations / 11 407 périodes** belonging to 3ᵉ MED, 5ᵉ MED and
+  5ᵉ Pharmacie, three promotions nobody was touching and whose planning is published. The operator had
+  filtered the page to 4ᵉ MED; the button beside that filter ignored it.
+- **`EmptyAllYearGroupsCommand.LevelId` is now optional and narrows the act.** Given, the toll is read
+  through `AffectationTollReader.ForPromotionRostersAsync` and the refusal names the promotion
+  (`PromotionRostersHaveAffectations`); the audit code is `PROMOTION_GROUPS_EMPTIED` rather than
+  `YEAR_GROUPS_EMPTIED`, because a register that calls both acts the same cannot say which was run.
+  Omitted, the year-wide act is unchanged. ⚠ **The level narrows the year, it never replaces it** — a
+  level-only read would count every year that promotion ever ran.
+- ⚠ **A refusal must be scoped to the act.** This is the general shape, not a one-off: a guard read
+  wider than what the button does refuses over rows the operator has no way to reach, and « réinitialisez
+  les cohortes des stages concernés » is unactionable advice when the stages concerned belong to
+  someone else's promotion.
 
 ⚠ **`DeleteCohortCommand` had no guard whatsoever**, while its bulk twin `DeleteAllCohortsCommand`
 refused as soon as one affectation left `Planned`. So the *safe* act was the one touching a hundred
@@ -94,9 +115,63 @@ construction. Nothing was added there. ⚠ The one thing it cannot see is a coho
 **ad-hoc** périodes (imported history, délocalisations, revalidations): those hang off no cell, so they
 neither block the removal nor are destroyed by it — removing slots cascades cells, never périodes.
 
-**Order, when a promotion has to be taken apart:** dépublier (names what it costs) → réinitialiser les
-cohortes du stage → vider les groupes → supprimer les groupes / supprimer le bloc de rotation. Each
-step refuses until the one before it is done, and each says why in a sentence naming numbers.
+### Repartir de zéro sur une promotion — l'ordre, et ce que chaque acte emporte
+
+Chaque étape refuse tant que la précédente n'est pas faite, et chacune dit pourquoi en nommant des
+nombres. ⚠ **La portée de chaque acte n'est pas la même**, et c'est ce qui se lit mal : deux d'entre
+eux sont par **stage**, deux par **promotion**, un par **année**.
+
+| # | acte | portée | ce qu'il supprime | ce qu'il laisse |
+|---|---|---|---|---|
+| 1 | **Dépublier** (par cohorte, ou « toutes » d'un stage) | stage + année | les périodes issues de la grille, et la couverture | l'affectation, la cohorte, la cellule ; les périodes **ad hoc** (histoire importée, délocalisations, revalidations) |
+| 2 | **Réinitialiser les cohortes** | stage + année | cohortes, affectations, périodes, adhésions **et cellules** de ce stage | les créneaux (l'axe), les rosters, les inscriptions |
+| 3 | **Vider les groupes** de la promotion | promotion + année | rien — seulement `Registration.AcademicGroupId` | tout le reste, y compris les rosters eux-mêmes |
+| 4 | **Supprimer le bloc de rotation** | promotion + année | les créneaux du bloc, et les cellules qui y pendaient | les affectations et les périodes, qui pendent à la **cohorte** |
+| 5 | **Supprimer les groupes** (facultatif) | promotion + année | les rosters et leurs cohortes | les inscriptions ; « Non réparti », qui n'est d'aucune promotion |
+
+- ⚠ **L'étape 1 n'est nécessaire que si une rotation a *démarré*.** Tant que tout est `Planned`,
+  l'étape 2 supprime les périodes elle-même. Dès qu'une période est démarrée, évaluée, ou porte des
+  présences, **tout le reste refuse** et « Dépublier » par cohorte est le seul acte qui puisse y
+  toucher — celui qui nomme ce que la cohorte perdrait et demande deux fois.
+- ⚠ **L'étape 2 se fait stage par stage, et c'est délibéré** : c'est là que le coût est annoncé, une
+  fois par stage. Il n'existe pas d'équivalent « pour toute la promotion », et il ne doit pas en
+  exister — ce serait la suppression d'une planification entière derrière un seul bouton.
+- **Après l'étape 2, l'étape 4 passe** : « publié » se lit sur `ServicePeriodSlotCoverage`, qui
+  disparaît avec les périodes, donc `PublishedCells` retombe à 0.
+- ⚠ **L'étape 4 ne sert qu'à changer l'axe.** Pour simplement re-découper les groupes et replanifier
+  sur le même bloc, on s'arrête à l'étape 3 — le bloc est réutilisable tel quel.
+- ⚠ **L'étape 5 exige que l'étape 3 soit faite, et c'est tout ce qu'elle exige.** Un roster habité
+  refuse la suppression : la détacher silencieusement de ses étudiants n'est pas un acte. Supprimer
+  les rosters n'est de toute façon nécessaire que pour changer leur **nombre** ou leur
+  **numérotation** — vidés, ils se re-remplissent — donc l'étape est facultative dans le cas courant.
+- ⚠ **L'étape 5 est passée par promotion le 07/09/2026, et c'était le dernier acte de roster à
+  sauter directement à l'année.** Signalé ainsi : « supprimer les groupes d'une promotion répond
+  *One or more groups in this year have students assigned*, mais quand j'ai vidé les groupes de
+  **toutes** les promotions ça a marché ». La garde lisait l'année entière alors que l'acte visait une
+  promotion, donc elle refusait sur les étudiants **des autres**, et la seule issue était de vider
+  l'année. `DeleteAllGroupsCommand.LevelId` (optionnel, narrows), refus nommant la promotion et
+  **comptant** les étudiants restants (`AcademicGroups.HasStudents`,
+  `AcademicGroups.PromotionRostersUnderway`), codes d'audit distincts **`YEAR_GROUPS_DELETED`** /
+  **`PROMOTION_GROUPS_DELETED`** — l'acte n'écrivait rien au registre jusque-là.
+  `DELETE /groups/all?academicYearId=&levelId=`.
+- ⚠ **« Non réparti » porte un `LevelId` nul** — il rassemble les inscriptions non réparties de
+  **toutes** les promotions — donc un acte scopé sur une promotion l'enjambe et seul l'acte annuel
+  l'atteint. C'est la bonne coupure : ce roster n'appartient pas à la promotion nommée.
+- ⚠ **Un niveau inconnu refuse** (`Levels.NotFound`) au lieu de retomber sur « aucun niveau nommé ».
+  L'élargissement-sur-absence est ici le plus cher de tous : il supprimerait les rosters de **toutes**
+  les promotions après un contrôle qui n'en a regardé qu'une.
+- **Le prédicat est écrit une fois** (`RosterScope.Query`), partagé par « Vider » et « Supprimer ».
+  Les deux posaient la même question et y répondaient séparément, ce qui est exactement comment
+  l'une a gagné la portée par promotion et l'autre non.
+
+**Puis on reconstruit**, dans l'ordre inverse : découper en groupes (« Répartir automatiquement »,
+qui ne ramasse que les inscriptions sans groupe) → découper en partitions → poser le bloc → répartir
+→ publier.
+
+⚠ **Deleting the rotation block is not one of the steps that clears affectations.** It removes the
+`StageSlot`s and cascades the *cells* planned on them; an `InternshipAssignment` hangs off the
+**cohorte**, so it survives untouched — which is why « j'ai supprimé le bloc » leaves « Vider » still
+refusing. Only « Réinitialiser les cohortes » deletes affectations, and it is per (stage, année).
 
 ## ⚠ A pause is stage-scoped, compensates in calendar days, and does not move the grid
 `StagePauseRunner` (`Stages/Planning/`) + `InternshipAssignment.PausePeriod` / `ResumePeriod`. Read

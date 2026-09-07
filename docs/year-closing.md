@@ -459,6 +459,22 @@ until somebody clears it by hand from « Signalements ».
   absence most often really is, a réinscription that has not arrived, because the flag is still
   standing on the day somebody registers him by hand. The `Diplômé` verdict is still recorded
   (`Inferred`, self-correcting); the hold sits on top of it.
+- ✅ **Tranché par l'utilisateur, 07/09/2026 — et cela change ce que la page *est*.** Le fichier Excel
+  est la **seule** liste de ceux qui se réinscrivent, et il est propre et ajusté. Tout absent du
+  fichier est, par construction, l'un de quatre cas : **exclu, diplômé, non pris en considération, ou
+  une anomalie**. Aucun de ces quatre n'est une erreur à corriger — ce sont les raisons pour
+  lesquelles quelqu'un ne revient pas, et « Signalements » est l'endroit où **on les garde**.
+  - ⚠ **« Signalements » est donc un *registre*, pas une file d'attente à vider.** C'est la
+    correction de lecture : une objection du type « 1 217 signalements ne seront jamais levés » suppose
+    une liste de tâches. Elle n'en est pas une. Un signalement levé est un cas qu'un humain a expliqué;
+    un signalement debout est la trace de l'absence, et elle doit rester.
+  - **Ne rien changer au comportement.** Ni exempter les diplômés, ni leur inventer une raison à part:
+    la raison est la même (« absent du fichier »), et c'est `RegistrationStatus`, déjà porté par
+    `RegistrationHoldResponse`, qui dit lequel des quatre cas c'est.
+  - ⚠ **Ce qui reste ouvert est de la lisibilité, pas de la donnée** : `RegistrationHoldsPage` filtre
+    par raison et par état du signalement, jamais par **statut d'inscription**, donc les 49 absents
+    encore `Active` — les seuls dont l'absence n'est expliquée par rien — ne se distinguent pas des
+    1 217 diplômés à l'écran. Le champ est déjà envoyé. `HANDOFF.md` A4.
 - **Holds need no confirmed count, unlike `WillGraduate`.** A hold is released in one click and the
   row keeps its history; a graduation ends a cursus and nothing puts that back. **Confirm what cannot
   be undone.**

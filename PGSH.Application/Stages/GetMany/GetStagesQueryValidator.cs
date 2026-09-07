@@ -1,4 +1,5 @@
 ﻿using FluentValidation;
+using PGSH.Application.Extensions;
 
 namespace PGSH.Application.Stages.GetMany;
 
@@ -6,15 +7,13 @@ internal class GetStagesQueryValidator : AbstractValidator<GetStagesQuery>
 {
     public GetStagesQueryValidator()
     {
-        RuleFor(x => x.PageNumber)
-            .GreaterThanOrEqualTo(1)
-            .WithMessage("Page number must be at least 1.");
+        RuleFor(x => x.PageNumber).IsAPageNumber();
 
-        RuleFor(x => x.PageSize)
-            .InclusiveBetween(1, 100)
-            .WithMessage("Page size must be between 1 and 100.");
+        // ⚠ Was a hand-written ceiling of 100, stricter than the one the pipeline actually enforces.
+        // The CNPN editor asks for a level's whole catalogue in one page and was refused outright —
+        // see PaginationRules.
+        RuleFor(x => x.PageSize).IsAPageSize();
 
-        // Optional: Limit SearchTerm length to avoid heavy string processing
         RuleFor(x => x.SearchTerm)
             .MaximumLength(50)
             .When(x => !string.IsNullOrEmpty(x.SearchTerm));

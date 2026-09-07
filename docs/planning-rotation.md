@@ -25,6 +25,16 @@ Lₛ = P · kₛ / T      partitions concurrently in stage s — must be a whole
   a run of `kₛ` consecutive ones. Modelling a 2-period stage as one 2-column slot is still wrong, because
   the *other* stages need those columns for the crossover. Whether the group changes service between them
   is a separate question, answered by `Stage.RotationMode` — see below.
+- ⚠ **Une durée n'entre dans l'axe que par *kₛ*, et personne ne le recalcule pour vous.** Les colonnes
+  d'un axe ont toutes la même largeur — c'est ce qui rend le croisement possible — donc « ce stage dure
+  deux fois plus longtemps » s'exprime en lui donnant `kₛ = 2`, jamais en élargissant sa colonne.
+  Mesuré le 07/09/2026 : la faculté a mis MED3 Médecine et Chirurgie à **30 j.** et les quatre autres
+  à **15 j.** dans le catalogue, alors que l'axe posé porte **6 colonnes de 30 j. ouvrables** et
+  `kₛ = 1` partout. Honorer la nouvelle lecture, c'est *T* = 2+2+1+1+1+1 = **8** colonnes de 15 j. —
+  autrement dit **reposer le bloc**, que `ApplyRotationCycleCommand` refuse sur une promotion publiée
+  (804 cellules). ⚠ **Rien ne le signale**, et c'est correct : `PreviewRotationCycleQuery.Note`
+  n'avertit que sur un *déficit* de jours ouvrables ; une colonne trop large est du mou, pas un manque.
+  Changer une durée au catalogue ne touche donc **aucune** grille déjà posée.
 - ⚠ **Some duration mixes are impossible, not unsupported.** Stages of 2 and 1 give `T = 3`, and a
   two-column run must cover column 2 wherever it starts — so every partition is there and the other stage
   stands empty. No `P` fixes it. `RotationTiling`'s search is exhaustive, so `NoFeasibleArrangement` is a

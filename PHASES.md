@@ -1065,6 +1065,15 @@ be recorded **approximately** until this lands. Three pieces, best done together
     different figure the cell is marked and the tooltip names each text and what it says. Silent
     where they agree, and silent where no text mentions the stage — a marker that fires whatever the
     data says is noise, and noise is dismissed. The columns are now headed « (catalogue) ».
+    - ✅ **…and the marker now names *which* text disagrees** (2026-09-07). Reported as « j'ai aligné
+      la durée sur le CNPN, dans le même CNPN, et l'avertissement reste » — and it was right on both
+      counts: the durations of MED3 do agree with 1650.25, but the **coefficient** does not (3 vs 1)
+      and **2174.18** still states 66 j.o. A marker that says only « a text disagrees » leaves the
+      reader unable to tell a rule they have yet to satisfy from one that is not theirs to satisfy,
+      so they redo the edit. The tooltip opens on the diverging codes and marks each line `≠`/`=`.
+    - ⚠ **And it survived the edit that resolved it.** `saveCurriculum` did not invalidate the stage
+      list, which is the row carrying `TextFigures`. Both directions are now wired — a saved text
+      invalidates the catalogue, a catalogue edit invalidates the recorded sets.
   - 🔲 **What is left is the substantive half** — deciding which number is *authoritative*, i.e.
     dropping the catalogue columns in favour of `CurriculumStage`. It cannot be done before
     `Stage.LevelId` becomes advisory: a stage belonging to two levels has no single catalogue row
@@ -2255,7 +2264,7 @@ parlait de 66 rosters.
 | `AssignRotationGroups` (découpage en partitions) | ❌ | ✅ `PARTITIONS_ASSIGNED` |
 | `CreateGroup` | ❌ | ✅ `GROUP_CREATED` |
 | `EmptyGroup` | ❌ | ✅ `GROUP_EMPTIED` |
-| `EmptyAllYearGroups` | ❌ | ✅ `YEAR_GROUPS_EMPTIED` |
+| `EmptyAllYearGroups` | ❌ | ✅ `YEAR_GROUPS_EMPTIED`, et `PROMOTION_GROUPS_EMPTIED` quand l'acte est restreint à une promotion (07/09/2026) |
 | `ClearRotationGroups`, `DeleteGroup` | ✅ | ✅ |
 
 ⚠ **La lecture « le destructeur est tracé, le constructeur non » était fausse** — c'est ce qui avait
@@ -2353,6 +2362,18 @@ balayage par réflexion apporte l'essentiel de la garantie pour un fichier.
 - **L'objet n'est pas cliquable.** « `AcademicYear` #22 » pourrait mener à l'année, « `AcademicGroup`
   #7 » au groupe. Utile, pas indispensable — et il faudrait décider quoi faire quand la cible a été
   supprimée, ce qui est précisément le cas d'un acte destructeur.
+- 🔲 **Cinq actes destructeurs n'écrivent toujours rien** — `DeleteAllCohortsCommand`
+  (« Réinitialiser les cohortes »), `DeleteCohortCommand`, `UnpublishCohortScheduleCommand`,
+  `UnpublishStageScheduleCommand`, `StageSlotCommands`. Ce sont ceux qui suppriment affectations,
+  périodes, **évaluations et présences** ; « Dépublier » avec `Force` détruit les notes. Le
+  `AffectationToll` est déjà calculé sur place, donc chaque entrée peut porter ce qui a été détruit.
+  `HANDOFF.md` A3.
+  - ✅ **Les deux actes côté roster sont sortis de cette liste** :
+    `EmptyAllYearGroupsCommand` (06→07/09/2026, `YEAR_GROUPS_EMPTIED` /
+    `PROMOTION_GROUPS_EMPTIED`) et `DeleteAllGroupsCommand` (07/09/2026, `YEAR_GROUPS_DELETED` /
+    `PROMOTION_GROUPS_DELETED`). Deux codes chacun, parce qu'un registre qui appelle les deux portées
+    d'un acte par un seul nom ne peut pas dire laquelle a été jouée — et c'est cette question,
+    « qu'ai-je réellement fait ? », qui avait fait croire à des données orphelines le 07/09/2026.
 
 ---
 
@@ -2845,3 +2866,55 @@ L'interrupteur « Service hors faculté » (formulaire, liste, fiche), `BulkDelo
 - **Rien n'a été piloté au navigateur** — voir `SMOKE-TEST.md` §49 et `HANDOFF.md` item `0am`. Le
   type-check, le lint et le build sont propres, et aucun des trois n'aurait vu les deux défauts que le
   clic a trouvés la veille.
+
+## 📋 Phase 26 — « Un stage acquis ne se ressert jamais » (planifié, rien d'écrit)
+
+**Règle tranchée par l'utilisateur le 07/09/2026** : un stage validé est définitivement acquis ; ce
+qui reste se poursuit à l'inscription suivante ; un stage échoué se règle par « Revalider ». Le
+**dossier** l'applique déjà — `OutstandingStageFinder.Fold` : *« one validated attempt clears the
+stage for good, whichever year earned it »*. La **planification**, elle, l'ignore.
+
+⚠ **Rien n'est implémenté.** Cette phase est le plan, pas un livrable. `HANDOFF.md` A7.
+
+### 26.1 — La répartition cesse de replacer un étudiant dans un stage acquis
+`StudentAffectationService.AssignAsync` dédoublonne sur `(RegistrationId, CohortId)`. Une nouvelle
+inscription et de nouvelles cohortes ne coïncident jamais avec les anciennes, donc l'affectation
+automatique recrée **tous** les stages de la promotion, ceux déjà validés compris.
+
+- **La même règle qu'ailleurs, pas une seconde.** « Acquis » = au moins une tentative `Validé` dans
+  une année que `AnnulsItsStages` n'annule pas. Deux définitions de « acquis » à deux endroits, c'est
+  le défaut que `ServicePeriodLifecycle` et `StageScoring` ont déjà coûté.
+- ⚠ **Écarter en le disant.** « 3 étudiants non affectés : stage déjà acquis », par le
+  `BulkResponse` par ligne dont dispose déjà le service. Une promotion sortie un étudiant plus courte
+  ressemble exactement à une promotion de cette taille — c'est la raison d'être du même mécanisme dans
+  la découpe des rosters.
+- ⚠ **Requête plate, en une fois.** Ce chemin parcourt une promotion entière et le macro-plan le
+  répète par bloc de concurrence ; une lecture par cohorte serait le retour des ~700 aller-retours.
+- **Impact mesuré le 07/09/2026 : nul.** Les seuls redoublants des promotions planifiées de
+  2026-2027 sont **27 étudiants** (12 en 3ᵉ MED, 10 en 4ᵉ, 5 en 5ᵉ) et **toutes** leurs tentatives
+  antérieures sont `NonÉvalué`. C'est donc le moment le moins cher pour poser la règle : no-op
+  aujourd'hui, correcte dès la première année portant des notes.
+
+### 26.2 — « Revalider » devient « servir un stage dû » *(dépend de la phase 15.2)*
+Retirer la précondition `NothingToRevalidate`, qui exige une tentative **échouée** : un stage jamais
+tenté, ou servi et resté `NonÉvalué`, n'a aujourd'hui aucun chemin. Le garde-fou qui reste est le bon
+— un stage validé sur n'importe quelle inscription ne se rouvre jamais. C'est l'item 13 de la file.
+
+### 26.3 — « Ce qu'il doit » s'élargit à *exigé par le CNPN − validé* *(dépend de la phase 15.2)*
+`OutstandingStageFinder` dit déjà que c'est l'endroit naturel pour élargir. ⚠ **Pas avant que les jeux
+d'exigences de 1650.25 soient saisis** : aujourd'hui « dû » = « toutes les tentatives ont échoué »,
+donc ce qui est dû est exactement ce qui est revalidable — cohérent. 26.3 sans 26.2 fabriquerait des
+dettes que rien ne peut éteindre.
+
+### ⚠ Ce que cette phase ne touche pas — la 7ᵉ année
+`Septième Année Médecine` porte **0 stage au catalogue** et ses 1 347 inscrits de 2026-2027 portent
+**0 affectation** : la dernière année est celle de la thèse et des examens cliniques, et ce qu'un 7ᵉ
+année « doit encore » sont des stages de **6ᵉ**, reportés. Aucune répartition annuelle ne peut donc l'y
+replacer, et ses **510** stages dus (**242** étudiants) sont **tous** revalidables aujourd'hui — chacun
+porte une tentative échouée. **Pour la 7ᵉ année, la règle de l'utilisateur est déjà le comportement.**
+
+### ⚠ Le vrai risque est ailleurs, et ce n'est pas du code — `HANDOFF.md` A8
+**4 196 tentatives `NonÉvalué`** chez ces mêmes 7ᵉ année : servies, jamais notées. Ni acquises
+(23 569 le sont), ni dues (510 le sont) — en limbes, sur aucune des deux listes. Le jour où la faculté
+tranche que « non noté » vaut « non fait », elles deviennent des dettes d'un coup, sur des étudiants
+qui se croyaient finis. Le remède est l'import d'évaluations et la liste de travail des chefs.

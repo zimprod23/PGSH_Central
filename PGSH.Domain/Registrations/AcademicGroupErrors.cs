@@ -126,6 +126,23 @@ public static class AcademicGroupErrors
         + "revenez vider le groupe.");
 
     /// <summary>
+    /// The promotion-wide « Vider les groupes de … ». Same refusal as the year-wide one, narrowed to
+    /// the promotion the operator is looking at — and it names the promotion, because the whole point
+    /// of the scope is that a refusal over <i>another</i> promotion's planning is not actionable.
+    /// </summary>
+    /// <remarks>
+    /// Like its year-wide twin it offers no way to take the affectations along: that act is
+    /// « Réinitialiser les cohortes », per stage, where the cost of each deletion is announced.
+    /// </remarks>
+    public static Error PromotionRostersHaveAffectations(
+        string levelLabel, string yearLabel, int assignments, int periods) => Error.Conflict(
+        "AcademicGroups.PromotionRostersHaveAffectations",
+        $"Les groupes de {levelLabel} ({yearLabel}) portent {assignments} affectation(s) et {periods} "
+        + "période(s) de service. Les vider laisserait tout cela en place, rattaché à des groupes "
+        + "affichés vides. Réinitialisez les cohortes des stages de cette promotion — stage par stage, "
+        + "où le coût de chaque suppression est annoncé — avant de vider ses groupes.");
+
+    /// <summary>
     /// The year-wide « Vider toutes ». It deliberately offers <i>no</i> way to take the affectations
     /// with it: destroying every affectation of a year is not an act anybody means by "retirer les
     /// étudiants des groupes", and it has a proper owner per stage (« Réinitialiser les cohortes »).
@@ -137,6 +154,42 @@ public static class AcademicGroupErrors
         + "service. Les vider laisserait tout cela en place, rattaché à des groupes affichés vides. "
         + "Réinitialisez les cohortes des stages concernés — stage par stage, où le coût de chaque "
         + "suppression est annoncé — avant de vider les groupes de l'année.");
+
+    /// <summary>
+    /// « Supprimer les groupes », while any roster in scope still holds a student.
+    /// </summary>
+    /// <remarks>
+    /// <para>⚠ <b>It names the scope and the number, because the fix depends on both.</b> The refusal
+    /// used to be an inline <c>Error.Conflict</c> reading « One or more groups in this year have
+    /// students assigned » — year-wide wording on an act the operator was running for one promotion,
+    /// and no count. On a year holding four promotions it sent the operator to empty every one of
+    /// them, which is exactly what happened on 2026-09-07 and is not a rule anybody meant.</para>
+    ///
+    /// <para>Deleting rosters is only ever needed to change their <i>number</i> or their
+    /// <i>numbering</i> — emptied ones refill — so the order it enforces is: empty, then delete.</para>
+    /// </remarks>
+    public static Error RostersHaveStudents(string scopeLabel, int students, int rosters) =>
+        Error.Conflict(
+            "AcademicGroups.HasStudents",
+            $"{rosters} groupe(s) de {scopeLabel} portent encore {students} étudiant(s). Videz-les "
+            + "d'abord — « Vider la promotion » sur la promotion affichée, ou groupe par groupe — puis "
+            + "supprimez-les. Supprimer un groupe habité détacherait ses étudiants sans le dire.");
+
+    /// <summary>
+    /// « Supprimer les groupes de … », once that promotion's rotations have actually run. The
+    /// year-wide twin of this refusal named the year on an act scoped to one promotion, so it
+    /// reported a cost belonging to promotions nobody was touching.
+    /// </summary>
+    public static Error PromotionRostersUnderway(
+        string levelLabel, string yearLabel, int cohorts, int assignments, int periods,
+        int started, int evaluated, int attendanceDays) => Error.Conflict(
+        "AcademicGroups.PromotionRostersUnderway",
+        $"Les rotations de {levelLabel} ({yearLabel}) sont engagées : {cohorts} cohorte(s), "
+        + $"{assignments} affectation(s), {periods} période(s) dont {started} démarrée(s), "
+        + $"{evaluated} évaluation(s) et {attendanceDays} journée(s) de présence. Supprimer les "
+        + "groupes effacerait définitivement les évaluations et les présences. Dépubliez puis "
+        + "réinitialisez les cohortes des stages de cette promotion — chacune de ces actions indique "
+        + "ce qu'elle coûte — avant de supprimer ses groupes.");
 
     /// <summary>
     /// « Supprimer tous les groupes », once something in the year has actually run. The order this

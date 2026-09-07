@@ -1,9 +1,12 @@
-using FluentAssertions;
+﻿using FluentAssertions;
+using PGSH.Application.AcademicGroups.DeleteAll;
 using PGSH.Application.AcademicGroups.Empty;
 using PGSH.Application.AcademicYears;
 using PGSH.Application.Stages.Cohorts.Delete;
 using PGSH.Application.Stages.Cohorts.DeleteAll;
 using PGSH.Application.Stages.Planning;
+using PGSH.Domain.Common.Utils;
+using PGSH.Domain.Registrations;
 using PGSH.Domain.Stages;
 using PGSH.Infrastructure.Database;
 using Xunit;
@@ -161,6 +164,189 @@ public class RosterTeardownGuardTests
         result.IsFailure.Should().BeTrue();
         result.Error.Code.Should().Be("AcademicGroups.YearRostersHaveAffectations");
         world.Db.Registrations.Single().AcademicGroupId.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task Emptying_one_promotion_is_refused_only_over_that_promotions_affectations()
+    {
+        // The defect: « Vider » had no scope between one roster and the whole year. A promotion whose
+        // planning had been cleared could not be re-decoupee until every OTHER promotion of the year
+        // had been cleared too — measured on the live base 2026-09-07, a 4e annee Medecine holding no
+        // affectation at all was refused over 11 916 belonging to three other promotions.
+        var world = Seed(nameof(Emptying_one_promotion_is_refused_only_over_that_promotions_affectations));
+
+        // A second promotion in the same year, with rosters and students but no planning at all.
+        var otherLevel = new Level
+        {
+            Id = 77, Label = "4ème année", Year = 4, AcademicProgram = AcademicProgram.Medecine,
+        };
+        world.Db.Levels.Add(otherLevel);
+        var otherRoster = new AcademicGroup
+        {
+            Id = 501, Label = "G1", GroupNumber = 1,
+            AcademicYearId = TestHarness.CurrentYearId, LevelId = otherLevel.Id,
+        };
+        world.Db.AcademicGroups.Add(otherRoster);
+        world.Db.SeedRegistration("Nabil", "Cherkaoui", otherRoster, levelId: otherLevel.Id);
+        world.Db.SaveChanges();
+
+        var handler = new EmptyAllYearGroupsCommandHandler(world.Db, new AffectationTollReader(world.Db));
+
+        // Year-wide, the toll is the whole faculty's: still refused, and rightly so.
+        var yearWide = await handler.Handle(
+            new EmptyAllYearGroupsCommand(TestHarness.CurrentYearId), default);
+        yearWide.IsFailure.Should().BeTrue();
+        yearWide.Error.Code.Should().Be("AcademicGroups.YearRostersHaveAffectations");
+
+        // Scoped to the promotion that IS planned, the refusal names it rather than the year.
+        var planned = await handler.Handle(
+            new EmptyAllYearGroupsCommand(TestHarness.CurrentYearId, TestHarness.LevelId), default);
+        planned.IsFailure.Should().BeTrue();
+        planned.Error.Code.Should().Be("AcademicGroups.PromotionRostersHaveAffectations");
+        planned.Error.Description.Should().Contain("3ème année")
+            .And.Contain("1 affectation").And.Contain("1 période");
+
+        // And scoped to the promotion that holds none, it is not refused — which is the whole point.
+        //
+        // ⚠ Asserted as « it reached the write », not as a Result. The clearing statement is
+        // ExecuteUpdate, which the in-memory provider refuses outright, so getting that far IS the
+        // observable fact that the guard let the act through — and it is the same statement the
+        // year-wide path has always run. Written as an IsSuccess assertion this case would be
+        // unreachable, and the scoping it covers would go untested.
+        var clean = async () => await handler.Handle(
+            new EmptyAllYearGroupsCommand(TestHarness.CurrentYearId, otherLevel.Id), default);
+
+        (await clean.Should().ThrowAsync<InvalidOperationException>(
+                "the promotion holds no affectation, so the guard passes and the write is attempted"))
+            .WithMessage("*ExecuteUpdate*");
+    }
+
+    [Fact]
+    public async Task Emptying_an_unknown_promotion_is_refused_rather_than_widened_to_the_year()
+    {
+        // A level id that resolves to nothing must not fall through to « no level named » — that is
+        // the widening-on-absence defect, on the one act here that writes across a whole year.
+        var world = Seed(nameof(Emptying_an_unknown_promotion_is_refused_rather_than_widened_to_the_year));
+
+        var result = await new EmptyAllYearGroupsCommandHandler(
+                world.Db, new AffectationTollReader(world.Db))
+            .Handle(new EmptyAllYearGroupsCommand(TestHarness.CurrentYearId, 4242), default);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be("Levels.NotFound");
+        world.Db.Registrations.Single().AcademicGroupId.Should().NotBeNull();
+    }
+
+    // --- « Supprimer les groupes » --------------------------------------------
+
+    [Fact]
+    public async Task Deleting_one_promotions_rosters_is_refused_only_over_that_promotions_students()
+    {
+        // The defect, reported 2026-09-07: « quand j'ai vidé tous les groupes de TOUTES les promotions
+        // et réessayé, ça a marché ». Deleting was the last roster act with no scope between one
+        // roster and the whole year, so a promotion whose rosters were empty was refused over another
+        // promotion's students — and the only way through was to empty the entire year.
+        var world = Seed(nameof(Deleting_one_promotions_rosters_is_refused_only_over_that_promotions_students));
+
+        // The seeded promotion's own roster is emptied: nothing of its own stands in the way.
+        var seeded = world.Db.Registrations.Single();
+        seeded.AcademicGroupId = null;
+
+        // A second promotion in the same year, whose roster still holds a student.
+        var otherLevel = new Level
+        {
+            Id = 77, Label = "4ème année", Year = 4, AcademicProgram = AcademicProgram.Medecine,
+        };
+        world.Db.Levels.Add(otherLevel);
+        var otherRoster = new AcademicGroup
+        {
+            Id = 501, Label = "G1", GroupNumber = 1,
+            AcademicYearId = TestHarness.CurrentYearId, LevelId = otherLevel.Id,
+        };
+        world.Db.AcademicGroups.Add(otherRoster);
+        world.Db.SeedRegistration("Nabil", "Cherkaoui", otherRoster, levelId: otherLevel.Id);
+        world.Db.SaveChanges();
+
+        var handler = new DeleteAllGroupsCommandHandler(world.Db, new AffectationTollReader(world.Db));
+
+        // Year-wide the inhabited roster is in scope, so the refusal is correct.
+        var yearWide = await handler.Handle(
+            new DeleteAllGroupsCommand(TestHarness.CurrentYearId), default);
+        yearWide.IsFailure.Should().BeTrue();
+        yearWide.Error.Code.Should().Be("AcademicGroups.HasStudents");
+        yearWide.Error.Description.Should().Contain("1 étudiant",
+            "a refusal that does not say how many leaves the operator nothing to act on");
+
+        // Scoped to the promotion that still holds one, it names that promotion.
+        var inhabited = await handler.Handle(
+            new DeleteAllGroupsCommand(TestHarness.CurrentYearId, otherLevel.Id), default);
+        inhabited.IsFailure.Should().BeTrue();
+        inhabited.Error.Code.Should().Be("AcademicGroups.HasStudents");
+        inhabited.Error.Description.Should().Contain("4ème année");
+
+        // ⚠ And scoped to the emptied promotion it is NOT refused — the whole point.
+        //
+        // Asserted as « it reached the write », for the reason the emptying twin above is: the delete
+        // is ExecuteDelete, which the in-memory provider refuses outright, so getting that far IS the
+        // observable fact that the guard let the act through. Written as an IsSuccess assertion the
+        // case would be unreachable and the scoping would go untested.
+        var clean = async () => await handler.Handle(
+            new DeleteAllGroupsCommand(TestHarness.CurrentYearId, TestHarness.LevelId), default);
+
+        (await clean.Should().ThrowAsync<InvalidOperationException>(
+                "the promotion's rosters hold nobody, so the guard passes and the delete is attempted"))
+            .WithMessage("*ExecuteDelete*");
+    }
+
+    [Fact]
+    public async Task Deleting_a_promotions_rosters_is_refused_while_its_own_rotations_are_underway()
+    {
+        // The other guard, at the new scope. It must name the promotion rather than the year, or it
+        // reports a cost belonging to promotions nobody is touching.
+        var world = Seed(nameof(Deleting_a_promotions_rosters_is_refused_while_its_own_rotations_are_underway),
+            started: true);
+
+        world.Db.Registrations.Single().AcademicGroupId = null;
+        world.Db.SaveChanges();
+
+        var result = await new DeleteAllGroupsCommandHandler(world.Db, new AffectationTollReader(world.Db))
+            .Handle(new DeleteAllGroupsCommand(TestHarness.CurrentYearId, TestHarness.LevelId), default);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be("AcademicGroups.PromotionRostersUnderway");
+        result.Error.Description.Should().Contain("3ème année");
+
+        world.Db.Cohorts.Should().ContainSingle("a refused delete must not have destroyed anything");
+        world.Db.ServicePeriods.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task Deleting_an_unknown_promotion_is_refused_rather_than_widened_to_the_year()
+    {
+        // Same rule as its emptying twin, and it matters more here: widening on absence would delete
+        // every promotion's rosters after a check that only looked at one.
+        var world = Seed(nameof(Deleting_an_unknown_promotion_is_refused_rather_than_widened_to_the_year));
+
+        var result = await new DeleteAllGroupsCommandHandler(world.Db, new AffectationTollReader(world.Db))
+            .Handle(new DeleteAllGroupsCommand(TestHarness.CurrentYearId, 4242), default);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be("Levels.NotFound");
+        world.Db.AcademicGroups.Should().NotBeEmpty("nothing may be deleted on the way to failing");
+    }
+
+    [Fact]
+    public void The_two_bulk_roster_acts_are_told_apart_in_the_audit_register()
+    {
+        // A register that calls both scopes « YEAR_GROUPS_DELETED » cannot answer which act was run —
+        // which is the gap that made « qu'ai-je réellement fait ? » unanswerable on 2026-09-07.
+        new DeleteAllGroupsCommand(TestHarness.CurrentYearId).AuditAction
+            .Should().Be("YEAR_GROUPS_DELETED");
+
+        var promotion = new DeleteAllGroupsCommand(TestHarness.CurrentYearId, TestHarness.LevelId);
+        promotion.AuditAction.Should().Be("PROMOTION_GROUPS_DELETED");
+        promotion.AuditMetadata.Should().Contain(TestHarness.LevelId.ToString(),
+            "the year is already the entry's EntityId; the promotion is the whole difference");
     }
 
     // --- « Supprimer la cohorte » / « Réinitialiser les cohortes » ------------

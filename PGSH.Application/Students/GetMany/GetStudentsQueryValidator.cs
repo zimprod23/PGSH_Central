@@ -1,4 +1,5 @@
-using FluentValidation;
+﻿using FluentValidation;
+using PGSH.Application.Extensions;
 
 namespace PGSH.Application.Students.GetMany
 {
@@ -6,13 +7,8 @@ namespace PGSH.Application.Students.GetMany
     {
         public GetStudentsQueryValidator()
         {
-            RuleFor(x => x.PageNumber)
-                .GreaterThanOrEqualTo(1)
-                .WithMessage("Page number must be at least 1.");
-
-            RuleFor(x => x.PageSize)
-                .InclusiveBetween(1, 100)
-                .WithMessage("Page size must be between 1 and 100.");
+            RuleFor(x => x.PageNumber).IsAPageNumber();
+            RuleFor(x => x.PageSize).IsAPageSize();
 
             RuleFor(x => x.LevelId)
                 .GreaterThan(0)

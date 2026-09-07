@@ -3570,3 +3570,242 @@ Corbeille sur la ligne.
 - Si la fenêtre avait déjà commencé, un message le dit après coup : rien n'est rattrapé.
 - `Journal des actions` doit porter **`PROMOTION_PAUSE_REVOKED`**.
 - Regénérer l'axe de la promotion : les colonnes doivent revenir où elles étaient.
+
+## §51 — « Vider » se limite à la promotion affichée (session 50)
+
+> **Aucune étape ici n'est destructrice au sens des marques ou des présences** : vider ne touche que
+> `Registration.AcademicGroupId` — le pointeur, jamais l'affectation, qui pend à la cohorte. C'est
+> précisément pourquoi l'acte est **refusé** tant que la portée demandée porte des affectations : les
+> laisser en place derrière des groupes affichés vides est le défaut que la garde existe pour empêcher.
+>
+> ⚠ **Redémarrage de l'AppHost obligatoire.** Un processus antérieur à cette session ignore
+> silencieusement `levelId` — un paramètre de requête inconnu ne se lie à rien — et l'acte reste
+> annuel, donc toujours refusé. Le contrôle qui distingue les deux : filtrer sur la **4ᵉ MED** et lire
+> le libellé du bouton (voir §51.1).
+
+**État de la base au 07/09/2026**, mesuré avant la correction — les nombres attendus ci-dessous :
+
+| promotion 2026-2027 | rosters | inscrits | cohortes | affectations | périodes |
+|---|---|---|---|---|---|
+| **4ᵉ Médecine** | 116 | 925 | **0** | **0** | **0** |
+| 3ᵉ Médecine | 134 | 933 | 804 | 5 598 | 4 665 |
+| 5ᵉ Médecine | 121 | 842 | 847 | 5 894 | 5 894 |
+| 5ᵉ Pharmacie | 71 | 212 | 142 | 424 | 848 |
+
+### 1 · Le bouton dit sa portée
+
+`Admin → Gestion des groupes → Liste des groupes`, année **2026-2027**.
+
+- **Sans** filtre Niveau : le bouton orange dit **« Vider toute l'année »**, et son infobulle dit
+  « toutes promotions confondues ».
+- Filtre **Niveau = Quatrième Année Médecine** : il devient **« Vider la promotion »**, et l'infobulle
+  nomme la promotion.
+- ⚠ Si le libellé ne change pas, l'API tourne encore sur l'ancien build — rien de ce qui suit ne veut
+  dire quoi que ce soit.
+
+### 2 · L'année entière reste refusée, et c'est correct
+
+Sans filtre, cliquer « Vider toute l'année » → confirmer.
+
+- Refus **`AcademicGroups.YearRostersHaveAffectations`**, nommant **11 916 affectations** et
+  **11 407 périodes**.
+- Recharger : les effectifs des groupes sont inchangés. La garde ne doit **rien** écrire.
+
+### 3 · La promotion planifiée est refusée en son nom
+
+Filtre **Niveau = Troisième Année Médecine** → « Vider la promotion » → confirmer.
+
+- Refus **`AcademicGroups.PromotionRostersHaveAffectations`**, nommant **« Troisième Année Médecine »**,
+  **5 598 affectations** et **4 665 périodes** — *ses* nombres, pas ceux de l'année.
+- ⚠ C'est l'assertion qui compte : un refus qui cite 11 916 ici voudrait dire que la portée du refus
+  n'a pas suivi celle de l'acte, ce qui est exactement le défaut corrigé.
+
+### 4 · La promotion libre se vide
+
+Filtre **Niveau = Quatrième Année Médecine** → « Vider la promotion » → confirmer.
+
+- Succès, et le message dit **925 étudiants retirés de leurs groupes**.
+- La liste montre 116 groupes à **0 étudiant** ; les groupes eux-mêmes sont conservés.
+- Les autres promotions sont intactes : refiltrer sur la 3ᵉ MED, les effectifs n'ont pas bougé.
+- `Journal des actions` porte **`PROMOTION_GROUPS_EMPTIED`** (et **non** `YEAR_GROUPS_EMPTIED`), avec
+  `levelId` en métadonnée.
+
+### 5 · Re-découper, qui est la raison de tout ceci
+
+Onglet **Répartition** (ou « Répartir automatiquement »), 4ᵉ MED, taille de groupe voulue.
+
+- Les **925** inscriptions sont ramassées : `AutoArrangeGroupsCommand` ne prend que celles dont le
+  groupe est nul, donc un seul étudiant resté rattaché serait un étudiant manquant du découpage.
+- `Journal des actions` porte **`GROUPS_AUTO_ARRANGED`**.
+
+### 6 · Le contrôle négatif
+
+- Filtrer sur une promotion **sans aucun groupe** dans l'année → le bouton ne s'affiche pas
+  (`totalCount > 0` le conditionne). Ce n'est pas un refus, c'est qu'il n'y a rien à vider.
+- ⚠ Ne pas conclure de §51.4 que « vider marche » : ce que cette étape prouve, c'est que la garde a
+  laissé passer. C'est §51.2 et §51.3 qui prouvent qu'elle mord encore, et il faut les deux.
+
+## §52 — Le CNPN accepte enfin un nouveau stage, et le refus se lit (session 51)
+
+⚠ **Prérequis : redémarrer l'AppHost.** Le processus en cours porte encore le plafond de page à 100 ;
+le contrôle qui distingue « ancien processus » de « corrigé » est l'étape 1.
+
+⚠ **Aucune étape ci-dessous n'écrit dans la planification.** Enregistrer un CNPN n'écrit que
+`Curriculums` / `CurriculumStages`. L'étape 6 est une **décision**, pas un clic.
+
+### 1 · Le contrôle qui dit sur quel processus on est
+
+`Admin → CNPN`, programme **Médecine**, niveau **Troisième Année Médecine**, texte **1650.25**,
+« Modifier le texte ». Onglet réseau ouvert.
+
+- `GET /api/stages?levelId=3&pageSize=200` → **200**, huit stages dans `items`.
+- Sur l'ancien processus il répond **400** avec
+  « Page size must be between 1 and 100 » — et c'est exactement le symptôme d'origine.
+
+### 2 · Le sélecteur offre les deux stages créés le 07/09
+
+Dans « Ajouter un stage ».
+
+- Le champ est **actif**, et la liste propose **Santé Publique** et **Simulation Médicale**.
+- ⚠ Si le champ est grisé en disant « Tous les stages du niveau sont listés », c'est l'étape 1 qui a
+  échoué — pas le CNPN. La phrase ne peut plus signifier « la requête a été refusée », mais elle
+  reste vraie quand les huit stages sont déjà dans le tableau.
+
+### 3 · Les ajouter, et vérifier ce que ça change
+
+Ajouter les deux (coefficient et durée pré-remplis depuis le catalogue : **1** et **15 j.**),
+« Enregistrer ».
+
+- Succès, le bandeau du texte passe de **6** à **8 stage(s)**.
+- ⚠ **Ne pas cliquer si l'étape 6 n'est pas tranchée** — lire la ligne 0ap de `HANDOFF.md` d'abord.
+
+### 4 · Le repère du catalogue nomme le texte qui diverge
+
+`Admin → Stages`, filtre **Troisième Année Médecine**, survoler le triangle orange sur **Chirurgie**.
+
+- Colonne **Durée** : la bulle ouvre sur **« 2174.18 — durée différente du catalogue »**, puis liste
+  `= 1650.25 (3ᵉ) : 30j` et `≠ 2174.18 (3ᵉ) : 66j`.
+- Colonne **Coefficient** : la bulle ouvre sur **« 1650.25 — coefficient différent du catalogue »**,
+  et liste `≠ 1650.25 : 1`, `= 2174.18 : 3`.
+- ⚠ **C'est l'assertion de la session.** Le signalement était « je l'ai alignée dans le même CNPN et
+  l'avertissement reste » : il restait parce qu'il désignait l'*autre* texte et l'*autre* chiffre.
+  Une bulle qui ne nommerait aucun code veut dire que l'ancien composant est encore servi.
+- **Santé Publique** et **Simulation Médicale** ne portent **aucun** triangle avant l'étape 3, et
+  aucun après non plus (le texte reprend les chiffres du catalogue). Un triangle sur ces lignes-là
+  serait un vrai désaccord à lire.
+
+### 5 · Le repère disparaît sans rechargement de page
+
+Toujours sur 1650.25, mettre le coefficient de **Chirurgie** à **3** dans le texte, enregistrer, puis
+revenir sur `Admin → Stages` **sans recharger le navigateur** (navigation interne).
+
+- Le triangle de la colonne **Coefficient** de Chirurgie a **disparu**.
+- ⚠ Ce qui est testé est l'invalidation du cache, pas la valeur : avant la correction la page
+  réaffichait les chiffres d'avant l'édition et le repère survivait à la modification qui le
+  résolvait. Remettre **1** ensuite si l'on veut laisser le texte tel que la faculté l'a écrit.
+
+### 6 · Ce qu'il faut décider avant d'aller plus loin (aucun clic)
+
+L'axe de la 3ᵉ MED 2026-2027 porte **6 stages × 6 colonnes** de 30 jours ouvrables et **804 cellules
+publiées**. Les deux nouveaux stages n'ont **aucun créneau**, et les durées du catalogue disent
+maintenant 30 j. pour deux stages et 15 j. pour six.
+
+- « Bloc de rotation » → « Appliquer l'axe » est **désactivé**, et
+  `ApplyRotationCycleCommand` refuse sur `PublishedCells > 0`. C'est correct.
+- Donc : soit la promotion finit l'année sur l'axe qu'elle a — chaque colonne de 30 j. sert un stage
+  qui n'en annonce plus que 15, ce qui est du **mou** et non un manque (l'aperçu n'avertit que sur un
+  déficit, et il a raison de rester muet) — soit c'est un démontage complet,
+  [`docs/planning-rosters.md`](docs/planning-rosters.md), « Repartir de zéro ».
+- ⚠ Un stage exigé par le texte et sans créneau est **dû et jamais servi**. C'est la décision de la
+  faculté ; la noter ici plutôt que la prendre.
+
+### 7 · Le refus lisible — ce qui est vérifiable ici, et ce qui ne l'est pas
+
+✅ **Le contrôle qui compte est passif, et il est déjà donné par l'étape 1** : ouvrir l'éditeur du CNPN
+ne fait plus apparaître **aucun** bandeau. C'était l'endroit exact où
+« Données invalides · One or more validation errors occurred » se déclenchait, à chaque ouverture.
+
+⚠ **Ne pas essayer de provoquer un 400 depuis un formulaire — les deux le bloquent avant l'envoi**,
+et c'est voulu (garde côté client, cf. la règle maison sur les pré-contrôles) :
+
+- `StagesPage.handleSave` **filtre** les objectifs sans libellé (`.filter((o) => o.label.trim())`),
+  donc « ajouter un objectif au libellé vide » ne part jamais et ne peut rien refuser. *(Recette
+  corrigée le 07/09/2026 : elle avait été écrite sans vérifier ce filtre.)*
+- `CurriculumEditor` désactive « Enregistrer » tant qu'un coefficient < 1 ou une durée < 1 subsiste
+  (`blockedReason`).
+
+**Le chemin est donc couvert côté serveur**, où il est démontrable :
+`StageEndpointTests.A_refusal_carries_a_message` affirme que le document de problème porte un
+`errors[]` **au premier niveau** — c'est cette forme-là que le type client lisait au mauvais endroit.
+La régression se verrait ici sous la forme d'un bandeau générique là où l'écran nomme aujourd'hui la
+règle.
+
+## §53 — « Supprimer les groupes » se limite à la promotion affichée (session 52)
+
+⚠ **Prérequis : redémarrer l'AppHost.** Le processus en cours ne connaît pas `levelId` sur cette
+route, et un paramètre de requête inconnu **ne se lie à rien** : l'acte resterait annuel sans que
+rien ne le dise.
+
+⚠ **C'est un acte destructeur** — il supprime les rosters **et leurs cohortes**. `pg_dump -Fc` avant,
+même sur une base sans planification.
+
+⚠ **Les nombres ci-dessous dépendent de ce qui est découpé au moment du test.** Mesuré le 07/09/2026
+après la remise à zéro, 2026-2027 portait **0 roster** : il faut donc **découper deux promotions**
+d'abord, sinon il n'y a rien à supprimer et le bouton ne s'affiche même pas (`totalCount > 0` le
+conditionne).
+
+### 1 · Préparer deux promotions, dont une seule habitée
+
+`Admin → Groupes`, année **2026-2027**.
+
+- Découper la **3ᵉ MED** et la **4ᵉ MED** (« Répartir automatiquement »).
+- Puis, filtre **Niveau = Quatrième Année Médecine**, cliquer **« Vider la promotion »** → confirmer.
+- La 4ᵉ MED affiche ses groupes à **0 étudiant** ; la 3ᵉ MED garde les siens.
+
+### 2 · Le bouton dit sa portée
+
+- Filtre **Niveau** posé → le bouton lit **« Supprimer la promotion »**, et son info-bulle nomme la
+  promotion.
+- Filtre **effacé** → il lit **« Tout supprimer »**, et l'info-bulle dit « toutes promotions
+  confondues » et invite à filtrer.
+- ⚠ Un bouton qui lit « Tout supprimer » avec un filtre posé veut dire que l'écran est l'ancien.
+
+### 3 · La promotion habitée est refusée **en son nom, avec ses nombres**
+
+Filtre **Niveau = Troisième Année Médecine** → « Supprimer la promotion » → confirmer.
+
+- Refus **`AcademicGroups.HasStudents`**, dont la phrase nomme **« Troisième Année Médecine
+  (2026-2027) »**, le nombre de groupes et le nombre d'étudiants qui y sont encore.
+- ⚠ **C'est l'assertion de la session.** L'ancien message était
+  *« One or more groups in this year have students assigned »* — l'année, pas la promotion, et aucun
+  nombre. Un refus qui cite l'année ici veut dire que la portée de la garde n'a pas suivi celle de
+  l'acte, ce qui est exactement le défaut corrigé.
+- Recharger : les groupes des deux promotions sont intacts. La garde ne doit **rien** supprimer.
+
+### 4 · La promotion vidée se supprime, et l'autre survit
+
+Filtre **Niveau = Quatrième Année Médecine** → « Supprimer la promotion » → confirmer.
+
+- Succès, le message dit combien de groupes ont été supprimés.
+- Refiltrer sur la **3ᵉ MED** : ses groupes et ses effectifs sont **inchangés**. C'est le contrôle qui
+  compte — c'est lui qui dit que la suppression n'a pas débordé.
+- `Journal des actions` porte **`PROMOTION_GROUPS_DELETED`** (et **non** `YEAR_GROUPS_DELETED`), avec
+  `levelId` en métadonnée. ⚠ L'acte n'écrivait **rien** au registre avant cette session : une ligne
+  absente veut dire l'ancien processus.
+
+### 5 · L'acte annuel existe toujours, et refuse toujours
+
+Effacer le filtre → « Tout supprimer » → confirmer.
+
+- Refus **`AcademicGroups.HasStudents`** nommant cette fois **l'année**, puisque la 3ᵉ MED est encore
+  habitée. C'est correct : à portée annuelle, la garde doit voir toute l'année.
+
+### 6 · Le contrôle négatif
+
+- Vider **aussi** la 3ᵉ MED, puis « Tout supprimer » sans filtre → succès, et il ne reste aucun
+  groupe sur l'année.
+- ⚠ Ne pas conclure de §53.4 que « supprimer marche » : ce que cette étape prouve, c'est que la garde
+  a laissé passer **au bon endroit**. C'est §53.3 qui prouve qu'elle mord encore, et il faut les deux.
+- ⚠ **Non vérifiable ici** : que le `DELETE` final porte bien sur les rosters sélectionnés et non sur
+  l'année. Le fournisseur en mémoire refuse `ExecuteDelete`, donc aucun test ne couvre cette ligne —
+  c'est §53.4 (« la 3ᵉ MED est inchangée ») qui en est la seule preuve, et elle est manuelle.

@@ -66,6 +66,43 @@ promotions already in the building.
 - Uniqueness: `(CnpnVersionId, LevelId)` and `(LevelId, FromAcademicYearId)`. The second is the
   substantive one — two texts starting to govern one level in one year has no defensible winner.
 
+### ⚠ Le CNPN ne crée pas de stage — il en *exige* parmi ceux du catalogue du niveau
+`CurriculumEditor` n'offre à l'ajout que les stages dont `Stage.LevelId` est le niveau sélectionné,
+moins ceux déjà listés : `addable = levelStages.filter(pas déjà dans le tableau)`, et le champ est
+désactivé quand cette liste est vide. **Un menu grisé veut donc dire « tous les stages de ce niveau
+sont déjà dans ce texte », jamais « l'édition est verrouillée ».**
+
+- **La marche à suivre pour exiger un stage qui n'existe pas encore** : le créer d'abord dans
+  `Admin → Stages` **au niveau visé**, puis revenir sur le CNPN où il apparaît dans la liste.
+- ⚠ **Un menu grisé a eu, pendant un temps, une troisième signification : la requête avait été
+  refusée.** Corrigé le 07/09/2026. L'éditeur demande le catalogue du niveau en une page
+  (`GET /stages?levelId=…&pageSize=200`) ; `GetStagesQueryValidator` portait un plafond écrit à la
+  main de **100**, plus strict que celui que le pipeline applique vraiment
+  (`QueryableExtensions.MaxPageSize` = 200, qui **écrête** au lieu de refuser). La requête répondait
+  donc **400** à chaque ouverture, la liste revenait vide, et le champ s'affichait désactivé avec la
+  phrase qui veut dire l'exact contraire. **Santé Publique** et **Simulation Médicale**, créés en
+  MED3 le 07/09/2026, étaient invisibles de tout texte pour cette seule raison. Le plafond est
+  désormais unique et nommé (`PaginationRules`), et couvert par
+  `PGSH.Tests/Integration/PaginationBoundsEndpointTests.cs`. ⚠ Le refus lui-même n'était pas lisible
+  non plus — voir la note sur `errors[]` dans [`CLAUDE.md`](../CLAUDE.md).
+- ⚠ **Un stage appartient à un niveau, donc le même intitulé à deux niveaux est deux lignes du
+  catalogue** — « Cardiologie » existe déjà en 3ᵉ (id 28) et en 4ᵉ (id 6) MED. Exiger « Santé
+  Publique » en 3ᵉ année ne peut pas réutiliser la ligne de la 5ᵉ (id 13) : elle ne serait servie par
+  aucun groupe de 3ᵉ, ce que la note sous le tableau dit en toutes lettres.
+- ⚠ **Deux durées portent le même nom et ne sont pas la même chose.**
+  `CurriculumStage.DurationInDays` est la durée que **le texte annonce**, par (version, niveau).
+  `Stage.DurationInDays` est celle **du catalogue**, et c'est la seule que le planificateur lit :
+  `PreviewRotationCycleQuery` la compare aux jours ouvrables de chaque colonne pour avertir
+  « X jours annoncés, Y ouvrables au mieux ». **Changer la durée sur la page CNPN ne change donc rien
+  à la grille** — il faut modifier le stage lui-même pour cela. Laquelle des deux fait autorité est
+  encore ouvert (`PHASES.md` §15.1) ; en attendant elles sont deux colonnes distinctes et il faut
+  savoir laquelle on édite.
+- ⚠ **Ajouter ou retirer un stage change `T = Σkₛ`, donc l'axe entier de la promotion.** Un texte à 8
+  stages ne se planifie pas sur un bloc taillé pour 6 : le bloc doit être reposé, ce que
+  `ApplyRotationCycleCommand` refuse tant qu'une cellule est publiée. Sur une promotion déjà publiée,
+  la modification du texte se fait donc **avant** la publication ou après un démontage complet —
+  [`planning-rosters.md`](planning-rosters.md), « Repartir de zéro ».
+
 ### The text is an aggregate, and what it may decide alone is the whole question
 `CnpnVersion` was a property bag until 2026-09-01: no `Entity` base, public setters on every member,
 and every invariant of the text living in whichever handler happened to need it. In the *same*
@@ -203,7 +240,21 @@ could not fail.
   unqualified — a number no CNPN necessarily states, with nothing on screen saying a text disagreed.
   - **Closed for the display half** (`StageCatalogueFigure`, 2026-09-01): the row now carries
     `TextFigures` — every text's own coefficient and duration — and the cell marks the figure and
-    names each text only **when one disagrees**. Silent when they agree and silent when no text
+    names each text only **when one disagrees**.
+    - ⚠ **Le repère nomme désormais *quel* texte diverge** (07/09/2026). Signalé ainsi : « j'ai
+      changé la durée du stage, je l'ai alignée sur le CNPN, dans le même CNPN, et l'avertissement
+      reste ». Il avait raison **et** le repère aussi : mesuré sur la base le 07/09/2026, MED3
+      Chirurgie et Médecine lisent 30 j. au catalogue et dans 1650.25 — d'accord — mais **66** dans
+      2174.18, et le coefficient est **3** au catalogue contre **1** dans 1650.25. Un repère qui dit
+      seulement « un texte dit autre chose » laisse le lecteur incapable de distinguer une règle
+      qu'il n'a pas encore satisfaite d'une qu'il n'a pas à satisfaire, alors il refait la
+      modification. La bulle ouvre maintenant sur le ou les codes qui divergent et marque chaque
+      ligne `≠` ou `=`.
+    - ⚠ **Et le repère survivait à la modification qui le résolvait.** `saveCurriculum`
+      n'invalidait pas `Stage/LIST` côté client, alors que c'est la ligne du catalogue qui porte
+      `textFigures` : aligner le texte puis revenir sur « Stages » réaffichait la page d'avant. Les
+      deux sens sont désormais câblés — un texte enregistré invalide le catalogue, une modification
+      du catalogue invalide les jeux d'exigences (`CURRICULUM`, `CURRICULUM_DIFF`). Silent when they agree and silent when no text
     mentions the stage: a marker that fires whatever the data says is noise, and noise is dismissed,
     which puts the real one out of sight. Same rule as `ExportNotes`.
   - ⚠ **Read by a second flat query keyed on the page's stage ids**

@@ -30,8 +30,8 @@ internal sealed class GetPromotionPausesQueryValidator : AbstractValidator<GetPr
 {
     public GetPromotionPausesQueryValidator()
     {
-        RuleFor(x => x.PageNumber).GreaterThan(0);
-        RuleFor(x => x.PageSize).GreaterThan(0);
+        RuleFor(x => x.PageNumber).IsAPageNumber();
+        RuleFor(x => x.PageSize).IsAPageSize();
     }
 }
 

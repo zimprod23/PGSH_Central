@@ -250,6 +250,17 @@ behaviour; each caller states its own.**
 
 ### Shared helpers — always use these, never inline
 - **Pagination** — `QueryableExtensions.ToPaginatedResponseAsync(pageNumber, pageSize, selector, ct)` in `Application/Extensions/`. Apply after filtering and `OrderBy`. Never manually write `CountAsync + Skip + Take + ToListAsync + new PaginatedResponse`.
+  - ⚠ **One ceiling, and it *clamps* — `QueryableExtensions.MaxPageSize` (200).** A larger page is
+    served short and the response still carries the true `TotalCount`, so nothing is hidden. Every
+    query validator states it through `PaginationRules.IsAPageSize()` / `.IsAPageNumber()`, never by
+    hand. Four validators had spelled their own **stricter** 100 and *refused*, so a request the
+    pipeline would have served never reached it: `GET /stages?levelId=3&pageSize=200` — the CNPN
+    editor's « which stages may this text require » read — 400'd on every open, the stage list came
+    back **empty**, and the picker rendered disabled saying « Tous les stages du niveau sont listés ».
+    Two stages the faculty had just created could therefore not be required by any text, and the
+    refusal read on screen as a broken control rather than as a rule. The client names the same
+    number once (`common/constants/pagination.ts`). Pinned by
+    `PGSH.Tests/Integration/PaginationBoundsEndpointTests.cs`.
   - ⚠ **Paginate by what the response *contains*, not by the handler's return type.** A single-object
     response hides unbounded collections from any `List<T>` grep: `GetGroupByIdQuery` returned one
     `GroupDetailResponse` carrying 4,725 students — one per registration in the "Non réparti" group —
@@ -425,6 +436,18 @@ so it reads as a broken button rather than as a rule.
   refusal was discarded at the last step. Validation failures carry their messages in `errors[]`
   (`detail` is only the generic « One or more validation errors occurred »); every other refusal is
   in `detail`. Read both — the pattern is `(err as { data?: … })?.data`, as on `GroupsPage`.
+  - ⚠ **`errors[]` sits at the *top level* of the problem document, never under `extensions`.**
+    `Results.Problem(extensions: …)` fills `ProblemDetails.Extensions`, which is `[JsonExtensionData]`
+    — the members are written flat, exactly as RFC 7807 says extension members are. The `ApiError`
+    type declared `extensions.errors`, so the global `errorMiddleware` never found the array and
+    *every* refused save toasted « Données invalides · One or more validation errors occurred » — the
+    fixed sentence of `ValidationError`, which names no field and no rule. `StagesPage` read the real
+    shape and was right all along; the middleware behind it was not. Pinned by
+    `StageEndpointTests.A_refusal_carries_a_message`.
+  - ⚠ **And a non-validation refusal carries its code in `title`, not in `errors[]`.**
+    `Error.Conflict("Schedule.AlreadyPublished", …)` produces no `errors` array at all, so
+    `StageDetailPage.extractErrorCode` — which read only `errors[0].code` — always returned null and
+    both of its branches were dead code. Read `title` first.
 
 ### Search handlers — one shape
 Always `request.SearchTerm.Trim().ToLower()` and compare against `Field.ToLower().Contains(term)` for **every**

@@ -103,3 +103,83 @@ student holds **now**, as a fresh `InternshipAssignment`; the failed one stays a
   hand. And no generic "assign this student to this cohort" command exists: every other creation path
   is bulk (`GenerateSchedule`, `StudentAffectationService`) or specific (`Delocalize`,
   `LateArrivalScheduler`). That is the flexibility hole to close next.
+
+## ⚠ « Un stage acquis ne se refait jamais » est vrai du dossier et faux de la planification
+`OutstandingStageFinder.Fold` le dit en toutes lettres — *« One validated attempt clears the stage for
+good — a stage once acquired is never repeated, whichever year earned it »*. C'est la règle, et le
+**dossier** l'applique. La **répartition**, elle, ne la connaît pas.
+
+### Ce que la réinscription conserve — et c'est la bonne moitié
+Un étudiant réinscrit garde tout ce qu'il a validé. La dette est lue **par étudiant, à travers toutes
+ses inscriptions** (`OutstandingStageFinder` groupe sur `(StudentId, StageId)`), jamais par
+inscription — donc un stage validé sous l'inscription de l'an dernier est vu par le dossier de niveau,
+par le parcours, par la déliberation et par `FinalYearGuard`. Une seule tentative `Validé` suffit et
+elle vaut définitivement.
+
+- ⚠ **Sauf si l'année a été prononcée `Failed`** : `AnnulsItsStages` écarte alors *toutes* les
+  tentatives de cette année, les réussies comprises — le redoublant refait l'année de zéro. C'est le
+  verdict de **l'année** qui annule, jamais celui du stage : un stage échoué dans une année réussie
+  reste un crédit reporté ordinaire, réglé par `RevalidateStageCommand`.
+- ⚠ **Une 7ᵉ année n'est jamais `Failed`** — il n'y a pas de déliberation pour la dernière année.
+  L'étudiant y est réinscrit `Active` chaque septembre jusqu'à ce que ses stages soient tous validés,
+  puis jusqu'aux examens cliniques. Ses stages validés tiennent donc, et sa réinscription **est** le
+  mécanisme par lequel il éteint sa dette — d'où la correction de « entrer » = *commencer*.
+
+### ⚠ La 7ᵉ année ne porte aucun stage, donc le problème ci-dessous ne l'atteint pas
+Mesuré le 07/09/2026 : **`Septième Année Médecine` a 0 stage au catalogue**, et les 1 347 inscrits de
+2026-2027 y portent **0 affectation**. Ce qu'un 7ᵉ année « doit encore » sont des stages de **6ᵉ**,
+reportés — la dernière année est celle de la thèse et des examens cliniques.
+
+- **Conséquence pratique** : la répartition annuelle ne lui donne rien, donc elle ne peut pas le
+  replacer dans un stage déjà validé. Ses stages en retard se règlent **un par un**, par
+  `RevalidateStageCommand`, qui le place hors grille.
+- ⚠ **Le piège est ailleurs** : « Revalider » exige une tentative **échouée** au préalable
+  (`NothingToRevalidate`). Un stage de 6ᵉ jamais tenté, ou resté `NonÉvalué`, n'a donc aucun chemin —
+  c'est le trou de flexibilité de la section précédente, et il tombe exactement sur cette population.
+- **Le problème de replacement ci-dessous vise donc les niveaux qui ont des stages** — 3ᵉ à 6ᵉ MED,
+  4ᵉ et 5ᵉ Pharmacie — c'est-à-dire le redoublant, pas le 7ᵉ année.
+
+### Ce qu'elle ne fait pas — la répartition replace le redoublant dans tout
+`StudentAffectationService.AssignAsync` dédoublonne sur **`(RegistrationId, CohortId)`**. Une nouvelle
+inscription est un nouvel identifiant et les cohortes de l'année suivante sont de nouvelles lignes,
+donc la clé ne peut pas coïncider : l'affectation automatique lui crée une affectation pour **chaque**
+stage de la promotion, y compris ceux qu'il a déjà validés.
+
+- **Rien dans `Stages/Planning/` ne lit un `InternshipAssignment.Result` passé** — balayé le
+  07/09/2026, le namespace entier. `CohortProvisioner` filtre bien les cohortes, mais sur ce que le
+  **CNPN exige au niveau** (le compte « hors CNPN » affiché à l'écran), ce qui est un filtre par
+  promotion et non par étudiant. Il n'existe aucun rétrécissement par étudiant nulle part.
+- **Le coût est réel** : il occupe une place dans un service, il est compté dans l'occupation, il
+  paraît sur la liste de travail du chef, et il ressort avec une seconde ligne validée. La dette,
+  elle, n'en souffre pas (`Fold` retient « au moins une tentative validée »), mais la place, si.
+- ⚠ **Mesuré sur la base vivante le 07/09/2026 : 792 lignes, 300 étudiants** ont été réaffectés à un
+  stage déjà validé sous une inscription antérieure non annulée, au même niveau. **Toutes sur
+  2018-2019 → 2025-2026, aucune sur 2026-2027** — ce sont donc des lignes **importées** d'Access, la
+  pratique réelle de la faculté (un redoublant qui refait effectivement le stage, dont l'échec d'année
+  n'a jamais été enregistré : voir le trou `RegistrationStatus`, Phase 14.3). **PGSH n'a encore jamais
+  emprunté ce chemin** : 2026-2027 est sa première année planifiée et personne n'y a encore été
+  réinscrit *et* replanifié au même niveau.
+- **Aujourd'hui le remède est manuel** : générer le plan, puis retirer les affectations redondantes.
+  ⚠ Et il n'existe **aucune commande de suppression d'une affectation seule** — voir le trou de
+  flexibilité ci-dessus, c'est le même. `HANDOFF.md` A7.
+### ✅ La règle est tranchée (07/09/2026) : un stage acquis ne se ressert jamais
+Décision de l'utilisateur, en toutes lettres : « one stage is done means it is alright he wont do it
+again ». Un stage validé est **définitivement** acquis ; ce qui reste se poursuit à l'inscription
+suivante ; un stage échoué se règle par « Revalider ». **La répartition doit donc cesser de replacer
+un étudiant dans un stage qu'il détient déjà** — ce que le dossier affirmait déjà et que la
+planification ignorait.
+
+- ⚠ **Ceci ne contredit pas les 792 lignes importées.** Elles sont toutes sur des années dont le
+  verdict n'a jamais été prononcé (`Active`, le trou Phase 14.3) : là où l'échec d'année *est*
+  enregistré, `AnnulsItsStages` écarte déjà les tentatives de cette année, les réussies comprises,
+  et le redoublant refait bien tout. Les deux règles se composent — « acquis » veut dire « validé
+  dans une année que la faculté n'a pas annulée ».
+- **Mesuré le 07/09/2026 : appliquer le filtre aujourd'hui ne changerait *rien*.** Les seuls
+  redoublants des promotions planifiées de 2026-2027 sont **27 étudiants** (12 en 3ᵉ MED, 10 en 4ᵉ,
+  5 en 5ᵉ) et **toutes** leurs tentatives antérieures sont `NonÉvalué` : rien d'acquis, rien de dû.
+  Le filtre est donc à installer au moment le moins cher possible — il est un no-op sur la base
+  actuelle et correct dès la première année portant des notes.
+- ⚠ **Il devra *nommer* ce qu'il écarte**, jamais sauter en silence : « 3 étudiants non affectés :
+  stage déjà acquis ». `BulkResponse` porte déjà le résultat par ligne. Une promotion sortie un
+  étudiant plus courte ressemble exactement à une promotion de cette taille.
+- **Reporté, pas abandonné** : rien n'est écrit à ce jour, `HANDOFF.md` A7.

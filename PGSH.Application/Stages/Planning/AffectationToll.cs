@@ -54,9 +54,9 @@ internal sealed record AffectationToll(
 }
 
 /// <summary>
-/// Reads an <see cref="AffectationToll"/> over the three scopes that can strand or destroy
-/// affectations: some cohortes, one roster, a year's rosters. Shared so the roster-side acts and the
-/// cohorte-side acts cannot disagree about what a refusal is counting.
+/// Reads an <see cref="AffectationToll"/> over the scopes that can strand or destroy affectations:
+/// some cohortes, one roster, one promotion's rosters, a year's rosters. Shared so the roster-side
+/// acts and the cohorte-side acts cannot disagree about what a refusal is counting.
 /// </summary>
 internal sealed class AffectationTollReader(IApplicationDbContext dbContext)
 {
@@ -74,6 +74,18 @@ internal sealed class AffectationTollReader(IApplicationDbContext dbContext)
 
     public Task<AffectationToll> ForYearRostersAsync(int academicYearId, CancellationToken ct) =>
         ReadAsync(AssignmentsOfYearRostersQuery(dbContext, academicYearId), ct);
+
+    /// <summary>
+    /// One promotion's rosters — the scope a re-decoupage actually works at.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ <b>The level narrows the year, it does not replace it.</b> A promotion holds a roster set per
+    /// year, so a level-only read would count every year that promotion ever ran and refuse the act
+    /// over planning nobody is touching.
+    /// </remarks>
+    public Task<AffectationToll> ForPromotionRostersAsync(
+        int academicYearId, int levelId, CancellationToken ct) =>
+        ReadAsync(AssignmentsOfPromotionRostersQuery(dbContext, academicYearId, levelId), ct);
 
     /// <summary>
     /// One student's affectations inside one roster — what « changement de groupe » is about to
@@ -105,6 +117,13 @@ internal sealed class AffectationTollReader(IApplicationDbContext dbContext)
         dbContext.InternshipAssignments
             .AsNoTracking()
             .Where(a => a.Cohort.AcademicGroup.AcademicYearId == academicYearId);
+
+    internal static IQueryable<InternshipAssignment> AssignmentsOfPromotionRostersQuery(
+        IApplicationDbContext dbContext, int academicYearId, int levelId) =>
+        dbContext.InternshipAssignments
+            .AsNoTracking()
+            .Where(a => a.Cohort.AcademicGroup.AcademicYearId == academicYearId
+                     && a.Cohort.AcademicGroup.LevelId == levelId);
 
     internal static IQueryable<InternshipAssignment> AssignmentsOfRegistrationInRosterQuery(
         IApplicationDbContext dbContext, Guid registrationId, int academicGroupId) =>

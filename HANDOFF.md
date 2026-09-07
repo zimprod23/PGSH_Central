@@ -7,15 +7,22 @@
 >
 > | # | Do this | Why it is not done |
 > |---|---|---|
+> | **0ao** | **Redémarrer l'AppHost, puis ajouter « Santé Publique » et « Simulation Médicale » au CNPN 1650.25 de la 3ᵉ MED** — le sélecteur les offrira enfin (voir la session 51). ⚠ **Puis s'arrêter et lire la ligne suivante avant de toucher à la planification.** | Sans redémarrage l'API porte encore le plafond de page à 100 et `GET /stages?levelId=3&pageSize=200` répond **400** : la liste des stages revient vide et le champ reste grisé en disant « Tous les stages du niveau sont listés ». Rien à sauvegarder — enregistrer un CNPN n'écrit que `Curriculums`/`CurriculumStages`. |
+> | **0ap** | ⚠ **Poser les axes AVANT de répartir, maintenant que reposer un axe est gratuit.** Mesuré le 07/09/2026 après la remise à zéro : 2026-2027 porte **0 roster, 0 cohorte, 0 cellule**, et il reste **71 créneaux** — 5ᵉ MED (7 stages × 9 colonnes) et 5ᵉ Pharmacie (2 × 4). L'axe de la 3ᵉ MED a disparu avec son bloc. **Rien n'est publié nulle part**, donc `ApplyRotationCycleCommand` ne refusera sur aucune promotion : c'est exactement le moment où les nouvelles durées peuvent entrer dans la grille. | ⚠ **Une durée n'entre dans l'axe que par *k*ₛ**, jamais par une colonne plus large : les colonnes d'un axe ont toutes la même largeur, c'est ce qui rend le croisement possible. La 3ᵉ MED a maintenant **8 stages** au catalogue (30 j. pour Médecine et Chirurgie, 15 pour les six autres) : si les huit sont exigés par le texte, *T* = 2+2+1+1+1+1+1+1 = **10 colonnes de 15 jours**. ⚠ **Un stage exigé par le CNPN et sans créneau est dû et jamais servi** — donc l'ordre est : arrêter le texte (item 0ao), puis poser l'axe, puis découper, puis répartir, puis publier. [`docs/planning-rotation.md`](docs/planning-rotation.md). |
+> | **0ar** | **Repartir de zéro sur 2026-2027 : découper chaque promotion, poser son axe, répartir, publier.** Les **6 839** inscriptions de l'année sont toutes détachées (0 roster), donc `AutoArrangeGroupsCommand` les ramassera intégralement — c'est la condition qu'il exige et elle est remplie partout. Promotions à servir : 3ᵉ MED 933, 4ᵉ MED 925, 5ᵉ MED 842, 6ᵉ MED 701, 7ᵉ MED 1 347, 5ᵉ Pharma 212, 6ᵉ Pharma 314, plus les petites années. | ⚠ **La 7ᵉ MED a 0 stage au catalogue** — rien ne peut l'y placer, et ses 510 stages dus sont tous revalidables (item A7). ⚠ **L'historique importé est intact** : 13 793 cohortes, 98 555 affectations, 105 626 périodes sur les six années passées — la remise à zéro n'a touché que 2026-2027, ce qui est le comportement attendu et vérifié le 07/09/2026. Point de sauvegarde avant chaque « Générer le plan ». |
+> | **0aq** | **Redémarrer l'AppHost, puis dérouler `SMOKE-TEST.md` §53** — « Supprimer les groupes » est désormais scopé sur la promotion affichée. ⚠ **La base a été remise à zéro côté planification par l'utilisateur** (07/09/2026), donc les nombres de §51 et des items 0an / 0ap ne valent plus : les relire sur l'écran avant de s'en servir. | Sans redémarrage l'API ignore le nouveau `levelId` (un paramètre de requête inconnu ne se lie à rien) et l'acte reste annuel — donc toujours refusé dès qu'un étudiant est rattaché n'importe où dans l'année. ⚠ C'est un acte **destructeur** : il supprime les rosters **et leurs cohortes**. Point de sauvegarde avant, même sur une base sans planification. |
 > | **A1** | **Phase 18.2 — la restauration, pour de vrai.** 18.1 est **livré** (session 40) : dumps planifiés, points nommés, manifeste, plan de restauration chiffré, et la bannière « y a-t-il un retour en arrière ? » dans la déliberation, la réinscription et l'application d'un axe. Reste : **une restauration que quelqu'un a réellement exécutée** (contre une base de rebut), `pgsh-snapshot`/`pgsh-restore` en scripts hors API, l'assertion des effectifs en SQL, le volume **Keycloak**, et l'undo par acte pour la déliberation et le rouleau. | ⚠ **`BackupVerification.Restored` est une valeur que rien ne pose aujourd'hui** — l'application sait relire la table des matières d'une archive (`pg_restore -l`), ce qui attrape une archive tronquée et rien de plus. **Une sauvegarde que personne n'a restaurée est une hypothèse.** Et il n'y a **volontairement pas** de bouton « Restaurer » : un processus ne peut pas remplacer la base dont il se sert ; le plan affiche la commande, la pile arrêtée. `PHASES.md` §18.2, `SMOKE-TEST.md` §41. |
 > | **A2** | **Phase 17.1 — the mid-flight reschedule.** « On est en P3, peut-on changer P7 ? » ⚠ **Phase 17 itself is done (session 49)**, and it built the calendar half this needs: a promotion's window now joins its own `WorkingDayCalendar` and the axis laid afterwards steps over it, in jours ouvrables, with no date pushed onto any assignment. What remains is the *other* direction — moving a column that is **already published**. ⚠ **Measured on the live base 06/09/2026 and no longer a guess**: the 3ᵉ MED holds **804 published cells**, so « Appliquer l'axe » is disabled and `ApplyRotationCycleCommand` refuses on `PublishedCells > 0` — a promotion pause declared after publication therefore has **no remedy at all** today, and the preview now says so instead of prescribing a refused button. Today: no, and `UpdateStageSlotCommandHandler` is the dangerous half: it has **no published-guard at all** and rewrites a window without touching the périodes published from it. `SetCohortSlotAssignment` refuses on « the cohorte is published » where `PublishedCells.IsCellPublishedAsync` would answer « is *this cell* published », and `UnpublishCohortSchedule` has no period scope, so undoing P7 undoes P1-P10 and `Force` takes the marks and attendance with it. | Filed as `PHASES.md` §17.1 because "shift the later périodes *and their cells*" is one operation. ⚠ Phase 17's answer does **not** cover it: a declared window changes what a *future* axis is laid against, and says nothing about a column already published. ⚠ `SingleService` complicates all three: the *kₛ* cells fold into one `ServicePeriod`, so editing a column mid-run splits a stay. |
+> | **A3** | **Faire écrire les six actes destructeurs qui n'écrivent rien.** `DeleteAllCohortsCommand` (« Réinitialiser les cohortes »), `DeleteCohortCommand`, `UnpublishCohortScheduleCommand`, `UnpublishStageScheduleCommand`, `StageSlotCommands` : aucun ne porte `IAuditableCommand`. ✅ **`DeleteAllGroupsCommand` est sorti de cette liste le 07/09/2026** (session 52) — il écrit `YEAR_GROUPS_DELETED` / `PROMOTION_GROUPS_DELETED`, ce qui laisse **cinq** actes muets, tous du côté cohorte. Ce sont ceux qui suppriment affectations, périodes, **évaluations et présences** — « Dépublier » avec `Force` détruit les notes. Chaque entrée doit porter ce qui a été détruit (le `AffectationToll` est déjà calculé sur place). | ⚠ **Trouvé le 07/09/2026 en cherchant des données orphelines, et c'est la moitié manquante de la réponse.** La base est **propre** — 34 contrôles, 0 ligne dans chaque classe de résidu qui compte (`NOTES.md`, session 50) — mais le registre ne peut pas dire ce qui a été fait : `ROTATION_CYCLE_DELETED` est enregistré, « Réinitialiser les cohortes » ne l'est pas. La phase 20 avait comblé les cinq actes côté **roster** et laissé le côté **cohorte** entier. `PHASES.md` §20. |
+> | **A4** | **Distinguer, sur « Signalements », les absents encore `Active` des diplômés.** ✅ **La règle est tranchée (07/09/2026) et le comportement ne bouge pas** : le fichier Excel est la seule liste de ceux qui se réinscrivent, tout absent est exclu / diplômé / non pris en considération / une anomalie, et la page est le **registre** où on les garde — pas une file à vider. Ce qui reste est de la lisibilité : `RegistrationHoldsPage` filtre par raison et par état du signalement, **jamais par statut d'inscription**, donc les **49** absents encore `Active` ne se distinguent pas des **1 217** diplômés. | Petit : `RegistrationHoldResponse.RegistrationStatus` est **déjà envoyé** et déjà affiché sur la ligne ; il manque le filtre (et le compte par statut au-dessus de la liste). ⚠ Ne **pas** exempter les diplômés ni leur inventer une raison à part — la raison est la même, c'est le statut qui dit lequel des quatre cas c'est. `docs/year-closing.md`, section `RegistrationHold`. |
+> | **A7** | ✅ **Règle tranchée le 07/09/2026, à implémenter — « un stage acquis ne se ressert jamais ».** Trois pièces, dans cet ordre. **①** `StudentAffectationService` cesse de créer une affectation pour un stage que l'étudiant a déjà validé dans une année non annulée, en lisant **la même règle** qu'`OutstandingStageFinder` (une seule source, sinon deux écrans divergent sur « acquis »), et **nomme** ce qu'il écarte — « 3 étudiants non affectés : stage déjà acquis » — via le `BulkResponse` par ligne. **②** Généraliser « Revalider » en « servir un stage dû » : retirer la précondition `NothingToRevalidate` pour qu'un stage **jamais tenté** ou resté `NonÉvalué` puisse être confié, en gardant le refus sur un stage validé (= item 13). **③** Élargir « ce qu'il doit » à *exigé par le CNPN − validé* dans `OutstandingStageFinder` — le fichier dit déjà que c'est l'endroit naturel. | ⚠ **① est un no-op sur la base d'aujourd'hui, ce qui en fait le moment le moins cher pour l'installer** : les seuls redoublants des promotions planifiées de 2026-2027 sont **27 étudiants** dont **toutes** les tentatives antérieures sont `NonÉvalué`. ⚠ **② et ③ vont ensemble et attendent l'item 1** (les jeux d'exigences 1650.25) : tant que « dû » = « toutes les tentatives échouées », ce qui est dû est exactement ce qui est revalidable — c'est cohérent, et ③ seul créerait des dettes sans bouton. ⚠ **La 7ᵉ année n'est concernée par aucune des trois** : elle a 0 stage au catalogue, donc rien ne peut l'y replacer, et ses **510** stages dus (242 étudiants) sont **tous** revalidables aujourd'hui. `docs/progression.md`. |
+> | **A8** | **Faire saisir les 4 196 tentatives `NonÉvalué` des 7ᵉ année Médecine** — servies, jamais notées. **Ce n'est pas du code**, c'est l'import d'évaluations et la liste de travail des chefs. | ⚠ **C'est le vrai risque sur « ce qu'il lui reste »**, et il est invisible : un stage servi mais non noté n'est ni acquis (23 569 le sont) ni dû (510 le sont) — il est en limbes, sur aucune des deux listes. Le jour où la faculté tranche que « non noté » vaut « non fait », 4 196 lignes deviennent des dettes d'un coup, sur des étudiants qui se croyaient finis. Mesuré le 07/09/2026 sur les 1 347 inscrits de 7ᵉ MED 2026-2027. |
+> | **A5** | **Reprendre les cinq constats du balayage du 07/09/2026 laissés « à vérifier plus tard »** (`NOTES.md`, session 50 — chacun a sa requête) : ① **189 cohortes** dont le stage n'est pas de la promotion du roster (`Interne CHU Médecine` et `Retrait` n'ont aucun stage à eux — histoire réelle, mais elles se comptent dans deux promotions selon le chemin de lecture) ; ② **19 étudiants sans aucune inscription** (état supporté, mais invisibles de toute promotion et rien ne dit qu'ils sont incomplets) ; ③ **10 paires de périodes qui se chevauchent** pour un même étudiant, toutes issues de l'import Access ; ④ **10 631 périodes qui débordent la fin de leur année** (toutes *après* le 31 août — l'année COVID, surtout) ; ⑤ **36 346 inscriptions `Active` sur des années passées** (= le trou connu, Phase 14.3). | **Aucun n'est un résidu produit par PGSH** et aucun ne bloque quoi que ce soit aujourd'hui — c'est pourquoi ils sont ici et non plus haut. Le balayage complet (34 contrôles) est à **0** sur toutes les classes de résidu qui comptent : l'affectation qui survit au pointeur, le roster affiché vide qui porte encore des affectations, l'inscription rattachée à une autre année ou promotion, la cellule d'une autre cohorte. ⚠ ③ et ④ ne sont **pas** réparables sans une décision de la faculté : ce sont des faits enregistrés sur des années closes. |
 > | **0am** | **Relancer l'AppHost (migration `ExternalServices`), créer le service « Stage hors CHU — Kénitra », puis dérouler `SMOKE-TEST.md` §49.** Sans la migration l'API interroge une colonne qui n'existe pas et la liste des services répond **500**. Back **et** front sont faits : 31 tests neufs (1 650 verts), `tsc`, `eslint` et `npm run build` propres. Rien n'a été **cliqué**. | ⚠ **Aucun service externe n'existe dans la base** : le drapeau vaut `false` partout et rien de la phase n'est visible tant que la ligne n'est pas créée. La seule étape destructrice est §49.5 (elle supprime les rotations planifiées des étudiants nommés) — **point de sauvegarde avant**. Le contrôle qui compte est le `ConfirmedCount` : lancer l'aperçu, inscrire un étudiant de plus dans le roster depuis un autre onglet, appliquer → doit **refuser** en nommant les deux nombres, et n'écrire **rien**. `PHASES.md` §25. |
 > | 0ae | **Relancer l'AppHost, puis dérouler `SMOKE-TEST.md` §41.** Les routes `/api/backups*` n'existent pas dans un processus antérieur à cette session : le contrôle qui distingue « route absente » de « non authentifié » est que `safe-point` répond **404** sur l'ancien processus et **401** sans jeton. | Rien dans §41 n'écrit dans la base (un `pg_dump` est une lecture) — sauf les entrées d'audit `BACKUP_POINT_*`. Les deux étapes qui comptent : **arrêter Docker** et vérifier que le bandeau dit « service indisponible » et non « aucune sauvegarde », et **prendre un point depuis la bannière de la déliberation** sans perdre le fichier chargé. ⚠ Ne **pas** exécuter la commande de restauration sur la base vivante ; §18.2 est exactement ce qui manque pour l'éprouver proprement. |
-> | 0ac | **Répartir la 3ᵉ MED 2026-2027** — l'axe est posé, les cohortes ne le sont pas. Depuis « Bloc de rotation » ou la grille d'un stage : auto-répartir, puis publier. C'est le geste qui remplit « Charge des services ». | Fait 02/09/2026 : 6 partitions (A-F, 94 rosters, 933 inscrits, 0 non placé), **4 fêtes lunaires estimées** (non confirmées) et **36 créneaux** — 6 stages × 6 colonnes de **30 jours ouvrables exactement**, coupure de 2 jours, 01/09/2026 → 31/05/2027. ⚠ **Écrits en SQL, donc sans entrée d'audit** : `HolidayCommands` et `ApplyRotationCycleCommand` sont tous deux `IAuditableCommand` et l'automatisation du navigateur n'a pas tenu (le viewport se redimensionnait sous les clics). Même angle mort que l'item 0e. Sauvegarde : `pgsh-avant-axe-3med.dump` dans le conteneur. |
 > | 0ad | **Relancer l'AppHost** pour le pic corrigé et les barres empilées par promotion. Sans ça le document affiche encore « pic du 07/09 au 06/10 » (un mois pour un plateau de six) et des barres grises au lieu de la répartition 3ᵉ/4ᵉ année. Le repli est en place, donc la page fonctionne — elle est seulement moins juste. | Corrigé côté serveur : `PeakStart/PeakEnd` sont l'**enveloppe** du pic et non le premier intervalle qui l'atteint, `PeakDays` dit le temps réellement passé à ce niveau (les intervalles au pic ne sont pas contigus — l'axe 3MED a des coupures de 2 jours), et `Months[].Levels` porte le découpage par promotion lu sur l'intervalle de pic du mois. 1 407 tests verts. |
 > | 0aa | **RESTART the AppHost, then drive the two new backend-dependent screens.** The API process predates this session's build, so `GET /services/occupancy-report` 404s and `?status=` on `/students` is silently ignored (an unknown query param binds to nothing — the filter appears to do nothing rather than erroring). | Built and green (1 405 tests) but only one of the three features is verified in a browser: the student file's **Stages** tab reads endpoints that already existed and was walked end to end on Houda Aamoud — 21/21 stages, 3ᵉ année 2/6 with the other four « jamais tenté » and *not* « à revalider », which is the distinction the tab exists to draw. The status filter's dropdown renders with the right five verdicts; the **filtering** and the whole **Charge des services** report are unverified against a running API. |
 > | 0 | **Finish `SMOKE-TEST.md` §28 f/g**, then remove `SMOKETEST01`/`SMOKETEST02` from the base (SQL is in §28). | The session expired mid-step on 2026-08-30. **`PriorEnrolments` is still 0 rows**, so the équivalence — the whole reason the table exists, and the row a future widening of « ce qu'il doit » will depend on — has never been written outside a test. Everything else in §28 passes. |
-> | 0ai | **Découper et répartir la 6ᵉ MED 2026-2027** — 701 inscriptions, **0 roster**, donc rien à planifier et rien à placer. C'est le geste que `PlacementsPage` réclame en toutes lettres (« Cette promotion n'a aucun groupe »), et c'est la dernière promotion clinique de Médecine sans aucune planification pour l'année en cours. Ensuite **publier la 4ᵉ MED**, qui est répartie mais pas publiée (voir 0d). | Aucun signalement ne bloque : les 701 sont tous `Plannable`. La 6ᵉ année est entièrement couverte par le HMIMV (6/6, vérifié à l'écran 04/09/2026), donc les demandes nominatives « tout au militaire » y sont satisfaisables — et c'est la promotion où la faculté l'a déjà fait cinq fois en 2024-2025. ⚠ Prendre un point de sauvegarde avant : « Générer le plan » écrit cohortes, affectations et cellules pour toute la promotion. |
 > | 0ak | **Redémarrer l'AppHost (migration `StageAllowedServiceRank`), puis dérouler `SMOKE-TEST.md` §44** — l'ordre des services d'un stage est désormais **choisi** et c'est lui qui décide quels groupes vont où. Rien du tableau n'a été piloté au navigateur. | Serveur couvert par 19 tests, dont 5 par le vrai pipeline HTTP, et la morsure vérifiée deux fois (casser l'ordre → 2 échecs ; casser la garde de permutation → 3 échecs). ⚠ La migration **remplit le rang depuis `ORDER BY "ServiceId"`**, donc l'appliquer ne change aucun plan existant — mais sans elle l'index unique `(StageId, Rank)` échoue d'entrée, les 146 lignes portant toutes 0. L'étape 5 est la seule qui écrit des cellules : point de sauvegarde avant. |
 > | 0c | **Restart the API and re-check one caption** — the exports' « N inscription(s) » printed « 5.932 » because `:N0` used the host's `CurrentCulture`. Fixed to `ExportLabels.Fr`, but the running process predates the fix. | Cosmetic and confined to the caption row — the cells are typed values, not formatted strings — but it is a document that leaves the system, and « 5.932 » reads as five-point-nine-three-two. |
 > | 0b | **Click « Supprimer le bloc » once** (same as item 2), and re-check the two cosmetic fixes from §29 in a browser. | `SMOKE-TEST.md` §29 ran 2026-08-30: steps 0-6 **pass** against the live base, store provably unchanged after every refusal. Step 7 was **not** run — the base holds 0 published cells, so it would *succeed* and destroy a real axis. The double-toast removal and the « nomme l'année » fix are type-clean but were not re-driven through the UI (the year picker stopped responding to automation). |
@@ -35,6 +42,167 @@
 > | 18 | **The pre-validation export.** | Agreed with the user as a second document: the same population without the note/verdict columns, showing where everyone *is going*. `onlyEvaluated` is already the switch and `ExportWorkbook` already the shape, so it is a column set and a caption, not a second pipeline. Deferred deliberately — the post-validation one was the ask. |
 >
 >
+
+> ✅ **Vérifié au navigateur sur la base vivante, le 07/09/2026**, après redémarrage par
+> l'utilisateur. **§52 est passé** :
+>
+> - **CNPN 1650.25 / 3ᵉ MED → « Modifier le texte »** : le champ « Ajouter un stage » est **actif**
+>   et lit « Choisir un stage » ; il propose **Santé Publique** et **Simulation Médicale**, les deux
+>   seules du niveau absentes du texte. C'était la panne signalée, et elle est levée.
+> - **Aucun bandeau à l'ouverture.** « Données invalides · One or more validation errors occurred »
+>   se déclenchait exactement là, à chaque ouverture.
+> - **Le repère du catalogue nomme le texte qui diverge** (`Admin → Stages`, MED3 Chirurgie) :
+>   colonne **Durée** → « **2174.18** — durée différente du catalogue », `= 1650.25 : 30j`,
+>   `≠ 2174.18 : 66j` ; colonne **Coefficient** → « **1650.25** — coefficient différent du
+>   catalogue », `≠ 1650.25 : 1`, `= 2174.18 : 3`. Les deux repères désignent des textes
+>   **différents**, ce qui est toute la réponse au signalement.
+> - **Le tableau de comparaison confirme la lecture SQL** : Chirurgie et Médecine « recoté » 3 → 1
+>   et 66 → 30 ; les quatre autres « ajouté », coef 1, 15 j.
+>
+> ⚠ **Rien n'a été écrit** — les deux stages n'ont **pas** été ajoutés au texte (c'est la décision
+> 0ap), et le tiroir d'un stage a été fermé sans enregistrer. Vérifié en base : les 8 stages de MED3
+> portent toujours **0 objectif**.
+>
+> ⚠ **Un défaut trouvé à l'écran et corrigé** : le repère lisait « coefficient différent**e** du
+> catalogue » — accord au féminin sur un nom masculin. La phrase porte désormais son propre accord.
+> Revérifié au navigateur après rechargement. `tsc` et `eslint` propres.
+>
+> ⚠ **§53 n'a pas pu être déroulé** : l'année 2026-2027 porte **0 roster**, donc le bouton ne
+> s'affiche pas (`totalCount > 0` le conditionne). Il faut découper deux promotions d'abord — c'est
+> l'item 0ar, et c'est un clic de l'utilisateur.
+>
+> ⚠ **Une étape du smoke-test était fausse et a été corrigée** : §52.7 prescrivait de provoquer un
+> 400 avec un objectif au libellé vide. `StagesPage.handleSave` **filtre** ces objectifs avant
+> l'envoi, donc la requête ne part pas. Le contrôle réel est passif (aucun bandeau) et la
+> démonstration est côté serveur.
+
+## Session 52 — 2026-09-07 · Le dernier acte de roster qui sautait à l'année
+
+Signalement : « supprimer les groupes d'une promotion répond *One or more groups in this year have
+students assigned* — mais quand j'ai vidé les groupes de **toutes** les promotions et réessayé, ça a
+marché. Il y a un problème de portée sur les actions de groupe. » C'est exact, et c'était l'item A6.
+
+- **Le défaut.** `DeleteAllGroupsCommand` ne prenait qu'un `AcademicYearId`. Tous les autres actes de
+  roster sont par promotion — le découpage, la répartition, le bloc, et « Vider » depuis la
+  session 50 — parce qu'un roster est clé (année, promotion, numéro). Supprimer était le dernier à
+  sauter directement à l'année : la garde lisait les inscriptions de **toute** l'année, donc elle
+  refusait sur les étudiants d'autres promotions, et la seule issue était de vider l'année entière.
+- **Et le refus ne disait rien d'utilisable.** C'était un `Error.Conflict` écrit sur place, en
+  anglais, formulé à l'échelle de l'année sur un acte joué à l'échelle d'une promotion, et **sans
+  aucun nombre**. Côté écran, `GroupsPage` remplaçait par-dessus la phrase du serveur par une devinette
+  (« des étudiants sont affectés **ou** des affectations ont démarré ») — deux bandeaux, aucun fait.
+- **Livré** : `DeleteAllGroupsCommand.LevelId` (optionnel, narrows), refus nommant la portée et
+  comptant ce qui bloque (`AcademicGroups.HasStudents` porte désormais le nombre d'étudiants **et** de
+  groupes ; `AcademicGroups.PromotionRostersUnderway` est le jumeau par promotion de
+  `YearRostersUnderway`), niveau inconnu → `Levels.NotFound`, et **deux codes d'audit distincts**
+  `YEAR_GROUPS_DELETED` / `PROMOTION_GROUPS_DELETED` — l'acte n'écrivait **rien** au registre jusque-là
+  (moitié de l'item A3). `DELETE /groups/all?academicYearId=&levelId=`. Côté écran le bouton, son
+  info-bulle et sa confirmation disent leur portée, comme « Vider », et le client ne réécrit plus la
+  phrase du serveur.
+- ⚠ **Le prédicat de portée est extrait** (`RosterScope.Query`) et partagé par les deux actes. Ils
+  posaient la même question en y répondant séparément — c'est exactement comme ça que l'un a reçu la
+  portée par promotion en session 50 et l'autre non. Épinglé par `SqlTranslationTests` (`LevelId` est
+  **nullable** : « Non réparti » n'est d'aucune promotion, donc la comparaison est levée, pas traduite
+  telle quelle — et un acte scopé promotion l'enjambe, ce qui est la bonne coupure).
+- ⚠ **Un `ExecuteDelete` final relisait l'année** au lieu des rosters déjà sélectionnés. Corrigé —
+  il aurait supprimé les rosters de toutes les promotions après un contrôle qui n'en avait regardé
+  qu'une. **Cette ligne-là n'est couverte par aucun test** : le fournisseur en mémoire refuse
+  `ExecuteDelete`, donc seul Testcontainers (item 9) pourrait la voir.
+
+**Tests** : 4 cas neufs sur le handler + 1 de traduction SQL, **1 712 verts**. Morsure vérifiée :
+portée retirée de la sélection des rosters → le cas tombe, restaurée → verts. `tsc`, `eslint`,
+`npm run build` propres. ⚠ **Rien n'a été cliqué** — item 0aq.
+
+## Session 51 — 2026-09-07 · Un plafond écrit deux fois, et un refus que personne ne pouvait lire
+
+Signalement : « le CNPN ne veut toujours pas qu'on ajoute un stage ; j'ai créé Santé Publique et
+Simulation Médicale en MED03 ; j'ai mis Médecine et Chirurgie à 30 jours et les autres à 15 ;
+pourquoi j'ai une icône d'avertissement sur le stage alors que je l'ai alignée sur le CNPN, dans le
+même CNPN ; et ça affiche toujours *Données invalides — One or more validation errors occurred* ».
+
+**Quatre symptômes, trois défauts, et un quatrième point qui n'en est pas un.**
+
+- ⚠ **Le sélecteur du CNPN était vide parce que la requête était refusée.** `CurriculumEditor` demande
+  le catalogue du niveau en une page — `GET /stages?levelId=3&pageSize=200`. La règle du plafond
+  existait **deux fois** : `QueryableExtensions.MaxPageSize` = **200**, qui *écrête* (la réponse
+  garde le vrai `TotalCount`, rien n'est caché), et quatre validateurs qui écrivaient chacun leur
+  propre **100** à la main, et qui *refusaient*. La requête répondait **400** à chaque ouverture, la
+  liste revenait vide, `addable` était vide, et le champ s'affichait désactivé avec la phrase
+  « Tous les stages du niveau sont listés » — qui veut dire l'exact contraire de ce qui se passait.
+  Livré : `PaginationRules.IsAPageSize()` / `.IsAPageNumber()`, un seul nombre, lu depuis la seule
+  autorité ; côté client `MAX_PAGE_SIZE` nomme le même nombre une fois.
+- ⚠ **Et le refus ne pouvait pas être lu.** `Results.Problem(extensions: …)` remplit
+  `ProblemDetails.Extensions`, qui est `[JsonExtensionData]` : les membres sont écrits **à plat**,
+  comme la RFC 7807 le prescrit pour les membres d'extension. Le type `ApiError` déclarait
+  `extensions.errors`, donc `errorMiddleware` ne trouvait jamais le tableau et **tout** refus de
+  validation affichait « Données invalides · One or more validation errors occurred » — la phrase
+  fixe de `ValidationError`, qui ne nomme ni champ ni règle. `StagesPage` lisait la vraie forme
+  depuis le début ; le middleware derrière elle, non. ⚠ Corollaire trouvé au passage :
+  `StageDetailPage.extractErrorCode` ne lisait que `errors[0].code`, alors qu'un refus ordinaire
+  (`Error.Conflict("Schedule.AlreadyPublished", …)`) ne produit **aucun** tableau `errors` — son code
+  est dans `title`. Les deux branches étaient du code mort et « Publier » disait toujours
+  « Erreur lors de la publication du planning ».
+- **L'icône d'avertissement avait raison, et elle était illisible.** Lu sur la base le 07/09/2026 :
+  MED3 Chirurgie et Médecine lisent 30 j. au catalogue **et** dans 1650.25 — l'alignement de
+  l'utilisateur a bien été enregistré — mais **66** dans 2174.18, et le coefficient est **3** au
+  catalogue contre **1** dans 1650.25. Le repère signalait donc l'*autre* texte et l'*autre* chiffre.
+  `StageCatalogueFigure` nomme désormais le ou les codes qui divergent et marque chaque ligne `≠`/`=`.
+  ⚠ **Second défaut au même endroit** : `saveCurriculum` n'invalidait pas `Stage/LIST` alors que
+  c'est la ligne du catalogue qui porte `textFigures` — le repère survivait à la modification qui
+  l'aurait résolu. Les deux sens sont câblés.
+- ✅ **Le CNPN lui-même n'avait aucun défaut.** `SaveCurriculumCommandHandler` accepte l'ajout d'un
+  stage sans réserve ; ses quatre gardes (programme, portée du texte, stage d'un autre niveau, stage
+  inconnu) sont justes et aucune n'était atteinte. Il n'y avait rien à « débloquer » côté règle.
+
+**Tests** : 6 cas neufs (`PaginationBoundsEndpointTests`, par le vrai pipeline HTTP, plafond compris
+sur `/stages`, `/levels` et `/students`), **1 706 verts**. Morsure vérifiée : plafond remis à 100 →
+3 cas tombent, restauré → verts. `tsc`, `eslint` et `npm run build` propres.
+
+⚠ **Rien n'a été cliqué**, et l'API tourne sur un processus antérieur — items **0ao** et **0ap**.
+
+## Session 50 — 2026-09-07 · Une garde qui avait raison, dans une portée qui n'était pas la sienne
+
+Signalement : « on avait convenu que réinitialiser les cohortes et supprimer le bloc de rotation
+effacent toute la planification d'un stage — je l'ai fait, et vider un groupe me répond **11 916
+affectations / 11 407 périodes** ».
+
+**Ce que la base disait** (lu le 07/09/2026, aucune écriture) :
+
+| promotion 2026-2027 | rosters | inscrits | cohortes | affectations | périodes |
+|---|---|---|---|---|---|
+| **4ᵉ Médecine** | 116 | 925 | **0** | **0** | **0** |
+| 3ᵉ Médecine | 134 | 933 | 804 | 5 598 | 4 665 |
+| 5ᵉ Médecine | 121 | 842 | 847 | 5 894 | 5 894 |
+| 5ᵉ Pharmacie | 71 | 212 | 142 | 424 | 848 |
+
+5 598 + 5 894 + 424 = **11 916**, et 4 665 + 5 894 + 848 = **11 407** : les nombres du refus, au
+chiffre près. La promotion sur laquelle l'utilisateur travaillait — la 4ᵉ MED, dont
+`ROTATION_CYCLE_DELETED` porte l'heure (10h31) — ne portait **rien**. Il était refusé sur la
+planification de trois autres promotions.
+
+- ⚠ **Deux malentendus, et un seul est un défaut.** Supprimer le bloc de rotation retire les
+  `StageSlot` et cascade les **cellules** ; une affectation pend à la **cohorte** et lui survit. Seul
+  « Réinitialiser les cohortes » efface des affectations, et c'est par (stage, année). Cela, c'est le
+  modèle, et il est juste — [`docs/planning-rosters.md`](docs/planning-rosters.md) le dit maintenant à
+  l'endroit où on lit l'ordre de démontage.
+- **Le défaut : « Vider » n'avait aucune portée entre un roster et l'année entière.** Tous les autres
+  actes sur les rosters sont par promotion — le découpage, la répartition en groupes, le bloc — et
+  `AutoArrangeGroupsCommand` ne ramasse que les inscriptions dont `AcademicGroupId` est **null** :
+  re-découper une promotion **exige** de vider ses rosters d'abord. C'était le seul acte à sauter
+  directement à l'année. Et la page portait un filtre **Niveau** que le bouton d'à côté ignorait.
+- **Livré** : `EmptyAllYearGroupsCommand.LevelId` (optionnel, narrows), lu par
+  `AffectationTollReader.ForPromotionRostersAsync`, refus nommant la promotion
+  (`AcademicGroups.PromotionRostersHaveAffectations`), code d'audit **`PROMOTION_GROUPS_EMPTIED`**
+  distinct — un registre qui appelle les deux actes pareil ne peut pas dire lequel a été joué.
+  `DELETE /groups/all/students?academicYearId=&levelId=`. Côté écran, le bouton et sa confirmation
+  **disent leur portée** : « Vider la promotion » quand le filtre est posé, « Vider toute l'année »
+  sinon, avec la phrase qui invite à filtrer.
+- ⚠ **Un niveau inconnu refuse** (`Levels.NotFound`) au lieu de retomber sur « aucun niveau nommé » :
+  c'est l'élargissement-sur-absence, sur le seul acte ici qui écrit à l'échelle d'une année.
+- **Tests** : 3 cas neufs (2 sur le handler, 1 sur la traduction SQL de la requête à deux sauts avec
+  `LevelId` nullable), **1 700 verts**. Morsure vérifiée : garde dé-scopée → le cas tombe.
+  ⚠ Le succès reste couvert « il a atteint l'écriture » — `ExecuteUpdate` n'existe pas sur le
+  fournisseur en mémoire, et écrit en `IsSuccess` le cas serait inatteignable.
 
 ## Session 49 — 2026-09-06 · Une semaine d'examens appartient à une promotion, et elle ne pousse aucune date
 
