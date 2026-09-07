@@ -75,8 +75,9 @@ public static class DependencyInjection
         services.AddScoped<EvaluationObjectiveResolver>();
         services.AddScoped<EvaluationImportPlanner>();
         services.AddScoped<PGSH.Application.Stages.Delocalization.DelocalizationVerdictWriter>();
-        services.AddScoped<PGSH.Application.Stages.Delocalization.Bulk.DelocalizationTargetResolver>();
+        services.AddScoped<PGSH.Application.Students.Selection.StudentSelectionResolver>();
         services.AddScoped<PGSH.Application.Stages.Delocalization.Bulk.BulkDelocalizationPlanner>();
+        services.AddScoped<PGSH.Application.AcademicGroups.BulkAssignment.BulkRosterAssignmentPlanner>();
         services.AddScoped<DeliberationPlanner>();
         services.AddScoped<ReinscriptionPlanner>();
         services.AddScoped<ReinscriptionSheetPlanner>();

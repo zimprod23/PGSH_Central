@@ -162,6 +162,24 @@ Route: `/student/services/:serviceId`. Loaded lazily in `routes/index.tsx`. Entr
 
 ## Non-Obvious Technical Observations
 
+### `RotationArranger` reports saturation, it does not respect it (measured 2026-09-07)
+Two facts about the arranger that decide what a hand-placed cell can and cannot survive, both read
+off the code rather than inferred:
+
+- **Its deletion is scoped to the cohorts it targets** —
+  `.Where(a => targetCohortIds.Contains(a.CohortId) && slotIds.Contains(a.StageSlotId))`. So a roster
+  carrying a partition label the run does not tick keeps its cells, pinned or not. That is the whole
+  interim procedure for a reserved placement (`PHASES.md` §19.2), and its fragility is that
+  « Générer le plan » sends the *whole* matrix and therefore targets every partition.
+- ⚠ **`saturatedServices` is computed after `SaveChangesAsync`, as a report.** The placement itself
+  — `BuildServiceQueue` and the tiling — weights each service by `CapacityFor(levelId)` and never
+  reads live occupancy. So the arranger will stack a partition on top of a service another partition
+  already fills, then tell you N services are saturated; publication refuses afterwards. **A service
+  cannot be reserved by filling it first** — the arranger does not look.
+
+This is why « ces services sont réservés à ces étudiants » needs a declaration
+(`StageAllowedService.PlacementMode`) rather than an arrangement of the data.
+
 ### TPH means StudentId == UserId
 The `User` table uses Table-Per-Hierarchy (TPH) with a `UserType` discriminator. A student's `Guid Id` is the same as their `User.Id`. There is no separate `Students.Id` column — it's the inherited PK. Querying `dbContext.Students` hits the `Users` table with `WHERE UserType = 'Student'`.
 

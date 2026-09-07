@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
 using PGSH.Application.Extensions;
@@ -48,6 +48,7 @@ internal sealed class GetAcademicGroupsQueryHandler(IApplicationDbContext dbCont
                     g.AcademicYearId,
                     g.AcademicYear.Label,
                     g.RotationGroup,
+                    g.Purpose,
                     g.LevelId,
                     g.Level != null ? g.Level.Label : null,
                     g.Registrations.Count),

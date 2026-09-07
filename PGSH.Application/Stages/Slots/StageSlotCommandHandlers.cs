@@ -1,4 +1,4 @@
-using FluentValidation;
+﻿using FluentValidation;
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
@@ -176,7 +176,13 @@ internal sealed class SetCohortSlotAssignmentCommandHandler(
         {
             // Only the service changes; the group already occupies this period legitimately, so
             // there is nothing new to conflict with.
+            //
+            // ⚠ And the cell becomes pinned whether or not it already was: overwriting a service the
+            // arranger chose IS the human decision, so leaving it Arranged would let the next
+            // auto-arrange undo the correction that was just made — the exact defect the marker
+            // exists to close, arrived at from the other direction.
             existing.ServiceId = request.ServiceId;
+            existing.Source    = CellSource.Pinned;
             await dbContext.SaveChangesAsync(cancellationToken);
             return existing.Id;
         }
@@ -191,6 +197,7 @@ internal sealed class SetCohortSlotAssignmentCommandHandler(
             CohortId    = request.CohortId,
             StageSlotId = request.StageSlotId,
             ServiceId   = request.ServiceId,
+            Source      = CellSource.Pinned,
         };
 
         dbContext.CohortSlotAssignments.Add(assignment);

@@ -39,4 +39,16 @@ public sealed class CohortSlotAssignment
     public StageSlot StageSlot { get; set; } = default!;
     public int ServiceId { get; set; }
     public Service Service { get; set; } = default!;
+
+    /// <summary>
+    /// Whether the rotation wrote this cell or a human chose it. ⚠ <c>Arranged</c> by default, so
+    /// every cell written before this column existed keeps the meaning it had.
+    /// </summary>
+    public CellSource Source { get; set; } = CellSource.Arranged;
+
+    /// <summary>
+    /// A pinned cell is a human's decision, and the arranger treats it exactly as it treats a
+    /// published one — never deleted, never rewritten, excluded from the column being balanced.
+    /// </summary>
+    public bool IsPinned => Source == CellSource.Pinned;
 }

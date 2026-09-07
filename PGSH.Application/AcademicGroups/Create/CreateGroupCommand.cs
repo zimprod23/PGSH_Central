@@ -1,4 +1,4 @@
-using FluentValidation;
+﻿using FluentValidation;
 using PGSH.Application.Abstractions.Messaging;
 
 namespace PGSH.Application.AcademicGroups.Create;
@@ -8,7 +8,8 @@ public sealed record CreateGroupCommand(
     int     AcademicYearId,
     int?    LevelId,
     string? GeographicZone,
-    string? RotationGroup) : ICommand<int>, IAuditableCommand
+    string? RotationGroup,
+    string? Purpose = null) : ICommand<int>, IAuditableCommand
 {
     public string AuditAction => "GROUP_CREATED";
     public string AuditEntityType => "AcademicYear";
@@ -20,7 +21,8 @@ public sealed record CreateGroupCommand(
     public string? AuditMetadata => AuditMetadataJson.Of(
         ("label", Label),
         ("levelId", LevelId),
-        ("rotationGroup", RotationGroup));
+        ("rotationGroup", RotationGroup),
+        ("purpose", Purpose));
 }
 
 internal sealed class CreateGroupCommandValidator : AbstractValidator<CreateGroupCommand>
@@ -31,5 +33,6 @@ internal sealed class CreateGroupCommandValidator : AbstractValidator<CreateGrou
         RuleFor(x => x.AcademicYearId).GreaterThan(0);
         RuleFor(x => x.GeographicZone).MaximumLength(200).When(x => x.GeographicZone is not null);
         RuleFor(x => x.RotationGroup).MaximumLength(10).When(x => x.RotationGroup is not null);
+        RuleFor(x => x.Purpose).MaximumLength(300).When(x => x.Purpose is not null);
     }
 }

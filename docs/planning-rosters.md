@@ -1,4 +1,4 @@
-# Planning — rosters, partitions, and taking a plan apart
+﻿# Planning — rosters, partitions, and taking a plan apart
 
 > Read before touching `AcademicGroup`, partition labels, pauses, or any act that unpublishes, clears or deletes part of a plan.
 >
@@ -297,6 +297,54 @@ a column mid-run splits a stay rather than editing a row. `PHASES.md` §17.1.
   `GET /groups` at `pageSize: 200`; a promotion adds ~100 rosters a year, so past 200 every number on
   that tab reads low — including the one whose whole job is to say a gap-fill is owed. Raising the
   page size moves the cliff. The aggregate is computed where the rows are.
+
+## ✅ Composing a roster from a list, in one act (2026-09-07)
+
+`AcademicGroups/BulkAssignment/` — `PreviewBulkRosterAssignmentQuery` /
+`ApplyBulkRosterAssignmentCommand`, both running **one** `BulkRosterAssignmentPlanner`.
+`POST groups/assign/bulk/preview` and `POST groups/assign/bulk`, journalised
+`STUDENTS_ASSIGNED_TO_ROSTER`.
+
+**Why.** A partner hospital takes the students who volunteered for it, and a nominative placement
+request is answered by a **roster** ([`planning-rotation.md`](planning-rotation.md)). Composing that
+roster was one dialog per student, so a list of a hundred was a hundred dialogs — which is how a real
+list stops being used at all. Everything downstream already worked.
+
+- ⚠ **Two verbs, decided per student, and frozen in the plan.** In no roster → *attached*
+  (`StudentAffectationService` + `LateArrivalScheduler`, what « affecter à un groupe » does); already
+  in a roster → *moved* (`StudentGroupRelocator`, « changement de groupe », no trace). Deciding at
+  apply time by re-reading the row would let the answer change between what the operator confirmed
+  and what runs.
+- **The guards are the single acts' own, read the same way.** Engagement is
+  `AffectationToll.IsUnderway` **narrowed to the source roster**, exactly as the relocator narrows it
+  — a revalidation placed by hand into another cohorte is not the roster's doing and has no business
+  refusing this. ⚠ But read **in one batch**: asked per student it is one round trip each, on the act
+  whose whole reason for existing is that a hundred of anything is too many.
+- **Nine row states**: `WillJoin`, `WillMove`, `AlreadyThere`, `Underway` (→ use a transfer, which
+  carries the running rotation across and keeps the trace), `TargetMissingStage`, `WrongPromotion`,
+  `CursusEnded`, `NotFound`, `WrongYear`. ⚠ **`AlreadyThere` is neither applicable nor a refusal**:
+  re-sending a corrected list is the normal way the act is used, so most of a second run lands there,
+  and counting it as a refusal would read as a run that failed.
+- ⚠ **`WrongPromotion` is its own answer.** A roster is keyed (année, niveau, numéro), so a 4ᵉ année
+  on a 5ᵉ année list is refused and named, never folded in — and it is distinct from `WrongYear`,
+  because a student on the wrong promotion's list and one on the wrong year's are two different
+  corrections.
+- ⚠ **« Non réparti » is never a destination.** The bucket belongs to no promotion and carries no
+  cohorte, so affectations would have nowhere to land while the file says the students are somewhere.
+- **It moves students and places nobody.** Which service the roster goes to is the grid's answer — a
+  pinned cell on a reserved service — with its own guards, its own audit entry and its own
+  published-cells refusal.
+- Refusals first, 200 rows at most, **every count measured before the cap**, `ConfirmedCount` at the
+  apply. Who is named comes from the shared `StudentSelectionResolver`.
+
+⚠ **`AcademicGroup.Purpose` is what makes the roster still legible next year.** « Volontaires Kénitra
+(GST), formulaire du 12/09 ». Nothing else records why a roster exists: the only evidence that roster
+102 was the military one is the pattern of its cells, and a re-découpage dissolves it without
+anything saying what was lost.
+
+⚠ **Number the volunteer rosters contiguously.** `GroupNumberRanges` folds *roster numbers* into
+runs, so thirteen rosters numbered 48-60 print « 48-60 » and the same thirteen scattered through the
+promotion print as a spray of singletons.
 
 ## « Retrait » is a status wearing a level's clothes — `Level.IsPromotion`
 The Access base used `CODE_N = 'MED00'` to mark a **withdrawal** rather than a year of study, and

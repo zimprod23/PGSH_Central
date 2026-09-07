@@ -10,8 +10,26 @@ namespace PGSH.Application.Stages.Planning;
 /// already placed in an overlapping period of another stage — the normal signal that an arrange was
 /// run across every partition where it should have targeted one.
 /// </summary>
+/// <param name="PinnedCellsKept">
+/// Cells the run left exactly as they were because a human had chosen them. ⚠ Reported for the same
+/// reason as <c>SkippedAlreadyServed</c>: an act that deliberately writes fewer cells than it was
+/// asked for must say how many it withheld, or a nominative placement surviving reads as an arrange
+/// that half failed — and, worse, its silent destruction would have read as one that worked.
+/// </param>
+/// <param name="ReservedServices">
+/// Authorised services withheld from the pool because they are held for named rosters. ⚠ Their
+/// capacity left <paramref name="TotalCapacity"/> with them, so « il manque N places » is measured
+/// against a smaller ceiling on purpose; a promotion quietly losing places is the defect this
+/// number exists to prevent.
+/// </param>
 public sealed record RotationArrangeResult(
-    int Assigned, int SaturatedServices, int TotalStudents, int TotalCapacity, int GroupConflicts = 0);
+    int Assigned,
+    int SaturatedServices,
+    int TotalStudents,
+    int TotalCapacity,
+    int GroupConflicts = 0,
+    int PinnedCellsKept = 0,
+    int ReservedServices = 0);
 
 /// <summary>
 /// Capacity-proportional cyclic rotation of cohorts across services within one
@@ -74,15 +92,33 @@ internal sealed class RotationArranger(
         //
         // ThenBy(Id) is the pre-Rank behaviour and is what an unranked row falls back to, so a stage
         // nobody has ordered arranges exactly as it did before.
-        var rankByService = await AllowedServices.ServiceRankWriter.RanksQuery(dbContext, stageId)
-            .ToDictionaryAsync(x => x.ServiceId, x => x.Rank, cancellationToken);
+        var authorisations = await AllowedServices.ServiceRankWriter.AuthorisationsQuery(dbContext, stageId)
+            .ToDictionaryAsync(x => x.ServiceId, cancellationToken);
 
-        var services = stage.AllowedServices
+        int RankOf(int serviceId) =>
+            authorisations.TryGetValue(serviceId, out var a) ? a.Rank : 0;
+
+        // ⚠ A service missing from the join rows cannot happen — the skip navigation is those rows —
+        // but the default has to be the permissive one anyway: a service the rotation refuses to use
+        // on the strength of a lookup miss would empty a promotion's pool without saying why.
+        bool ParticipatesInRotation(int serviceId) =>
+            !authorisations.TryGetValue(serviceId, out var a) || a.ParticipatesInRotation;
+
+        // Reserved services are held for named rosters and only a pinned cell puts anybody there, so
+        // they leave the pool entirely — and their capacity leaves totalCapacity with them, which is
+        // why the count is carried into the result rather than dropped.
+        var candidates = stage.AllowedServices
             // Belt and braces: an external service can no longer be added to the list, but a row
             // authorised before the flag existed must not become a column of the rotation.
             .Where(s => !s.IsExternal)
             .Where(s => s.Admits(levelId))
-            .OrderBy(s => ServiceRotationOrder.SortKeyOf(rankByService.GetValueOrDefault(s.Id)))
+            .ToList();
+
+        int reservedServices = candidates.Count(s => !ParticipatesInRotation(s.Id));
+
+        var services = candidates
+            .Where(s => ParticipatesInRotation(s.Id))
+            .OrderBy(s => ServiceRotationOrder.SortKeyOf(RankOf(s.Id)))
             .ThenBy(s => s.Id)
             .Select(s => new ServiceInfo(s.Id, s.CapacityFor(levelId)))
             .Where(s => s.Capacity > 0)
@@ -90,7 +126,9 @@ internal sealed class RotationArranger(
 
         if (services.Count == 0)
             return Result.Failure<RotationArrangeResult>(
-                StageErrors.NoServicesAdmitLevel(stage.Name, levelLabel));
+                reservedServices > 0
+                    ? StageErrors.AllServicesReserved(stage.Name, levelLabel, reservedServices)
+                    : StageErrors.NoServicesAdmitLevel(stage.Name, levelLabel));
 
         int totalCapacity = services.Sum(s => s.Capacity);
 
@@ -142,7 +180,8 @@ internal sealed class RotationArranger(
         var cohorts = await CohortsQuery(dbContext, stageId, academicYearId).ToListAsync(cancellationToken);
 
         if (cohorts.Count == 0)
-            return Result.Success(new RotationArrangeResult(0, 0, 0, totalCapacity));
+            return Result.Success(new RotationArrangeResult(
+                0, 0, 0, totalCapacity, ReservedServices: reservedServices));
 
         // ⚠ The cut is read from the PROMOTION, not from this stage's cohorts. PartitionAllocator
         // takes "the existing partition count" from the labels it is shown, and a stage routinely
@@ -206,7 +245,9 @@ internal sealed class RotationArranger(
                 return Result.Failure<RotationArrangeResult>(
                     StageErrors.PromotionNotPartitioned(stage.Name, levelLabel));
 
-            return Result.Success(new RotationArrangeResult(0, 0, cohorts.Sum(c => c.StudentCount), totalCapacity));
+            return Result.Success(new RotationArrangeResult(
+                0, 0, cohorts.Sum(c => c.StudentCount), totalCapacity,
+                ReservedServices: reservedServices));
         }
 
         // Partition order first (A→B→C…), then group number — keeps each partition's
@@ -247,16 +288,27 @@ internal sealed class RotationArranger(
         // while its newly-added periods can still be arranged.
         var existingCells = await dbContext.CohortSlotAssignments
             .Where(a => targetCohortIds.Contains(a.CohortId) && slotIds.Contains(a.StageSlotId))
-            .Select(a => new { a.Id, a.CohortId, a.StageSlotId })
+            .Select(a => new { a.Id, a.CohortId, a.StageSlotId, a.Source })
             .ToListAsync(cancellationToken);
 
         // ⚠ Via the coverage table, never via ServicePeriod.CohortSlotAssignmentId: that FK names only
         // the first cell of a run, so under SingleService the trailing cells of a published run would
         // read as free and be rewritten underneath a stage already underway. See PublishedCells.
         var existingCellIds = existingCells.Select(e => e.Id).ToList();
-        var lockedCellIdSet = await dbContext.PublishedAmongAsync(existingCellIds, cancellationToken);
+        var publishedCellIdSet = await dbContext.PublishedAmongAsync(existingCellIds, cancellationToken);
+
+        // ⚠ A pinned cell is locked for exactly the same reason a published one is: somebody decided
+        // it, and this run did not. Folding the two into one set is deliberate — every downstream use
+        // (the column to balance, the removal, the conflict count) asks « is this cell mine to
+        // place? », and the answer is no in both cases. What differs is only what is *reported*, so
+        // the two are counted separately below.
+        var pinnedCells = existingCells
+            .Where(e => e.Source == CellSource.Pinned && !publishedCellIdSet.Contains(e.Id))
+            .Select(e => (e.CohortId, e.StageSlotId))
+            .ToHashSet();
+
         var lockedCells = existingCells
-            .Where(e => lockedCellIdSet.Contains(e.Id))
+            .Where(e => publishedCellIdSet.Contains(e.Id) || e.Source == CellSource.Pinned)
             .Select(e => (e.CohortId, e.StageSlotId))
             .ToHashSet();
 
@@ -338,7 +390,7 @@ internal sealed class RotationArranger(
         // A cell that will be refused is left exactly as it is: it is not stale, it is simply out of
         // this run's reach.
         var staleIds = existingCells
-            .Where(e => !lockedCellIdSet.Contains(e.Id))
+            .Where(e => !lockedCells.Contains((e.CohortId, e.StageSlotId)))
             .Where(e => !conflicting.Contains((e.CohortId, e.StageSlotId)))
             .Select(e => e.Id)
             .ToList();
@@ -464,7 +516,9 @@ internal sealed class RotationArranger(
             saturatedServices,
             ordered.Sum(c => c.StudentCount),
             totalCapacity,
-            groupConflicts));
+            groupConflicts,
+            pinnedCells.Count,
+            reservedServices));
     }
 
     /// <param name="rotate">

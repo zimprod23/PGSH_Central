@@ -1,7 +1,8 @@
-using FluentValidation;
+﻿using FluentValidation;
 using PGSH.Application.Abstractions.Authorization;
 using PGSH.Application.Abstractions.Messaging;
 using PGSH.SharedKernel;
+using PGSH.Application.Students.Selection;
 
 namespace PGSH.Application.Stages.Delocalization.Bulk;
 
@@ -12,7 +13,7 @@ namespace PGSH.Application.Stages.Delocalization.Bulk;
 public sealed record PreviewBulkDelocalizationQuery(
     int StageId,
     int ServiceId,
-    DelocalizationTargets Targets,
+    StudentTargets Targets,
     int? AcademicYearId = null,
     DateOnly? StartDate = null,
     DateOnly? EndDate = null) : IQuery<BulkDelocalizationReport>;

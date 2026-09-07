@@ -1,4 +1,4 @@
-using PGSH.Application.Abstractions.Messaging;
+﻿using PGSH.Application.Abstractions.Messaging;
 using PGSH.SharedKernel;
 
 namespace PGSH.Application.AcademicGroups.GetMany;
@@ -24,6 +24,7 @@ public sealed record AcademicGroupResponse(
     int     AcademicYearId,
     string  AcademicYearLabel,
     string? RotationGroup,
+    string? Purpose,
     int?    LevelId,
     string? LevelLabel,
     /// <summary>Roster size, so the list can show it without loading any student.</summary>

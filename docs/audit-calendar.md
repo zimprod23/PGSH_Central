@@ -1,4 +1,4 @@
-# The audit register, and jours ouvrables
+﻿# The audit register, and jours ouvrables
 
 > Read before adding an audited act or an act code, and before anything that measures a duration in worked days.
 >
@@ -49,6 +49,13 @@
   masse existe** : une délocalisation appliquée à un roster entier tombe sur des étudiants dont
   personne n'a tapé le nom, donc le retour en arrière est un acte à part entière et pas une
   correction de saisie. Voir [`delocalization.md`](delocalization.md).
+- **Deux codes de plus le 07/09/2026 (phase 19.2)** : `STUDENTS_ASSIGNED_TO_ROSTER` (entité
+  `AcademicGroup`, la métadonnée porte l'année, le nombre confirmé, la taille de chaque sélection et
+  le motif) et `STAGE_SERVICE_PLACEMENT_MODE_SET` (entité `Stage`, avec le service et le mode). ⚠ **Le
+  second est audité alors qu'il n'écrit qu'une colonne** : réserver un service retire des places à la
+  rotation de toute une promotion sans toucher une seule cellule, donc l'effet apparaît à la
+  répartition suivante, longtemps après le clic, et « pourquoi ce service n'est-il plus utilisé ? »
+  n'a aucune autre réponse. Même raison que `STAGE_SERVICE_ORDER_SET`.
 - ⚠ **Les codes d'actes sont des littéraux dispersés dans autant de fichiers, et
   `AuditLogVocabularyTests` est ce qui les tient ensemble.** Une faute de frappe crée un type d'acte
   de plus, une copie de fichier en fusionne deux, et le journal — dont tout l'intérêt est qu'on

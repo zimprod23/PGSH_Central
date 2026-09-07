@@ -1,4 +1,4 @@
-# SCHEMA.md — PGSH Database Schema
+﻿# SCHEMA.md — PGSH Database Schema
 
 This document is the authoritative reference for the PostgreSQL schema used by PGSH.
 All tables live in the `public` schema. IDs are `uuid` unless otherwise noted.
@@ -151,8 +151,14 @@ Consequences to hold on to:
 | `Label` | varchar(100) | NOT NULL |
 | `GroupNumber` | int | NOT NULL |
 | `GeographicZone` | varchar | nullable — used by auto-arrange clustering |
+| `Purpose` | varchar(300) | nullable — why this roster exists, in the faculty's own words |
 
 **Indexes:** `IX_AcademicGroup_Year_Number` (AcademicYearId, GroupNumber) UNIQUE, `IX_AcademicGroup_Year_Label` (AcademicYearId, Label) UNIQUE
+
+> `Purpose` is free text read by people, never by the arranger — « Volontaires Kénitra (GST),
+> formulaire du 12/09 », « étudiants militaires ». Nothing else records it: the only evidence that
+> roster 102 was the military one is the pattern of its cells, which a year later is
+> indistinguishable from a coincidence.
 
 ---
 
@@ -400,8 +406,16 @@ Grid cells — maps one Cohort to one Service for one StageSlot. Unique per (Coh
 | `CohortId` | int | FK → Cohorts, CASCADE |
 | `StageSlotId` | int | FK → StageSlots, CASCADE |
 | `ServiceId` | int | FK → Services, RESTRICT |
+| `Source` | varchar(20) | NOT NULL, enum: `Arranged`, `Pinned`, default `Arranged` |
 
 **Indexes:** `IX_CohortSlotAssignment_Cohort_Slot` (CohortId, StageSlotId) UNIQUE
+
+> ⚠ **`Source` says who decided the cell, and `RotationArranger` reads it as a lock.** The arranger
+> deletes and rewrites every unpublished cell within its reach (`staleIds`), so before this column a
+> hand-authored placement — « ces volontaires à Kénitra » — was destroyed by the next auto-arrange
+> with no refusal, no count, and an `Assigned = N` that looked entirely normal. A `Pinned` cell is
+> treated exactly as a published one and counted back as `PinnedCellsKept`. The default preserves the
+> meaning of every row written before the column existed.
 
 > **Capacity rule:** For each (StageSlot × Service) pair, the sum of students across all cohorts assigned there must not exceed `Service.Capacity`. Enforced at publish time by `PublishCohortScheduleCommandHandler`.
 
@@ -818,9 +832,9 @@ seules lignes qu'elle écrit sont des `AuditLogs` — `BACKUP_POINT_CREATED` / `
 restauration. Une clé absente y vaut **`null`, jamais 0** : « ce point n'en dit rien » et « rien n'a
 changé » sont deux réponses différentes, et une seule est une raison de continuer.
 
-## `StageAllowedServices.Rank` — l'ordre de rotation d'un stage
+## `StageAllowedServices` — l'ordre de rotation d'un stage, et qui peut y être placé
 
-Une colonne, sur la table de jointure qui n'était qu'une paire.
+Deux colonnes, sur la table de jointure qui n'était qu'une paire.
 
 | colonne | type | règle |
 |---|---|---|
@@ -847,6 +861,31 @@ Une colonne, sur la table de jointure qui n'était qu'une paire.
 Ce que la colonne décide : `BuildServiceQueue` émet le bloc de chaque service **d'un seul tenant** et
 la première colonne de l'axe prend la phase 0, donc le service de rang 1 reçoit la première plage de
 numéros de groupe, à la première période.
+
+### `PlacementMode` — le service réservé (phase 19.2, 07/09/2026)
+
+| colonne | type | règle |
+|---|---|---|
+| `PlacementMode` | `varchar(20) NOT NULL DEFAULT 'Rotation'` | `Rotation` : la rotation peut y placer n'importe qui · `Reserved` : tenu pour des groupes nommés, seule une cellule épinglée y met quelqu'un |
+
+- **Ici, et pas ailleurs.** C'est déjà l'endroit où se répond « ce service peut-il accueillir ce
+  stage », et il porte déjà `Rank`, une entrée de planification et non une préférence d'affichage. Et
+  il est **invariant à l'année des deux côtés**. ⚠ Une FK `ReservedForGroupId` a été écartée :
+  `AcademicGroup` est constitué par l'année, et l'accrocher à une ligne de catalogue invariante est
+  le défaut de frontière que `CLAUDE.md` décrit. *Qui* est dans un service réservé est un fait des
+  cellules épinglées, et celles-là portent l'année par leur cohorte.
+- ⚠ **Défaut `Rotation`, donc la migration ne change aucun plan** — autoriser un service continue de
+  vouloir dire exactement ce que cela voulait dire avant la colonne.
+- ⚠ **La capacité d'un service réservé quitte `TotalCapacity` avec lui.** C'est voulu, et c'est
+  pourquoi `RotationArrangeResult.ReservedServices` existe à côté : « il manque N places » est mesuré
+  contre un plafond plus petit, et une promotion qui perd des places en silence est le défaut que ce
+  nombre existe pour empêcher.
+- ⚠ **Ne pas simuler la réservation par un quota de niveau à 0.** Il sort bien le service du vivier
+  (`Where(s => s.Capacity > 0)`) tout en laissant passer l'épinglage — et il écrit « ce service
+  n'admet aucun étudiant de ce niveau », ce qui est faux, et empoisonne le rapport de charge, la page
+  du service et la garde de publication pour tout le monde.
+- Le mode **enum en varchar**, comme tout enum de la base, et le troisième — `Choice`, le choix FIFO —
+  y entrera comme une valeur de plus.
 
 ## Ce que la recherche de placement n'ajoute pas au schéma
 

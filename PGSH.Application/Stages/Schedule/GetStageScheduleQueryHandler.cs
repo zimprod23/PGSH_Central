@@ -219,7 +219,8 @@ internal sealed class GetStageScheduleQueryHandler(
 
         return new SlotCellResponse(
             cell.Id, cell.StageSlotId, cell.ServiceId, cell.ServiceName, cell.HospitalName,
-            capacity, occupied, isLevelQuota, intake.Admits(cell.ServiceId, levelId), isPublished);
+            capacity, occupied, isLevelQuota, intake.Admits(cell.ServiceId, levelId), isPublished,
+            cell.Source == CellSource.Pinned);
     }
 
     private static SaturatedCellResponse? Saturation(
@@ -339,7 +340,8 @@ internal sealed class GetStageScheduleQueryHandler(
             .AsNoTracking()
             .Where(a => cohortIds.Contains(a.CohortId))
             .Select(a => new CellDetail(
-                a.Id, a.CohortId, a.StageSlotId, a.ServiceId, a.Service.Name, a.Service.Hospital.Name));
+                a.Id, a.CohortId, a.StageSlotId, a.ServiceId, a.Service.Name, a.Service.Hospital.Name,
+                a.Source));
 
     /// <summary>
     /// Which partitions this stage's cohortes carry, with how many each holds. Computed where the
@@ -377,7 +379,8 @@ internal sealed class GetStageScheduleQueryHandler(
 
     /// <summary>One cell of a cohorte on the page.</summary>
     internal sealed record CellDetail(
-        int Id, int CohortId, int StageSlotId, int ServiceId, string ServiceName, string HospitalName);
+        int Id, int CohortId, int StageSlotId, int ServiceId, string ServiceName, string HospitalName,
+        CellSource Source);
 
     /// <summary>One (créneau, service) the selection occupies, whoever is standing in it.</summary>
     internal sealed record CellPair(int StageSlotId, int ServiceId, string ServiceName, string HospitalName);

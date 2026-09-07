@@ -1,4 +1,4 @@
-# Planning — the rotation axis, the crossover, and the services
+﻿# Planning — the rotation axis, the crossover, and the services
 
 > Read before touching the rotation cycle, the macro plan, `RotationArranger`, `SchedulePublisher`, the planning grid, or a stage's allowed services.
 >
@@ -331,11 +331,66 @@ dedicated 1-2 student roster, last.
   `Anywhere` result, the rosters the in-memory classifier calls `Entire` are exactly the ones SQL
   returns for `Exclusively`.
 
-⚠ **The gap this leaves, and it is the next thing to build.** `CohortSlotAssignment` carries
-`{CohortId, StageSlotId, ServiceId}` and **nothing that says a human chose it**, while
-`RotationArranger` deletes every unpublished cell in its reach and rewrites it (`staleIds`). So a
-pinned placement is silently destroyed by the next « auto-répartir ce stage », with the arrange
-reporting `Assigned = N` and looking entirely normal. `PHASES.md` §19.2.
+### ✅ A pinned cell, and a service held for named rosters (2026-09-07)
+
+Until this shipped, `CohortSlotAssignment` carried `{CohortId, StageSlotId, ServiceId}` and **nothing
+that says a human chose it**, while `RotationArranger` deleted every unpublished cell in its reach and
+rewrote it (`staleIds`). A pinned placement was therefore destroyed by the next « auto-répartir ce
+stage », with the arrange reporting `Assigned = N` and looking entirely normal.
+
+- **`CohortSlotAssignment.Source` — `Arranged` / `Pinned`.** A pinned cell is folded into the same
+  `lockedCells` set as a published one, because everything downstream asks the same question — « is
+  this cell mine to place? » — and the answer is no in both cases. What differs is what is
+  *reported*: `RotationArrangeResult.PinnedCellsKept`, carried through `MacroPlanResult`. ⚠ *An act
+  that deliberately writes fewer cells than it was asked for must say how many, or a nominative
+  placement surviving reads as an arrange that half failed.*
+- ⚠ **`SetCohortSlotAssignment` pins on overwrite too, not only on create.** Overwriting the service
+  the arranger chose *is* the human decision; left `Arranged`, the correction just made would be
+  undone by the next arrange — the same defect reached from the other end.
+- **`StageAllowedService.PlacementMode` — `Rotation` / `Reserved`.** Reserved leaves the pool
+  entirely, so only a pin puts anybody there. ⚠ **Its capacity leaves `totalCapacity` with it**, which
+  is why `ReservedServices` is reported beside it: « il manque N places » is measured against a
+  smaller ceiling on purpose. Reserving *every* service refuses as `Schedule.AllServicesReserved`,
+  never as `NoServicesAdmitLevel` — « aucun ne vous accueille » would send the operator to widen
+  quotas that were never the obstacle.
+- ⚠ **A service cannot be reserved by filling it first.** `saturatedServices` is computed **after**
+  `SaveChangesAsync`, as a report; the tiling weights by `CapacityFor(levelId)` and never reads live
+  occupancy. That is why the reservation is a declaration and not an arrangement of the data.
+- **Composing the roster is `ApplyBulkRosterAssignmentCommand`** — see
+  [`planning-rosters.md`](planning-rosters.md). It moves students and places nobody: which service a
+  roster goes to stays the grid's answer, with its own guards and its own audit entry.
+
+`PHASES.md` §19.2 carries the whole record.
+
+### A partner hospital is this same case, and « réservé » is the half that cannot be said
+
+Written 2026-09-07, when the faculty asked for the GST Kénitra services: a form circulated, a list of
+volunteers came back, those services are held **for them**. It is the HMIMV case with an added
+exclusivity claim, and the boundary is worth stating because three quarters of it already works.
+
+- ⚠ **The services belong in the catalogue, not outside it.** A GST hospital has chefs and evaluates
+  in the app, so `IsExternal` and `DelocalizeStudentCommand` are the wrong tools — see
+  [`delocalization.md`](delocalization.md). What the volunteers need is a **roster**.
+- **The arranger's removal is *scoped***, and that is the interim procedure:
+  `targetCohortIds.Contains(a.CohortId) && slotIds.Contains(a.StageSlotId)`. Give the volunteer
+  rosters their own partition label, arrange the other partitions only, and their pinned cells
+  survive while everyone else is rebalanced. It holds until somebody runs « Générer le plan », whose
+  matrix targets every partition.
+- ⚠ **Exclusivity has no expression today.** A service must be in the stage's allowed list for
+  `SetCohortSlotAssignment` to accept a pin — and being in that list is exactly what puts it in the
+  arranger's pool. So the run that rebalances the others **will place them there too**, and it will
+  not notice: `saturatedServices` is computed **after** `SaveChangesAsync`, as a report. The tiling
+  weights by `Capacity`, never by live occupancy. Publication refuses afterwards, which is the wrong
+  end of the process to find out.
+- ⚠ **A level quota of 0 is not the workaround.** It does drop the service from the pool
+  (`Where(s => s.Capacity > 0)`) while leaving the pin acceptable — and it writes « ce service
+  n'admet aucun étudiant de ce niveau » into the base, which is false, and reads that way in the
+  occupancy report, the charge report and the publish guard for every other promotion.
+
+✅ **All of that shipped on 2026-09-07** — `PlacementMode` is the piece that closed the second half,
+and the section above records what the arranger now does. The partition-label detour still works and
+is no longer needed; it is kept in `PHASES.md` §19.2 because it explains what the base does until the
+AppHost restarts, and because the half it could not give is exactly the half the mode adds.
 
 ### ⚠ The in-memory provider refuses what Npgsql accepts, too
 `SelectMany` over a **skip navigation** — `Stages.SelectMany(s => s.AllowedServices.Where(…))` —

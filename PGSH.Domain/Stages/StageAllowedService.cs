@@ -28,5 +28,19 @@ public sealed class StageAllowedService
     /// </summary>
     public int Rank { get; set; }
 
+    /// <summary>
+    /// Whether the rotation may place a cohort here, or the service is held for named rosters and
+    /// filled only by a pinned cell. ⚠ <c>Rotation</c> by default: authorising a service must keep
+    /// meaning what it meant before this column existed.
+    /// </summary>
+    public ServicePlacementMode PlacementMode { get; set; } = ServicePlacementMode.Rotation;
+
+    /// <summary>
+    /// Whether <c>RotationArranger</c> may draw this service from the pool. The rank still applies
+    /// to a reserved service — it simply never comes up, since nothing but a pin puts a cohort
+    /// there.
+    /// </summary>
+    public bool ParticipatesInRotation => PlacementMode == ServicePlacementMode.Rotation;
+
     public Service Service { get; set; } = default!;
 }

@@ -54,6 +54,15 @@ internal sealed class StageConfiguration : IEntityTypeConfiguration<Stage>
 
                        j.Property(x => x.Rank).IsRequired().HasDefaultValue(0);
 
+                       // Reserved holds the service for named rosters — the arranger never draws it
+                       // and only a pinned cell puts anybody there. Defaulted so that authorising a
+                       // service keeps meaning exactly what it meant before the column existed.
+                       j.Property(x => x.PlacementMode)
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasConversion<string>()
+                        .HasDefaultValue(ServicePlacementMode.Rotation);
+
                        j.HasIndex(x => new { x.StageId, x.ServiceId })
                         .HasDatabaseName("IX_StageAllowedServices_Stage_Service");
 
@@ -130,6 +139,15 @@ internal sealed class CohortSlotAssignmentConfiguration : IEntityTypeConfigurati
                .WithMany()
                .HasForeignKey(a => a.ServiceId)
                .OnDelete(DeleteBehavior.Restrict);
+
+        // Who decided the cell. Defaulted to Arranged so every row written before this column
+        // existed keeps its meaning — and so the arranger's new "leave it alone" branch is entered
+        // only by a cell somebody actually pinned.
+        builder.Property(a => a.Source)
+               .IsRequired()
+               .HasMaxLength(20)
+               .HasConversion<string>()
+               .HasDefaultValue(CellSource.Arranged);
 
         builder.HasIndex(a => new { a.CohortId, a.StageSlotId })
                .IsUnique()

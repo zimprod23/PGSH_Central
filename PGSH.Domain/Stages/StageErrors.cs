@@ -406,6 +406,25 @@ public static class StageErrors
         + "des services autorisés du stage.");
 
     /// <summary>
+    /// Every service the stage allows for this level is held for named rosters, so the rotation has
+    /// nothing left to draw from.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ Its own message rather than <see cref="NoServicesAdmitLevel"/>, because the two send the
+    /// reader to opposite screens: « aucun ne vous accueille » is a quota to add, « tous sont
+    /// réservés » is a placement mode somebody set — and the second, told as the first, has the
+    /// operator widening quotas that were never the obstacle. The count is named because the whole
+    /// point of the mode is that a withheld place must never disappear in silence.
+    /// </remarks>
+    public static Error AllServicesReserved(string stageName, string levelLabel, int reservedCount) =>
+        Error.Validation(
+            "Schedule.AllServicesReserved",
+            $"Les {reservedCount} service(s) autorisés pour « {stageName} » et ouverts à {levelLabel} sont "
+            + "tous réservés à des groupes nommés : la répartition automatique n'a aucun service où "
+            + "placer les autres cohortes. Ouvrez-en un à la rotation, ou autorisez un service de plus "
+            + "pour ce stage.");
+
+    /// <summary>
     /// The order sent back is not a permutation of the services the stage actually allows. Named by
     /// cause rather than as one flat "invalid order": a missing service means the page was opened
     /// before somebody else authored one and the fix is to reload, while an unknown one means the
@@ -600,6 +619,16 @@ public static class StageErrors
         "Stages.ExternalServiceNotAllowed",
         "Ce service est hors faculté : il ne peut pas figurer dans la rotation d'un stage. "
         + "Les étudiants y sont placés par une délocalisation, jamais par la répartition.");
+
+    /// <summary>
+    /// The service exists but this stage does not authorise it, so there is no authorisation row to
+    /// carry a placement mode. ⚠ Distinct from <see cref="ServiceErrors.NotFound"/>: « le service
+    /// n'existe pas » and « ce stage ne l'autorise pas » are one typo and one missing act.
+    /// </summary>
+    public static Error ServiceNotAllowedInStage(int serviceId, int stageId) => Error.Conflict(
+        "Stages.ServiceNotAllowed",
+        $"Le service {serviceId} ne fait pas partie des services autorisés du stage {stageId} : "
+        + "autorisez-le d'abord, puis choisissez comment il est pourvu.");
 
     public static readonly Error NoGroupForDelocalization = Error.Conflict(
         "Delocalizations.NoGroup",

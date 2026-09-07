@@ -1,24 +1,9 @@
-using PGSH.Domain.Stages;
+﻿using PGSH.Domain.Stages;
 
 namespace PGSH.Application.Stages.Delocalization.Bulk;
 
-/// <summary>
-/// Who goes. The three ways of naming students are unioned, because that is how the faculty answers
-/// the question: « le G3 au complet, plus ces douze-là, plus la liste du formulaire ».
-/// </summary>
-/// <remarks>
-/// <para>⚠ <b>A roster is named by its id, never by its label.</b> A partition label repeats in every
-/// promotion — « G3 » exists in each year and each level — so a label-scoped act reaches into past
-/// years, which is the defect that made publish, auto-arrange and close do exactly that.</para>
-///
-/// <para><paramref name="Identifiers"/> is the paste from the Google Form: a CNE or an Apogée per
-/// line, matched case-insensitively against both columns. Both, because 46% of the roll carried no
-/// CNE at all until the placeholders were cleared and the Apogée is the identifier always present.</para>
-/// </remarks>
-public sealed record DelocalizationTargets(
-    IReadOnlyList<int>?    AcademicGroupIds = null,
-    IReadOnlyList<Guid>?   RegistrationIds  = null,
-    IReadOnlyList<string>? Identifiers      = null);
+// Who goes is StudentTargets, in Application/Students/Selection — shared with the nominative roster
+// assignment, which names its students exactly the same way. It lived here first.
 
 /// <summary>What the bulk act would do to one student, in the words the preview shows.</summary>
 public enum BulkDelocalizationRowStatus

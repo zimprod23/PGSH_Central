@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
 using PGSH.Domain.Registrations;
@@ -73,6 +73,7 @@ internal sealed class CreateGroupCommandHandler(IApplicationDbContext dbContext)
             GroupNumber    = nextNumber + 1,
             GeographicZone = request.GeographicZone,
             RotationGroup  = request.RotationGroup,
+            Purpose        = AcademicGroup.NormalisePurpose(request.Purpose),
         };
 
         dbContext.AcademicGroups.Add(group);

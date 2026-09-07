@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
 using PGSH.Domain.Registrations;
@@ -49,6 +49,7 @@ internal sealed class UpdateGroupCommandHandler(IApplicationDbContext dbContext)
         group.Label          = request.Label;
         group.GeographicZone = request.GeographicZone;
         group.RotationGroup  = request.RotationGroup;
+        group.Purpose        = AcademicGroup.NormalisePurpose(request.Purpose);
 
         await dbContext.SaveChangesAsync(cancellationToken);
         return Result.Success();

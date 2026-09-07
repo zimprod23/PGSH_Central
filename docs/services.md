@@ -1,4 +1,4 @@
-# Services — capacity, occupancy, the chef, and the chef's worklist
+﻿# Services — capacity, occupancy, the chef, and the chef's worklist
 
 > Read before touching a capacity or admissibility decision, the occupancy maths, who leads a service, or the chef's worklist.
 >
@@ -197,6 +197,32 @@ effectif »*.
   page and its printable document would have to agree, and the four places a publish is decided from —
   the fiche, the list, the grid, the two dialogs — are covered. Named here so the gap is a decision
   rather than an oversight.
+
+## ✅ A service can be held out of the rotation entirely (2026-09-07)
+
+`StageAllowedService.PlacementMode` — `Rotation` (the default) or `Reserved`. Reserved means the
+rotation never draws it: only a cell somebody pinned puts anybody there. It is how « ces services
+sont réservés à ces étudiants » is said about a partner hospital — the GST services at Kénitra, the
+HMIMV.
+
+- **It is a third statement about a service, beside the two capacities.** `ServiceOccupancyCalculator`
+  says how many are *there*, `ServiceIntakeCalculator` how many are *allowed*, and this says *who may
+  be put there at all*. ⚠ It is **not** a capacity of zero: the service takes students, just not ones
+  the rotation chose.
+- ⚠ **The withheld capacity leaves `totalCapacity` with the service**, so « il manque N places » is
+  measured against a smaller ceiling on purpose — and `RotationArrangeResult.ReservedServices` is
+  reported beside it, because a promotion losing places in silence is the « say what a blank means »
+  defect.
+- ⚠ **Do not simulate it with a level quota of 0.** It does drop the service from the arranger's pool
+  (`Where(s => s.Capacity > 0)`) while leaving a pin acceptable — and it writes « ce service n'admet
+  aucun étudiant de ce niveau », which is false, and reads that way in the occupancy report, the
+  charge report and the publish guard for every other promotion.
+- ⚠ **And a service cannot be reserved by filling it first.** `RotationArranger` computes
+  `saturatedServices` **after** `SaveChangesAsync`, as a report; the tiling weights by
+  `CapacityFor(levelId)` and never reads live occupancy. The reservation has to be a declaration.
+- `PUT stages/{id}/allowed-services/{serviceId}/placement-mode`, journalised
+  `STAGE_SERVICE_PLACEMENT_MODE_SET`. It rewrites nothing already placed — the next arrange is the
+  act that reads it, exactly like `Rank`.
 
 ## A service's load is not readable one period at a time
 `Services/Occupancy/` answers "what does this service actually hold, and when" — the question

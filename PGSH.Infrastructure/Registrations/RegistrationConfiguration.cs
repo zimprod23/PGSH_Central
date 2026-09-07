@@ -150,6 +150,9 @@ internal sealed class AcademicGroupConfiguration : IEntityTypeConfiguration<Acad
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Label).IsRequired().HasMaxLength(100);
 
+        // Why the roster exists, in the faculty's words. Read by people, never by the arranger.
+        builder.Property(x => x.Purpose).HasMaxLength(300);
+
         // ⚠ The level is part of the key, not an attribute of the row. The faculty numbers its groups
         // per promotion — the 3rd year runs 1-80, the 5th year 1-60, the 6th year 1-100, all at the
         // same time — so a number is only meaningful alongside the promotion it counts within. Keying

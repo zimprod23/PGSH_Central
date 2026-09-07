@@ -1,9 +1,10 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using FluentValidation;
 using PGSH.Application.Abstractions.Authorization;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
 using PGSH.SharedKernel;
+using PGSH.Application.Students.Selection;
 
 namespace PGSH.Application.Stages.Delocalization.Bulk;
 
@@ -38,7 +39,7 @@ public sealed record ApplyBulkDelocalizationCommand(
     int StageId,
     int ServiceId,
     string Reason,
-    DelocalizationTargets Targets,
+    StudentTargets Targets,
     int ConfirmedCount,
     int? AcademicYearId = null,
     DateOnly? StartDate = null,

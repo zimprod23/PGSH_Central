@@ -2221,27 +2221,229 @@ donc réordonner permute les blocs en bloc) ; deux demandes contradictoires sur 
 
 ---
 
-### 19.2 — 🔲 Le marqueur d'épinglage, et le motif du roster
+### ✅ 19.2 — Le placement nominatif : l'épinglage, la réservation, et la liste
 
-Ce que 19.1 ne ferme pas, et qui est la suite directe :
+> Spécifié le 07/09/2026, à partir d'une demande réelle : *« les services de Kénitra appartiennent
+> maintenant au GST, leurs professeurs sont chefs et leurs services sont dans la base ; nous avons
+> fait circuler un formulaire, nous avons une liste de volontaires pour les stages A, B et C, et ces
+> services leur sont réservés. »*
 
-- ⚠ **`CohortSlotAssignment` ne dit pas qu'un humain a choisi la cellule.** Elle porte
-  `{CohortId, StageSlotId, ServiceId}` et rien d'autre, tandis que `RotationArranger` supprime et
-  réécrit **toute** cellule non publiée à sa portée (`staleIds`). Un placement épinglé à la main est
-  donc détruit au prochain « auto-répartir ce stage » — sans refus, sans compte, avec un
-  `Assigned = N` parfaitement normal. À construire : une source sur la cellule (`Arranged` /
-  `Pinned`), traitée par l'arrangeur exactement comme une cellule publiée, et **comptée dans le
-  résultat** (`PinnedCellsKept`), comme `SkippedAlreadyServed` et `AdHocPeriodsKept`. *Un acte
-  destructeur dont personne ne voit le chiffre est un acte que personne n'a accepté.*
-- **Rien n'enregistre pourquoi un roster existe.** La seule preuve que le groupe 102 est le groupe
-  militaire est le motif de ses cellules ; un an plus tard nul ne distingue cela d'une coïncidence, et
-  un re-découpage le dissout sans que rien ne dise ce qui est perdu. Un champ libre sur
-  `AcademicGroup` suffit — pas une entité, pas un moteur de règles.
+**Ce n'est pas une délocalisation, et le dossier l'a déjà tranché** —
+[`docs/planning-rotation.md`](docs/planning-rotation.md), « Une demande nominative se résout par un
+groupe ». Kénitra sous le GST est le cas HMIMV, que la faculté a déjà joué : en 2024-2025 la 6ᵉ MED
+tenait **cinq rosters entièrement au militaire**, de 6-7 étudiants, soit la taille normale. Ce sont
+des services de la base, avec chefs, avec évaluation dans l'application. `DelocalizeStudentCommand`
+y mettrait ces étudiants **hors** liste de travail du chef, **hors** occupation et **hors**
+évaluation — pour un hôpital qui est dans le catalogue.
+
+L'acte est donc : **une liste → un ou plusieurs rosters → des cellules épinglées.** La grille les
+dessine alors sans aucun cas particulier, et `GroupNumberRanges` imprime « 12-22 » parce que ce sont
+des rosters entiers et non des trous percés dans ceux des autres.
+
+#### Ce qui existe déjà, et qu'il ne faut pas réécrire
+
+| Pièce | Ce qu'elle fait déjà |
+|---|---|
+| `DelocalizationTargetResolver` | « qui l'opérateur a-t-il désigné » : ids de roster ∪ ids d'inscription ∪ **lignes collées CNE/Apogée**, une ligne de rapport pour chaque saisie ne désignant personne, `NotFound` et `WrongYear` distingués |
+| `StudentGroupRelocator` | déplace une inscription vers un roster **sans trace**, re-pointe affectations et adhésion, reconstruit les périodes — et **n'enregistre pas**, donc N d'entre eux tiennent dans une transaction |
+| `SetCohortSlotAssignment` | épingle une cellule (cohorte × créneau → service), refusant déjà un service externe ou hors liste autorisée |
+| `GetRosterPlacementsQuery` | « quel groupe est à cet hôpital ? » — la lecture qui rend ① de l'ordre de placement atteignable |
+| `ConfirmedCount` (aperçu/appliquer) | la garde qui attrape l'étudiant arrivé entre l'aperçu et le clic |
+
+#### ① Le marqueur d'épinglage — `CohortSlotAssignment.Source`
+
+⚠ **`CohortSlotAssignment` ne dit pas qu'un humain a choisi la cellule.** Elle porte
+`{CohortId, StageSlotId, ServiceId}` et rien d'autre, tandis que `RotationArranger` supprime et
+réécrit **toute** cellule non publiée à sa portée (`staleIds`). Un placement épinglé à la main est
+donc détruit au prochain « auto-répartir ce stage » — sans refus, sans compte, avec un
+`Assigned = N` parfaitement normal.
+
+À construire : `CellSource { Arranged, Pinned }` sur la cellule, traitée par l'arrangeur exactement
+comme une cellule publiée, et **comptée dans le résultat** (`PinnedCellsKept`), comme
+`SkippedAlreadyServed` et `AdHocPeriodsKept`. *Un acte destructeur dont personne ne voit le chiffre
+est un acte que personne n'a accepté.*
+
+C'est le **prérequis** : sans lui, tout le reste de 19.2 est défait en silence par le clic suivant.
+
+#### ② La réservation — `StageAllowedService.PlacementMode`
+
+« Ces services sont réservés à ces étudiants » ne peut aujourd'hui **pas être dit**, seulement
+espéré. La demande mord en un seul endroit, le vivier de l'arrangeur
+(`AllowedServices.Where(!IsExternal).Where(Admits(levelId)).Where(Capacity > 0)`).
+
+À construire : `ServicePlacementMode { Rotation, Reserved }` sur la ligne d'autorisation, en varchar
+comme tout enum de la base.
+
+- `Rotation` — l'arrangeur peut y placer n'importe qui. **Le défaut**, donc la migration ne change
+  aucun plan existant.
+- `Reserved` — l'arrangeur ne le choisit **jamais** ; seule une cellule épinglée y met quelqu'un.
+  L'exclusivité aux volontaires est alors un fait des cellules épinglées, ce qui est vrai et
+  vérifiable.
+
+**Pourquoi sur la jointure et pas ailleurs.** `StageAllowedService` est déjà l'endroit où se répond
+« ce service peut-il accueillir ce stage », et il porte déjà `Rank`, qui est une entrée de
+planification et non une préférence d'affichage. Et il est **invariant à l'année des deux côtés**,
+donc il reste du bon côté de la frontière. ⚠ **Une FK `ReservedForGroupId` est à rejeter** :
+`AcademicGroup` est constitué par l'année, et l'accrocher à une ligne de catalogue invariante est
+exactement le défaut de frontière que `CLAUDE.md` décrit.
+
+⚠ **Et il faut dire ce qui a été retiré.** Réserver baisse `totalCapacity`, qui alimente
+« il manque N places ». Une promotion qui perd des places en silence est le défaut « dire ce que
+signifie un blanc » : le message de saturation nomme combien de services ont été retenus comme
+réservés.
+
+⚠ **Ne pas contourner par un quota de niveau à 0.** Il sort bien le service du vivier
+(`Where(s => s.Capacity > 0)`) tout en laissant passer l'épinglage — mais il écrit « ce service
+n'admet aucun étudiant de ce niveau », ce qui est faux, et empoisonne le rapport de charge, la page
+du service et la garde de publication pour tout le monde.
+
+**C'est aussi là qu'atterrira le choix FIFO** (« ceux qui remplissent le formulaire en premier
+choisissent »), en troisième valeur `Choice`. Écrire un mode plutôt qu'un booléen est ce qui fait de
+la version suivante un ajout et non une réécriture.
+
+#### ③ Le motif du roster — `AcademicGroup.Purpose`
+
+**Rien n'enregistre pourquoi un roster existe.** La seule preuve que le groupe 102 est le groupe
+militaire est le motif de ses cellules ; un an plus tard nul ne distingue cela d'une coïncidence, et
+un re-découpage le dissout sans que rien ne dise ce qui est perdu. Un champ libre sur
+`AcademicGroup` suffit — « Volontaires Kénitra (GST) — formulaire du 12/09 ». Pas une entité, pas un
+moteur de règles.
+
+#### ④ L'acte de masse — l'affectation nominative
+
+`PreviewBulkRosterAssignmentQuery` / `ApplyBulkRosterAssignmentCommand`, tous deux exécutant **un
+seul** `BulkRosterAssignmentPlanner` — un aperçu calculé par un autre code est l'aperçu de rien.
+C'est la forme de la délocalisation de masse, parce que c'est la même question posée d'un autre
+verbe.
+
+- **Promouvoir le résolveur de cibles en `StudentSelectionResolver` partagé**
+  (`Application/Students/Selection/`). Il répond « quels étudiants l'opérateur a-t-il désignés », ce
+  qui n'a rien de propre à la délocalisation, et il a désormais un deuxième appelant et un troisième
+  en vue. C'est le précédent `RosterScope` de la session 52 : deux actes posant la même question et y
+  répondant séparément, c'est ainsi que l'un a reçu la bonne portée et l'autre non.
+- **Le déplacement lui-même est `StudentGroupRelocator`** — « changement de groupe », sans trace,
+  qui est exactement ce que la faculté veut dire par « on les met simplement dans ces groupes ».
+  ⚠ Il refuse dès qu'il s'est passé quelque chose ; ce cas-là appartient à
+  `TransferStudentCommand`, qui porte la rotation en cours et **garde** la trace précisément parce
+  qu'il y a maintenant quelque chose à tracer.
+- **États de ligne** : `WillJoin`, `AlreadyThere`, `Underway` (refusé → transfert), `NotFound`,
+  `WrongYear`, et ⚠ **`WrongPromotion`** — un roster est clé (année, niveau, numéro), donc un 4ᵉ
+  année sur une liste de 5ᵉ est refusé et nommé, jamais fondu dedans.
+- Refus en tête, lignes plafonnées à 200, **tout compte mesuré avant le plafond**, `ConfirmedCount` à
+  l'application, `STUDENTS_ASSIGNED_TO_ROSTER` au registre.
+
+#### La procédure intérimaire — ce qui marchait avant, et pourquoi elle est gardée ici
+
+⚠ **Superseded le 07/09/2026 par ce qui précède** ; gardée parce qu'elle décrit ce que la base
+fait encore tant que l'AppHost n'a pas redémarré, et parce qu'elle explique la moitié que le
+détour ne donnait pas. Elle était : créer les services de Kénitra, donner aux rosters volontaires
+un **label de partition à eux** (« K »), y mettre les volontaires un par un, épingler les cellules,
+puis relancer « Répartir » **en décochant K** — la suppression de l'arrangeur étant portée aux
+cohortes visées (`targetCohortIds.Contains(a.CohortId)`), les cellules de K survivaient.
+
+Ce qu'elle ne donnait pas, et qui est ② : les services de Kénitra restaient dans le vivier (ils
+doivent être dans la liste autorisée pour que l'épinglage soit accepté), donc l'arrangeur y plaçait
+d'autres rosters — sans s'en apercevoir, puisque `saturatedServices` est calculé **après**
+`SaveChangesAsync`, en rapport, jamais en contrainte pendant le placement. Et elle ne tenait que
+tant que personne n'oubliait de décocher K : un seul « Générer le plan » vise toutes les partitions
+de sa matrice. C'est ① qui a transformé la discipline en garantie.
+
+⚠ **Le quota de niveau à 0 n'a jamais été la solution de rechange** : il sort bien le service du
+vivier (`Where(s => s.Capacity > 0)`) tout en laissant passer l'épinglage — et il écrit « ce service
+n'admet aucun étudiant de ce niveau », ce qui est faux, et empoisonne le rapport de charge, la page
+du service et la garde de publication pour tout le monde.
+
+⚠ **La numérotation reste une contrainte d'impression, elle, et l'acte de masse ne la résout pas** :
+`GroupNumberRanges` replie des numéros de **roster**, donc les rosters volontaires doivent être
+numérotés d'un seul tenant pour imprimer « 48-60 » plutôt qu'une pluie de nombres isolés.
+
+#### Livré le 07/09/2026 — les quatre pièces, dans cet ordre
+
+**① `CohortSlotAssignment.Source` (`CellSource.Arranged | Pinned`).** L'arrangeur traite une cellule
+épinglée **exactement** comme une cellule publiée : jamais supprimée, jamais réécrite, sa place dans
+la colonne exclue de l'équilibrage — donc les cohortes restantes se répartissent sur ce qui reste
+réellement. Les deux sont fondues dans un seul ensemble (`lockedCells`) parce que tout ce qui suit
+pose la même question, « cette cellule est-elle à moi à placer ? », et la réponse est non dans les
+deux cas ; ce qui diffère est ce qui est **rapporté**, d'où `RotationArrangeResult.PinnedCellsKept`,
+repris par `MacroPlanResult`. *Un acte destructeur dont personne ne voit le chiffre est un acte que
+personne n'a accepté.*
+
+⚠ **Et `SetCohortSlotAssignment` épingle aussi quand elle écrase une cellule existante**, pas
+seulement quand elle en crée une. Écraser le choix de l'arrangeur *est* la décision humaine ; laissée
+`Arranged`, la correction qu'on vient de faire serait défaite par la répartition suivante — le même
+défaut, atteint par l'autre bout.
+
+**② `StageAllowedService.PlacementMode` (`Rotation | Reserved`).** `Reserved` sort le service du
+vivier de `RotationArranger` : seule une cellule épinglée y met quelqu'un. Sur la ligne
+d'autorisation, qui est déjà l'endroit où se répond « ce service peut-il accueillir ce stage » et qui
+porte déjà `Rank`, et qui est **invariant à l'année des deux côtés**. Défaut `Rotation`, donc la
+migration ne change aucun plan existant.
+
+- ⚠ **La capacité retenue quitte `TotalCapacity` avec le service**, ce qui est voulu et ce qui rend
+  `ReservedServices` obligatoire à côté : « il manque N places » est mesuré contre un plafond plus
+  petit, et une promotion qui perd des places en silence est le défaut que ce nombre existe pour
+  empêcher.
+- ⚠ **Tout réserver refuse par son propre nom** (`Schedule.AllServicesReserved`), jamais comme
+  `NoServicesAdmitLevel` : « aucun ne vous accueille » enverrait l'opérateur élargir des quotas qui
+  n'ont jamais été l'obstacle.
+- **`PUT /stages/{id}/allowed-services/{serviceId}/placement-mode`**, journalisé
+  `STAGE_SERVICE_PLACEMENT_MODE_SET`. Il ne déplace rien de déjà écrit — comme l'ordre, c'est la
+  répartition suivante qui le lit.
+
+**③ `AcademicGroup.Purpose`** — texte libre, 300 caractères, porté par la création et la mise à jour,
+renvoyé par les deux lectures (liste et détail) parce qu'un résumé qui alimente un formulaire doit
+porter tout ce que ce formulaire réécrit. `AcademicGroup.NormalisePurpose` est partagé par les deux
+chemins : stocké brut d'un côté et normalisé de l'autre, un groupe édité sans toucher au champ
+reviendrait en portant «&#160;», ce qui se lit comme un motif que quelqu'un a écrit.
+
+**④ L'acte de masse** — `PreviewBulkRosterAssignmentQuery` / `ApplyBulkRosterAssignmentCommand`, tous
+deux exécutant **un seul** `BulkRosterAssignmentPlanner`. `POST /groups/assign/bulk/preview` et
+`POST /groups/assign/bulk`, journalisé `STUDENTS_ASSIGNED_TO_ROSTER`.
+
+- **Deux verbes, décidés par étudiant** : sans groupe → *rattaché* (`StudentAffectationService` +
+  `LateArrivalScheduler`, ce que fait « affecter à un groupe ») ; déjà dans un groupe → *déplacé*
+  (`StudentGroupRelocator`, « changement de groupe », sans trace). ⚠ Le choix est figé dans le plan,
+  jamais relu au moment d'appliquer : relu, la réponse pourrait changer entre ce que l'opérateur a
+  confirmé et ce qui s'exécute.
+- **Neuf états de ligne** : `WillJoin`, `WillMove`, `AlreadyThere`, `Underway`, `TargetMissingStage`,
+  `WrongPromotion`, `CursusEnded`, `NotFound`, `WrongYear`. ⚠ `AlreadyThere` n'est **ni** applicable
+  **ni** un refus : renvoyer une liste corrigée est l'usage normal de l'acte, donc l'essentiel d'un
+  second passage atterrit là, et le compter comme refus donnerait l'air d'un échec.
+- **Les gardes sont celles des actes unitaires, lues de la même façon** : l'engagement est
+  `AffectationToll.IsUnderway`, **restreint au groupe d'origine** exactement comme le relocator le
+  restreint. ⚠ Mais lu **par lot** — deux requêtes plates groupées sur (inscription, groupe) — parce
+  que cent volontaires font sinon cent allers-retours, sur l'acte dont la raison d'être est que cent
+  de quoi que ce soit est trop.
+- **`StudentSelectionResolver` promu** hors de la délocalisation, dans
+  `Application/Students/Selection/`, avec `StudentTargets`, `UnresolvedTarget` et `TargetResolution`.
+  Il répond « quels étudiants l'opérateur a-t-il désignés », ce qui n'a rien de propre à la
+  délocalisation ; chaque acte projette `UnresolvedTarget` sur son propre vocabulaire de lignes. Même
+  précédent que `RosterScope` en session 52.
+- Refus en tête, 200 lignes au plus, **tout compte mesuré avant le plafond**, `ConfirmedCount` à
+  l'application.
+
+**Migration `NominativePlacement`** — trois colonnes, deux valeurs par défaut qui préservent le sens
+de chaque ligne existante, aucune donnée touchée.
+
+**Tests** : 28 neufs — `NominativePlacementTests` (7), `BulkRosterAssignmentTests` (14),
+`NominativePlacementEndpointTests` (5), plus 2 cas de traduction SQL. **1 740 verts.** Morsure
+vérifiée sur les six gardes : épinglage retiré → 5 cas tombent ; mode de placement ignoré → idem ;
+`Underway`, `WrongPromotion`, `TargetMissingStage` et `ConfirmedCount` neutralisés → 4 cas tombent,
+un par garde. ⚠ Les deux requêtes groupées de l'acte sont épinglées par `SqlTranslationTests` : elles
+groupent sur une clé construite depuis une **navigation**, et celle des périodes y arrive par un
+`SelectMany` puis deux navigations en remontant — la forme qu'un fournisseur a le droit de refuser.
+
+#### Ce qui reste, et ce qu'il ne faut toujours pas construire
+
+- **L'écran.** Le back est complet et n'a **rien été cliqué**.
 - **Ce qu'il ne faut pas construire : un solveur de contraintes.** « même service que X », « frère de
   Y » comme contraintes que l'arrangeur devrait satisfaire transforme chaque répartition en problème
   de satisfaction, alors que la recherche exhaustive de `RotationTiling` est déjà la partie coûteuse.
   Ces demandes sont des exceptions nominatives et peu nombreuses — 32 sur 611 dans le cas le plus
   large observé. Elles restent lisibles et restent la décision de l'humain.
+- **Le choix FIFO** (« ceux qui remplissent le formulaire en premier choisissent ») atterrit en
+  troisième valeur `PlacementMode.Choice` et réutilise `StudentSelectionResolver` tel quel. Écrire un
+  mode plutôt qu'un booléen est ce qui en fait un ajout et non une réécriture.
 
 ---
 

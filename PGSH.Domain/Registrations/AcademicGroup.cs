@@ -33,6 +33,31 @@ public sealed class AcademicGroup
     public string? GeographicZone { get; set; }
     public string? RotationGroup  { get; set; } // Persistent partition label (A, B, C…) across all stages
 
+    /// <summary>
+    /// Why this roster exists, in the faculty's own words — « Volontaires Kénitra (GST), formulaire
+    /// du 12/09 », « étudiants militaires ».
+    /// </summary>
+    /// <remarks>
+    /// ⚠ Nothing else records it. The only evidence that roster 102 was the military one is the
+    /// pattern of its cells; a year later nobody can tell that from a coincidence, and a re-découpage
+    /// dissolves it without anything saying what was lost. Free text on purpose — not an entity, not
+    /// a rule engine: it is read by people, never by the arranger, which must keep deciding on
+    /// capacity and order alone.
+    /// </remarks>
+    public string? Purpose { get; set; }
+
+    /// <summary>
+    /// What an entered purpose means once stored: trimmed, and blank collapsed to « none ».
+    /// </summary>
+    /// <remarks>
+    /// ⚠ Shared by the create and the update because a whitespace-only value has to mean the same on
+    /// both paths. Stored raw on one and normalised on the other, a roster edited without touching
+    /// the field would come back carrying «&#160; » — which reads, in every list, exactly like a
+    /// purpose somebody wrote.
+    /// </remarks>
+    public static string? NormalisePurpose(string? purpose) =>
+        string.IsNullOrWhiteSpace(purpose) ? null : purpose.Trim();
+
     public int AcademicYearId { get; set; }
     public AcademicYear AcademicYear { get; set; } = default!;
 

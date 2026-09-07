@@ -1,4 +1,4 @@
-# CLAUDE.md
+﻿# CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
@@ -74,6 +74,16 @@ area, so they are worth carrying in your head on **every** change:
   codebase: « aucune période » and « rien n'est encore réparti » call for opposite acts. A warning
   that fires whatever the data says is noise, and noise is dismissed — which puts the real one out of
   sight.
+- **A cell a human chose is not the arranger's to rewrite.** `CohortSlotAssignment.Source`
+  (`Arranged` / `Pinned`) is read as a lock exactly like publication, and the count of what was left
+  alone travels in the result (`PinnedCellsKept`). Before it, an auto-arrange destroyed every
+  nominative placement in its reach reporting a perfectly normal `Assigned = N`. Any new act writing
+  or deleting cells has to make the same distinction. → [`docs/planning-rotation.md`](docs/planning-rotation.md)
+- **A service can be held out of the rotation** — `StageAllowedService.PlacementMode = Reserved`.
+  ⚠ Its capacity leaves `TotalCapacity` with it, so whatever withholds places must **say how many**.
+  And note what does *not* enforce this: `RotationArranger` computes `saturatedServices` **after**
+  `SaveChangesAsync`, as a report — the placement weights by capacity and never reads live occupancy,
+  so a service cannot be reserved by filling it first. → [`docs/services.md`](docs/services.md)
 - **Confirm what cannot be undone.** A bulk act that writes onto rows nobody named carries the count
   the operator was shown and refuses on a mismatch — a boolean cannot do it, because a row created
   between the preview and the apply is the whole risk.
@@ -326,6 +336,10 @@ behaviour; each caller states its own.**
   evaluated candidates.
 - **Service capacity** — two numbers, never one. `ServiceOccupancyCalculator` says how many students are
   *there*; `ServiceIntakeCalculator` says how many are *allowed*. Every capacity decision compares the two.
+- **Naming a group of students is `StudentSelectionResolver`** (`Application/Students/Selection/`),
+  never a per-act parse. Roster ids ∪ registration ids ∪ a pasted list of CNE/Apogée lines, with a
+  row for every line that names nobody and `NotFound` kept distinct from `WrongYear`. Shared by the
+  mass délocalisation and the nominative roster assignment; the FIFO choice will be the third.
 
 ### The year is constitutive, not an attribute — know which side a table is on
 - **Year-constituted** — `AcademicGroup`, `Cohort`, `Registration`, `Curriculum`, `StageSlot`. Remove

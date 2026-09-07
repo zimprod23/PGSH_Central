@@ -211,4 +211,13 @@ public sealed record SlotCellResponse(
     int    OccupiedSeats,
     bool   IsLevelQuota,
     bool   AdmitsLevel,
-    bool   IsPublished);
+    bool   IsPublished,
+    /// <summary>
+    /// A human chose this cell, so the rotation leaves it alone.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ Sent because the grid cannot otherwise show why a cell survived a run that rewrote its
+    /// neighbours — and, before the marker existed, why it did <i>not</i>. It is not the same as
+    /// <paramref name="IsPublished"/>: a pin is still a plan, and can be cleared or moved by hand.
+    /// </remarks>
+    bool   IsPinned);

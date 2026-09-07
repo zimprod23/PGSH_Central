@@ -17,6 +17,7 @@
 > | **A4** | **Distinguer, sur « Signalements », les absents encore `Active` des diplômés.** ✅ **La règle est tranchée (07/09/2026) et le comportement ne bouge pas** : le fichier Excel est la seule liste de ceux qui se réinscrivent, tout absent est exclu / diplômé / non pris en considération / une anomalie, et la page est le **registre** où on les garde — pas une file à vider. Ce qui reste est de la lisibilité : `RegistrationHoldsPage` filtre par raison et par état du signalement, **jamais par statut d'inscription**, donc les **49** absents encore `Active` ne se distinguent pas des **1 217** diplômés. | Petit : `RegistrationHoldResponse.RegistrationStatus` est **déjà envoyé** et déjà affiché sur la ligne ; il manque le filtre (et le compte par statut au-dessus de la liste). ⚠ Ne **pas** exempter les diplômés ni leur inventer une raison à part — la raison est la même, c'est le statut qui dit lequel des quatre cas c'est. `docs/year-closing.md`, section `RegistrationHold`. |
 > | **A7** | ✅ **Règle tranchée le 07/09/2026, à implémenter — « un stage acquis ne se ressert jamais ».** Trois pièces, dans cet ordre. **①** `StudentAffectationService` cesse de créer une affectation pour un stage que l'étudiant a déjà validé dans une année non annulée, en lisant **la même règle** qu'`OutstandingStageFinder` (une seule source, sinon deux écrans divergent sur « acquis »), et **nomme** ce qu'il écarte — « 3 étudiants non affectés : stage déjà acquis » — via le `BulkResponse` par ligne. **②** Généraliser « Revalider » en « servir un stage dû » : retirer la précondition `NothingToRevalidate` pour qu'un stage **jamais tenté** ou resté `NonÉvalué` puisse être confié, en gardant le refus sur un stage validé (= item 13). **③** Élargir « ce qu'il doit » à *exigé par le CNPN − validé* dans `OutstandingStageFinder` — le fichier dit déjà que c'est l'endroit naturel. | ⚠ **① est un no-op sur la base d'aujourd'hui, ce qui en fait le moment le moins cher pour l'installer** : les seuls redoublants des promotions planifiées de 2026-2027 sont **27 étudiants** dont **toutes** les tentatives antérieures sont `NonÉvalué`. ⚠ **② et ③ vont ensemble et attendent l'item 1** (les jeux d'exigences 1650.25) : tant que « dû » = « toutes les tentatives échouées », ce qui est dû est exactement ce qui est revalidable — c'est cohérent, et ③ seul créerait des dettes sans bouton. ⚠ **La 7ᵉ année n'est concernée par aucune des trois** : elle a 0 stage au catalogue, donc rien ne peut l'y replacer, et ses **510** stages dus (242 étudiants) sont **tous** revalidables aujourd'hui. `docs/progression.md`. |
 > | **A8** | **Faire saisir les 4 196 tentatives `NonÉvalué` des 7ᵉ année Médecine** — servies, jamais notées. **Ce n'est pas du code**, c'est l'import d'évaluations et la liste de travail des chefs. | ⚠ **C'est le vrai risque sur « ce qu'il lui reste »**, et il est invisible : un stage servi mais non noté n'est ni acquis (23 569 le sont) ni dû (510 le sont) — il est en limbes, sur aucune des deux listes. Le jour où la faculté tranche que « non noté » vaut « non fait », 4 196 lignes deviennent des dettes d'un coup, sur des étudiants qui se croyaient finis. Mesuré le 07/09/2026 sur les 1 347 inscrits de 7ᵉ MED 2026-2027. |
+> | **0as** | **Redémarrer l'AppHost (migration `NominativePlacement`), puis dérouler `SMOKE-TEST.md` §54.** Le placement nominatif est livré de bout en bout — back, front, 1 740 tests verts — et **rien n'a été cliqué**. L'ordre sur l'écran : créer le groupe volontaire avec son motif → « Affectation nominative » (aperçu, puis appliquer) → réserver les services de Kénitra sur le stage → épingler les cellules → « Répartir » et vérifier que le retour annonce « N cellule(s) épinglée(s) conservée(s) ». | Sans redémarrage les trois colonnes n'existent pas et les routes répondent **404** ; le contrôle qui distingue l'ancien processus du nouveau est que `POST /api/groups/assign/bulk/preview` réponde **404** avant et **401** sans jeton après. ⚠ **Seule l'étape 4 écrit** (elle déplace des inscriptions) — point de sauvegarde avant. ⚠ L'étape 6 est **l'assertion de la session** : avant, la répartition supprimait les cellules épinglées en annonçant un `Assigned = N` parfaitement normal. |
 > | **A5** | **Reprendre les cinq constats du balayage du 07/09/2026 laissés « à vérifier plus tard »** (`NOTES.md`, session 50 — chacun a sa requête) : ① **189 cohortes** dont le stage n'est pas de la promotion du roster (`Interne CHU Médecine` et `Retrait` n'ont aucun stage à eux — histoire réelle, mais elles se comptent dans deux promotions selon le chemin de lecture) ; ② **19 étudiants sans aucune inscription** (état supporté, mais invisibles de toute promotion et rien ne dit qu'ils sont incomplets) ; ③ **10 paires de périodes qui se chevauchent** pour un même étudiant, toutes issues de l'import Access ; ④ **10 631 périodes qui débordent la fin de leur année** (toutes *après* le 31 août — l'année COVID, surtout) ; ⑤ **36 346 inscriptions `Active` sur des années passées** (= le trou connu, Phase 14.3). | **Aucun n'est un résidu produit par PGSH** et aucun ne bloque quoi que ce soit aujourd'hui — c'est pourquoi ils sont ici et non plus haut. Le balayage complet (34 contrôles) est à **0** sur toutes les classes de résidu qui comptent : l'affectation qui survit au pointeur, le roster affiché vide qui porte encore des affectations, l'inscription rattachée à une autre année ou promotion, la cellule d'une autre cohorte. ⚠ ③ et ④ ne sont **pas** réparables sans une décision de la faculté : ce sont des faits enregistrés sur des années closes. |
 > | **0am** | **Relancer l'AppHost (migration `ExternalServices`), créer le service « Stage hors CHU — Kénitra », puis dérouler `SMOKE-TEST.md` §49.** Sans la migration l'API interroge une colonne qui n'existe pas et la liste des services répond **500**. Back **et** front sont faits : 31 tests neufs (1 650 verts), `tsc`, `eslint` et `npm run build` propres. Rien n'a été **cliqué**. | ⚠ **Aucun service externe n'existe dans la base** : le drapeau vaut `false` partout et rien de la phase n'est visible tant que la ligne n'est pas créée. La seule étape destructrice est §49.5 (elle supprime les rotations planifiées des étudiants nommés) — **point de sauvegarde avant**. Le contrôle qui compte est le `ConfirmedCount` : lancer l'aperçu, inscrire un étudiant de plus dans le roster depuis un autre onglet, appliquer → doit **refuser** en nommant les deux nombres, et n'écrire **rien**. `PHASES.md` §25. |
 > | 0ae | **Relancer l'AppHost, puis dérouler `SMOKE-TEST.md` §41.** Les routes `/api/backups*` n'existent pas dans un processus antérieur à cette session : le contrôle qui distingue « route absente » de « non authentifié » est que `safe-point` répond **404** sur l'ancien processus et **401** sans jeton. | Rien dans §41 n'écrit dans la base (un `pg_dump` est une lecture) — sauf les entrées d'audit `BACKUP_POINT_*`. Les deux étapes qui comptent : **arrêter Docker** et vérifier que le bandeau dit « service indisponible » et non « aucune sauvegarde », et **prendre un point depuis la bannière de la déliberation** sans perdre le fichier chargé. ⚠ Ne **pas** exécuter la commande de restauration sur la base vivante ; §18.2 est exactement ce qui manque pour l'éprouver proprement. |
@@ -75,6 +76,78 @@
 > 400 avec un objectif au libellé vide. `StagesPage.handleSave` **filtre** ces objectifs avant
 > l'envoi, donc la requête ne part pas. Le contrôle réel est passif (aucun bandeau) et la
 > démonstration est côté serveur.
+
+## Session 54 — 2026-09-07 · Une cellule que quelqu'un a choisie, et un service tenu pour ceux-là
+
+Phase 19.2, spécifiée le matin et livrée entière. La demande : « les services de Kénitra sont passés
+au GST — professeurs chefs, services dans la base — nous avons la liste des volontaires, et ces
+services leur sont réservés. »
+
+- **① `CohortSlotAssignment.Source` (`Arranged` / `Pinned`).** L'arrangeur traite une cellule
+  épinglée exactement comme une publiée, et **compte** ce qu'il a laissé (`PinnedCellsKept`, repris
+  par le plan macro). ⚠ C'était le défaut le plus silencieux du lot : la répartition supprimait et
+  réécrivait toute cellule non publiée à sa portée, donc un placement nominatif était détruit au clic
+  suivant avec un `Assigned = N` parfaitement normal. ⚠ Et `SetCohortSlotAssignment` épingle **aussi
+  quand elle écrase** — écraser le choix de l'arrangeur *est* la décision humaine.
+- **② `StageAllowedService.PlacementMode` (`Rotation` / `Reserved`).** Seule pièce nécessaire à la
+  justesse : un service doit être dans la liste autorisée pour être épinglable, et c'est exactement
+  ce qui le mettait dans le vivier. ⚠ **Un service ne peut pas se réserver en le remplissant
+  d'abord** — `saturatedServices` est calculé *après* `SaveChangesAsync`, en rapport ; le placement
+  pèse par capacité et ne lit jamais l'occupation. Noté dans `NOTES.md`.
+- **③ `AcademicGroup.Purpose`** — texte libre. Rien d'autre n'enregistre pourquoi un groupe existe.
+- **④ L'acte de masse** — `POST /groups/assign/bulk[/preview]`, deux verbes décidés par étudiant
+  (rattaché / déplacé sans trace), neuf états de ligne, `ConfirmedCount`. ⚠ `AlreadyThere` n'est **ni**
+  travail **ni** refus : renvoyer une liste corrigée est l'usage normal, et le compter comme refus
+  ferait passer un second passage réussi pour un échec.
+- ⚠ **`StudentSelectionResolver` promu** hors de la délocalisation (`Students/Selection/`) : deux
+  actes posaient la même question — « quels étudiants l'opérateur a-t-il désignés » — et le troisième
+  (le choix FIFO) la posera aussi. Même précédent que `RosterScope` en session 52.
+- ⚠ **L'engagement est lu par lot**, en deux requêtes plates groupées sur (inscription, groupe) :
+  demandé par étudiant, cent volontaires font cent allers-retours, sur l'acte dont la raison d'être
+  est que cent de quoi que ce soit est trop. Épinglé par `SqlTranslationTests` — les deux groupent
+  sur une clé construite depuis une navigation, et celle des périodes y arrive par un `SelectMany`
+  puis deux navigations en remontant.
+
+**Front** : modale « Affectation nominative » sur la fiche du groupe, motif sur les deux formulaires,
+bascule « Réservé » sur les services autorisés du stage, épingle sur la grille, et les deux nombres
+(`pinnedCellsKept`, `reservedServices`) dits sur **tous** les retours de répartition, pas seulement
+les bons.
+
+**Tests** : 28 neufs, **1 740 verts**. Morsure vérifiée sur six gardes, une par cas. `tsc`, `eslint`,
+`npm run build` propres. ⚠ **Rien n'a été cliqué** — item 0as.
+
+## Session 53 — 2026-09-07 · Un hôpital partenaire n'est pas un hôpital extérieur
+
+Deux sessions livrées et non commitées (51 et 52) sont d'abord entrées dans l'historique — API
+(`9e8c313`, 1 712 tests verts, un `using` en double retiré au passage) et client (`8543cc7`, `tsc` /
+`eslint` / `vite build` propres). **Rien n'a été cliqué** : les items 0ao / 0aq attendent toujours le
+redémarrage.
+
+Puis une demande : *« les services de Kénitra appartiennent maintenant au GST, leurs professeurs sont
+chefs, leurs services sont dans la base ; nous avons une liste de volontaires pour trois stages, et
+ces services leur sont réservés — c'est comme la délocalisation de masse, mais vers un groupe. »*
+
+- **Ce n'est pas une délocalisation, et le dossier l'avait déjà tranché.** Un hôpital que la faculté
+  peut superviser se répond par un **roster**, pas en sortant les étudiants de l'application
+  ([`docs/planning-rotation.md`](docs/planning-rotation.md)). La faculté l'a déjà joué : cinq rosters
+  entièrement au HMIMV en 2024-2025.
+- ⚠ **Trois quarts de la demande passent aujourd'hui, sans une ligne de code**, et c'est mesuré : la
+  suppression de l'arrangeur est **portée aux cohortes visées**, donc un label de partition à part
+  (« K ») + épinglage + « Répartir » en décochant K rend exactement le flux décrit — les volontaires
+  restent, les autres sont rééquilibrés.
+- ⚠ **Ce qui ne passe pas est « réservé », et pour une raison qui n'était pas écrite** :
+  `saturatedServices` est calculé **après** `SaveChangesAsync`, en rapport. Le placement, lui, pèse
+  par `CapacityFor(levelId)` et **ne lit jamais l'occupation**. Donc on ne peut pas réserver un
+  service en le remplissant d'abord : l'arrangeur ne regarde pas. Noté dans `NOTES.md`.
+- **Livré : `PHASES.md` §19.2 réécrit en spécification complète** — les quatre pièces, ce qu'il ne
+  faut *pas* construire (un solveur de contraintes ; un quota de niveau à 0, qui sort bien le service
+  du vivier mais écrit un mensonge dans la base), l'ordre de construction, et la procédure
+  intérimaire en cinq étapes. `planning-rotation.md` et `delocalization.md` portent le renvoi croisé.
+- ⚠ **La numérotation est une contrainte d'impression, pas un détail** : `GroupNumberRanges` replie
+  des numéros de **roster**, donc les rosters volontaires doivent être numérotés d'un seul tenant
+  pour imprimer « 48-60 » plutôt qu'une pluie de nombres isolés.
+
+**Aucun code applicatif touché** — la session est un commit de rattrapage et une spécification.
 
 ## Session 52 — 2026-09-07 · Le dernier acte de roster qui sautait à l'année
 

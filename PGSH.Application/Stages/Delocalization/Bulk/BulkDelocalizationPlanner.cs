@@ -1,9 +1,10 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.AcademicYears;
 using PGSH.Domain.Hospitals;
 using PGSH.Domain.Stages;
 using PGSH.SharedKernel;
+using PGSH.Application.Students.Selection;
 
 namespace PGSH.Application.Stages.Delocalization.Bulk;
 
@@ -28,14 +29,14 @@ namespace PGSH.Application.Stages.Delocalization.Bulk;
 /// </remarks>
 internal sealed class BulkDelocalizationPlanner(
     IApplicationDbContext dbContext,
-    DelocalizationTargetResolver targetResolver,
+    StudentSelectionResolver targetResolver,
     AcademicYearResolver yearResolver)
 {
     public async Task<Result<BulkDelocalizationPlan>> PlanAsync(
         int stageId,
         int serviceId,
         int? academicYearId,
-        DelocalizationTargets targets,
+        StudentTargets targets,
         DateOnly? startDate,
         DateOnly? endDate,
         CancellationToken ct)
@@ -75,7 +76,12 @@ internal sealed class BulkDelocalizationPlanner(
         // from the one below — and one that fails for entirely unrelated reasons.
         var selection = await targetResolver.ResolveAsync(targets, yearId, ct);
         var candidates = selection.RegistrationIds;
-        var rows = new List<BulkDelocalizationRow>(selection.Unresolved);
+
+        // The resolver reports in its own vocabulary — « introuvable » / « autre année » — and each
+        // act maps it onto its own row states. Mapped rather than shared outright because the two
+        // enums answer different questions: one is about finding a student, the other about what the
+        // act would do to him.
+        var rows = selection.Unresolved.Select(Refuse).ToList();
 
         var registrations = await LoadRegistrationsAsync(candidates.Keys.ToList(), ct);
         var cohorts = await LoadCohortsAsync(stageId, registrations, ct);
@@ -220,6 +226,16 @@ internal sealed class BulkDelocalizationPlanner(
 
         return assignments.ToDictionary(a => a.RegistrationId);
     }
+
+    /// <summary>
+    /// One unresolved line of the selection, in this act's vocabulary.
+    /// </summary>
+    private static BulkDelocalizationRow Refuse(UnresolvedTarget target) =>
+        new(target.RegistrationId, target.StudentName, target.Cne, target.Appogee, null,
+            target.Reason == TargetResolution.NotFound
+                ? BulkDelocalizationRowStatus.NotFound
+                : BulkDelocalizationRowStatus.WrongYear,
+            target.Message, target.SourceIdentifier);
 
     private static BulkDelocalizationRow Refuse(
         RegistrationInfo registration, BulkDelocalizationRowStatus status, string message, string? source) =>

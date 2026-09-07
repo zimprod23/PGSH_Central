@@ -25,7 +25,21 @@ public sealed record StageResponse(
 /// legacy import order). So nothing on screen said which service was first, in the one place where
 /// being first decides something.</para>
 /// </summary>
-public sealed record AllowedServiceSummary(int Id, string Name, string HospitalName, int Rank = 0);
+/// <summary>
+/// One authorised service of a stage, with the position the rotation walks it in and how it is
+/// filled.
+/// </summary>
+/// <remarks>
+/// ⚠ <c>PlacementMode</c> travels with the rank because they answer one question together. A
+/// screen showing the order without the mode lists a service in the rotation queue that the
+/// rotation will never choose — which reads as a service the arranger keeps skipping.
+/// </remarks>
+public sealed record AllowedServiceSummary(
+    int Id,
+    string Name,
+    string HospitalName,
+    int Rank = 0,
+    ServicePlacementMode PlacementMode = ServicePlacementMode.Rotation);
 
 public record StageObjectiveResponse(
     string Label,

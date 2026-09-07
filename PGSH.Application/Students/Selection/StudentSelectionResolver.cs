@@ -1,50 +1,41 @@
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 
-namespace PGSH.Application.Stages.Delocalization.Bulk;
+namespace PGSH.Application.Students.Selection;
 
 /// <summary>
 /// Turns « le G3 au complet, plus ces douze-là, plus la liste du formulaire » into a set of
 /// registration ids — and into a row for each line that names nobody.
 /// </summary>
 /// <remarks>
-/// <para>Its own class because it answers a different question from the planner's. The planner asks
+/// <para>Its own class because it answers a different question from any planner's. A planner asks
 /// <i>what would happen to these students</i>; this asks <i>which students did the operator mean</i>,
-/// and the two fail for unrelated reasons — a typo in a pasted CNE has nothing to do with a stage
-/// carrying a mark. Keeping them together made one object own both an identifier grammar and a
-/// délocalisation's preconditions.</para>
+/// and the two fail for entirely unrelated reasons — a typo in a pasted CNE has nothing to do with a
+/// stage carrying a mark. Keeping them together made one object own both an identifier grammar and
+/// an act's preconditions.</para>
 ///
-/// <para>⚠ <b>A line that resolves to nobody comes back as a row, never as silence.</b> Dropping it
-/// is the defect that silently lost 182 students of a réinscription roll: the file was applied, the
-/// report said nothing, and the only trace was a spreadsheet nobody re-read.</para>
+/// <para>⚠ <b>Shared, not copied.</b> It began inside the mass délocalisation; the nominative roster
+/// assignment asks the identical question and the FIFO choice will ask it a third time. Two acts
+/// answering one question separately is precisely how one of them received a promotion scope and the
+/// other kept an annual one — see <c>RosterScope</c>, extracted for the same reason.</para>
 /// </remarks>
-internal sealed class DelocalizationTargetResolver(IApplicationDbContext dbContext)
+internal sealed class StudentSelectionResolver(IApplicationDbContext dbContext)
 {
-    /// <param name="RegistrationIds">
-    /// The registrations to plan, each mapped to the identifier it was typed as — null when it was
-    /// named by id or reached through a roster. It travels so an unmatched line can be found in the
-    /// file it came from.
-    /// </param>
-    /// <param name="Unresolved">The lines that name nobody in this year, already worded.</param>
-    internal sealed record ResolvedTargets(
-        IReadOnlyDictionary<Guid, string?> RegistrationIds,
-        IReadOnlyList<BulkDelocalizationRow> Unresolved);
-
-    public async Task<ResolvedTargets> ResolveAsync(
-        DelocalizationTargets targets, int academicYearId, CancellationToken ct)
+    public async Task<StudentSelection> ResolveAsync(
+        StudentTargets targets, int academicYearId, CancellationToken ct)
     {
         var resolved = new Dictionary<Guid, string?>();
-        var unresolved = new List<BulkDelocalizationRow>();
+        var unresolved = new List<UnresolvedTarget>();
 
         await AddRostersAsync(targets, academicYearId, resolved, ct);
         await AddNamedRegistrationsAsync(targets, academicYearId, resolved, unresolved, ct);
         await AddIdentifiersAsync(targets, academicYearId, resolved, unresolved, ct);
 
-        return new ResolvedTargets(resolved, unresolved);
+        return new StudentSelection(resolved, unresolved);
     }
 
     private async Task AddRostersAsync(
-        DelocalizationTargets targets, int academicYearId,
+        StudentTargets targets, int academicYearId,
         Dictionary<Guid, string?> resolved, CancellationToken ct)
     {
         var groupIds = targets.AcademicGroupIds?.Distinct().ToList() ?? [];
@@ -67,8 +58,8 @@ internal sealed class DelocalizationTargetResolver(IApplicationDbContext dbConte
     }
 
     private async Task AddNamedRegistrationsAsync(
-        DelocalizationTargets targets, int academicYearId,
-        Dictionary<Guid, string?> resolved, List<BulkDelocalizationRow> unresolved, CancellationToken ct)
+        StudentTargets targets, int academicYearId,
+        Dictionary<Guid, string?> resolved, List<UnresolvedTarget> unresolved, CancellationToken ct)
     {
         var explicitIds = targets.RegistrationIds?.Distinct().ToList() ?? [];
         if (explicitIds.Count == 0)
@@ -88,18 +79,18 @@ internal sealed class DelocalizationTargetResolver(IApplicationDbContext dbConte
 
             if (match is null)
             {
-                unresolved.Add(new BulkDelocalizationRow(
-                    id, $"Inscription {id}", null, null, null,
-                    BulkDelocalizationRowStatus.NotFound,
+                unresolved.Add(new UnresolvedTarget(
+                    id, $"Inscription {id}", null, null,
+                    TargetResolution.NotFound,
                     "Cette inscription n'existe pas."));
                 continue;
             }
 
             if (match.AcademicYearId != academicYearId)
             {
-                unresolved.Add(new BulkDelocalizationRow(
-                    id, match.FullName, match.CNE, match.Appogee, null,
-                    BulkDelocalizationRowStatus.WrongYear,
+                unresolved.Add(new UnresolvedTarget(
+                    id, match.FullName, match.CNE, match.Appogee,
+                    TargetResolution.WrongYear,
                     "Cette inscription appartient à une autre année universitaire."));
                 continue;
             }
@@ -109,8 +100,8 @@ internal sealed class DelocalizationTargetResolver(IApplicationDbContext dbConte
     }
 
     private async Task AddIdentifiersAsync(
-        DelocalizationTargets targets, int academicYearId,
-        Dictionary<Guid, string?> resolved, List<BulkDelocalizationRow> unresolved, CancellationToken ct)
+        StudentTargets targets, int academicYearId,
+        Dictionary<Guid, string?> resolved, List<UnresolvedTarget> unresolved, CancellationToken ct)
     {
         var identifiers = targets.Identifiers?
             .Select(i => i.Trim())
@@ -143,13 +134,13 @@ internal sealed class DelocalizationTargetResolver(IApplicationDbContext dbConte
             var elsewhere = forIdentifier.FirstOrDefault();
 
             unresolved.Add(elsewhere is null
-                ? new BulkDelocalizationRow(
-                    null, identifier, null, null, null,
-                    BulkDelocalizationRowStatus.NotFound,
+                ? new UnresolvedTarget(
+                    null, identifier, null, null,
+                    TargetResolution.NotFound,
                     "Aucun étudiant ne porte ce CNE ni cet Apogée.", identifier)
-                : new BulkDelocalizationRow(
-                    null, elsewhere.FullName, elsewhere.CNE, elsewhere.Appogee, null,
-                    BulkDelocalizationRowStatus.WrongYear,
+                : new UnresolvedTarget(
+                    null, elsewhere.FullName, elsewhere.CNE, elsewhere.Appogee,
+                    TargetResolution.WrongYear,
                     "Étudiant connu, mais sans inscription sur l'année sélectionnée.", identifier));
         }
     }
@@ -159,7 +150,7 @@ internal sealed class DelocalizationTargetResolver(IApplicationDbContext dbConte
     /// </summary>
     /// <remarks>
     /// <para>Deliberately <b>unscoped by year</b>: the caller picks the year's row and reports the
-    /// rest as <c>WrongYear</c>.</para>
+    /// rest as <see cref="TargetResolution.WrongYear"/>.</para>
     ///
     /// <para>⚠ Named so <c>SqlTranslationTests</c> can compile it: a <c>ToLower()</c> on a nullable
     /// column inside a <c>Contains</c> over an in-memory list is a <b>predicate</b>, and a

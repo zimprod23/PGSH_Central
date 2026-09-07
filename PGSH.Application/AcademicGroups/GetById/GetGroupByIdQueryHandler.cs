@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
 using PGSH.Application.Extensions;
@@ -25,6 +25,7 @@ internal sealed class GetGroupByIdQueryHandler(IApplicationDbContext dbContext)
                 g.GroupNumber,
                 g.GeographicZone,
                 g.RotationGroup,
+                g.Purpose,
                 g.AcademicYearId,
                 AcademicYearLabel = g.AcademicYear.Label,
                 g.LevelId,
@@ -103,6 +104,7 @@ internal sealed class GetGroupByIdQueryHandler(IApplicationDbContext dbContext)
             header.GroupNumber,
             header.GeographicZone,
             header.RotationGroup,
+            header.Purpose,
             header.AcademicYearId,
             header.AcademicYearLabel,
             header.LevelId,

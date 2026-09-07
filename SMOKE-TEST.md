@@ -1,4 +1,4 @@
-# Smoke test — the manual verification pass
+﻿# Smoke test — the manual verification pass
 
 One section per piece of work, oldest first, numbered by section rather than by session. Each says
 what to click, what the correct numbers are on **this** base, and what a wrong number would mean.
@@ -3809,3 +3809,98 @@ Effacer le filtre → « Tout supprimer » → confirmer.
 - ⚠ **Non vérifiable ici** : que le `DELETE` final porte bien sur les rosters sélectionnés et non sur
   l'année. Le fournisseur en mémoire refuse `ExecuteDelete`, donc aucun test ne couvre cette ligne —
   c'est §53.4 (« la 3ᵉ MED est inchangée ») qui en est la seule preuve, et elle est manuelle.
+
+---
+
+## §54 — Le placement nominatif : la liste, le groupe, le service réservé (session 54)
+
+⚠ **Prérequis : redémarrer l'AppHost.** La migration `NominativePlacement` ajoute trois colonnes, et
+les routes `POST /groups/assign/bulk*` et `PUT …/placement-mode` n'existent dans aucun processus
+antérieur à cette session.
+
+⚠ **Le contrôle qui distingue « ancien processus » de « corrigé »** : `POST /api/groups/assign/bulk/preview`
+répond **404** sur l'ancien, **401** sans jeton, **400** avec un corps vide sur le nouveau.
+
+⚠ **Point de sauvegarde avant l'étape 4** — c'est la seule étape destructrice, et elle déplace des
+inscriptions.
+
+### 1 · Créer le groupe volontaire, avec son motif
+
+`Admin → Groupes`, promotion visée, « Nouveau groupe ».
+
+- Libellé « Kénitra 1 », **motif** « Volontaires Kénitra (GST) — formulaire du 12/09 ».
+- ⚠ **Le numéro est attribué à la suite du plus haut existant.** Si plusieurs groupes volontaires sont
+  créés, les créer **d'affilée** : `GroupNumberRanges` replie des numéros de roster, donc 48-60
+  imprime « 48-60 » et les mêmes treize éparpillés impriment une pluie de nombres isolés.
+- Rouvrir la fiche du groupe : le motif est **relu tel quel**. ⚠ Le vérifier explicitement — un
+  résumé qui alimente un formulaire d'édition doit porter tout ce que ce formulaire réécrit, sans quoi
+  l'édition suivante l'efface (c'est ce qui avait effacé la description de chaque hôpital).
+
+### 2 · L'aperçu, avant tout écrit
+
+Sur le groupe, « Affectation nominative ». Coller une liste mêlant **CNE et Apogée**, en minuscules,
+plus une ligne inventée.
+
+- L'aperçu montre une ligne par étudiant, **refus en tête**.
+- La ligne inventée est **`Introuvable`** et porte l'identifiant tapé — c'est ce qui permet de la
+  retrouver dans le fichier.
+- ⚠ **Un étudiant d'une autre promotion est `Mauvaise promotion`, pas `Introuvable`** : ce sont deux
+  corrections différentes. Un étudiant d'une autre année est `Autre année`.
+- ⚠ **Rien n'est écrit.** Recharger la page des groupes : l'effectif du groupe cible n'a pas bougé.
+  Un aperçu qui déplacerait quelqu'un serait une application sous un autre nom.
+
+### 3 · Le refus qui compte
+
+Prendre un étudiant dont une rotation a **commencé** et l'ajouter à la liste.
+
+- Sa ligne est **`Déjà engagé`**, elle chiffre les périodes / commencées / évaluées / journées de
+  présence, et elle **nomme le transfert** comme l'acte qui peut le faire.
+- Le compte « seront affectés » **ne l'inclut pas**.
+
+### 4 · Appliquer, et la garde qui n'est pas une case à cocher
+
+⚠ **Point de sauvegarde pris.** Lancer l'aperçu, puis **depuis un autre onglet** ajouter un étudiant
+de plus au groupe source, puis appliquer.
+
+- Doit **refuser** en nommant les deux nombres (`RosterAssignment.CountMismatch`), et n'écrire
+  **rien** — vérifier que l'effectif du groupe cible est inchangé.
+- Relancer l'aperçu, appliquer : les étudiants applicables sont dans le groupe, les refusés sont
+  restés où ils étaient.
+- ⚠ **Un étudiant sans groupe reçoit ses affectations** (il *rejoint*) ; un étudiant venant d'un autre
+  groupe **garde les siennes**, re-pointées, et son adhésion est **réécrite sur place** — donc son
+  dossier ne montre aucun déplacement. C'est voulu : « changement de groupe » est une correction.
+- `Journal des actions` porte **`STUDENTS_ASSIGNED_TO_ROSTER`**.
+
+### 5 · Réserver les services de Kénitra
+
+`Admin → Stages`, le stage concerné, ses services autorisés.
+
+- Autoriser le service de Kénitra s'il ne l'est pas, puis le passer en **« Réservé »**.
+- ⚠ Le tenter sur un service **non autorisé** doit refuser en disant de l'autoriser d'abord — pas
+  « service introuvable », qui est l'autre cause.
+- `Journal des actions` porte **`STAGE_SERVICE_PLACEMENT_MODE_SET`**.
+- ⚠ **Rien de déjà placé ne bouge.** C'est la répartition suivante qui lit le mode, exactement comme
+  l'ordre des services.
+
+### 6 · Épingler, puis relancer la répartition — l'assertion de la session
+
+Sur la grille du stage, placer à la main la cohorte du groupe volontaire dans le service de Kénitra,
+pour les colonnes voulues. Puis « Répartir » **sur tout le stage, sans rien décocher**.
+
+- Les cellules épinglées sont **toujours là**, sur le même service.
+- Le retour annonce **« N cellule(s) épinglée(s) conservée(s) »**. ⚠ **C'est l'assertion.** Avant cette
+  session la répartition les supprimait et réécrivait, en annonçant un `Assigned = N` parfaitement
+  normal — aucun refus, aucun compte, rien à l'écran.
+- **Aucune autre cohorte n'est placée à Kénitra.** ⚠ Sans l'étape 5 elles le seraient : autoriser un
+  service est exactement ce qui le met dans le vivier.
+- Le retour annonce aussi **« N service(s) réservé(s) »** : la capacité retenue quitte le plafond avec
+  eux, donc « il manque N places » se mesure contre un plafond plus petit, **volontairement**.
+
+### 7 · Le cas qu'il faut voir refuser
+
+Réserver **tous** les services autorisés du stage, puis « Répartir ».
+
+- Doit refuser en disant que **tous sont réservés** (`Schedule.AllServicesReserved`), et **non**
+  « aucun service n'accueille cette promotion ». ⚠ Les deux envoient l'opérateur à deux écrans
+  différents : le second lui ferait élargir des quotas qui n'ont jamais été l'obstacle.
+- Remettre un service en « Rotation » ensuite.

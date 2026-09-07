@@ -1,4 +1,4 @@
-using PGSH.Application.Abstractions.Messaging;
+﻿using PGSH.Application.Abstractions.Messaging;
 using PGSH.SharedKernel;
 
 namespace PGSH.Application.AcademicGroups.GetById;
@@ -21,6 +21,7 @@ public sealed record GroupDetailResponse(
     int    GroupNumber,
     string? GeographicZone,
     string? RotationGroup,
+    string? Purpose,
     int    AcademicYearId,
     string AcademicYearLabel,
     /// <summary>

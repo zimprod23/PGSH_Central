@@ -2,6 +2,7 @@
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Employees.MyServices;
 using PGSH.Application.AcademicGroups;
+using PGSH.Application.AcademicGroups.BulkAssignment;
 using PGSH.Application.AcademicGroups.Placements;
 using PGSH.Application.Audit;
 using PGSH.Application.Calendar;
@@ -34,6 +35,7 @@ using PGSH.Domain.Common.Utils;
 using PGSH.Domain.Registrations;
 using PGSH.Infrastructure.Database;
 using Xunit;
+using PGSH.Application.Students.Selection;
 
 namespace PGSH.Tests.Application;
 
@@ -285,7 +287,7 @@ public class SqlTranslationTests
     {
         using var db = TestHarness.NewNpgsqlContext();
 
-        string matches = DelocalizationTargetResolver
+        string matches = StudentSelectionResolver
             .MatchedIdentifiersQuery(db, ["r130896", "ap2200a"])
             .ToQueryString();
 
@@ -1128,7 +1130,7 @@ public class SqlTranslationTests
     {
         using var db = TestHarness.NewNpgsqlContext();
 
-        string sql = ServiceRankWriter.RanksQuery(db, stageId: 7).ToQueryString();
+        string sql = ServiceRankWriter.AuthorisationsQuery(db, stageId: 7).ToQueryString();
 
         sql.Should().Contain("StageAllowedServices");
         sql.Should().ContainEquivalentOf("Rank", "the authored position is what the read is for");
@@ -1238,5 +1240,63 @@ public class SqlTranslationTests
 
         periods.Select(p => p.InternshipAssignment.RegistrationId).Distinct().ToQueryString()
             .Should().Contain("DISTINCT");
+    }
+
+    /// <summary>
+    /// The nominative roster assignment's four reads.
+    /// </summary>
+    /// <remarks>
+    /// <para>⚠ The two count queries are the reason this case exists. Each groups over a key built
+    /// from a <b>navigation</b> — <c>a.Cohort.AcademicGroupId</c> — and the period one reaches it
+    /// through a <c>SelectMany</c> onto a collection and then back up two navigations. Folding a
+    /// count over a collection navigation inside an aggregate over the affectations is precisely the
+    /// shape Npgsql refuses, which is why they are two flat round trips rather than one query, the
+    /// same division <c>AffectationTollReader</c> is built on.</para>
+    ///
+    /// <para>The engagement read is also <b>batched</b>: asked per student it would be one round trip
+    /// each, on the act whose entire reason for existing is that a hundred of anything is too
+    /// many.</para>
+    /// </remarks>
+    [Fact]
+    public void The_bulk_roster_assignment_queries_compile_to_sql()
+    {
+        using var db = TestHarness.NewNpgsqlContext();
+        var ids = new[] { Guid.NewGuid(), Guid.NewGuid() };
+
+        // The optional roster navigation has to be left-joined, not refused.
+        string registrations = BulkRosterAssignmentPlanner.RegistrationsQuery(db, ids).ToQueryString();
+        registrations.Should().Contain("Registrations");
+        registrations.Should().Contain("LEFT JOIN");
+
+        string assignments = BulkRosterAssignmentPlanner.AssignmentCountsQuery(db, ids).ToQueryString();
+        assignments.Should().Contain("GROUP BY");
+        assignments.Should().Contain("AcademicGroupId");
+
+        string periods = BulkRosterAssignmentPlanner.PeriodCountsQuery(db, ids).ToQueryString();
+        periods.Should().Contain("ServicePeriods");
+        periods.Should().Contain("GROUP BY");
+
+        BulkRosterAssignmentPlanner.StagesHeldQuery(db, ids).ToQueryString()
+            .Should().Contain("Cohorts");
+    }
+
+    /// <summary>
+    /// The stage's authorisations, now carrying the placement mode beside the rank.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ Still one flat, top-level query keyed on the stage id. A projected join row is a computed
+    /// element carrying no key — the shape Npgsql refuses inside a collection subquery — and adding
+    /// a second column to it does not change that; what would is somebody folding it back into the
+    /// stage projection because it now looks like part of the stage.
+    /// </remarks>
+    [Fact]
+    public void The_stage_authorisations_compile_to_sql_with_their_placement_mode()
+    {
+        using var db = TestHarness.NewNpgsqlContext();
+
+        string sql = ServiceRankWriter.AuthorisationsQuery(db, stageId: 7).ToQueryString();
+
+        sql.Should().Contain("StageAllowedServices");
+        sql.Should().Contain("PlacementMode");
     }
 }

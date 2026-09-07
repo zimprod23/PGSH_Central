@@ -1,4 +1,4 @@
-# Délocalisation — a stage served outside the faculty
+﻿# Délocalisation — a stage served outside the faculty
 
 > Read before touching `InternshipAssignment.Delocalize`, the bulk act, `Service.IsExternal`, or
 > anything that counts how many students stand in a service.
@@ -19,6 +19,21 @@ closed, or evaluated.
 
 ⚠ **It is per stage, not per student.** « Le G3 part à Kénitra » means for *this* stage. The same
 students keep their normal rotation on every other stage of the year.
+
+⚠ **And « Kénitra » stopped being an example on 2026-09-07.** Those services joined the GST, so they
+are in the catalogue with chefs who evaluate in the app — which makes the mass délocalisation the
+**wrong tool** for sending a list of volunteers there, however closely the two acts resemble each
+other from the outside. A place PGSH can supervise is answered by a **roster with pinned cells**:
+[`planning-rotation.md`](planning-rotation.md), « A nominative placement request is answered by a
+roster », and `PHASES.md` §19.2. Délocaliser there would put those students outside the chef's
+worklist, outside occupancy and outside in-app evaluation, and would wait for a paper fiche that the
+hospital has no reason to send.
+
+✅ **The act to reach for instead exists since 2026-09-07**: `ApplyBulkRosterAssignmentCommand` puts
+the named list into a roster — same three-way selection, same `ConfirmedCount` guard, same
+refusals-first report — and `StageAllowedService.PlacementMode = Reserved` holds the services for
+them. It runs on the **same** `StudentSelectionResolver` this act does, which is why a list that
+works here works there unchanged.
 
 ## `Service.IsExternal` — the one lever
 

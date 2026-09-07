@@ -393,6 +393,10 @@ namespace PGSH.Infrastructure.Migrations
                     b.Property<int?>("LevelId")
                         .HasColumnType("integer");
 
+                    b.Property<string>("Purpose")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
                     b.Property<string>("RotationGroup")
                         .HasColumnType("text");
 
@@ -829,6 +833,13 @@ namespace PGSH.Infrastructure.Migrations
                     b.Property<int>("ServiceId")
                         .HasColumnType("integer");
 
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("Arranged");
+
                     b.Property<int>("StageSlotId")
                         .HasColumnType("integer");
 
@@ -1186,6 +1197,13 @@ namespace PGSH.Infrastructure.Migrations
 
                     b.Property<int>("ServiceId")
                         .HasColumnType("integer");
+
+                    b.Property<string>("PlacementMode")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("Rotation");
 
                     b.Property<int>("Rank")
                         .ValueGeneratedOnAdd()

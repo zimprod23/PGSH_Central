@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Stages.Delocalization.Bulk;
 using PGSH.Domain.Common.Utils;
@@ -6,6 +6,7 @@ using PGSH.Domain.Registrations;
 using PGSH.Domain.Stages;
 using PGSH.Infrastructure.Database;
 using Xunit;
+using PGSH.Application.Students.Selection;
 
 namespace PGSH.Tests.Application;
 
@@ -44,11 +45,11 @@ public class BulkDelocalizationTests
     }
 
     private static ApplyBulkDelocalizationCommand Apply(
-        DelocalizationTargets targets, int confirmed, string reason = "Saturation — accueil à Kénitra") =>
+        StudentTargets targets, int confirmed, string reason = "Saturation — accueil à Kénitra") =>
         new(TestHarness.StageId, ExternalServiceId, reason, targets, confirmed,
             StartDate: Start, EndDate: End);
 
-    private static PreviewBulkDelocalizationQuery Preview(DelocalizationTargets targets) =>
+    private static PreviewBulkDelocalizationQuery Preview(StudentTargets targets) =>
         new(TestHarness.StageId, ExternalServiceId, targets, StartDate: Start, EndDate: End);
 
     [Fact]
@@ -57,7 +58,7 @@ public class BulkDelocalizationTests
         await using var db = TestHarness.NewContext("bulk-deloc-roster");
         var s = await SeedAsync(db);
 
-        var targets = new DelocalizationTargets(AcademicGroupIds: [s.Cohort.AcademicGroupId]);
+        var targets = new StudentTargets(AcademicGroupIds: [s.Cohort.AcademicGroupId]);
 
         var preview = await db.BulkDelocalizePreview().Handle(Preview(targets), default);
         preview.Value.ApplicableCount.Should().Be(3);
@@ -82,7 +83,7 @@ public class BulkDelocalizationTests
             .Select(x => x.Appogee)
             .FirstAsync();
 
-        var targets = new DelocalizationTargets(
+        var targets = new StudentTargets(
             RegistrationIds: [s.Students[0].Id, s.Students[1].Id],
             Identifiers:     [appogee]);
 
@@ -104,7 +105,7 @@ public class BulkDelocalizationTests
         await db.SaveChangesAsync();
 
         var preview = await db.BulkDelocalizePreview()
-            .Handle(Preview(new DelocalizationTargets(Identifiers: ["  r130896  "])), default);
+            .Handle(Preview(new StudentTargets(Identifiers: ["  r130896  "])), default);
 
         preview.Value.ApplicableCount.Should().Be(1);
     }
@@ -116,7 +117,7 @@ public class BulkDelocalizationTests
         await SeedAsync(db, studentCount: 1);
 
         var preview = await db.BulkDelocalizePreview()
-            .Handle(Preview(new DelocalizationTargets(Identifiers: ["INCONNU-1"])), default);
+            .Handle(Preview(new StudentTargets(Identifiers: ["INCONNU-1"])), default);
 
         var row = preview.Value.Rows.Should().ContainSingle().Subject;
         row.Status.Should().Be(BulkDelocalizationRowStatus.NotFound);
@@ -143,7 +144,7 @@ public class BulkDelocalizationTests
             .Select(x => x.Appogee).FirstAsync();
 
         var preview = await db.BulkDelocalizePreview()
-            .Handle(Preview(new DelocalizationTargets(Identifiers: [appogee])), default);
+            .Handle(Preview(new StudentTargets(Identifiers: [appogee])), default);
 
         preview.Value.Rows.Should().ContainSingle()
             .Which.Status.Should().Be(BulkDelocalizationRowStatus.WrongYear);
@@ -161,7 +162,7 @@ public class BulkDelocalizationTests
         db.SeedGradedAssignment(marked, s.Cohort, home, mark: 12m);
         await db.SaveChangesAsync();
 
-        var targets = new DelocalizationTargets(AcademicGroupIds: [s.Cohort.AcademicGroupId]);
+        var targets = new StudentTargets(AcademicGroupIds: [s.Cohort.AcademicGroupId]);
 
         var preview = await db.BulkDelocalizePreview().Handle(Preview(targets), default);
         preview.Value.ApplicableCount.Should().Be(2);
@@ -185,7 +186,7 @@ public class BulkDelocalizationTests
     {
         await using var db = TestHarness.NewContext("bulk-deloc-drift");
         var s = await SeedAsync(db, studentCount: 2);
-        var targets = new DelocalizationTargets(AcademicGroupIds: [s.Cohort.AcademicGroupId]);
+        var targets = new StudentTargets(AcademicGroupIds: [s.Cohort.AcademicGroupId]);
 
         var preview = await db.BulkDelocalizePreview().Handle(Preview(targets), default);
         preview.Value.ApplicableCount.Should().Be(2);
@@ -211,7 +212,7 @@ public class BulkDelocalizationTests
         await db.SaveChangesAsync();
 
         var preview = await db.BulkDelocalizePreview()
-            .Handle(Preview(new DelocalizationTargets(RegistrationIds: [loose.Id])), default);
+            .Handle(Preview(new StudentTargets(RegistrationIds: [loose.Id])), default);
 
         preview.Value.Rows.Should().ContainSingle()
             .Which.Status.Should().Be(BulkDelocalizationRowStatus.NoRoster);
@@ -228,7 +229,7 @@ public class BulkDelocalizationTests
         await db.SaveChangesAsync();
 
         var preview = await db.BulkDelocalizePreview()
-            .Handle(Preview(new DelocalizationTargets(RegistrationIds: [registration.Id])), default);
+            .Handle(Preview(new StudentTargets(RegistrationIds: [registration.Id])), default);
 
         preview.Value.Rows.Should().ContainSingle()
             .Which.Status.Should().Be(BulkDelocalizationRowStatus.NoCohort);
@@ -242,7 +243,7 @@ public class BulkDelocalizationTests
         var unplanned = db.SeedRegistration("Jamais", "Réparti", s.Cohort.AcademicGroup);
         await db.SaveChangesAsync();
 
-        var targets = new DelocalizationTargets(RegistrationIds: [unplanned.Id]);
+        var targets = new StudentTargets(RegistrationIds: [unplanned.Id]);
 
         var preview = await db.BulkDelocalizePreview().Handle(Preview(targets), default);
         preview.Value.ApplicableCount.Should().Be(1);
@@ -264,7 +265,7 @@ public class BulkDelocalizationTests
     {
         await using var db = TestHarness.NewContext("bulk-deloc-idempotent");
         var s = await SeedAsync(db, studentCount: 2);
-        var targets = new DelocalizationTargets(AcademicGroupIds: [s.Cohort.AcademicGroupId]);
+        var targets = new StudentTargets(AcademicGroupIds: [s.Cohort.AcademicGroupId]);
 
         await db.BulkDelocalizeHandler().Handle(Apply(targets, confirmed: 2), default);
 
@@ -293,7 +294,7 @@ public class BulkDelocalizationTests
         await db.SaveChangesAsync();
 
         var preview = await db.BulkDelocalizePreview()
-            .Handle(Preview(new DelocalizationTargets(AcademicGroupIds: [cohort.AcademicGroupId])), default);
+            .Handle(Preview(new StudentTargets(AcademicGroupIds: [cohort.AcademicGroupId])), default);
 
         preview.Value.UnderwayCount.Should().Be(1);
         preview.Value.Rows.Should().ContainSingle()
@@ -318,7 +319,7 @@ public class BulkDelocalizationTests
         await db.SaveChangesAsync();
 
         var preview = await db.BulkDelocalizePreview().Handle(
-            Preview(new DelocalizationTargets(AcademicGroupIds: [s.Cohort.AcademicGroupId])), default);
+            Preview(new StudentTargets(AcademicGroupIds: [s.Cohort.AcademicGroupId])), default);
 
         var report = preview.Value;
 
@@ -337,7 +338,7 @@ public class BulkDelocalizationTests
     {
         await using var db = TestHarness.NewContext("bulk-deloc-scope");
         var s = await SeedAsync(db, studentCount: 1);
-        var targets = new DelocalizationTargets(AcademicGroupIds: [s.Cohort.AcademicGroupId]);
+        var targets = new StudentTargets(AcademicGroupIds: [s.Cohort.AcademicGroupId]);
 
         var result = await db.BulkDelocalizeHandler(db.StrangerAuthorizer())
             .Handle(Apply(targets, confirmed: 1), default);

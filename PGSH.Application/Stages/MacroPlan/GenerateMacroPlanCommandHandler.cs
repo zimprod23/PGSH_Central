@@ -1,4 +1,4 @@
-using PGSH.Application.Abstractions.Data;
+﻿using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
 using PGSH.Application.Stages.Planning;
 using PGSH.SharedKernel;
@@ -39,7 +39,7 @@ internal sealed class GenerateMacroPlanCommandHandler(
         var blocks = ConcurrencyBlock.From(request.Plans);
 
         int studentsAssigned = 0, cellsArranged = 0, saturated = 0, cohortsPublished = 0, periodsPublished = 0;
-        int groupConflicts = 0, skippedAlreadyServed = 0;
+        int groupConflicts = 0, skippedAlreadyServed = 0, pinnedCellsKept = 0;
 
         foreach (var block in blocks)
         {
@@ -71,6 +71,12 @@ internal sealed class GenerateMacroPlanCommandHandler(
                 // with another stage's window arranges nothing, and "0 cells" alone reads as
                 // "there was nothing to do".
                 groupConflicts += arranged.Value.GroupConflicts;
+
+                // ⚠ Same rule again, and the stake is higher here: the matrix reaches every
+                // partition of the promotion, so a plan run over a stage carrying a nominative
+                // placement writes fewer cells than the operator asked for — on purpose. Unreported,
+                // that is indistinguishable from an arrange that silently failed.
+                pinnedCellsKept += arranged.Value.PinnedCellsKept;
             }
         }
 
@@ -100,7 +106,8 @@ internal sealed class GenerateMacroPlanCommandHandler(
             periodsPublished,
             cohortResult.Value.NotRequiredByCnpn,
             groupConflicts,
-            skippedAlreadyServed));
+            skippedAlreadyServed,
+            pinnedCellsKept));
     }
 }
 

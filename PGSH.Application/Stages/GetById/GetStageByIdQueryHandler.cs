@@ -43,7 +43,10 @@ internal sealed class GetStageByIdQueryHandler(
                                     ))
                                 .ToArray(),
                             s.AllowedServices
-                                .Select(svc => new AllowedServiceSummary(svc.Id, svc.Name, svc.Hospital.Name, 0))
+                                // Rank and mode are filled from the join below; an expression tree
+                                // cannot use the record's defaults, so both are stated here.
+                                .Select(svc => new AllowedServiceSummary(
+                                    svc.Id, svc.Name, svc.Hospital.Name, 0, ServicePlacementMode.Rotation))
                                 .ToArray()
                             ))
                         .FirstOrDefaultAsync(cancellationToken);
@@ -53,8 +56,8 @@ internal sealed class GetStageByIdQueryHandler(
         // ⚠ Read by a second flat query keyed on the stage id, never as a collection inside the row
         // projection: the rank lives on the join, and a projected join row is a computed element
         // carrying no key — the shape Npgsql refuses. Pinned by SqlTranslationTests.
-        var rankByService = await ServiceRankWriter.RanksQuery(dbContext, request.StageId)
-            .ToDictionaryAsync(x => x.ServiceId, x => x.Rank, cancellationToken);
+        var authorisations = await ServiceRankWriter.AuthorisationsQuery(dbContext, request.StageId)
+            .ToDictionaryAsync(x => x.ServiceId, cancellationToken);
 
         // Returned in the order the rotation is actually walked, so the position shown beside a
         // service is the position it holds. Unranked rows fall to the end on their id, which is the
@@ -62,7 +65,9 @@ internal sealed class GetStageByIdQueryHandler(
         return stage with
         {
             AllowedServices = [.. stage.AllowedServices
-                .Select(svc => svc with { Rank = rankByService.GetValueOrDefault(svc.Id) })
+                .Select(svc => authorisations.TryGetValue(svc.Id, out var a)
+                    ? svc with { Rank = a.Rank, PlacementMode = a.PlacementMode }
+                    : svc)
                 .OrderBy(svc => ServiceRotationOrder.SortKeyOf(svc.Rank))
                 .ThenBy(svc => svc.Id)],
         };

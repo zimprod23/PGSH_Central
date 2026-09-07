@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Stages.AllowedServices;
 using PGSH.Application.Stages.Delocalization.Bulk;
@@ -7,6 +7,7 @@ using PGSH.Application.Stages.Slots;
 using PGSH.Domain.Stages;
 using PGSH.Infrastructure.Database;
 using Xunit;
+using PGSH.Application.Students.Selection;
 
 namespace PGSH.Tests.Application;
 
@@ -118,7 +119,7 @@ public class ExternalServiceTests
         var applied = await db.BulkDelocalizeHandler().Handle(
             new ApplyBulkDelocalizationCommand(
                 stage.Id, ExternalServiceId, "Saturation",
-                new DelocalizationTargets(RegistrationIds: [students[0].Id, students[1].Id]),
+                new StudentTargets(RegistrationIds: [students[0].Id, students[1].Id]),
                 ConfirmedCount: 2, StartDate: Start, EndDate: End),
             default);
 

@@ -1,4 +1,4 @@
-using PGSH.Application.Abstractions.Messaging;
+﻿using PGSH.Application.Abstractions.Messaging;
 
 namespace PGSH.Application.AcademicGroups.Update;
 
@@ -6,7 +6,8 @@ public sealed record UpdateGroupCommand(
     int     Id,
     string  Label,
     string? GeographicZone,
-    string? RotationGroup)
+    string? RotationGroup,
+    string? Purpose = null)
     : ICommand, IAuditableCommand
 {
     public string  AuditAction     => "GROUP_UPDATED";

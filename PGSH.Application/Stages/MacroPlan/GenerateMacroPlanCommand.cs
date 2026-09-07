@@ -44,4 +44,13 @@ public sealed record MacroPlanResult(
     /// imported historical rotation, a délocalisation, a revalidation. Reported so a plan that
     /// publishes far fewer periods than expected explains itself.
     /// </summary>
-    int SkippedAlreadyServed = 0);
+    int SkippedAlreadyServed = 0,
+
+    /// <summary>
+    /// Cells the arrange left exactly as they were because a human had pinned them — a nominative
+    /// placement, « ces volontaires dans ce service ». ⚠ Reported for the same reason as
+    /// <paramref name="SkippedAlreadyServed"/>, and it is the more dangerous of the two to omit: the
+    /// matrix reaches every partition of the promotion, so this is the number that says a
+    /// hand-authored placement survived the plan instead of being quietly overwritten by it.
+    /// </summary>
+    int PinnedCellsKept = 0);

@@ -18,6 +18,9 @@ using PGSH.Domain.Registrations;
 using PGSH.Domain.Stages;
 using PGSH.Domain.Students;
 using PGSH.Infrastructure.Database;
+using PGSH.Application.AcademicGroups.BulkAssignment;
+using PGSH.Application.AcademicGroups.GroupChange;
+using PGSH.Application.Students.Selection;
 
 namespace PGSH.Tests;
 
@@ -125,7 +128,7 @@ public static class TestHarness
     }
 
     internal static BulkDelocalizationPlanner BulkPlanner(this ApplicationDbContext db) =>
-        new(db, new DelocalizationTargetResolver(db), new AcademicYearResolver(db));
+        new(db, new StudentSelectionResolver(db), new AcademicYearResolver(db));
 
     internal static ApplyBulkDelocalizationCommandHandler BulkDelocalizeHandler(
         this ApplicationDbContext db, ExecutionAuthorizer? authorizer = null) =>
@@ -134,6 +137,30 @@ public static class TestHarness
     internal static PreviewBulkDelocalizationQueryHandler BulkDelocalizePreview(
         this ApplicationDbContext db, ExecutionAuthorizer? authorizer = null) =>
         new(db.BulkPlanner(), authorizer ?? db.AdminAuthorizer());
+
+    /// <summary>
+    /// The nominative roster assignment with its real collaborators — the same relocator « changement
+    /// de groupe » runs and the same affectation service « affecter à un groupe » runs.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ Stubbing either would make the bulk act pass on rules it does not actually share with the
+    /// single ones, which is the whole claim the act rests on.
+    /// </remarks>
+    internal static BulkRosterAssignmentPlanner RosterAssignmentPlanner(this ApplicationDbContext db) =>
+        new(db, new StudentSelectionResolver(db), new AcademicYearResolver(db));
+
+    internal static ApplyBulkRosterAssignmentCommandHandler AssignToRosterHandler(
+        this ApplicationDbContext db, ExecutionAuthorizer? authorizer = null) =>
+        new(db,
+            db.RosterAssignmentPlanner(),
+            new StudentGroupRelocator(db, new AffectationTollReader(db), new CohortMemberScheduler(db)),
+            new StudentAffectationService(db),
+            new LateArrivalScheduler(db),
+            authorizer ?? db.AdminAuthorizer());
+
+    internal static PreviewBulkRosterAssignmentQueryHandler AssignToRosterPreview(
+        this ApplicationDbContext db, ExecutionAuthorizer? authorizer = null) =>
+        new(db.RosterAssignmentPlanner(), authorizer ?? db.AdminAuthorizer());
 
     /// <summary>The current academic year plus the level and stage every cohort hangs off.</summary>
     public static Stage SeedCatalog(this ApplicationDbContext db, DateOnly? yearStart = null, DateOnly? yearEnd = null)
@@ -355,6 +382,28 @@ public static class TestHarness
         return stage;
     }
 
+    /// <summary>
+    /// Holds an already-authorised service for named rosters: the rotation stops drawing it, and only
+    /// a pinned cell puts anybody there.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ Written onto the join row the authorisation already has, never as a second row — the mode is
+    /// a property of « ce service est autorisé pour ce stage », not a second authorisation. A fixture
+    /// that adds one instead makes EF track two instances of one key.
+    /// </remarks>
+    public static Stage Reserve(this ApplicationDbContext db, Stage stage, Service service)
+    {
+        var authorisation = db.StageAllowedServices.Local
+            .FirstOrDefault(a => a.StageId == stage.Id && a.ServiceId == service.Id)
+            ?? db.StageAllowedServices
+                .FirstOrDefault(a => a.StageId == stage.Id && a.ServiceId == service.Id)
+            ?? throw new InvalidOperationException(
+                $"Service {service.Id} is not authorised for stage {stage.Id}: authorise it first.");
+
+        authorisation.PlacementMode = ServicePlacementMode.Reserved;
+        return stage;
+    }
+
     public static Employee SeedChef(this ApplicationDbContext db, Guid keycloakId, string email = "chef@pgsh.ma")
     {
         var chef = new Employee { Id = Guid.NewGuid(), Email = email, Position = Position.ServiceChef };
@@ -527,14 +576,20 @@ public static class TestHarness
     }
 
     /// <summary>One cell of the planning grid: this cohort spends this slot in this service.</summary>
+    /// <param name="source">
+    /// ⚠ <c>Arranged</c> by default, which is what the rotation writes. A fixture asserting that a
+    /// hand-authored placement survives has to say <c>Pinned</c>, or it is asserting nothing.
+    /// </param>
     public static CohortSlotAssignment SeedSlotAssignment(
-        this ApplicationDbContext db, int id, Cohort cohort, StageSlot slot, Service service)
+        this ApplicationDbContext db, int id, Cohort cohort, StageSlot slot, Service service,
+        CellSource source = CellSource.Arranged)
     {
         var assignment = new CohortSlotAssignment
         {
             Id = id, CohortId = cohort.Id, Cohort = cohort,
             StageSlotId = slot.Id, StageSlot = slot,
             ServiceId = service.Id, Service = service,
+            Source = source,
         };
         db.CohortSlotAssignments.Add(assignment);
         return assignment;

@@ -148,21 +148,28 @@ internal sealed class ServiceRankWriter(IApplicationDbContext dbContext)
         }, cancellationToken);
 
     /// <summary>
-    /// A stage's authored positions, read flat and keyed on the stage id — the lookup both
-    /// <c>RotationArranger</c> and the stage's own fiche resolve the order through.
+    /// A stage's authorisations — the authored position and the placement mode — read flat and keyed
+    /// on the stage id. The lookup both <c>RotationArranger</c> and the stage's own fiche resolve
+    /// through.
     /// </summary>
     /// <remarks>
-    /// ⚠ Here rather than beside either caller: the arranger is the planning engine and the fiche is
-    /// a read screen, so putting it on one would have made the other depend on it for a fact that
-    /// belongs to neither. Named and <c>internal static</c> so <c>SqlTranslationTests</c> can compile
-    /// it without a database — a projected join row is a computed element carrying no key, the shape
-    /// Npgsql refuses inside a collection, so this must stay a top-level query.
+    /// <para>⚠ Here rather than beside either caller: the arranger is the planning engine and the
+    /// fiche is a read screen, so putting it on one would have made the other depend on it for a
+    /// fact that belongs to neither. Named and <c>internal static</c> so <c>SqlTranslationTests</c>
+    /// can compile it without a database — a projected join row is a computed element carrying no
+    /// key, the shape Npgsql refuses inside a collection, so this must stay a top-level query.</para>
+    ///
+    /// <para>⚠ <b>Rank and mode travel together deliberately.</b> They are two columns of one row
+    /// answering one question — how this service takes part in the rotation — and a caller that read
+    /// the order without the mode would walk a queue containing services it must never place anyone
+    /// in.</para>
     /// </remarks>
-    internal static IQueryable<ServiceRank> RanksQuery(IApplicationDbContext dbContext, int stageId) =>
+    internal static IQueryable<ServiceAuthorisation> AuthorisationsQuery(
+        IApplicationDbContext dbContext, int stageId) =>
         dbContext.StageAllowedServices
             .AsNoTracking()
             .Where(a => a.StageId == stageId)
-            .Select(a => new ServiceRank(a.ServiceId, a.Rank));
+            .Select(a => new ServiceAuthorisation(a.ServiceId, a.Rank, a.PlacementMode));
 
     /// <summary>
     /// A stage's join rows in the order the rotation walks them.
@@ -181,5 +188,15 @@ internal sealed class ServiceRankWriter(IApplicationDbContext dbContext)
             .ThenBy(a => a.Rank)
             .ThenBy(a => a.ServiceId);
 
-    internal sealed record ServiceRank(int ServiceId, int Rank);
+    internal sealed record ServiceAuthorisation(int ServiceId, int Rank, ServicePlacementMode PlacementMode)
+    {
+        /// <summary>
+        /// Whether the rotation may draw this service. Restated on the projection rather than left to
+        /// each caller to compare against <see cref="ServicePlacementMode.Rotation"/>: the day a
+        /// third mode arrives — the FIFO « l'étudiant choisit » — a caller written as
+        /// <c>== Rotation</c> stays right and one written as <c>!= Reserved</c> silently starts
+        /// placing cohorts into services students were meant to pick.
+        /// </summary>
+        public bool ParticipatesInRotation => PlacementMode == ServicePlacementMode.Rotation;
+    }
 }
