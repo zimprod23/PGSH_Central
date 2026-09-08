@@ -201,6 +201,48 @@ public class NominativePlacementEndpointTests : IClassFixture<ApiFactory>, IAsyn
     }
 
     /// <summary>
+    /// ⚠ <b>The regression this test exists for was found by driving the real screen, not by the
+    /// suite.</b> <c>AutoArrangeResult</c> is a second shape of <c>RotationArrangeResult</c> that the
+    /// handler maps into, so extending the arranger's record left it behind: the two numbers were
+    /// computed, carried, and then dropped at the API boundary — the response simply had no such
+    /// fields, and no screen could have shown them whatever it did. Every handler test passed
+    /// throughout, because they read the arranger's record directly.
+    /// </summary>
+    [Fact]
+    public async Task The_arrange_response_carries_what_it_left_alone()
+    {
+        using var client = _factory.CreateApiClient(roles: Roles.Scolarite);
+
+        var response = await client.PostAsJsonAsync(
+            $"/api/stages/{StageId}/schedule/auto-arrange", new { academicYearId = 1 });
+
+        // The stage has no créneaux, so the arrange refuses — which is fine: this asserts the
+        // *shape* of the contract, and a refusal carries no shape at all. Give it a slot first.
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        await _factory.SeedAsync(db => db.StageSlots.Add(new StageSlot
+        {
+            Id = 1, StageId = StageId, AcademicYearId = 1, PeriodNumber = 1,
+            StartDate = new DateOnly(2026, 9, 14), EndDate = new DateOnly(2026, 10, 13),
+        }));
+
+        var authorised = await client.PostAsJsonAsync(
+            $"/api/stages/{StageId}/allowed-services", new { serviceId = ServiceId });
+        authorised.StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        var arranged = await client.PostAsJsonAsync(
+            $"/api/stages/{StageId}/schedule/auto-arrange", new { academicYearId = 1 });
+
+        arranged.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        string payload = await arranged.Content.ReadAsStringAsync();
+        using var doc = JsonDocument.Parse(payload);
+        doc.RootElement.TryGetProperty("pinnedCellsKept", out _).Should().BeTrue(
+            "a count the arranger computes and the API drops can never reach a screen; payload was {0}", payload);
+        doc.RootElement.TryGetProperty("reservedServices", out _).Should().BeTrue();
+    }
+
+    /// <summary>
     /// The placement mode, on the route that declares it. ⚠ Paired with the request that must
     /// succeed: a route 400ing on everything satisfies every refusal assertion and proves nothing.
     /// </summary>

@@ -1,4 +1,4 @@
-using PGSH.Application.Abstractions.Messaging;
+﻿using PGSH.Application.Abstractions.Messaging;
 using PGSH.Application.AcademicYears;
 using PGSH.Application.Stages.Planning;
 using PGSH.SharedKernel;
@@ -30,6 +30,7 @@ internal sealed class AutoArrangeStageScheduleCommandHandler(
 
         var r = result.Value;
         return Result.Success(new AutoArrangeResult(
-            r.Assigned, r.SaturatedServices, r.TotalStudents, r.TotalCapacity, r.GroupConflicts));
+            r.Assigned, r.SaturatedServices, r.TotalStudents, r.TotalCapacity, r.GroupConflicts,
+            r.PinnedCellsKept, r.ReservedServices));
     }
 }
