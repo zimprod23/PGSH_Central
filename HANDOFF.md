@@ -82,6 +82,41 @@
 > l'envoi, donc la requête ne part pas. Le contrôle réel est passif (aucun bandeau) et la
 > démonstration est côté serveur.
 
+## Session 56 — 2026-09-10 · 2026-2027 remise à blanc, et mesurée
+
+L'utilisateur a remis l'année à zéro par l'écran. **Sauvegarde prise et vérifiée avant**
+(`pg_dump -Fc`, 22 Mo, `pg_restore -l` liste les 38 tables ; hors dépôt).
+
+**État mesuré après, et c'est la référence pour la suite :**
+
+| 2026-2027 | |
+|---|---|
+| rosters · cohortes · affectations · cellules · créneaux | **0 · 0 · 0 · 0 · 0** |
+| inscriptions | **6 839**, dont **0** rattachée à un roster |
+| services `Reserved` au catalogue | **0** |
+
+⚠ **Les onze contrôles de résidu sont à 0** — cohorte sans roster, affectation sans cohorte ou sans
+inscription, période sans affectation, cellule sans cohorte ou sans créneau, adhésion orpheline,
+couverture sans période ou sans cellule, inscription pointant un roster disparu. **Et le registre est
+intact** : 105 626 périodes et 13 793 cohortes sur les années passées, 537 entrées d'audit, 7 262
+lignes de dossier. C'est ce qu'il ne faut **jamais** supprimer, et rien n'y a touché.
+
+- ⚠ **« Dépublier » a été sauté sur plusieurs stages, et c'était correct.** `DeleteAllCohortsCommand`
+  supprime les périodes lui-même (`ServicePeriods` → `CohortMembership` → `InternshipAssignments` →
+  `CohortSlotAssignments` → `Cohorts`), et sa garde `toll.IsUnderway` **refuse en bloc** plutôt que de
+  supprimer à moitié — donc sur une année entièrement `Planned` l'étape 1 n'a rien à faire. C'est ce
+  que dit déjà [`docs/planning-rosters.md`](docs/planning-rosters.md) ; c'est maintenant vérifié.
+- ⚠ **Le chemin par script a été refusé, et c'est bien.** Piloter les 28 « Réinitialiser » par le
+  navigateur s'est révélé non fiable (le viewport se remet à l'échelle entre deux appels, des clics ne
+  s'enregistrent pas — mesuré : un premier « Réinitialiser » n'était jamais parti alors que la modale
+  était ouverte). L'appel direct des mêmes endpoints, authentifié comme l'admin, a été **bloqué par le
+  classificateur** : 28 `DELETE` en boucle est un acte destructeur en masse. ⚠ **Ne pas contourner en
+  SQL** — cela sauterait les gardes et laisserait le registre muet sur la destruction d'une
+  planification annuelle, exactement ce que la phase 20 existe pour empêcher, et exactement le bouton
+  unique que `EmptyAllYearGroupsCommand` refuse d'offrir.
+
+**Aucun code touché.** La file est inchangée : **0ax**, **0aw**, **0at**, **0au**, **0av**, **0as**.
+
 ## Session 55 — 2026-09-10 · Ce que l'écran a dit, et ce que la suite n'avait pas vu
 
 Le placement nominatif a été **piloté de bout en bout dans le navigateur** sur la 4ᵉ MED le 08/09,
