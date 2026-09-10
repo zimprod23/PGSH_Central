@@ -3965,3 +3965,88 @@ Appliquer sur les deux groupes, **sans dates**.
 
 Sur un stage **sans aucun créneau** (toute année importée), l'aperçu sans dates doit refuser en
 nommant `Delocalizations.NoWindow` et demander les dates — jamais inventer une paire.
+
+### §55 — **piloté le 10/09/2026**, session admin, sur un axe croisé monté pour l'occasion
+
+⚠ **L'année 2026-2027 était vide** (0 roster, 0 cohorte, 0 créneau) et **aucun service externe
+n'existait** : il a donc fallu monter le décor. Monté au plus petit — deux rosters de 3 étudiants, un
+stage, deux colonnes — plutôt que de partitionner une promotion, puis **entièrement démonté** (voir
+plus bas).
+
+**Le décor** — 4ᵉ MED / Cardiologie, l'axe même où le défaut avait été mesuré :
+
+| | |
+|---|---|
+| service externe | « Stage hors CHU — Kénitra (SMOKE 55) », créé par l'écran, bascule « hors faculté » |
+| rosters | SMOKE55-A (partition **A**) et SMOKE55-B (partition **B**), 3 étudiants chacun |
+| axe | **P1 16/11 → 13/12/2026** · **P2 22/02 → 25/03/2027** — soit un axe de **130 jours** |
+| cellules | A en **P1 seulement**, B en **P2 seulement** — le croisement, sans lequel l'écran ne prouve rien |
+
+⚠ **Les créneaux et les cellules ont été posés par l'API, pas par la souris** : le sélecteur de dates
+ne répondait pas aux clics de l'automatisation (coordonnées décalées, cf. l'avertissement de §54).
+C'est du **décor**, pas l'objet du test ; tout ce qui suit a été lu à l'écran.
+
+**Ce que l'écran a dit** — aperçu sur les deux groupes, **dates laissées vides** :
+
+- L'en-tête : « Stage hors CHU — Kénitra (SMOKE 55) · 2026-2027 · **2 périodes différentes selon le
+  groupe (voir la colonne Période)** ». Il n'affiche plus **aucune** paire de dates.
+- La colonne **Période**, ligne par ligne : les trois A à **2026-11-16 → 2026-12-13**, les trois B à
+  **2027-02-22 → 2027-03-25**. ⚠ **C'est l'assertion.** Avant le correctif les six lisaient
+  *16/11/2026 → 25/03/2027* — l'axe entier, quatre mois pour un stage d'un mois.
+- **Un seul groupe sélectionné** : l'en-tête **redonne** une paire — « du 2027-02-22 au 2027-03-25 »,
+  le passage de ce groupe.
+
+**Le cas qui prévient** (cellule de A retirée le temps du contrôle, puis remise) :
+
+- Bandeau jaune : « **3 étudiant(s)** sont datés par **tout le stage** et non par le passage de leur
+  groupe : ces groupes n'ont pas encore de cellule dans le planning. Répartissez-les d'abord, ou
+  saisissez les dates réelles ci-dessus. »
+- Les trois lignes de A portent **2026-11-16 → 2027-03-25** + le badge **« TOUT LE STAGE »** ; celles
+  de B gardent leurs quatre semaines, **sans badge**. Les deux réponses côte à côte, distinguables.
+- ⚠ **Et le bandeau disparaît** dès que les deux groupes ont une cellule : il ne se déclenche pas
+  quoi qu'il arrive, donc ce n'est pas du bruit.
+
+**L'application, relue en SQL** (aucune écriture de vérification — lecture seule) :
+
+| | écrit | l'axe faisait |
+|---|---|---|
+| les 3 de A | 16/11 → 13/12/2026, **28 jours** | 130 jours |
+| les 3 de B | 22/02 → 25/03/2027, **32 jours** | 130 jours |
+
+**Paires de périodes qui se chevauchent pour un même étudiant : 0.**
+
+**Le calendrier** (`/academic-years/22/timeline`) : bande **A = 16/11 → 13/12/2026**, bande
+**B = 22/02 → 25/03/2027** — chacune s'arrête à sa propre colonne. ⚠ **C'est le symptôme par lequel le
+défaut avait été signalé** (« pourquoi Cardio va du 16/11/2026 au 25/03/2027 ? ») et il a disparu.
+
+**Les dates saisies gagnent** : avec 05/04 → 02/05/2027, `distinctWindowCount` = **1**, l'en-tête
+porte la paire, chaque ligne est `Named`, et le bandeau jaune est absent.
+
+**Le refus tient** : sur *Pneumologie* (0 créneau), l'aperçu sans dates répond **409
+`Delocalizations.NoWindow`** — « Aucun créneau n'est défini pour « Pneumologie » en 2026-2027 […]
+Indiquez les dates de la délocalisation, ou créez d'abord les périodes du stage. » Il n'invente pas.
+
+#### ⚠ Un défaut trouvé au pilotage, et corrigé
+
+Le libellé sous « Période enregistrée » disait encore **« Laissez vide pour reprendre les dates
+officielles du stage pour cette promotion »** — c'est-à-dire la description exacte de l'ancien
+comportement, restée en place. Une phrase qui réapprend le défaut à l'opérateur. Remplacée par ce qui
+est réellement calculé (le passage du groupe, et le repli sur tout le stage quand il n'y a pas de
+cellule). ⚠ **Ni `tsc`, ni `eslint`, ni les 1 750 tests ne pouvaient le voir** : c'est du texte juste
+au regard du compilateur.
+
+#### Le démontage, et ce qu'il laisse volontairement
+
+Tout le décor a été retiré : 6 délocalisations annulées (⚠ **une par une — c'est exactement l'item
+`0aw`**), 4 cohortes réinitialisées, 2 créneaux supprimés, 2 groupes vidés puis supprimés, service
+externe supprimé. Le balayage de résidu (11 contrôles) est **à 0**, l'année est revenue à
+**0 roster / 0 cohorte / 0 cellule / 0 créneau**, les 6 839 inscriptions toutes détachées, et les
+années passées intactes (105 626 périodes, 13 793 cohortes).
+
+⚠ **Ce qui reste, par construction et non par oubli** : **15 entrées de registre** (`AuditLogs`) et
+**18 lignes de dossier** (`Histories`) sur les 6 étudiants — 6 `Delocalization`, 6
+`DelocalizationCancelled`, 6 `GroupTransfer`. Le registre est délibérément permanent ; et une
+annulation **n'efface pas** la délocalisation du dossier, c'est écrit dans
+[`docs/delocalization.md`](docs/delocalization.md) (« le dossier se lit comme une suite de choses qui
+ont eu lieu »). Les effacer demanderait du SQL sur la base vivante et ferait **diverger le dossier du
+registre** : c'est une décision de l'utilisateur, pas un nettoyage.

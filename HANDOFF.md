@@ -125,8 +125,31 @@ resté, renommé pour dire qu'il mesure le **repli**.
 qui demande une promotion à **axe croisé** : sur un stage à fenêtre unique l'ancien calcul et le
 nouveau donnent le même nombre et l'écran ne prouverait rien.
 
-**File** : **0aw**, **0at**, **0au**, **0av**, **0as**. ⚠ **0aw devient plus intéressant qu'avant** —
-c'est le seul item qui reste sur la délocalisation, et il touche le même document.
+### §55 déroulé le jour même, et un défaut de plus
+
+⚠ **Piloté à l'écran** (`SMOKE-TEST.md` §55) sur un axe croisé monté pour l'occasion — l'année était
+vide et aucun service externe n'existait. Les six étapes passent. Le chiffre qui compte : l'axe fait
+**130 jours**, et les six délocalisations ont été écrites à **28** et **32** jours selon la partition.
+Chevauchements **0**. Les bandes du calendrier s'arrêtent chacune à sa colonne — le symptôme signalé a
+disparu.
+
+**Un défaut trouvé au clic et corrigé** : le libellé sous « Période enregistrée » décrivait encore
+l'ancien comportement (« les dates officielles du stage pour cette promotion »). ⚠ Ni `tsc`, ni
+`eslint`, ni les 1 750 tests ne pouvaient le voir — c'est du texte juste au regard du compilateur, et
+faux au regard de ce que le code calcule.
+
+**Le décor a été entièrement démonté** et les 11 contrôles de résidu sont à 0. ⚠ **Restent, par
+construction** : 15 entrées de registre et **18 lignes de dossier sur 6 étudiants réels**
+(6 `Delocalization`, 6 `DelocalizationCancelled`, 6 `GroupTransfer`) — une annulation n'efface pas la
+délocalisation du dossier, c'est la règle écrite. **Décision en attente de l'utilisateur** : les
+effacer demanderait du SQL sur la base vivante et ferait diverger le dossier du registre.
+
+**File** : **0aw**, **0at**, **0au**, **0av**, **0as**. ⚠ **0as reste ouvert** : c'est §**54** qu'il
+désigne — le libellé des deux nombres dans le bandeau de « Répartir » — et « Répartition auto. » n'a
+pas été lancée ce soir. C'est §**55** qui a été déroulé.
+⚠ **0aw devient le prochain naturel** : c'est le seul item qui reste sur la délocalisation, il touche
+le même document, et le démontage de ce soir a demandé **six annulations une par une**, ce qui est
+précisément ce qu'il décrit.
 
 ## Session 56 — 2026-09-10 · 2026-2027 remise à blanc, et mesurée
 
