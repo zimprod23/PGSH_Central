@@ -144,6 +144,24 @@ construction** : 15 entrées de registre et **18 lignes de dossier sur 6 étudia
 délocalisation du dossier, c'est la règle écrite. **Décision en attente de l'utilisateur** : les
 effacer demanderait du SQL sur la base vivante et ferait diverger le dossier du registre.
 
+### Puis 2026-2027 remise à blanc pour de bon
+
+Le décor du smoke test avait laissé, **par construction**, 18 lignes de dossier ; l'utilisateur a
+demandé que l'année soit vierge « comme au début de l'année », historique étudiant compris. Fait, et
+c'est la partie qui demandait de la prudence : ⚠ **`Histories` ne porte pas d'`AcademicYearId`**, et
+la date ne scope pas non plus (l'import Access a écrit ses lignes en août 2026). Ce qui scope est le
+**type** : les 7 232 `StatusChange` portent toutes `"academicYear": "2025-2026"` et sont la
+déliberation de l'an dernier, tandis que `Delocalization` / `DelocalizationCancelled` /
+`GroupTransfer` / `CohortTransfer` n'existent que depuis le travail de 2026-2027 — **48 lignes**,
+supprimées sous garde de compte dans une transaction, après export CSV et `pg_dump`.
+
+⚠ **Le registre (`AuditLogs`, 552) n'a pas été touché**, délibérément : le dossier est le récit d'un
+étudiant, le registre la trace des actes de l'administration.
+
+**Mesuré après** : 2026-2027 porte **6 839 inscriptions et rien d'autre** — 0 groupe, 0 cohorte,
+0 affectation, 0 créneau, 0 cellule, 0 délocalisation, 0 ligne de dossier. Les 11 contrôles de résidu
+à 0. Années passées intactes (7 232 lignes de dossier, 105 626 périodes, 13 793 cohortes).
+
 **File** : **0aw**, **0at**, **0au**, **0av**, **0as**. ⚠ **0as reste ouvert** : c'est §**54** qu'il
 désigne — le libellé des deux nombres dans le bandeau de « Répartir » — et « Répartition auto. » n'a
 pas été lancée ce soir. C'est §**55** qui a été déroulé.

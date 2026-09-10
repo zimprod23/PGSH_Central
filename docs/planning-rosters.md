@@ -169,6 +169,24 @@ survivent donc intactes ; deux sont voulues, la troisième surprend.
 | `StageAllowedService.PlacementMode = Reserved` | la ligne d'autorisation, **invariante à l'année** | ⚠ **oui, à la main** |
 | `StageAllowedService.Rank` (l'ordre de rotation) | idem | non — c'est le catalogue |
 | les périodes **ad hoc** des années passées | l'affectation, hors grille | non — c'est l'histoire |
+| les lignes de **dossier** (`Histories`) | l'étudiant, jamais l'année | ⚠ **oui, et il n'y a pas d'écran** |
+| les entrées de **registre** (`AuditLogs`) | l'acte administratif | non — c'est sa raison d'être |
+
+⚠ **Le dossier survit à tout, et il n'a pas d'année.** `Histories` porte
+`Id, HistoryData, CreatedAt, StudentId, Metadata` et **aucun `AcademicYearId`** : démonter une année
+n'en efface aucune ligne, et rien dans l'application ne permet d'en supprimer une. Une remise à blanc
+qui doit aussi valoir pour le dossier passe donc par du SQL, et **le scoper par étudiant ou par date
+est faux** — un 4ᵉ année traîne cinq promotions derrière lui, et l'import Access a écrit ses lignes
+en août 2026. Ce qui scope, mesuré le 10/09/2026, c'est le **type** : les `StatusChange` sont les
+verdicts de déliberation (toutes `"academicYear": "2025-2026"` à cette date), tandis que
+`Delocalization`, `DelocalizationCancelled`, `GroupTransfer` et `CohortTransfer` naissent du travail
+de planification de l'année en cours. Vérifier qu'aucune clé étrangère ne pointe vers `Histories`
+(aucune ne le fait), exporter les lignes avant, et garder le compte comme garde. → `NOTES.md`,
+session 57.
+
+⚠ **Et le registre, lui, ne se vide pas avec.** Le dossier est le récit de ce qui est arrivé à un
+étudiant ; le registre est la trace de ce que l'administration a fait. Les vider ensemble effacerait
+la preuve que l'acte a eu lieu. → [`audit-calendar.md`](audit-calendar.md)
 
 ⚠ **Un service réservé le reste après une remise à zéro complète**, et c'est la seule des trois qui
 peut se lire comme un défaut : la promotion est repartie de rien, la répartition automatique refuse

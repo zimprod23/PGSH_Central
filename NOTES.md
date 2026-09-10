@@ -4217,3 +4217,63 @@ cimentait le défaut** : sa cohorte n'avait aucune cellule, donc la réponse « 
 juste. Il est resté, renommé pour dire ce qu'il mesure vraiment (le repli), et le cas qui manquait —
 une cohorte **qui a une cellule** — a été écrit à côté. Cassé exprès, la nouvelle couverture tombe en
 disant exactement le défaut : *« Expected rowA.EndDate to be 2026-12-13, but found 2027-03-25 »*.
+
+## Le dossier n'a pas d'année, et il a quand même fallu le scoper (10/09/2026, session 57)
+
+Demande : « 2026-2027 doit être vierge — pas de planning, pas de groupes, pas d'affectation, pas de
+délocalisation, pas d'historique étudiant ; seulement les inscriptions ». Tout était déjà à zéro sauf
+le **dossier**.
+
+⚠ **`Histories` ne porte pas d'`AcademicYearId`.** Ses colonnes sont
+`Id, HistoryData, CreatedAt, StudentId, Metadata` — rien qui rattache une ligne à une année. Or un
+étudiant de 4ᵉ année traîne cinq promotions derrière lui : « supprimer l'historique des étudiants
+inscrits en 2026-2027 » aurait effacé leur passé entier. Et **la date ne scope pas non plus** :
+l'import Access a écrit ses lignes en août 2026, donc `CreatedAt` récent ne veut pas dire « année en
+cours ».
+
+**Ce qui a scopé, c'est le type.** Mesuré avant d'écrire :
+
+| type | n | ce que c'est |
+|---|---|---|
+| `StatusChange` | **7 232** | ⚠ **toutes** portent `"academicYear": "2025-2026"` — les verdicts de la déliberation de l'an dernier |
+| `Delocalization` | 18 | 12 du 07/09 + 6 du smoke test §55 |
+| `DelocalizationCancelled` | 18 | les 12 annulations de l'utilisateur + les 6 du smoke test |
+| `GroupTransfer` | 7 | 1 + 6 |
+| `CohortTransfer` | 5 | 07/09 |
+
+Les quatre derniers types **n'existent que depuis le travail de planification de 2026-2027** (la plus
+ancienne est du 07/09/2026) : le dossier des années importées ne contient que des `StatusChange`.
+Le prédicat sûr était donc `HistoryData <> 'StatusChange'` — **48 lignes**, et non « les lignes
+récentes » ni « les lignes des étudiants de cette année ».
+
+**Trois contrôles avant d'écrire**, tous en lecture seule :
+
+- **Aucune clé étrangère ne pointe vers `Histories`** (`information_schema`) : supprimer n'orpheline
+  rien. C'est la question que `SCHEMA.md` fait poser avant toute suppression.
+- Les 48 lignes portent **toutes** sur des étudiants inscrits en 2026-2027 — **0 en dehors**.
+- Les 48 lignes ont été **exportées en CSV** (nom, identifiant, métadonnées) avant la suppression :
+  une suppression dont on ne peut plus dire ce qu'elle a emporté est une suppression silencieuse.
+
+**La garde est le compte, pas une case à cocher.** La suppression tourne dans une transaction avec
+`GET DIAGNOSTICS` : si elle ne trouve pas **exactement 48** lignes, elle lève et `COMMIT` n'a pas
+lieu. Même règle que `ConfirmedCount` sur les actes de masse, appliquée à du SQL.
+
+⚠ **Le registre n'a pas été touché** — 552 entrées d'`AuditLogs`, dont celles des actes supprimés du
+dossier. C'est voulu et c'est la distinction que ce dépôt tient partout : le **dossier** est le récit
+de ce qui est arrivé à un étudiant, le **registre** est la trace de ce que l'administration a fait.
+Vider le premier et garder le second n'est pas une incohérence, c'est leur différence.
+
+### L'état après (lu le 10/09/2026)
+
+| 2026-2027 | |
+|---|---|
+| inscriptions | **6 839** — conservées, c'est ce qui devait rester |
+| groupes / cohortes / affectations | **0 / 0 / 0** |
+| créneaux / cellules | **0 / 0** |
+| inscriptions rattachées à un groupe | **0** |
+| périodes délocalisées (toutes années) | **0** |
+| services externes au catalogue | **0** |
+| lignes de dossier 2026-2027 | **0** |
+
+Les 11 contrôles de résidu sont à **0**, et les années passées sont intactes : 7 232 lignes de
+dossier (2025-2026), 105 626 périodes, 13 793 cohortes.
