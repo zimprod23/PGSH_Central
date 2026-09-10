@@ -4158,3 +4158,62 @@ attendu — les actes de démontage sont tous scopés par année.
 `ApplyRotationCycleCommand` ne refusera sur aucune promotion. C'est le moment où les nouvelles durées
 du catalogue peuvent entrer dans la grille, et il ne se représentera pas avant la prochaine remise à
 zéro — `HANDOFF.md` item 0ap.
+
+## Une fenêtre prise sur le stage, appliquée à une cohorte (10/09/2026, session 57)
+
+Le défaut a été **signalé depuis le calendrier**, pas depuis la délocalisation : « pourquoi le stage
+Cardio de la 4ᵉ MED va du 16/11/2026 au 25/03/2027 ? ». La bande d'une partition est étirée jusqu'à sa
+dernière période, et la partition A tenait ses **13 cellules en P3 (16/11 → 16/12)** — trois mois de
+bande pour un mois de stage.
+
+### La mesure
+
+Les 12 délocalisations du Groupe 3 portaient **14/09/2026 → 25/03/2027**, soit **P1 à P6 — l'axe
+entier**. `DelocalizationWindow.ResolveAsync` répondait `min(StartDate)`/`max(EndDate)` sur **tous**
+les créneaux du stage pour la promotion.
+
+⚠ **Ce n'était pas une décision à prendre, c'était une lecture périmée d'une règle juste.**
+`docs/delocalization.md` disait déjà « ce qui est enregistré est la période que le stage occupe
+officiellement ». Le min/max sur *tous* les créneaux n'égale cette phrase que si le stage tourne sur
+**une seule fenêtre pour toute la promotion**. Sur un axe croisé chaque partition en occupe une
+différente et l'axe porte une colonne par partition : la réponse était donc **autant de fois trop
+longue qu'il y a de partitions**. Le code avait cessé de calculer ce que le texte annonçait, sans que
+rien ne puisse s'en apercevoir.
+
+### La seconde moitié, que l'entrée de file n'avait pas vue
+
+`BulkDelocalizationPlanner` résolvait **une** fenêtre **avant même de savoir qui était nommé** — la
+résolution des étudiants venait après. Deux groupes de partitions différentes dans un même lot
+recevaient donc des dates identiques, dont l'une au moins est fausse par construction. La fenêtre est
+maintenant **une par cohorte**, portée par chaque `PlannedDelocalization` ; `BulkDelocalizationPlan`
+n'en a plus du tout.
+
+### Les chevauchements : 0 le jour même, et c'est latent
+
+Vérifié le 10/09/2026 : aucune paire de périodes d'un même étudiant ne se chevauchait, parce que ces
+12 étudiants ne portaient **aucune autre période** — leurs autres stages de 4ᵉ MED n'étaient pas
+publiés. Une fenêtre couvrant l'axe entier en fabrique une **avec chaque** autre stage de l'étudiant
+dès la publication. C'est l'argument qui a fait corriger avant de planifier l'année : sur une année
+vide cela ne coûte rien, après cela veut dire corriger des lignes.
+
+### Ce qui a été ajouté plutôt que retiré
+
+Une cohorte **sans cellule** retombe sur l'axe — délocaliser un stage que personne n'a planifié est un
+cas que l'acte soutient explicitement, et refuser là aurait supprimé un chemin qui marche pour fermer
+un défaut ailleurs. Ce qui n'était pas acceptable, c'est de **taire laquelle des deux réponses** on
+donne : `DelocalizationWindowSource` (`Named` / `Cohort` / `StageAxis`) voyage avec les dates, sur la
+valeur et sur chaque ligne du rapport, et l'écran porte un badge « tout le stage » plus un bandeau
+comptant les lignes concernées.
+
+Et le rapport a cessé d'annoncer **une** paire de dates : `StartDate`/`EndDate` ne sont remplies que
+si toutes les lignes applicables partagent une fenêtre, `DistinctWindowCount` distinguant les trois
+états (0 / 1 / plusieurs). Un en-tête qui affiche une paire vraie de la moitié de la liste est le même
+défaut, un cran plus haut.
+
+### Ce que la suite pouvait et ne pouvait pas voir
+
+Le test qui existait — `Omitted_dates_fall_back_to_the_stage_window_for_that_promotion` — **passait, et
+cimentait le défaut** : sa cohorte n'avait aucune cellule, donc la réponse « l'axe entier » y était
+juste. Il est resté, renommé pour dire ce qu'il mesure vraiment (le repli), et le cas qui manquait —
+une cohorte **qui a une cellule** — a été écrit à côté. Cassé exprès, la nouvelle couverture tombe en
+disant exactement le défaut : *« Expected rowA.EndDate to be 2026-12-13, but found 2027-03-25 »*.

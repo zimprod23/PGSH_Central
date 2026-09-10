@@ -3044,6 +3044,29 @@ charge, `RotationArranger.CohortsQuery` et l'hydratation d'occupation du génér
 - **La grille dit ce qu'elle montre** : `DelocalizedCount` à côté de `StudentCount`, faute de quoi un
   roster parti en masse affiche un effectif plein devant des cellules qui ne chargent rien.
 
+### ⚠ Repris le 10/09/2026 : la fenêtre est celle de la **cohorte**, pas celle du stage
+
+Livré ci-dessus, le calcul des dates omises était `min`/`max` sur **tous** les créneaux du stage. Sur
+un axe croisé — une colonne par partition, un passage par partition — c'était autant de fois trop long
+qu'il y a de partitions : mesuré sur Cardiologie 4ᵉ MED, **14/09/2026 → 25/03/2027** écrit dans douze
+dossiers pour un stage servi en un mois, et une bande de calendrier étirée de trois mois avec.
+
+- **La fenêtre est résolue par cohorte**, sur les créneaux derrière les cellules qu'elle occupe
+  (`DelocalizationWindowResolver`), et **après** que les étudiants sont connus. L'acte de masse en
+  résolvait **une** avant même de savoir qui était nommé : deux partitions dans un lot recevaient les
+  mêmes dates, dont l'une au moins fausse par construction.
+- **La provenance voyage avec les dates** — `DelocalizationWindowSource` : `Named` (saisies),
+  `Cohort` (le passage du groupe), `StageAxis` (⚠ tout l'axe, faute de cellule). Une cohorte non
+  encore répartie **retombe** sur l'axe, délibérément, parce que délocaliser un stage non planifié est
+  un cas soutenu — mais l'écran le dit au lieu de faire passer quatre mois pour une mesure.
+- **Le rapport n'annonce plus une paire de dates unique** : `StartDate`/`EndDate` ne sont remplies que
+  si toutes les lignes applicables partagent une fenêtre, et `DistinctWindowCount` distingue les trois
+  états. Les dates sont sur chaque ligne, avec une colonne « Période » et un badge « tout le stage ».
+- **Le refus reste** : un stage sans aucun créneau répond `Delocalizations.NoWindow` plutôt que
+  d'inventer des dates.
+
+`SMOKE-TEST.md` §55, `docs/delocalization.md`, `NOTES.md` (session 57).
+
 ### Ce qui n'a **pas** été construit, et pourquoi
 
 - **Aucun second import pour les validations.** Le canevas d'évaluation existant les atteint déjà :

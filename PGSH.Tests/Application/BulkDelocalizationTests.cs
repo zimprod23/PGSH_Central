@@ -1,5 +1,6 @@
-﻿using FluentAssertions;
+using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using PGSH.Application.Stages.Delocalization;
 using PGSH.Application.Stages.Delocalization.Bulk;
 using PGSH.Domain.Common.Utils;
 using PGSH.Domain.Registrations;
@@ -331,6 +332,203 @@ public class BulkDelocalizationTests
 
         report.Rows.Should().Contain(r => r.Status == BulkDelocalizationRowStatus.AlreadyMarked,
             "a refusal is a row somebody has to act on, so it is never the one dropped");
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // The window. Until 2026-09-10 it was resolved ONCE, off the stage, before the students were even
+    // known - so every student of the act was dated by the whole axis whatever partition he was in.
+    // ---------------------------------------------------------------------------------------------
+
+    /// <summary>Two partitions, two passages, one stage — and one act naming both.</summary>
+    private sealed record TwoPartitions(Cohort First, Cohort Second, Registration A, Registration B);
+
+    private static async Task<TwoPartitions> SeedTwoPartitionsAsync(ApplicationDbContext db)
+    {
+        var stage = db.SeedCatalog();
+        db.SeedService(ExternalServiceId, "Stage hors CHU — Kénitra", isExternal: true);
+        var home = db.SeedService(HomeServiceId, "Cardiologie");
+
+        var groupA = db.SeedGroup(11, 11, rotationGroup: "A");
+        var groupB = db.SeedGroup(12, 12, rotationGroup: "B");
+        var cohortA = db.SeedCohortFor(stage, groupA, 11);
+        var cohortB = db.SeedCohortFor(stage, groupB, 12);
+
+        var p1 = db.SeedSlot(stage, 1, 1, new DateOnly(2026, 11, 16), new DateOnly(2026, 12, 13));
+        var p2 = db.SeedSlot(stage, 2, 2, new DateOnly(2027, 2, 22), new DateOnly(2027, 3, 25));
+
+        // A crosses in P1, B in P2 — which is exactly what an axis min/max flattens away.
+        db.SeedSlotAssignment(1, cohortA, p1, home);
+        db.SeedSlotAssignment(2, cohortB, p2, home);
+
+        var a = db.SeedRegistration("Amine", "Berrada", groupA);
+        var b = db.SeedRegistration("Btissam", "Cherkaoui", groupB);
+        db.SeedAssignment(a, cohortA);
+        db.SeedAssignment(b, cohortB);
+
+        await db.SaveChangesAsync();
+        return new TwoPartitions(cohortA, cohortB, a, b);
+    }
+
+    // ⚠ The defect, stated as a test: one act, two groups, and each dated by its own passage. Asked
+    // the old way both rows read 16/11/2026 -> 25/03/2027 — four months for a stage each group serves
+    // in four weeks, overlapping every other stage of their year.
+    [Fact]
+    public async Task Each_cohorte_is_dated_by_its_own_passage_not_by_the_whole_axis()
+    {
+        await using var db = TestHarness.NewContext("bulk-deloc-window-partitions");
+        var s = await SeedTwoPartitionsAsync(db);
+
+        var targets = new StudentTargets(AcademicGroupIds: [11, 12]);
+        var preview = await db.BulkDelocalizePreview().Handle(
+            new PreviewBulkDelocalizationQuery(TestHarness.StageId, ExternalServiceId, targets),
+            default);
+
+        var report = preview.Value;
+        report.ApplicableCount.Should().Be(2);
+
+        var rowA = report.Rows.Single(r => r.RegistrationId == s.A.Id);
+        var rowB = report.Rows.Single(r => r.RegistrationId == s.B.Id);
+
+        rowA.StartDate.Should().Be(new DateOnly(2026, 11, 16));
+        rowA.EndDate.Should().Be(new DateOnly(2026, 12, 13));
+        rowB.StartDate.Should().Be(new DateOnly(2027, 2, 22));
+        rowB.EndDate.Should().Be(new DateOnly(2027, 3, 25));
+
+        rowA.WindowSource.Should().Be(DelocalizationWindowSource.Cohort);
+        rowB.WindowSource.Should().Be(DelocalizationWindowSource.Cohort);
+    }
+
+    // ⚠ Says what the blank means. Two windows and no single pair of dates true of the act, so the
+    // header carries none — and DistinctWindowCount is what stops the null being guessed at.
+    [Fact]
+    public async Task A_selection_spanning_two_windows_states_that_it_has_no_single_one()
+    {
+        await using var db = TestHarness.NewContext("bulk-deloc-window-header");
+        await SeedTwoPartitionsAsync(db);
+
+        var preview = await db.BulkDelocalizePreview().Handle(
+            new PreviewBulkDelocalizationQuery(
+                TestHarness.StageId, ExternalServiceId, new StudentTargets(AcademicGroupIds: [11, 12])),
+            default);
+
+        var report = preview.Value;
+
+        report.DistinctWindowCount.Should().Be(2);
+        report.WindowsDiffer.Should().BeTrue();
+        report.StartDate.Should().BeNull();
+        report.EndDate.Should().BeNull();
+
+        // One group alone: the act does have a single window, and it is that group's passage.
+        var single = await db.BulkDelocalizePreview().Handle(
+            new PreviewBulkDelocalizationQuery(
+                TestHarness.StageId, ExternalServiceId, new StudentTargets(AcademicGroupIds: [11])),
+            default);
+
+        single.Value.DistinctWindowCount.Should().Be(1);
+        single.Value.WindowsDiffer.Should().BeFalse();
+        single.Value.StartDate.Should().Be(new DateOnly(2026, 11, 16));
+        single.Value.EndDate.Should().Be(new DateOnly(2026, 12, 13));
+    }
+
+    // And what is previewed is what is written — the whole claim the planner rests on.
+    [Fact]
+    public async Task The_apply_writes_each_student_under_his_own_window()
+    {
+        await using var db = TestHarness.NewContext("bulk-deloc-window-apply");
+        var s = await SeedTwoPartitionsAsync(db);
+
+        var applied = await db.BulkDelocalizeHandler().Handle(
+            new ApplyBulkDelocalizationCommand(
+                TestHarness.StageId, ExternalServiceId, "Kénitra",
+                new StudentTargets(AcademicGroupIds: [11, 12]), ConfirmedCount: 2),
+            default);
+
+        applied.IsSuccess.Should().BeTrue();
+
+        var periods = await db.ServicePeriods
+            .Include(p => p.InternshipAssignment)
+            .Where(p => p.IsDelocalized)
+            .ToListAsync();
+
+        periods.Should().HaveCount(2);
+
+        var wroteA = periods.Single(p => p.InternshipAssignment.RegistrationId == s.A.Id);
+        var wroteB = periods.Single(p => p.InternshipAssignment.RegistrationId == s.B.Id);
+
+        wroteA.StartDate.Should().Be(new DateOnly(2026, 11, 16));
+        wroteA.EndDate.Should().Be(new DateOnly(2026, 12, 13));
+        wroteB.StartDate.Should().Be(new DateOnly(2027, 2, 22));
+        wroteB.EndDate.Should().Be(new DateOnly(2027, 3, 25));
+    }
+
+    // ⚠ A group with no cell is dated by the whole stage, because nothing else is known about it —
+    // and the report says so instead of passing four months off as a measurement.
+    [Fact]
+    public async Task A_cohorte_with_no_cell_is_dated_by_the_axis_and_the_report_names_it()
+    {
+        await using var db = TestHarness.NewContext("bulk-deloc-window-axis");
+        var stage = db.SeedCatalog();
+        db.SeedService(ExternalServiceId, "Externe", isExternal: true);
+        var cohort = db.SeedCohort(stage, 10, "Groupe 10");
+        db.SeedRegistration("Nadia", "Ouazzani", cohort.AcademicGroup);
+        db.SeedSlot(stage, 1, 1, new DateOnly(2026, 11, 16), new DateOnly(2026, 12, 13));
+        db.SeedSlot(stage, 2, 2, new DateOnly(2027, 2, 22), new DateOnly(2027, 3, 25));
+        await db.SaveChangesAsync();
+
+        var preview = await db.BulkDelocalizePreview().Handle(
+            new PreviewBulkDelocalizationQuery(
+                TestHarness.StageId, ExternalServiceId,
+                new StudentTargets(AcademicGroupIds: [cohort.AcademicGroupId])),
+            default);
+
+        var row = preview.Value.Rows.Single();
+
+        row.WindowSource.Should().Be(DelocalizationWindowSource.StageAxis);
+        row.WindowIsStageWide.Should().BeTrue();
+        row.StartDate.Should().Be(new DateOnly(2026, 11, 16));
+        row.EndDate.Should().Be(new DateOnly(2027, 3, 25));
+        preview.Value.StageWideWindowCount.Should().Be(1);
+    }
+
+    // Dates the operator names are a statement about what the external hospital did. Deriving over
+    // them would be the app overruling him — so they govern every row, and say where they came from.
+    [Fact]
+    public async Task Dates_the_operator_names_govern_every_row()
+    {
+        await using var db = TestHarness.NewContext("bulk-deloc-window-named");
+        await SeedTwoPartitionsAsync(db);
+
+        var preview = await db.BulkDelocalizePreview().Handle(
+            new PreviewBulkDelocalizationQuery(
+                TestHarness.StageId, ExternalServiceId, new StudentTargets(AcademicGroupIds: [11, 12]),
+                StartDate: Start, EndDate: End),
+            default);
+
+        var report = preview.Value;
+
+        report.DistinctWindowCount.Should().Be(1);
+        report.StartDate.Should().Be(Start);
+        report.EndDate.Should().Be(End);
+        report.StageWideWindowCount.Should().Be(0);
+        report.Rows.Should().OnlyContain(r => r.WindowSource == DelocalizationWindowSource.Named);
+    }
+
+    // ⚠ Still refuses rather than inventing a window: no créneau anywhere on the stage, and no cell
+    // to read one off either.
+    [Fact]
+    public async Task A_stage_with_no_creneaux_at_all_is_still_refused_by_name()
+    {
+        await using var db = TestHarness.NewContext("bulk-deloc-window-none");
+        var s = await SeedAsync(db, studentCount: 2);
+
+        var preview = await db.BulkDelocalizePreview().Handle(
+            new PreviewBulkDelocalizationQuery(
+                TestHarness.StageId, ExternalServiceId,
+                new StudentTargets(AcademicGroupIds: [s.Cohort.AcademicGroupId])),
+            default);
+
+        preview.IsFailure.Should().BeTrue();
+        preview.Error.Code.Should().Be("Delocalizations.NoWindow");
     }
 
     [Fact]

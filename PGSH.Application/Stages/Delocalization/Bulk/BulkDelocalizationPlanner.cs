@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.AcademicYears;
 using PGSH.Domain.Hospitals;
@@ -65,13 +65,6 @@ internal sealed class BulkDelocalizationPlanner(
         if (service is null)
             return Result.Failure<BulkDelocalizationPlan>(ServiceErrors.NotFound(serviceId));
 
-        var window = startDate is { } start && endDate is { } end
-            ? Result.Success((Start: start, End: end))
-            : await DelocalizationWindow.ResolveAsync(dbContext, stageId, yearId, stage.Name, yearLabel, ct);
-
-        if (window.IsFailure)
-            return Result.Failure<BulkDelocalizationPlan>(window.Error);
-
         // Who the operator named, and a row for every line that named nobody. A separate question
         // from the one below — and one that fails for entirely unrelated reasons.
         var selection = await targetResolver.ResolveAsync(targets, yearId, ct);
@@ -86,6 +79,15 @@ internal sealed class BulkDelocalizationPlanner(
         var registrations = await LoadRegistrationsAsync(candidates.Keys.ToList(), ct);
         var cohorts = await LoadCohortsAsync(stageId, registrations, ct);
         var assignments = await LoadAssignmentsAsync(stageId, registrations.Select(r => r.Id), ct);
+
+        // ⚠ Resolved here, and per cohorte — after the students are known rather than before. A
+        // single window read off the stage before anybody was named is what dated a whole selection
+        // by the entire axis, whatever partition each student was actually in.
+        var windows = await ResolveWindowsAsync(
+            stageId, yearId, stage.Name, yearLabel, cohorts.Values, startDate, endDate, ct);
+
+        if (windows.IsFailure)
+            return Result.Failure<BulkDelocalizationPlan>(windows.Error);
 
         var work = new List<PlannedDelocalization>();
 
@@ -145,19 +147,46 @@ internal sealed class BulkDelocalizationPlanner(
                         : $"{preflight.DroppedPeriods} rotation(s) planifiée(s) seront remplacées."),
             };
 
+            var window = windows.Value[cohortId];
+
             rows.Add(new BulkDelocalizationRow(
                 registration.Id, registration.StudentName, registration.Cne, registration.Appogee,
-                registration.GroupLabel, status, message, source));
+                registration.GroupLabel, status, message, source,
+                window.Start, window.End, window.Source));
 
-            work.Add(new PlannedDelocalization(registration.Id, cohortId, assignment));
+            work.Add(new PlannedDelocalization(registration.Id, cohortId, assignment, window));
         }
 
         var report = BulkDelocalizationReport.From(
             stage.Id, stage.Name, service.Id, service.Name, service.IsExternal,
-            yearId, yearLabel, window.Value.Start, window.Value.End, rows);
+            yearId, yearLabel, rows);
 
-        return new BulkDelocalizationPlan(
-            report, work, stageId, serviceId, window.Value.Start, window.Value.End);
+        return new BulkDelocalizationPlan(report, work, stageId, serviceId);
+    }
+
+    /// <summary>
+    /// The window each cohorte of the selection is délocalisé under: the operator's dates when he
+    /// supplied them, and otherwise the cohorte's own passage through the stage.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ <b>Dates the operator names govern every row.</b> He is stating what the external hospital
+    /// did, which is one fact about one act — the per-cohorte answer is what PGSH <em>derives</em>
+    /// when he does not, and deriving over an explicit statement would be the app overruling him.
+    /// </remarks>
+    private async Task<Result<IReadOnlyDictionary<int, DelocalizationWindow>>> ResolveWindowsAsync(
+        int stageId, int yearId, string stageName, string yearLabel,
+        IEnumerable<int> cohortIds, DateOnly? startDate, DateOnly? endDate, CancellationToken ct)
+    {
+        var ids = cohortIds.Distinct().ToList();
+
+        if (startDate is { } start && endDate is { } end)
+            return Result.Success<IReadOnlyDictionary<int, DelocalizationWindow>>(
+                ids.ToDictionary(
+                    id => id,
+                    _ => new DelocalizationWindow(start, end, DelocalizationWindowSource.Named)));
+
+        return await DelocalizationWindowResolver.ResolveAsync(
+            dbContext, stageId, yearId, ids, stageName, yearLabel, ct);
     }
 
     /// <summary>

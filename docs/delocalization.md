@@ -127,20 +127,75 @@ because it fixes navigations up from the change tracker.
 
 ## The dates are the faculty's, and an omission is not an error
 
-Omitted, they are the stage's own window for that promotion — `min(StartDate)` and `max(EndDate)` over
-its créneaux (`DelocalizationWindow`). What the student actually does once he is in Kénitra follows
-that hospital's calendar and PGSH has no way to learn it; what is recorded is the period the stage
-officially occupies, which is what every other read is measured against. Scolarité may override them
-when it does know.
+Omitted, they are **the window that cohorte occupies on the stage** — `min`/`max` over the créneaux
+behind the cells it holds in the grid (`DelocalizationWindowResolver`). What the student actually does
+once he is in Kénitra follows that hospital's calendar and PGSH has no way to learn it; what is
+recorded is the period the stage officially occupies **for him**, which is what every other read is
+measured against. Scolarité may override them when it does know.
 
-⚠ **It refuses rather than inventing a window.** A stage whose grid was never authored has none at all
-— the imported years carry 105 626 periods behind zero créneaux — and a fabricated pair of dates would
-sit in the dossier looking exactly like a recorded fact. `Delocalizations.NoWindow` asks for them
+### ⚠ The window belongs to the cohorte, not to the stage — and for four days it did not
+
+Until 2026-09-10 it was `min(StartDate)`/`max(EndDate)` over **every** créneau of the stage for that
+promotion. On a stage that runs one window for everybody that is the same number. On a **crossover
+axis** it is not: each partition makes one passage and the axis holds one column per partition, so the
+answer was as many times too long as there are partitions.
+
+**Measured on the live base, 2026-09-10.** Cardiologie 4ᵉ MED: partition A holds its 13 cells in
+**P3 (16/11 → 16/12)**, and the 12 délocalisations of its Groupe 3 were written
+**14/09/2026 → 25/03/2027** — P1 to P6, the whole axis. Those students' dossiers said they were
+outside the CHU from September to March for a one-month stage. It also reached the calendar:
+`GetYearTimelineQueryHandler` stretches a partition's band to its latest période, so band A displayed
+three months past its last cell, on the strength of students who were not at the CHU at all. That is
+what was reported on screen.
+
+⚠ **It was not a policy question.** The rule above already said « the period the stage officially
+occupies »; the implementation computed that as a min/max over *all* the créneaux, which only equals
+the rule when the stage runs one window for the whole promotion. The code had quietly stopped
+computing what the text announced.
+
+⚠ **Overlaps were latent, not absent.** Checked the same day: no two périodes of one student
+overlapped, because those 12 carried no other période yet — their other 4ᵉ MED stages were not
+published. A window covering the whole axis manufactures an overlap with **every** other stage of the
+student the moment the year is published. Fixing it on an empty year cost nothing; fixing it
+afterwards means correcting rows.
+
+### The three provenances, and why they travel with the dates
+
+`DelocalizationWindowSource` is on the value and on every row of the bulk report, because the three are
+not equally precise and a number standing for two states is the defect this codebase keeps re-finding.
+
+| Source | Where the dates come from | What it means for the operator |
+|---|---|---|
+| `Named` | scolarité typed them | the external hospital's own calendar. The most precise answer, and the only one PGSH does not derive — so it **wins over** everything below |
+| `Cohort` | the créneaux behind the cells this cohorte holds | the normal answer once the répartition is arranged, and the right one |
+| `StageAxis` | ⚠ every créneau of the stage | the cohorte holds **no cell yet**. Wider than any single passage — on a six-partition axis, six times. Reported, never passed off as a measurement |
+
+**A cohorte with no cell falls back to the axis on purpose.** Délocalising a stage nobody has planned
+is a case the act deliberately supports (« aucune rotation planifiée : la délocalisation crée le
+stage »), so refusing there would remove a working path in order to close a defect on another. What it
+must not do is hide which of the two happened — hence the flag, the yellow badge on the row and
+`StageWideWindowCount` on the report. The alternative, refusing and asking for dates, was considered
+and left to the faculty to ask for.
+
+⚠ **It still refuses rather than inventing a window.** A stage whose grid was never authored has none
+at all — the imported years carry 105 626 periods behind zero créneaux — and a fabricated pair of dates
+would sit in the dossier looking exactly like a recorded fact. `Delocalizations.NoWindow` asks for them
 instead, which is a sentence the operator can act on.
 
 ⚠ **The year is the registration's, never the current one.** Scolarité enters last year's papers well
 into the next year; resolving « l'année en cours » here would date the stage to a promotion the student
 is no longer in, and read its window off the wrong grid.
+
+⚠ **The cohorte is resolved before the window, in both acts.** That ordering *is* the fix in the
+single-student handler; and in the bulk act the window used to be resolved **once, before the students
+were even known**, which is the same defect at act scale — two partitions in one selection got one
+pair of dates whatever column each was in. It is now one window per cohorte, carried on each
+`PlannedDelocalization`, and `BulkDelocalizationPlan` has none of its own.
+
+⚠ **So the report no longer states one pair of dates.** `StartDate`/`EndDate` are nullable and filled
+only when every applicable row shares a window; `DistinctWindowCount` is what tells the three states
+apart (0 nothing applicable, 1 the header governs, >1 read the rows). The rows carry their own dates,
+the screen shows a « Période » column, and the header says « n périodes différentes selon le groupe ».
 
 ## The verdict — all three modes, not just « validé »
 

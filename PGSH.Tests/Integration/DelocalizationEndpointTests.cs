@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using PGSH.Domain.Hospitals;
@@ -334,6 +335,87 @@ public class DelocalizationEndpointTests : IClassFixture<ApiFactory>, IAsyncLife
     }
 
     // ─── the way back ─────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// The window each row is dated by has to survive the boundary — the dates and the provenance
+    /// both.
+    /// </summary>
+    /// <remarks>
+    /// <para>⚠ <b>This is the assertion class that caught the last one.</b> A field computed by a
+    /// planner, carried in its result and then dropped at the edge is invisible to every handler
+    /// test: the arranger's <c>PinnedCellsKept</c> and <c>ReservedServices</c> were computed
+    /// correctly and reached the screen as nothing, because a second result shape at the API had
+    /// never been extended. Here the endpoint returns the report itself, and this test is what says
+    /// so out loud.</para>
+    ///
+    /// <para>The dates are omitted deliberately: that is the path where PGSH derives them, and the
+    /// one the defect lived on.</para>
+    /// </remarks>
+    [Fact]
+    public async Task The_preview_carries_each_rows_own_window_across_the_boundary()
+    {
+        // A stage crossed in two périodes, and this cohorte passing in the first only.
+        await _factory.SeedAsync(db =>
+        {
+            db.StageSlots.Add(new StageSlot
+            {
+                Id = 1, StageId = StageId, AcademicYearId = YearId, PeriodNumber = 1,
+                StartDate = Start, EndDate = End,
+            });
+            db.StageSlots.Add(new StageSlot
+            {
+                Id = 2, StageId = StageId, AcademicYearId = YearId, PeriodNumber = 2,
+                StartDate = new DateOnly(2026, 5, 4), EndDate = new DateOnly(2026, 5, 31),
+            });
+            db.CohortSlotAssignments.Add(new CohortSlotAssignment
+            {
+                Id = 1, CohortId = CohortId, StageSlotId = 1, ServiceId = HomeId,
+            });
+        });
+
+        using var client = _factory.CreateApiClient(null, Roles.Scolarite);
+
+        var response = await client.PostAsJsonAsync("/api/stages/delocalize/bulk/preview", new
+        {
+            stageId   = StageId,
+            serviceId = ExternalId,
+            targets   = new { academicGroupIds = new[] { GroupId } },
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var report = await response.Content.ReadFromJsonAsync<JsonElement>();
+
+        report.GetProperty("applicableCount").GetInt32().Should().Be(1);
+        report.GetProperty("distinctWindowCount").GetInt32().Should().Be(1);
+        report.GetProperty("stageWideWindowCount").GetInt32().Should().Be(0);
+
+        var row = report.GetProperty("rows").EnumerateArray().Single();
+
+        // ⚠ The cohorte's own passage, not min/max over both créneaux — which would end 31/05.
+        row.GetProperty("startDate").GetString().Should().Be("2026-03-02");
+        row.GetProperty("endDate").GetString().Should().Be("2026-03-29");
+        row.GetProperty("windowSource").GetString().Should().Be("Cohort");
+        row.GetProperty("windowIsStageWide").GetBoolean().Should().BeFalse();
+
+        // The control: the same route with the operator's own dates still answers, and says whose
+        // dates they are. A route that 400s on everything would satisfy nothing above.
+        var named = await client.PostAsJsonAsync("/api/stages/delocalize/bulk/preview", new
+        {
+            stageId   = StageId,
+            serviceId = ExternalId,
+            targets   = new { academicGroupIds = new[] { GroupId } },
+            startDate = "2026-04-06",
+            endDate   = "2026-05-03",
+        });
+
+        named.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var namedReport = await named.Content.ReadFromJsonAsync<JsonElement>();
+        namedReport.GetProperty("rows").EnumerateArray().Single()
+            .GetProperty("windowSource").GetString().Should().Be("Named");
+        namedReport.GetProperty("startDate").GetString().Should().Be("2026-04-06");
+    }
 
     [Fact]
     public async Task A_delocalization_can_be_cancelled_through_the_route()

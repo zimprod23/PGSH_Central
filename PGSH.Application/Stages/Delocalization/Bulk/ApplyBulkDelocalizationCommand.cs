@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using FluentValidation;
 using PGSH.Application.Abstractions.Authorization;
 using PGSH.Application.Abstractions.Data;
@@ -116,12 +116,14 @@ internal sealed class ApplyBulkDelocalizationCommandHandler(
             assignment ??= DelocalizationAssignmentFactory.CreateFor(
                 item.RegistrationId, item.CohortId, today);
 
-            // Through the aggregate, one student at a time. The planner already refused every case
-            // Delocalize refuses, so a failure here is the two disagreeing — which is worth failing
-            // the whole act over rather than writing part of a list somebody confirmed.
+            // Through the aggregate, one student at a time, under this student's own window — the
+            // dates his cohorte passes through the stage, not the stage's whole axis. The planner
+            // already refused every case Delocalize refuses, so a failure here is the two
+            // disagreeing, which is worth failing the whole act over rather than writing part of a
+            // list somebody confirmed.
             var result = assignment.Delocalize(
                 plan.Value.StageId, plan.Value.ServiceId,
-                plan.Value.StartDate, plan.Value.EndDate, request.Reason, demandeId: null);
+                item.Window.Start, item.Window.End, request.Reason, demandeId: null);
 
             if (result.IsFailure)
                 return Result.Failure<BulkDelocalizationReport>(result.Error);

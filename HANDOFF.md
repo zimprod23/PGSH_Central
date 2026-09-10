@@ -7,7 +7,6 @@
 >
 > | # | Do this | Why it is not done |
 > |---|---|---|
-> | **0ax** | **La fenêtre d'une délocalisation prend tout l'axe, pas le passage de la partition.** `DelocalizationWindow` renvoie `min(StartDate)`/`max(EndDate)` sur **tous** les créneaux du stage. Sur un stage qui tourne toute l'année c'est juste ; sur un **axe croisé**, où chaque partition ne fait qu'un passage, c'est **six fois trop long**. La fenêtre devrait être celle des cellules que la cohorte occupe réellement, et retomber sur l'axe entier seulement quand la cohorte n'a aucune cellule. | ⚠ **Mesuré le 10/09/2026 sur Cardiologie 4ᵉ MED** : la partition A tient ses 13 cellules en **P3 (16/11 → 16/12)**, et les 12 périodes de délocalisation du Groupe 3 portent **14/09/2026 → 25/03/2027** — l'axe entier, P1 à P6. Le dossier de ces étudiants dit donc qu'ils étaient hors CHU de septembre à mars pour un stage d'un mois. ⚠ **Et cela déborde sur le calendrier** : `GetYearTimelineQueryHandler` étire la fin d'une bande de partition jusqu'à la dernière période, donc la bande de A s'affiche **16/11/2026 → 25/03/2027** — trois mois après sa dernière cellule, à cause d'étudiants qui ne sont pas au CHU. C'est ce qui a été signalé. ⚠ **Ce n'est pas une question de politique, c'est une lecture périmée d'une règle juste** : `docs/delocalization.md` dit « ce qui est enregistré est la période que le stage occupe officiellement », et l'implémentation calcule cela comme le min/max sur **tous** les créneaux — ce qui n'égale la règle que si le stage tourne sur une seule fenêtre pour tout le monde. Sur un axe croisé chaque partition en occupe une **différente**, donc le code a cessé de calculer ce que le texte annonce. Il n'y a pas de décision de la faculté à demander : il y a une fenêtre à calculer sur les cellules de la cohorte. Corriger le texte avec, pour qu'il dise « la fenêtre du passage de cette cohorte ». ⚠ **Chevauchements : 0 aujourd'hui, et c'est latent, pas absent.** Vérifié le 10/09/2026 — aucune paire de périodes d'un même étudiant ne se chevauche, parce que ces 12 étudiants ne portent **aucune autre période** pour l'instant (leurs autres stages de 4ᵉ MED ne sont pas publiés). Une fenêtre qui couvre l'axe entier en fabriquera une **avec chaque** autre stage de l'étudiant dès la publication — exactement la classe de résidu que l'item A5 ③ suit déjà. C'est l'argument pour corriger **avant** que l'année soit planifiée pour de vrai. ⚠ **La forme du correctif n'est pas « changer une requête »** : aujourd'hui `BulkDelocalizationPlanner` résout **une** fenêtre avant la boucle et la pose sur le plan, alors que deux partitions d'un même lot passent dans des colonnes différentes — la fenêtre devient donc **une par cohorte**. `PlannedDelocalization` porte déjà `CohortId`, donc elle s'y range naturellement. Et le rapport suit : `BulkDelocalizationReport` affiche **une** paire de dates, ce qui n'existe plus — soit les dates passent sur chaque ligne, soit la paire devient l'**étendue de ce qui a été écrit** et le dit. |
 > | **0aw** | **Donner à la délocalisation de masse une annulation de masse.** `CancelDelocalizationCommand` est **par étudiant** et c'est le seul chemin de retour : défaire ce qu'un clic a fait sur un roster entier demande autant de clics qu'il y a d'étudiants. Mêmes pièces que l'acte : `StudentTargets`, aperçu + `ConfirmedCount`, rapport refus en tête — et le refus qui compte est déjà écrit, `Delocalizations.AlreadyMarked` (la note est la seule trace du stage, l'annuler la supprimerait). | ⚠ **Rencontré pour de vrai le 08/09/2026** : remettre à zéro la 4ᵉ MED après un test bute dessus, parce qu'une période de délocalisation naît **`IsStarted && IsComplete`** — donc `AffectationToll.IsUnderway` est vrai, « Réinitialiser les cohortes » refuse, « Dépublier » laisse délibérément les périodes **ad hoc** en place, et il ne reste que l'annulation une par une. ⚠ **C'est la règle maison appliquée à moitié** : « tout import de masse a besoin d'une échappatoire par ligne **et** d'un retour en arrière à côté » — le retour existe, mais pas à l'échelle de l'acte. ⚠ Ne pas en faire un acte destructeur de plus sans son propre `ConfirmedCount` : il tombe sur des étudiants dont personne n'a tapé le nom, exactement comme l'aller. |
 > | **0at** | **Finir le balayage d'invalidation RTK sur les actes qui changent l'appartenance à un roster.** Le 06/09/2026 le défaut a été mesuré dans le navigateur et corrigé sur **deux** actes — `changeStudentGroup` et `swapStudentGroups` nomment `group-{cible}` **et** `group-{source}`, et le commentaire au-dessus raconte pourquoi. Les autres ont été oubliés : `transferStudent` (⚠ **revu le 08/09/2026 dans le navigateur** : après un transfert définitif la fiche du groupe source listait toujours l'étudiant, 12 au lieu de 11, jusqu'au rechargement), `assignStudentToGroup`, et `applyBulkRosterAssignment` qui nomme la cible mais aucune source. | ⚠ **`Level/GROUPS` ne suffit pas** : `getGroupById` fournit `group-<id>`, une étiquette différente de celle de la liste — c'est exactement ce que dit le commentaire de `changeStudentGroup`. Le geste se lit comme un bouton qui n'a rien fait alors que la base est juste. ⚠ **Le transfert et le rattachement portent déjà la cible dans leur requête** ; la source, non — la passer depuis l'appelant, comme `ChangeStudentGroupRequest.sourceGroupId` le fait déjà. ⚠ **Pour l'acte de masse les sources sont multiples et le serveur les connaît** (le planner lit l'`AcademicGroupId` de chaque inscription) : les faire remonter dans `BulkRosterAssignmentReport` plutôt que de les deviner côté client. ⚠ **Vérifier mais ne pas corriger à l'aveugle `delocalizeStudent` / `cancelDelocalization`** — une délocalisation **ne change pas** l'appartenance au roster, donc l'absence de `group-<id>` y est peut-être correcte ; c'est la grille du stage qu'elles doivent rafraîchir. |
 > | **0au** | **Supprimer `AutoArrangeResult`, la seconde forme de `RotationArrangeResult` — puis balayer ses semblables.** Les deux records vivent dans **la même couche** (`PGSH.Application`), l'« interne » est déjà `public`, et la copie ne porte ni vocabulaire ni contrat propre : c'est une recopie à une frontière qui n'en est pas une. Faire porter au `AutoArrangeStageScheduleCommand` le record de l'arrangeur directement. Puis un passage sur les autres résultats de commande pour voir s'il en reste. | ⚠ **C'est exactement ce qui a coûté le défaut du 08/09/2026** : étendre `RotationArrangeResult` a laissé la copie derrière, donc `PinnedCellsKept` et `ReservedServices` étaient calculés, portés à travers le handler, puis **jetés au bord de l'API** — la réponse ne portait pas les champs et aucun écran n'aurait pu les afficher. Corrigé en `c0e5755` **en ajoutant les champs des deux côtés**, ce qui répare l'instance et laisse la classe de défaut en place. ⚠ **Ne pas confondre avec `MacroPlanResult`**, qui n'est pas une copie : il agrège sur plusieurs blocs et a un sens propre. ⚠ Si un type de frontière est vraiment voulu quelque part, alors la parité se prouve par un test de réflexion — mais supprimer la copie vaut mieux que détecter sa dérive. |
@@ -81,6 +80,53 @@
 > 400 avec un objectif au libellé vide. `StagesPage.handleSave` **filtre** ces objectifs avant
 > l'envoi, donc la requête ne part pas. Le contrôle réel est passif (aucun bandeau) et la
 > démonstration est côté serveur.
+
+## Session 57 — 2026-09-10 · La fenêtre d'une délocalisation appartient à la cohorte
+
+**Item `0ax` fermé.** Le signalement venait du calendrier — « pourquoi le stage Cardio de la 4ᵉ MED va
+du 16/11/2026 au 25/03/2027 ? » — et la cause était deux crans plus bas.
+
+- **Le défaut.** `DelocalizationWindow.ResolveAsync` répondait `min`/`max` sur **tous** les créneaux du
+  stage. Sur un axe croisé, une colonne par partition et un passage par partition, c'était autant de
+  fois trop long qu'il y a de partitions : **14/09/2026 → 25/03/2027** écrit dans douze dossiers pour
+  un stage servi en un mois. ⚠ **Pas une décision à prendre** — `docs/delocalization.md` disait déjà
+  « la période que le stage occupe officiellement » ; le code avait cessé de calculer sa propre règle.
+- **La seconde moitié, que l'entrée de file n'avait pas vue.** `BulkDelocalizationPlanner` résolvait
+  **une** fenêtre **avant même de savoir qui était nommé** — la résolution des étudiants venait après.
+  Deux partitions dans un lot recevaient donc les mêmes dates, dont l'une au moins fausse par
+  construction. La fenêtre est maintenant **une par cohorte** ; `BulkDelocalizationPlan` n'en porte
+  plus aucune.
+- **Le correctif.** `DelocalizationWindow` devient une **valeur** (`Start`, `End`, `Source`) et
+  `DelocalizationWindowResolver` la lit sur les cellules de chaque cohorte, en deux requêtes **plates**
+  repliées en mémoire (l'agrégation `Min`/`Max` par cohorte en SQL est la forme que Npgsql refuse —
+  deux cas ajoutés à `SqlTranslationTests`). Le handler unitaire résout la **cohorte avant** la
+  fenêtre, ce qui est le correctif de son côté.
+- **La provenance voyage avec les dates.** `Named` (saisies — elles gagnent), `Cohort` (le passage),
+  `StageAxis` (⚠ tout l'axe, faute de cellule). Une cohorte non répartie **retombe** sur l'axe
+  délibérément — délocaliser un stage non planifié reste soutenu — mais l'écran porte un badge « tout
+  le stage » et un bandeau comptant les lignes. ⚠ **L'alternative, refuser et demander les dates, est
+  une décision de la faculté** : elle n'a pas été prise ici, elle est nommée dans le document.
+- **Le rapport n'annonce plus une paire unique.** `StartDate`/`EndDate` nullables, remplies seulement
+  si toutes les lignes applicables partagent une fenêtre ; `DistinctWindowCount` distingue 0 / 1 /
+  plusieurs, et `StageWideWindowCount` compte les lignes datées par l'axe. La modale a une colonne
+  **Période**.
+- **`GetYearTimelineQueryHandler` n'a pas été touché**, et c'est volontaire : étirer une bande jusqu'à
+  la dernière période de ses étudiants est juste. C'était l'**entrée** qui était fausse.
+
+**Couverture.** +9 : 6 sur l'acte de masse (dont « chaque cohorte est datée par son propre passage »
+et « l'application écrit chacun sous sa fenêtre »), 1 sur l'acte unitaire, 1 de traduction SQL, 1 de
+frontière (`DelocalizationEndpointTests` — les dates et la provenance traversent l'API, avec son
+contrôle). **1 750 verts.** ⚠ **Morsure vérifiée** : le résolveur cassé, la nouvelle couverture tombe
+en disant exactement le défaut — *« Expected rowA.EndDate to be 2026-12-13, but found 2027-03-25 »*.
+Et le test qui existait passait **en cimentant le défaut** (sa cohorte n'avait aucune cellule) : il est
+resté, renommé pour dire qu'il mesure le **repli**.
+
+**Front** : `tsc`, `eslint`, `npm run build` propres. ⚠ **Rien n'a été cliqué** — `SMOKE-TEST.md` §55,
+qui demande une promotion à **axe croisé** : sur un stage à fenêtre unique l'ancien calcul et le
+nouveau donnent le même nombre et l'écran ne prouverait rien.
+
+**File** : **0aw**, **0at**, **0au**, **0av**, **0as**. ⚠ **0aw devient plus intéressant qu'avant** —
+c'est le seul item qui reste sur la délocalisation, et il touche le même document.
 
 ## Session 56 — 2026-09-10 · 2026-2027 remise à blanc, et mesurée
 

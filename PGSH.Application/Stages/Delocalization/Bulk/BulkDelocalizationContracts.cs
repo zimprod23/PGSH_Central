@@ -1,4 +1,4 @@
-﻿using PGSH.Domain.Stages;
+using PGSH.Domain.Stages;
 
 namespace PGSH.Application.Stages.Delocalization.Bulk;
 
@@ -47,6 +47,16 @@ public static class BulkDelocalizationRowStatusExtensions
 }
 
 /// <summary>One student's line on the preview, and the same line on the report after the apply.</summary>
+/// <remarks>
+/// ⚠ <b>The dates are on the row, not only on the report.</b> A selection crosses partitions — « le G3
+/// et le G7 », or a pasted list nobody sorted — and two groups pass through the same stage in
+/// different périodes. One pair of dates on the header, shown as if it governed every line, is the
+/// same lie the act used to write into the dossier.
+/// </remarks>
+/// <param name="StartDate">
+/// Null on a row that never reached a cohorte — <c>NotFound</c>, <c>WrongYear</c>, <c>NoRoster</c>,
+/// <c>NoCohort</c>. There is nothing to date until the student is placed.
+/// </param>
 public sealed record BulkDelocalizationRow(
     Guid?  RegistrationId,
     string StudentName,
@@ -57,7 +67,19 @@ public sealed record BulkDelocalizationRow(
     string Message,
     /// <summary>The identifier that produced this row, when it came from a pasted list — so an
     /// unmatched line can be found in the file it was typed in.</summary>
-    string? SourceIdentifier = null);
+    string? SourceIdentifier = null,
+    DateOnly? StartDate = null,
+    DateOnly? EndDate = null,
+    /// <summary>Where this row's dates came from — see <see cref="DelocalizationWindowSource"/>.</summary>
+    DelocalizationWindowSource? WindowSource = null)
+{
+    /// <summary>
+    /// ⚠ True when the dates are the whole stage's rather than this group's passage, because the
+    /// group holds no cell yet. Said out loud so the screen can warn instead of showing a window six
+    /// times too wide as though it had been measured.
+    /// </summary>
+    public bool WindowIsStageWide => WindowSource == DelocalizationWindowSource.StageAxis;
+}
 
 /// <summary>
 /// What the act would do, or did. The preview and the apply return the same shape because they run
@@ -75,6 +97,13 @@ public sealed record BulkDelocalizationRow(
 /// operator has to act on, so they are the ones that must never be the rows dropped.
 /// </param>
 /// <param name="TotalRowCount">How many lines the selection produced in all, cap or no cap.</param>
+/// <param name="StartDate">
+/// ⚠ <b>The window the whole act shares, and null when it has none.</b> A selection spanning two
+/// partitions has two windows and no single pair of dates is true of it;
+/// <paramref name="DistinctWindowCount"/> is what tells the two apart, so the blank never has to be
+/// guessed at — 0 means nothing applicable, 1 means these dates govern every line, more means the
+/// rows carry their own.
+/// </param>
 public sealed record BulkDelocalizationReport(
     int      StageId,
     string   StageName,
@@ -83,8 +112,12 @@ public sealed record BulkDelocalizationReport(
     bool     ServiceIsExternal,
     int      AcademicYearId,
     string   AcademicYearLabel,
-    DateOnly StartDate,
-    DateOnly EndDate,
+    DateOnly? StartDate,
+    DateOnly? EndDate,
+    /// <summary>How many distinct windows the applicable rows fall into.</summary>
+    int      DistinctWindowCount,
+    /// <summary>Of the applicable rows, how many are dated by the whole stage's axis for want of a cell.</summary>
+    int      StageWideWindowCount,
     IReadOnlyList<BulkDelocalizationRow> Rows,
     int      TotalRowCount,
     /// <summary>How many students would actually be written — the number the operator confirms.</summary>
@@ -111,15 +144,36 @@ public sealed record BulkDelocalizationReport(
     /// <summary>True when the list on screen is not the whole story, so the screen can say so.</summary>
     public bool RowsTruncated => TotalRowCount > Rows.Count;
 
+    /// <summary>True when no single pair of dates governs the act, so the screen must read the rows.</summary>
+    public bool WindowsDiffer => DistinctWindowCount > 1;
+
     /// <summary>
     /// Builds the report from every row the plan produced, counting first and cutting after.
     /// </summary>
+    /// <remarks>
+    /// ⚠ The header's window is <b>derived from the rows</b> rather than passed in beside them. Two
+    /// numbers computed separately for the same fact is how a header came to state a window no row
+    /// had; here the header cannot say anything the lines do not.
+    /// </remarks>
     public static BulkDelocalizationReport From(
         int stageId, string stageName, int serviceId, string serviceName, bool serviceIsExternal,
-        int academicYearId, string academicYearLabel, DateOnly startDate, DateOnly endDate,
-        IReadOnlyList<BulkDelocalizationRow> allRows) =>
-        new(stageId, stageName, serviceId, serviceName, serviceIsExternal,
-            academicYearId, academicYearLabel, startDate, endDate,
+        int academicYearId, string academicYearLabel,
+        IReadOnlyList<BulkDelocalizationRow> allRows)
+    {
+        var windows = allRows
+            .Where(r => r.Status.IsApplicable() && r is { StartDate: not null, EndDate: not null })
+            .Select(r => (Start: r.StartDate!.Value, End: r.EndDate!.Value))
+            .Distinct()
+            .ToList();
+
+        bool shared = windows.Count == 1;
+
+        return new(stageId, stageName, serviceId, serviceName, serviceIsExternal,
+            academicYearId, academicYearLabel,
+            shared ? windows[0].Start : null,
+            shared ? windows[0].End : null,
+            windows.Count,
+            allRows.Count(r => r.WindowIsStageWide),
             // Refusals first, so the cap can only ever drop lines that need no decision.
             allRows.OrderBy(r => r.Status.IsApplicable() ? 1 : 0).Take(RowCap).ToList(),
             allRows.Count,
@@ -127,6 +181,7 @@ public sealed record BulkDelocalizationReport(
             allRows.Count(r => !r.Status.IsApplicable()),
             allRows.Count(r => r.Status == BulkDelocalizationRowStatus.WillDropUnderway),
             allRows.Count(r => r.Status == BulkDelocalizationRowStatus.WillReplace));
+    }
 }
 
 /// <summary>
@@ -141,12 +196,17 @@ public sealed record BulkDelocalizationReport(
 internal sealed record PlannedDelocalization(
     Guid RegistrationId,
     int  CohortId,
-    InternshipAssignment? Assignment);
+    InternshipAssignment? Assignment,
+    DelocalizationWindow Window);
 
+/// <remarks>
+/// ⚠ <b>The plan carries no window of its own.</b> It used to, resolved once before the students were
+/// even known, and every student in the act was written with it whatever partition he was in. The
+/// window is a property of each <see cref="PlannedDelocalization"/> because that is the level it is
+/// actually true at.
+/// </remarks>
 internal sealed record BulkDelocalizationPlan(
     BulkDelocalizationReport Report,
     IReadOnlyList<PlannedDelocalization> Work,
     int StageId,
-    int ServiceId,
-    DateOnly StartDate,
-    DateOnly EndDate);
+    int ServiceId);

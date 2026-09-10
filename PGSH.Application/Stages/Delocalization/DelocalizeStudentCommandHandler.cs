@@ -54,16 +54,6 @@ internal sealed class DelocalizeStudentCommandHandler(
         if (!await dbContext.Services.AnyAsync(s => s.Id == request.ServiceId, cancellationToken))
             return Result.Failure(ServiceErrors.NotFound(request.ServiceId));
 
-        // ⚠ The registration's year, never the current one. A délocalisation is recorded against the
-        // registration it belongs to, and scolarité enters last year's papers well into the next
-        // year — resolving « the year in progress » here would date the stage to a promotion the
-        // student is no longer in and read its window off the wrong grid.
-        var window = await ResolveWindowAsync(
-            request, registration.AcademicYearId, stageName, cancellationToken);
-
-        if (window.IsFailure)
-            return Result.Failure(window.Error);
-
         var cohortId = await dbContext.Cohorts
             .Where(c => c.AcademicGroupId == registration.AcademicGroupId.Value && c.StageId == request.StageId)
             .Select(c => c.Id)
@@ -71,6 +61,20 @@ internal sealed class DelocalizeStudentCommandHandler(
 
         if (cohortId == 0)
             return Result.Failure(StageErrors.CohortMissingForStage(request.StageId));
+
+        // ⚠ The cohorte is resolved before the window, because the window is a fact about the
+        // cohorte's passage and not about the stage. Asked the other way round it was the whole axis
+        // — six times the passage on a stage the promotion crosses in six partitions.
+        //
+        // ⚠ And the year is the registration's, never the current one. A délocalisation is recorded
+        // against the registration it belongs to, and scolarité enters last year's papers well into
+        // the next year — resolving « the year in progress » here would date the stage to a promotion
+        // the student is no longer in and read its window off the wrong grid.
+        var window = await ResolveWindowAsync(
+            request, registration.AcademicYearId, cohortId, stageName, cancellationToken);
+
+        if (window.IsFailure)
+            return Result.Failure(window.Error);
 
         // ⚠ The evaluations are Included because the guard inside Delocalize reads them. Left out,
         // every period looks unmarked, the refusal never fires and the délocalisation deletes the
@@ -87,10 +91,9 @@ internal sealed class DelocalizeStudentCommandHandler(
         assignment ??= DelocalizationAssignmentFactory.CreateFor(
             request.RegistrationId, cohortId, DateOnly.FromDateTime(DateTime.UtcNow));
 
-        var (start, end) = window.Value;
-
         var result = assignment.Delocalize(
-            request.StageId, request.ServiceId, start, end, request.Reason, request.DemandeId);
+            request.StageId, request.ServiceId, window.Value.Start, window.Value.End,
+            request.Reason, request.DemandeId);
 
         if (result.IsFailure)
             return result;
@@ -116,17 +119,18 @@ internal sealed class DelocalizeStudentCommandHandler(
         return Result.Success();
     }
 
-    private async Task<Result<(DateOnly Start, DateOnly End)>> ResolveWindowAsync(
-        DelocalizeStudentCommand request, int academicYearId, string stageName, CancellationToken ct)
+    private async Task<Result<DelocalizationWindow>> ResolveWindowAsync(
+        DelocalizeStudentCommand request, int academicYearId, int cohortId, string stageName,
+        CancellationToken ct)
     {
         if (request is { StartDate: { } start, EndDate: { } end })
-            return Result.Success((start, end));
+            return new DelocalizationWindow(start, end, DelocalizationWindowSource.Named);
 
         var year = await yearResolver.ResolveWithLabelAsync(academicYearId, ct);
 
         return year.IsFailure
-            ? Result.Failure<(DateOnly, DateOnly)>(year.Error)
-            : await DelocalizationWindow.ResolveAsync(
-                dbContext, request.StageId, academicYearId, stageName, year.Value.Label, ct);
+            ? Result.Failure<DelocalizationWindow>(year.Error)
+            : await DelocalizationWindowResolver.ResolveOneAsync(
+                dbContext, request.StageId, academicYearId, cohortId, stageName, year.Value.Label, ct);
     }
 }

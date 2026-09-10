@@ -1,4 +1,4 @@
-﻿using FluentAssertions;
+using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Stages.Delocalization;
 using PGSH.Domain.Common.Utils;
@@ -239,8 +239,43 @@ public class DelocalizeStudentHandlerTests
         saved.ServicePeriods.Should().ContainSingle().Which.ServiceId.Should().Be(1);
     }
 
+    // ⚠ The defect this replaced: the window used to be min/max over EVERY créneau of the stage, so a
+    // group passing through Cardiologie in one période carried the whole axis into its dossier — six
+    // times its passage on a stage the promotion crosses in six partitions, overlapping every other
+    // stage of the student's year.
     [Fact]
-    public async Task Omitted_dates_fall_back_to_the_stage_window_for_that_promotion()
+    public async Task Omitted_dates_take_the_cohortes_own_passage_not_the_whole_axis()
+    {
+        await using var db = TestHarness.NewContext("deloc-window-cohort");
+        var stage = db.SeedCatalog();
+        db.SeedService(ExternalServiceId, "Externe", isExternal: true);
+        var home = db.SeedService(1, "Cardiologie");
+        var cohort = db.SeedCohort(stage, 10, "Groupe 10");
+        var registration = db.SeedRegistration("Imane", "Rachidi", cohort.AcademicGroup);
+
+        var p1 = db.SeedSlot(stage, 1, 1, new DateOnly(2025, 10, 6), new DateOnly(2025, 11, 2));
+        db.SeedSlot(stage, 2, 2, new DateOnly(2025, 11, 3), new DateOnly(2025, 11, 30));
+
+        // The group passes in P1 and only P1. P2 belongs to another partition.
+        db.SeedSlotAssignment(1, cohort, p1, home);
+        await db.SaveChangesAsync();
+
+        var result = await db.DelocalizeHandler().Handle(
+            new DelocalizeStudentCommand(registration.Id, TestHarness.StageId, ExternalServiceId, "Kénitra"),
+            default);
+
+        result.IsSuccess.Should().BeTrue();
+        var period = (await LoadAssignmentAsync(db, registration.Id)).ServicePeriods.Single();
+        period.StartDate.Should().Be(new DateOnly(2025, 10, 6));
+        period.EndDate.Should().Be(new DateOnly(2025, 11, 2));
+    }
+
+    // The répartition is not arranged yet, so PGSH does not know where this group will pass and the
+    // stage's own window is the only fact it holds. Deliberately still allowed — délocaliser a stage
+    // nobody has planned is a case the act supports — and the width is reported rather than hidden:
+    // the bulk report carries WindowSource for exactly this.
+    [Fact]
+    public async Task A_cohorte_with_no_cell_falls_back_to_the_stage_window_for_that_promotion()
     {
         await using var db = TestHarness.NewContext("deloc-window");
         var stage = db.SeedCatalog();

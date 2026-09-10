@@ -27,7 +27,7 @@ planning a change to it, not after a review finds the same defect again.
 | what a student owes, who may enter a final year, re-opening a failed stage | [`docs/progression.md`](docs/progression.md) | « entrer » means *begin*, not *be registered in* — reading it the other way refused a quarter of a promotion the faculty had named |
 | creating, correcting or deleting an `AcademicYear`, or moving the current-year flag | [`docs/academic-year.md`](docs/academic-year.md) | `IX_AcademicYear_IsCurrent` is unique and filtered, so demote and promote are **two statements in that order** |
 | capacity, admissibility, occupancy maths, who leads a service, the chef's worklist | [`docs/services.md`](docs/services.md) | quotas **replace** `Service.Capacity` rather than sitting under it, no rows means *open*, and a load over a window is the **peak inside it**, never the sum |
-| a stage served outside the faculty, `Service.IsExternal`, the mass délocalisation, how many students *stand* in a service | [`docs/delocalization.md`](docs/delocalization.md) | a délocalisé stays in his cohorte and must stop occupying the service he left — counted per membership, sending sixty students away relieved the grid by **nothing** |
+| a stage served outside the faculty, `Service.IsExternal`, the mass délocalisation, the dates it is recorded under, how many students *stand* in a service | [`docs/delocalization.md`](docs/delocalization.md) | a délocalisé stays in his cohorte and must stop occupying the service he left — counted per membership, sending sixty students away relieved the grid by **nothing** — and the window is the **cohorte's** passage, never the stage's whole axis |
 | an export sheet, column, or a second export | [`docs/exports.md`](docs/exports.md) | an export is the one read deliberately exempt from pagination, and a column blank on every row reads as a column the export forgot |
 | a bulk act on the live base, a transaction, rebuilding from `Medecine.mdb` | [`docs/operations.md`](docs/operations.md) | the base **is** the faculty's data; the rebuild is not « migrate then import », and it fails silently |
 | an audited act or act code, anything measured in worked days, a « suspension d'examens » | [`docs/audit-calendar.md`](docs/audit-calendar.md) | a refused act must write nothing, an empty holiday calendar quietly means "minus weekends" — and there are **two** calendars, the faculty's and each promotion's, so a reader that knows its (année, niveau) must ask for that one |
@@ -84,6 +84,13 @@ area, so they are worth carrying in your head on **every** change:
   And note what does *not* enforce this: `RotationArranger` computes `saturatedServices` **after**
   `SaveChangesAsync`, as a report — the placement weights by capacity and never reads live occupancy,
   so a service cannot be reserved by filling it first. → [`docs/services.md`](docs/services.md)
+- **A date derived from a stage is not a date about a cohorte.** An axis holds one column per
+  partition, so `min`/`max` over *all* a stage's créneaux is as many times too long as there are
+  partitions — the délocalisation window wrote **14/09/2026 → 25/03/2027** into twelve dossiers for a
+  stage those students serve in one month, and would have overlapped every other stage of their year
+  the moment it was published. Anything derived per (stage, année) and then applied to a group has to
+  be re-asked at the level it is actually true at, and a bulk act resolves it **after** it knows who
+  it is acting on, never once before the loop. → [`docs/delocalization.md`](docs/delocalization.md)
 - **Confirm what cannot be undone.** A bulk act that writes onto rows nobody named carries the count
   the operator was shown and refuses on a mismatch — a boolean cannot do it, because a row created
   between the preview and the apply is the whole risk.

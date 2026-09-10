@@ -1,4 +1,4 @@
-﻿using FluentAssertions;
+using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Employees.MyServices;
 using PGSH.Application.AcademicGroups;
@@ -28,6 +28,7 @@ using PGSH.Application.Stages.Cnpn.Effectivity;
 using PGSH.Application.Stages.Cnpn.SeedFromHistory;
 using PGSH.Application.Stages.Cnpn.GetCnpnVersions;
 using PGSH.Application.Stages.Cnpn.Targeting;
+using PGSH.Application.Stages.Delocalization;
 using PGSH.Application.Stages.Delocalization.Bulk;
 using PGSH.Application.Stages.GetMany;
 using PGSH.Application.Stages.Revalidation;
@@ -1298,5 +1299,32 @@ public class SqlTranslationTests
 
         sql.Should().Contain("StageAllowedServices");
         sql.Should().Contain("PlacementMode");
+    }
+
+    /// <summary>
+    /// The two reads behind a délocalisation's dates: the cohortes' own passages, and the stage axis
+    /// they fall back to.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ <b>The cohorte spans are deliberately not aggregated in SQL.</b> « <c>Min</c> and <c>Max</c>
+    /// per cohorte » is a <c>GroupBy</c> over a projected join row — a computed element carrying no
+    /// key, which is the shape that took the macro plan down — so the query stays flat and the fold
+    /// happens in memory over a handful of cells. This case exists to make somebody re-read that
+    /// before pushing the aggregation down.
+    /// </remarks>
+    [Fact]
+    public void The_delocalization_window_queries_compile_to_sql()
+    {
+        using var db = TestHarness.NewNpgsqlContext();
+
+        string spans = DelocalizationWindowResolver.CohortSpansQuery(db, [3, 4]).ToQueryString();
+        spans.Should().Contain("CohortSlotAssignments");
+        spans.Should().Contain("StageSlots");
+        spans.Should().NotContain("GROUP BY");
+
+        string axis = DelocalizationWindowResolver
+            .AxisQuery(db, stageId: 7, academicYearId: 2).ToQueryString();
+        axis.Should().Contain("StageSlots");
+        axis.Should().Contain("AcademicYearId");
     }
 }

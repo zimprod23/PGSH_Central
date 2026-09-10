@@ -3904,3 +3904,64 @@ Réserver **tous** les services autorisés du stage, puis « Répartir ».
   « aucun service n'accueille cette promotion ». ⚠ Les deux envoient l'opérateur à deux écrans
   différents : le second lui ferait élargir des quotas qui n'ont jamais été l'obstacle.
 - Remettre un service en « Rotation » ensuite.
+
+## §55 — La fenêtre d'une délocalisation est celle du groupe (session 57)
+
+> ⚠ **À dérouler sur une promotion dont l'axe est croisé** — c'est-à-dire dont deux partitions
+> traversent le même stage à des périodes différentes. Sur un stage qui tourne sur une seule fenêtre
+> pour toute la promotion, l'ancien calcul et le nouveau donnent le **même** nombre et l'écran ne
+> prouve rien.
+>
+> Prérequis : un axe posé, une répartition arrangée (des cellules dans la grille), et un service
+> externe au catalogue. Point de sauvegarde avant, comme pour tout acte de masse.
+
+### 1 · Lire l'axe, pour savoir ce qu'on attend
+
+Sur la grille du stage, noter pour **deux** groupes de partitions différentes la colonne qu'ils
+occupent et ses dates. Exemple mesuré : partition A en **P3, 16/11 → 16/12** ; l'axe entier, lui, va
+du **14/09 au 25/03**.
+
+### 2 · L'aperçu, sans saisir de dates
+
+« Délocaliser en masse », choisir le stage et le service externe, sélectionner **les deux groupes**, et
+**laisser les dates vides** — c'est le chemin où PGSH les déduit, et le seul où le défaut vivait.
+
+- La colonne **« Période »** porte, pour chaque ligne, **les dates de son propre groupe**. ⚠ **C'est
+  l'assertion de la session.** Avant, chaque ligne portait l'axe entier — quatre mois pour un stage
+  d'un mois.
+- L'en-tête ne dit plus « du … au … » mais **« n périodes différentes selon le groupe »**.
+- Un seul groupe sélectionné : l'en-tête **redonne** une paire de dates, et c'est le passage de ce
+  groupe.
+
+### 3 · Le cas qui doit prévenir
+
+Sélectionner un groupe **sans cellule dans la grille** (non encore réparti).
+
+- Sa ligne porte les dates de **tout l'axe** et un badge **« tout le stage »**.
+- Un bandeau jaune compte les lignes concernées et dit quoi faire : répartir d'abord, ou saisir les
+  dates réelles.
+- ⚠ **Il ne doit pas refuser.** Délocaliser un stage que personne n'a planifié reste un cas soutenu ;
+  ce qui a changé, c'est qu'il ne fait plus passer quatre mois pour une mesure.
+
+### 4 · Les dates saisies gagnent
+
+Refaire l'aperçu en saisissant des dates.
+
+- **Toutes** les lignes les portent, l'en-tête aussi, et le bandeau jaune disparaît. La scolarité
+  énonce ce que l'hôpital a fait ; PGSH ne déduit que faute de mieux.
+
+### 5 · Appliquer, puis lire le dossier
+
+Appliquer sur les deux groupes, **sans dates**.
+
+- Sur la fiche d'un étudiant de chaque groupe, la période hors CHU porte **les dates de son groupe**,
+  différentes de l'autre.
+- ⚠ **Et sur le calendrier de l'année**, la bande de la partition ne dépasse plus sa dernière colonne
+  — c'est le symptôme par lequel le défaut avait été signalé.
+- ⚠ Aucune période de l'étudiant n'en chevauche une autre. C'est ce que l'axe entier fabriquait avec
+  **chaque** autre stage de son année dès la publication.
+
+### 6 · Le refus qui reste
+
+Sur un stage **sans aucun créneau** (toute année importée), l'aperçu sans dates doit refuser en
+nommant `Delocalizations.NoWindow` et demander les dates — jamais inventer une paire.
