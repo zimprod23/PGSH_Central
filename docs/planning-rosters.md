@@ -158,6 +158,27 @@ eux sont par **stage**, deux par **promotion**, un par **année**.
   **toutes** les promotions — donc un acte scopé sur une promotion l'enjambe et seul l'acte annuel
   l'atteint. C'est la bonne coupure : ce roster n'appartient pas à la promotion nommée.
 - ⚠ **Un niveau inconnu refuse** (`Levels.NotFound`) au lieu de retomber sur « aucun niveau nommé ».
+
+#### ⚠ Ce que les cinq actes ne touchent pas — et il faut le défaire à la main
+
+Les cinq étapes démontent la **planification d'une année**. Trois choses vivent ailleurs et
+survivent donc intactes ; deux sont voulues, la troisième surprend.
+
+| ce qui survit | où il vit | à défaire ? |
+|---|---|---|
+| `StageAllowedService.PlacementMode = Reserved` | la ligne d'autorisation, **invariante à l'année** | ⚠ **oui, à la main** |
+| `StageAllowedService.Rank` (l'ordre de rotation) | idem | non — c'est le catalogue |
+| les périodes **ad hoc** des années passées | l'affectation, hors grille | non — c'est l'histoire |
+
+⚠ **Un service réservé le reste après une remise à zéro complète**, et c'est la seule des trois qui
+peut se lire comme un défaut : la promotion est repartie de rien, la répartition automatique refuse
+de le pourvoir, et **rien à l'écran de la planification ne dit pourquoi** — le mode est sur la fiche
+du stage, pas sur la grille. La bascule « Réservé » de `Admin → Stages → services autorisés` est ce
+qui le rend à la rotation. C'est le pendant exact de la règle du `Rank` : ce sont des entrées de
+planification portées par le **catalogue**, et le catalogue ne se remet pas à zéro avec une année.
+
+⚠ **`AcademicGroup.Purpose` et `CohortSlotAssignment.Source`, eux, disparaissent normalement** — le
+motif avec son roster à l'étape 5, l'épinglage avec sa cellule aux étapes 2 et 4. Rien à défaire.
   L'élargissement-sur-absence est ici le plus cher de tous : il supprimerait les rosters de **toutes**
   les promotions après un contrôle qui n'en a regardé qu'une.
 - **Le prédicat est écrit une fois** (`RosterScope.Query`), partagé par « Vider » et « Supprimer ».
