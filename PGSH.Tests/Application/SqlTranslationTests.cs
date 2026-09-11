@@ -10,6 +10,7 @@ using PGSH.Application.Calendar.Pauses;
 using PGSH.Application.Hospitals.Chefs;
 using PGSH.Application.Hospitals.Coverage;
 using PGSH.Application.Hospitals.Services.OccupancyReport;
+using PGSH.Application.Hospitals.Services.PromotionFit;
 using PGSH.Domain.Stages;
 using PGSH.Application.Stages.AllowedServices;
 using PGSH.Application.Stages.Cohorts.UnpublishSchedule;
@@ -1025,6 +1026,44 @@ public class SqlTranslationTests
         // The denominator of « il en utilise deux sur cinq » — a correlated count, not a collection.
         GetOccupancyReportQueryHandler.AllowedServicesQuery(db)
             .ToQueryString().Should().Contain("StageAllowedServices");
+    }
+
+    /// <summary>
+    /// The five reads behind « cette promotion tient-elle ? ».
+    ///
+    /// <para>⚠ <b>Two shapes here are exactly the ones the provider refuses.</b>
+    /// <c>PromotionsQuery</c> filters on <c>Year &gt; 0</c> rather than on <c>Level.IsPromotion</c> —
+    /// a computed property, i.e. a method call in a <c>Where</c>, which throws on Npgsql and
+    /// evaluates happily in memory. And the headcount reads aggregate the <c>Holds</c> collection
+    /// inside a <c>Where</c> — a predicate, the one place a collection may be aggregated — then
+    /// <c>GroupBy</c> a plain <c>Count</c>; folding the hold test into the <c>Select</c> instead
+    /// would be the collection-subquery-in-a-projection that killed the macro plan.</para>
+    /// </summary>
+    [Fact]
+    public void The_promotion_fit_queries_compile_to_sql()
+    {
+        using var db = TestHarness.NewNpgsqlContext();
+
+        string promotions = GetPromotionFitQueryHandler.PromotionsQuery(db, yearId: 1).ToQueryString();
+        promotions.Should().Contain("Levels");
+        promotions.Should().Contain("Registrations", "a promotion is a level somebody is registered in");
+
+        string plannable = GetPromotionFitQueryHandler.PlannableHeadcountQuery(db, yearId: 1).ToQueryString();
+        plannable.Should().Contain("Registrations");
+        plannable.Should().ContainEquivalentOf("count(", "the headcount is grouped by level in SQL");
+        plannable.Should().Contain("RegistrationHolds", "the hold rule lives in the predicate");
+
+        GetPromotionFitQueryHandler.HeldHeadcountQuery(db, yearId: 1)
+            .ToQueryString().Should().Contain("RegistrationHolds");
+
+        GetPromotionFitQueryHandler.StagesQuery(db, [1, 2])
+            .ToQueryString().Should().Contain("Stages");
+
+        GetPromotionFitQueryHandler.AuthorisationsQuery(db, [1, 2])
+            .ToQueryString().Should().Contain("StageAllowedServices");
+
+        GetPromotionFitQueryHandler.ServicesQuery(db, [1, 2])
+            .ToQueryString().Should().Contain("Services");
     }
 
     /// <summary>

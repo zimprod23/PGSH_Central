@@ -3287,3 +3287,50 @@ les chefs notent et tout ce que les présences visent. `COHORT_SCHEDULE_PUBLISHE
 - ⚠ **Et le balayage ne peut pas voir un acte qui ne se déclare pas.** Les deux publications l'ont
   montré : la question « cet acte devrait-il être audité ? » ne se pose qu'en lisant les actes
   symétriques deux à deux (publier/dépublier, créer/supprimer, appliquer/annuler).
+
+---
+
+## ✅ Phase 29 — La capacité se lit avant qu'il existe un plan
+
+**Livré le 12/09/2026** (`HANDOFF.md` **0bi**, demandé le 11/09). La campagne de 2026-2027 découvrait
+les manques de places **devant le bouton « Publier »**, c'est-à-dire après une journée de découpage,
+d'axe et de répartition — et huit publications de la 3ᵉ MED ont été faites avec « autoriser le
+dépassement » coché parce que le chiffre est arrivé trop tard pour être discuté.
+
+### 29.1 — `GET /services/promotion-fit`
+Une lecture par (année, promotion) qui met en regard, pour chaque stage, **ce qu'il faut** — la
+tranche de la promotion qui s'y tient en même temps — et **ce qu'il y a** — la somme des places des
+services autorisés. Écran : *Admin → Infrastructure → **Faisabilité des promotions***.
+
+⚠ **Ce n'est pas un second `OccupancyReport`.** Celui-là lit les cellules, donc il affiche **zéro**
+pour une promotion qu'on n'a pas encore découpée. Cette lecture n'a besoin d'aucun plan : effectif,
+durées, capacités, rien d'autre. C'est toute sa raison d'être.
+
+### 29.2 — `PromotionAxis`, et la calibration
+`Domain/Stages/PromotionAxis.cs` — pur, sans magasin : `kₛ = durée_s / pgcd(durées)`, `T = Σkₛ`, et la
+tranche simultanée `⌈N·kₛ/T⌉`. Même identité que `Lₛ = P·kₛ/T` de `RotationCyclePlanner`, lue par
+étudiant plutôt que par partition, **donc le nombre de partitions se simplifie** : découper plus fin
+ne soulage aucun stage.
+
+⚠ **La calibration est le premier test du fichier.** Sur la 3ᵉ MED (933 étudiants, 2×30 j + 6×15 j →
+10 colonnes de 15 j) la formule retrouve exactement les deux nombres mesurés à la main sur la base
+vivante les 11-12/09 : Dermatologie **−14**, Santé Publique **+6**. Une formule qui ne retrouverait
+rien serait un second avis sur lequel personne ne pourrait agir.
+
+### 29.3 — Quatre « impossible », nommés séparément
+« aucun service autorisé », « aucun n'admet cette promotion », « tous réservés », « durée manquante » —
+quatre actes différents, et l'arrangeur lui-même refuse par trois erreurs distinctes. « Impossible »
+l'emporte sur « en dépassement » quelle que soit la profondeur : l'un est un trou de catalogue, l'autre
+une décision que la faculté prend régulièrement.
+
+⚠ **Le pool de services est celui de `RotationArranger`, clause pour clause** — externe dehors,
+non-admis dehors, `Reserved` dehors, capacité par `Service.CapacityFor`. Compter des places que
+l'arrangeur n'utilisera pas serait pire que de ne rien afficher.
+
+### Ce qui reste
+- **La page prévient, elle ne place pas mieux.** `BuildServiceQueue` pondère par la capacité seule et
+  ne lit **jamais** l'occupation vivante, donc répartir la 4ᵉ MED l'étalera sur les services où la 3ᵉ
+  est déjà assise. Ce qui change est le *moment* où la faculté décide, pas la décision.
+- **`0bg` et `0bh` restent entiers** : Pédiatrie qui demande 351 places là où il en existe 120 est une
+  décision de la faculté, pas un écran.
+- **Rien n'est encore vu au navigateur** : `SMOKE-TEST.md` **§62**, après redémarrage de l'AppHost.

@@ -43,6 +43,12 @@ Lₛ = P · kₛ / T      partitions concurrently in stage s — must be a whole
 - ⚠ **Une durée n'entre dans l'axe que par *kₛ*, et personne ne le recalcule pour vous.** Les colonnes
   d'un axe ont toutes la même largeur — c'est ce qui rend le croisement possible — donc « ce stage dure
   deux fois plus longtemps » s'exprime en lui donnant `kₛ = 2`, jamais en élargissant sa colonne.
+  - ✅ **…mais le `kₛ` qu'une durée implique se lit maintenant tout seul** — `PromotionAxis`
+    (`Domain/Stages/`, 12/09/2026) : `kₛ = durée_s / pgcd(durées)` et `T = Σkₛ`, purement, sans
+    magasin. C'est ce qui permet de répondre « cette promotion tient-elle ? » **avant** qu'un axe
+    soit posé, puisque la tranche qui se tient dans un stage à un instant donné est `N·kₛ/T`. Il
+    **ne pose aucun créneau** : l'axe reste autorisé à la main, et ceci n'en est que l'arithmétique.
+    → [`docs/services.md`](services.md)
   Mesuré le 07/09/2026 : la faculté a mis MED3 Médecine et Chirurgie à **30 j.** et les quatre autres
   à **15 j.** dans le catalogue, alors que l'axe posé porte **6 colonnes de 30 j. ouvrables** et
   `kₛ = 1` partout. Honorer la nouvelle lecture, c'est *T* = 2+2+1+1+1+1 = **8** colonnes de 15 j. —

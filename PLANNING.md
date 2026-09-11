@@ -176,6 +176,14 @@ So the **only** levers are:
 2. **add allowed services** to the stage;
 3. **enter true capacities** and accept the overflow as a recorded fact.
 
+✅ **And since 12/09/2026 this page's arithmetic is readable on screen, before anything is planned** —
+*Admin → Infrastructure → **Faisabilité des promotions*** (`GET /services/promotion-fit`). It puts
+`N·kₛ/T` beside the places the stage's authorised services actually offer, per promotion and per
+stage, from the catalogue alone. Calibrated against the two figures measured by hand on the live base:
+Dermatologie **−14**, Santé Publique **+6**. ⚠ It changes **when** the three levers above get pulled,
+not what they are — and it does not place better: the arrange still weights by capacity alone and
+never reads live occupancy. → [`docs/services.md`](docs/services.md)
+
 ### Where it actually stands (2025-2026, 5th year)
 
 | Stage | Services | Busiest service | Declared capacity |
@@ -221,6 +229,11 @@ Order matters: the rotation cycle reads the partition labels, so they must exist
 
 ### 0 · Prerequisites
 
+- ✅ **Read « Faisabilité des promotions » first** — *Admin → Infrastructure*. It answers « cette
+  promotion tient-elle ? » from headcount, durations and authorised capacities, so it is the one
+  check that works **before** any of the steps below have been taken. A stage reading « aucun service
+  autorisé » there is the next bullet, discovered without waiting for the plan to refuse; a stage
+  reading « −231 places » is a faculty decision that is cheaper now than at the publish button.
 - **Rosters exist** — *Académique → Groupes → Répartition automatique* distributes students who have
   no group. Groups are created per (year, promotion) and numbered from 1.
 - **Each stage has allowed services** — *Formation → Stages → «stage» → Services autorisés*. Without

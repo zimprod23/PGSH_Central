@@ -398,6 +398,13 @@ behaviour; each caller states its own.**
   evaluated candidates.
 - **Service capacity** — two numbers, never one. `ServiceOccupancyCalculator` says how many students are
   *there*; `ServiceIntakeCalculator` says how many are *allowed*. Every capacity decision compares the two.
+  - …and a third question they cannot answer: **how many will be there once a promotion is planned**.
+    `PromotionAxis` (`Domain/Stages/`) is that arithmetic and it is pure — `kₛ = durée_s / pgcd`,
+    `T = Σkₛ`, and the slice standing in a stage at one instant is `⌈N·kₛ/T⌉`. Never restate it: the
+    fit panel and any future « can this promotion be planned » read share the one class, and the
+    round is **up** because the remainder is a real student. Note the partition count cancels out —
+    cutting a promotion into more groups cannot relieve an overloaded stage.
+    → [`docs/services.md`](docs/services.md)
 - **Naming a group of students is `StudentSelectionResolver`** (`Application/Students/Selection/`),
   never a per-act parse. Roster ids ∪ registration ids ∪ a pasted list of CNE/Apogée lines, with a
   row for every line that names nobody and `NotFound` kept distinct from `WrongYear`. Shared by the

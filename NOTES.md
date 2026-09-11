@@ -4656,3 +4656,40 @@ de l'étudiant, et il n'existe aujourd'hui aucun archivage d'un service. Dire «
 rattachements d'abord » à quelqu'un que retient l'histoire l'enverrait chercher une manœuvre qui
 n'existe pas ; le refus lui dit de retirer le service des listes de services autorisés, ce qui est la
 seule chose vraie qu'il puisse faire d'un service fermé.
+
+## Ce qu'une promotion demande, calculé sans plan (12/09/2026, session 64)
+
+Les sessions 61-62 ont mesuré à la main, sur la base vivante, que la 3ᵉ MED ne tient pas dans
+`Dermatologie - Endocrinologie` : **−14 places par colonne**, et **+6** seulement sur Santé Publique.
+Ces deux nombres ont été trouvés *après* la publication, en lisant les cellules. Le panneau de la
+session 64 les retrouve **avant** qu'une seule cellule existe.
+
+**L'identité qui rend cela possible.** Une promotion est étalée sur tous ses stages en même temps :
+si le stage *s* occupe `kₛ` colonnes d'un axe de `T = Σkₛ`, la tranche qui s'y tient à un instant
+donné est `N·kₛ/T` — soit, `kₛ` étant proportionnel à la durée, `N × durée_s ÷ Σdurées`. Aucun
+roster, aucun axe, aucune cellule n'entre dans ce calcul.
+
+⚠ **Le nombre de partitions se simplifie, et c'est tout l'intérêt.** C'est la même identité que
+`Lₛ = P·kₛ/T` de `RotationCyclePlanner`, lue par étudiant au lieu de par partition : découper la
+promotion en plus de groupes fait passer les mêmes étudiants par les mêmes stages en plus petits
+morceaux, donc **cela ne peut pas soulager** un stage dont les services ne tiennent pas `N·kₛ/T`.
+
+**Vérification sur les nombres connus** (`PromotionFitTests.The_formula_reproduces_what_was_measured_by_hand`) :
+
+| | mesuré à la main (11/09) | calculé par la formule |
+|---|---|---|
+| 3ᵉ MED, axe | 10 colonnes de 15 j | `pgcd(30,15) = 15`, `T = 2+2+1×6 = 10` |
+| tranche par colonne | 94 | `⌈933 × 1/10⌉ = 94` |
+| Dermatologie (4 × 20) | −14 | −14 |
+| Santé Publique (5 × 20) | +6 | +6 |
+
+⚠ **L'arrondi est vers le haut, et il n'est pas cosmétique.** 933 ÷ 10 = 93,3 : le reste est un
+étudiant réel qui se tient quelque part. Arrondi vers le bas, chaque manque serait sous-estimé d'une
+place par stage — et un manque sous-estimé est exactement la lecture qui laisse tenter une
+publication.
+
+⚠ **Ce que le panneau ne peut pas dire, et qu'il dit donc en toutes lettres.** Les places ne sont
+retirées à personne : deux promotions qui autorisent le même service peuvent chacune « tenir » dans
+les mêmes lits. Le 11/09 c'était le cas réel — les quatre services de Dermatologie de la 4ᵉ MED sont
+ceux où la 3ᵉ est déjà assise à 27-30 pour un plafond de 20. La colonne « aussi autorisé par » est
+donc calculée sur toute l'année, filtre ou pas.

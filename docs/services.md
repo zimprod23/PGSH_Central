@@ -373,3 +373,49 @@ autorisés pour que plus aucun stage ne l'utilise.
 Couvert par `PGSH.Tests/Application/DeleteServiceGuardTests.cs` (la garde, et le constat déposé au
 registre) et `PGSH.Tests/Integration/ServiceDeleteEndpointTests.cs` (le **409 avec sa phrase**, qu'un
 test de handler ne voit pas).
+
+## ✅ « Cette promotion tient-elle ? » — la capacité lue avant qu'il existe un plan (2026-09-12)
+`GET /services/promotion-fit` — `Application/Hospitals/Services/PromotionFit/`, à côté
+d'`OccupancyReport` dont il reprend le vocabulaire.
+
+**Pourquoi ce n'est pas le rapport de charge.** `OccupancyReport` lit les **cellules**, donc une
+promotion qu'on n'a pas encore découpée y affiche **zéro** — confortablement vide — jusqu'à ce que la
+journée de découpage, d'axe et de répartition soit finie et qu'on soit devant « Publier ». C'est là
+que le manque se découvrait, et c'est le moment le plus cher possible. Ce panneau ne lit **aucun
+plan** : effectif, durées, capacités des services autorisés, rien d'autre.
+
+**L'arithmétique, et elle est calibrée.** La promotion est étalée sur tous ses stages à la fois : la
+tranche qui se tient dans le stage *s* est `N·kₛ/T`, soit `N × durée_s ÷ Σdurées`. `PromotionAxis`
+(`Domain/Stages/`) pose l'axe — `kₛ = durée_s / pgcd(durées)`, `T = Σkₛ` — et arrondit la tranche
+**vers le haut** : le reste est un étudiant réel, et une tranche arrondie vers le bas sous-estime
+chaque manque d'une place. Sur la 3ᵉ MED (933 étudiants, 2×30 j + 6×15 j → **10 colonnes de 15 j**)
+elle retrouve exactement les deux nombres mesurés à la main les 11-12/09 : Dermatologie **−14**
+(4 services × 20 = 80 contre 94) et Santé Publique **+6** (100 contre 94). C'est le premier test du
+fichier, et c'est ce qui rend le reste lisible.
+
+⚠ **Le pool de services est celui de l'arrangeur, clause pour clause** : externe dehors, non-admis
+dehors, `Reserved` dehors, capacité par `Service.CapacityFor(levelId)`, capacité nulle dehors. Un
+panneau qui compterait des places que `RotationArranger` n'utilisera pas promettrait une place
+qu'aucune répartition ne peut atteindre — pire que pas de panneau, puisqu'il serait cru.
+
+⚠ **Quatre façons d'être « impossible », nommées séparément** — parce que ce sont quatre actes
+différents et que l'arrangeur lui-même refuse par trois erreurs distinctes : « aucun service
+autorisé » (`Schedule.NoAllowedServices` — saisir la liste), « aucun n'admet cette promotion »
+(`Stages.NoServicesAdmitLevel` — accorder un quota), « tous réservés »
+(`Stages.AllServicesReserved` — libérer une réservation) et « durée manquante » (le stage ne tient
+sur aucun axe). Et « impossible » l'emporte sur « en dépassement » quelle que soit la profondeur du
+dépassement : l'un est un trou de catalogue, l'autre une décision que la faculté prend
+régulièrement.
+
+⚠ **Ce que le panneau ne peut pas calculer, il le dit.** Les places ne sont retirées à personne :
+deux promotions autorisant le même service peuvent chacune « tenir » dans les mêmes lits. La colonne
+« aussi autorisé par » est donc calculée sur **toute** l'année même quand une seule promotion est
+demandée — un filtre choisit ce qui est *listé*, jamais ce qui est *compté*, exactement comme dans le
+rapport de charge. Et la répartition automatique ne le verra pas non plus : `BuildServiceQueue`
+pondère par la capacité et ne lit jamais l'occupation vivante.
+
+Écran : *Admin → Infrastructure → Faisabilité des promotions* (`/admin/faisabilite`).
+Couvert par `PromotionFitTests` (dont la calibration), `PromotionAxisTests`,
+`PromotionFitEndpointTests` et six cas de `SqlTranslationTests` — `PromotionsQuery` filtre sur
+`Year > 0` et non sur `Level.IsPromotion`, qui est une propriété calculée et donc refusée par le
+fournisseur dans un `Where`.

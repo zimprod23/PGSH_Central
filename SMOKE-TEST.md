@@ -4324,3 +4324,43 @@ rien, c'est tout leur intérêt. La troisième crée un service jetable pour avo
 sur un magasin *in-memory* qui ne tient aucune clé étrangère, et ici c'est la **garde** qui refuse,
 avant tout `SaveChanges`. Ni ce qui arrive à un service *encore* supprimable et qui porte des quotas :
 la cascade les emporte, et seule la ligne du registre pourra encore dire combien.
+
+## 62 · « Cette promotion tient-elle ? » (5 min) — session 64
+
+⚠ **Redémarrer l'AppHost d'abord** : la route `/api/services/promotion-fit` n'existe pas dans un
+processus antérieur à cette session, et la page répondrait 404. Le contrôle qui distingue « route
+absente » de « non authentifié » est le même que d'habitude : sur l'ancien processus la page affiche
+son bandeau d'erreur, jamais un tableau.
+
+Aucune écriture nulle part : la page est une **lecture** de bout en bout.
+
+1. **Ouvrir** *Admin → Infrastructure → Faisabilité des promotions*, année **2026-2027**, sans filtre.
+   - Attendu : une ligne par promotion ayant des inscrits, chacune avec son état — « Tient »,
+     « En dépassement », « Impossible à placer », « Aucun stage au catalogue ».
+   - ⚠ **Le point du test** : les promotions qu'on n'a **pas encore découpées** doivent afficher des
+     nombres. C'est toute la différence avec « Charge des services », qui affiche zéro partout tant
+     qu'aucune cellule n'est posée — ouvrir les deux pages côte à côte le montre en un coup d'œil.
+
+2. **La 3ᵉ MED** (déjà publiée, donc vérifiable contre la réalité) : déplier sa ligne.
+   - Attendu : **10 colonnes de 15 j**, et sur `Dermatologie - Endocrinologie` une marge de
+     **−14** pour 94 à placer et 80 places. C'est le nombre relevé à la main le 11/09 sur la base.
+   - Attendu : `Santé Publique` et `Simulation Médicale` à **+6**.
+   - Si ces trois nombres ne tombent pas, ce n'est **pas** un défaut d'affichage : c'est que le
+     catalogue a changé depuis (un service autorisé ajouté, une capacité relevée) — ce qui est
+     précisément l'acte que la page demande.
+
+3. **Les états « impossible »** : la 2ᵉ MED, dont les deux stages n'ont aucun service autorisé.
+   - Attendu : « Impossible à placer », et sur chaque stage le badge **« Aucun service autorisé »** —
+     pas « 0 place ». Le message doit dire de saisir la liste, pas de trouver des lits.
+   - La 7ᵉ MED (1 347 inscrits, aucun stage) doit lire **« Aucun stage au catalogue »**, jamais
+     « Tient ».
+
+4. **Le partage entre promotions.** Filtrer sur la **4ᵉ MED**, déplier `Dermatologie`.
+   - Attendu : un badge **« N partagé(s) »** dont l'infobulle nomme la 3ᵉ MED.
+   - ⚠ **Le contrôle qui compte** : le filtre ne doit **pas** faire disparaître ce badge. Un service
+     est partagé, et cacher l'autre prétendant ferait lire « confortable » là où deux promotions se
+     disputent les mêmes lits.
+
+**Ce que cette passe ne peut pas montrer.** Que la répartition tiendra compte du chiffre : elle ne le
+fera pas. `RotationArranger` pondère par la capacité et ne lit jamais l'occupation vivante — la page
+prévient, elle ne place pas mieux. La suite reste : lire le nombre, corriger le catalogue, répartir.
