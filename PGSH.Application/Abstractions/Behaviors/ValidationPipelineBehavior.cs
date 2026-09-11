@@ -67,6 +67,13 @@ internal sealed class ValidationPipelineBehavior<TRequest, TResponse>(
         return validationFailures;
     }
 
+    /// <remarks>
+    /// ⚠ Each failure is an <c>Error.Validation</c>, not an <c>Error.Problem</c>. Their type never
+    /// reaches <c>CustomResults.GetStatusCode</c> — the enclosing <see cref="ValidationError"/> is
+    /// what picks the 400 — but they are serialised into the problem document's <c>errors[]</c>, so
+    /// a reader would see a broken rule labelled « Problem », i.e. a fault. Nothing in this codebase
+    /// calls a refusal that any more.
+    /// </remarks>
     private static ValidationError CreateValidationError(ValidationFailure[] validationFailures) =>
-        new(validationFailures.Select(f => Error.Problem(f.ErrorCode, f.ErrorMessage)).ToArray());
+        new(validationFailures.Select(f => Error.Validation(f.ErrorCode, f.ErrorMessage)).ToArray());
 }

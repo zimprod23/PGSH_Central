@@ -1,4 +1,4 @@
-using PGSH.Application.Abstractions.Messaging;
+﻿using PGSH.Application.Abstractions.Messaging;
 
 namespace PGSH.Application.Stages.Cohorts.UnpublishSchedule;
 
@@ -23,7 +23,23 @@ namespace PGSH.Application.Stages.Cohorts.UnpublishSchedule;
 public sealed record UnpublishStageScheduleCommand(
     int StageId,
     int? AcademicYearId = null,
-    IReadOnlyList<string>? PartitionLabels = null) : ICommand<UnpublishStageResult>;
+    IReadOnlyList<string>? PartitionLabels = null)
+    : ICommand<UnpublishStageResult>, IAuditableCommand
+{
+    public string AuditAction => "STAGE_SCHEDULE_UNPUBLISHED";
+    public string AuditEntityType => "Stage";
+    public string? AuditEntityId => StageId.ToString();
+
+    /// <summary>
+    /// ⚠ Les partitions visées, parce que cet acte est <b>scopable</b> : « dépublier le stage » et
+    /// « dépublier la partition B du stage » se lisent autrement dans le registre, et sans cette
+    /// mention la seconde ressemblerait à la première jouée à moitié. L'année réellement touchée est
+    /// écrite par le handler, seul à l'avoir résolue.
+    /// </summary>
+    public string? AuditMetadata => PartitionLabels is { Count: > 0 } labels
+        ? AuditMetadataJson.Of(("partitionLabels", string.Join(", ", labels)))
+        : null;
+}
 
 /// <param name="CohortsUnpublished">Cohortes whose grid-linked périodes were removed.</param>
 /// <param name="PeriodsRemoved">Those périodes.</param>

@@ -1,6 +1,7 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
+using PGSH.Application.Audit;
 using PGSH.Application.Stages.Planning;
 using PGSH.Domain.Common.Utils;
 using PGSH.Domain.Registrations;
@@ -23,7 +24,8 @@ namespace PGSH.Application.AcademicGroups.Empty;
 /// </remarks>
 internal sealed class EmptyAllYearGroupsCommandHandler(
     IApplicationDbContext dbContext,
-    AffectationTollReader tollReader)
+    AffectationTollReader tollReader,
+    IAuditTrail auditTrail)
     : ICommandHandler<EmptyAllYearGroupsCommand, int>
 {
     public async Task<Result<int>> Handle(
@@ -48,8 +50,15 @@ internal sealed class EmptyAllYearGroupsCommandHandler(
             .Select(g => g.Id)
             .ToListAsync(cancellationToken);
 
+        // ⚠ Vider une promotion déjà vide est un acte, pas un refus : il s'enregistre avec son zéro,
+        // sinon l'absence de ligne recouvre « personne ne l'a joué » et « quelqu'un l'a joué sans
+        // effet », qui appellent des lectures opposées.
         if (groupIds.Count == 0)
+        {
+            auditTrail.RecordOutcome(("rostersInScope", 0), ("registrationsDetached", 0));
+            await dbContext.SaveChangesAsync(cancellationToken);
             return Result.Success(0);
+        }
 
         var toll = levelId is null
             ? await tollReader.ForYearRostersAsync(request.AcademicYearId, cancellationToken)
@@ -73,6 +82,16 @@ internal sealed class EmptyAllYearGroupsCommandHandler(
         int unassigned = await dbContext.Registrations
             .Where(r => r.AcademicGroupId != null && groupIds.Contains(r.AcademicGroupId.Value))
             .ExecuteUpdateAsync(s => s.SetProperty(r => r.AcademicGroupId, (int?)null), cancellationToken);
+
+        auditTrail.RecordOutcome(
+            ("rostersInScope", groupIds.Count),
+            ("registrationsDetached", unassigned));
+
+        // ⚠ Même défaut que « Supprimer les groupes », et pour la même raison : le seul écrit passe
+        // par ExecuteUpdate, hors change tracker, et rien n'appelait SaveChanges — la ligne de
+        // journal restait en attente et mourait avec la portée de la requête. L'acte portait pourtant
+        // YEAR_GROUPS_EMPTIED / PROMOTION_GROUPS_EMPTIED depuis la phase 20. Mesuré le 10/09/2026.
+        await dbContext.SaveChangesAsync(cancellationToken);
 
         return Result.Success(unassigned);
     }

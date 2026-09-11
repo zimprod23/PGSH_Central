@@ -7,20 +7,27 @@
 >
 > | # | Do this | Why it is not done |
 > |---|---|---|
+> | **0bg** | ⚠ **`Dermatologie - Endocrinologie` ne peut pas contenir la 3ᵉ MED — mesuré sur la base vivante le 11/09/2026.** Le stage n'autorise que **4 services** en rotation, 20 places chacun = **80 par colonne**, alors que 933 étudiants sur 10 colonnes en demandent **94**. Il manque ~14 places à *chaque* colonne, donc le dépassement n'est pas un incident de placement : c'est de l'arithmétique, et il se reproduira à l'identique à chaque re-répartition. Trois issues, toutes du ressort de la faculté : ajouter un service autorisé au stage, relever la capacité des services de dermatologie, ou assumer 27-30 par service. | **Constaté publié** : les deux services « Dermatologie » (id 13, Hôpital Militaire Mohammed V ; id 127, Maternité Souissi) portent **27 à 30** étudiants pour un plafond de **20**, sur **les dix périodes** P1→P10. ⚠ C'est la raison pour laquelle les 8 publications du 11/09 portent toutes `allowOverCapacity: true` — le défaut par défaut est `false` aux trois points d'appel du client, donc la case a été cochée délibérément huit fois. ⚠ **Les sept autres stages de la promotion passent**, mais **deux n'ont aucune marge** : ~~Santé Publique et Simulation Médicale ont +6 (100 pour 94)~~ — **corrigé le 11/09/2026 (session 62)**, le +6 était la colonne *moyenne* et aucune colonne ne vaut la moyenne. Relevé par colonne, les deux stages portent **exactement 100 pour 100 places sur trois colonnes sur dix** : marge réelle **0**, une arrivée tardive ou un changement de groupe vers A, B ou C les fait dépasser. ⚠ **Précision sur la première issue** : un **cinquième** service autorisé résoudrait Dermatologie *exactement* — 10 rosters sur 5 services = 2 chacun = 18-20, zéro dépassement — là où 4 services ne peuvent donner que 3/3/2/2. Requêtes de mesure : `NOTES.md`, sessions 61 et 62. |
+> | **0bh** | ⚠ **Le manque de capacité n'est pas propre à la 3ᵉ MED — porté en avant sur les promotions qui restent, avant de les publier une par une.** Même arithmétique que `0bg`, calibrée (elle retrouve le −14 de Dermatologie et le +6 de Santé Publique) : **4ᵉ MED** Pédiatrie **−231** (besoin 351, places 120), Cardiologie et Pneumologie **−116** chacun, Dermato-Endocrino −32 ; **5ᵉ MED** Gynéco-Obstétrique **−173** (273 pour 100), ORL −47, Ophtalmo −27, Neuro −17 ; **6ᵉ MED** Gynéco −41, Pédiatrie −1 — c'est la promotion la plus saine. ⚠ **Et les services sont partagés** : le `Dermatologie Endocrinologie` de la 4ᵉ MED autorise les services **12, 13, 127, 135**, exactement ceux que la 3ᵉ MED occupe déjà à 27-30 — les manques s'additionnent, ils ne se posent pas côte à côte. Décisions faculté, comme `0bg`. | ⚠ **Et des stages que rien ne peut placer, parce qu'aucun service ne les autorise** : les deux de la 1ʳᵉ MED, **les deux de la 2ᵉ MED (1 027 étudiants)**, celui de la 2ᵉ Pharmacie, celui de la 4ᵉ Pharmacie, `Pharmacie Clinique 3`. **Niveaux sans aucun stage au catalogue** : 7ᵉ MED (1 347, déjà dit en `0ar`), 1ʳᵉ / 3ᵉ / 6ᵉ Pharmacie (13 / 86 / 314). Rien de tout cela n'est du code. C'est écrit pour que la campagne le rencontre **avant** de publier, et non une publication à la fois avec « dépassement autorisé » cochée. Requêtes : `NOTES.md`, session 62. |
+> | **0bi** | **Un panneau « cette promotion tient-elle ? », lu *avant* de découper.** Demandé le 11/09/2026. Une lecture par (année, niveau) qui, pour chaque stage, met en regard **ce qu'il faut** — `N × durée_s ÷ Σdurées`, la tranche de la promotion qui y est *en même temps* — et **ce qu'il y a**, la somme des capacités des services autorisés (hors `Reserved`). ⚠ **Tout est calculable sans plan** : effectif, durées, capacités autorisées, rien d'autre. C'est là tout l'intérêt — `OccupancyReport` mesure la pression **après** placement, donc il affiche **zéro** pour la 4ᵉ MED jusqu'à ce que la journée de découpage, d'axe et de répartition soit faite et qu'on soit devant le bouton « Publier ». ⚠ **Dire ce que chaque blanc veut dire**, les deux états appelant des actes opposés : « **aucun service autorisé** » = impossible à placer, l'arrangeur refuse par `Schedule.NoAllowedServices` (les deux stages de la 2ᵉ MED, 1 027 étudiants, sont dans cet état) ; « **−231 places** » = plaçable mais en dépassement. La formule est **calibrée** : elle retrouve le −14 mesuré sur Dermatologie et le +6 de Santé Publique (`NOTES.md`, sessions 61-62). À poser à côté d'`OccupancyReport` (`Application/Hospitals/Services/OccupancyReport/`), dont elle reprend le vocabulaire et la règle « un filtre ne baisse jamais la charge d'un service partagé ». | ⚠ **Et il faut dire l'empilement entre promotions, parce que le placement ne le verra pas.** `RotationArranger.BuildServiceQueue` pondère par **`s.Capacity` seule** et ne lit **jamais** l'occupation vivante — c'est délibéré (« un service ne se réserve pas en le remplissant »), et `saturatedServices` n'est calculé qu'**après** coup, en constat. Donc répartir la 4ᵉ MED étalera ses étudiants sur les services 12/13/127/135 comme si la 3ᵉ MED n'y était pas, alors qu'elle y tient 27-30 pour un plafond de 20. **Le panneau prévient, il ne place pas mieux** : la suite reste « lire le chiffre → corriger le catalogue → répartir ». ⚠ Le panneau ne résout donc **rien** de `0bh` — Pédiatrie qui demande 351 places là où il en existe 120 est une décision de la faculté, pas un écran ; ce que l'écran change est le **moment** où elle se prend. Règles ordinaires : scoper par `AcademicYearResolver` (année omise = l'année en cours), et `Level.IsPromotion` écarte « Retrait ». |
+> | **0bj** | **Remplacer un service par un autre sur toute une colonne, en un acte.** Demandé le 11/09/2026, en même temps que la garde de suppression (session 63). Aujourd'hui la seule voie est **cellule par cellule** : `PUT stages/{id}/slots/{slotId}/cohorts/{cohortId}` avec le nouveau `serviceId` — ce qui **épingle** la cellule (`CellSource.Pinned`), donc la correction survit à la répartition suivante, ce qui est le bon comportement mais dix clics pour dix périodes. L'acte à écrire est scopé **(stage, année, numéros de période optionnels)**, remplace `X` par `Y`, et se plie aux règles déjà écrites : `Y` non `IsExternal`, `Y` dans les services autorisés du stage s'il en a, `Y` admissible pour le niveau (`Service.Admits`). ⚠ Il tombe sur des cellules que personne n'a nommées : aperçu + `ConfirmedCount`, refus sur écart, comme la délocalisation de masse. ⚠ Et il doit **laisser** les cellules publiées et **dire combien** il en a laissées — un `Replaced = 0` a deux causes opposées (rien à remplacer / tout est publié). | ⚠ **Ne couvre pas la moitié qui compte le plus.** Une `ServicePeriod` déjà publiée n'a **aucun** chemin de changement de service dans le dépôt : la seule voie est dépublier → recorriger → republier, et dépublier **cascade** les évaluations, les présences, les pauses et les délocalisations (refusé sans `Force`, avec le décompte). La délocalisation n'est pas une issue : elle est réservée aux services `IsExternal`. Décider si un « déplacer une rotation vers un autre service » doit exister est une question de domaine, pas d'écran — et elle touche le dossier de l'étudiant. |
+
 > | **0aw** | **Donner à la délocalisation de masse une annulation de masse.** `CancelDelocalizationCommand` est **par étudiant** et c'est le seul chemin de retour : défaire ce qu'un clic a fait sur un roster entier demande autant de clics qu'il y a d'étudiants. Mêmes pièces que l'acte : `StudentTargets`, aperçu + `ConfirmedCount`, rapport refus en tête — et le refus qui compte est déjà écrit, `Delocalizations.AlreadyMarked` (la note est la seule trace du stage, l'annuler la supprimerait). | ⚠ **Rencontré pour de vrai le 08/09/2026** : remettre à zéro la 4ᵉ MED après un test bute dessus, parce qu'une période de délocalisation naît **`IsStarted && IsComplete`** — donc `AffectationToll.IsUnderway` est vrai, « Réinitialiser les cohortes » refuse, « Dépublier » laisse délibérément les périodes **ad hoc** en place, et il ne reste que l'annulation une par une. ⚠ **C'est la règle maison appliquée à moitié** : « tout import de masse a besoin d'une échappatoire par ligne **et** d'un retour en arrière à côté » — le retour existe, mais pas à l'échelle de l'acte. ⚠ Ne pas en faire un acte destructeur de plus sans son propre `ConfirmedCount` : il tombe sur des étudiants dont personne n'a tapé le nom, exactement comme l'aller. |
-> | **0at** | **Finir le balayage d'invalidation RTK sur les actes qui changent l'appartenance à un roster.** Le 06/09/2026 le défaut a été mesuré dans le navigateur et corrigé sur **deux** actes — `changeStudentGroup` et `swapStudentGroups` nomment `group-{cible}` **et** `group-{source}`, et le commentaire au-dessus raconte pourquoi. Les autres ont été oubliés : `transferStudent` (⚠ **revu le 08/09/2026 dans le navigateur** : après un transfert définitif la fiche du groupe source listait toujours l'étudiant, 12 au lieu de 11, jusqu'au rechargement), `assignStudentToGroup`, et `applyBulkRosterAssignment` qui nomme la cible mais aucune source. | ⚠ **`Level/GROUPS` ne suffit pas** : `getGroupById` fournit `group-<id>`, une étiquette différente de celle de la liste — c'est exactement ce que dit le commentaire de `changeStudentGroup`. Le geste se lit comme un bouton qui n'a rien fait alors que la base est juste. ⚠ **Le transfert et le rattachement portent déjà la cible dans leur requête** ; la source, non — la passer depuis l'appelant, comme `ChangeStudentGroupRequest.sourceGroupId` le fait déjà. ⚠ **Pour l'acte de masse les sources sont multiples et le serveur les connaît** (le planner lit l'`AcademicGroupId` de chaque inscription) : les faire remonter dans `BulkRosterAssignmentReport` plutôt que de les deviner côté client. ⚠ **Vérifier mais ne pas corriger à l'aveugle `delocalizeStudent` / `cancelDelocalization`** — une délocalisation **ne change pas** l'appartenance au roster, donc l'absence de `group-<id>` y est peut-être correcte ; c'est la grille du stage qu'elles doivent rafraîchir. |
 > | **0au** | **Supprimer `AutoArrangeResult`, la seconde forme de `RotationArrangeResult` — puis balayer ses semblables.** Les deux records vivent dans **la même couche** (`PGSH.Application`), l'« interne » est déjà `public`, et la copie ne porte ni vocabulaire ni contrat propre : c'est une recopie à une frontière qui n'en est pas une. Faire porter au `AutoArrangeStageScheduleCommand` le record de l'arrangeur directement. Puis un passage sur les autres résultats de commande pour voir s'il en reste. | ⚠ **C'est exactement ce qui a coûté le défaut du 08/09/2026** : étendre `RotationArrangeResult` a laissé la copie derrière, donc `PinnedCellsKept` et `ReservedServices` étaient calculés, portés à travers le handler, puis **jetés au bord de l'API** — la réponse ne portait pas les champs et aucun écran n'aurait pu les afficher. Corrigé en `c0e5755` **en ajoutant les champs des deux côtés**, ce qui répare l'instance et laisse la classe de défaut en place. ⚠ **Ne pas confondre avec `MacroPlanResult`**, qui n'est pas une copie : il agrège sur plusieurs blocs et a un sens propre. ⚠ Si un type de frontière est vraiment voulu quelque part, alors la parité se prouve par un test de réflexion — mais supprimer la copie vaut mieux que détecter sa dérive. |
-> | **0av** | **Un seul propriétaire pour la phrase du serveur : le refus s'affiche deux fois.** Vu le 08/09/2026 sur une répartition refusée — « Données invalides » depuis `errorMiddleware` **et** « Erreur » depuis le `catch` de la page, la même phrase, deux bandeaux. C'est la moitié non balayée de la correction de la session 52 (« le client ne réécrit plus la phrase du serveur ») : là c'était une *devinette* par-dessus, ici c'est un *doublon*. Le middleware global est le propriétaire ; le `catch` de la page ne garde que son état local (jeter le rapport, refermer). | ⚠ **Ne pas supprimer les `catch` en bloc** : certains ajoutent un contexte que le serveur n'a pas (« relancez l'aperçu »), et ceux-là restent — ce qui part est la re-notification de la **même** phrase. ⚠ Le bruit est le vrai coût : deux bandeaux pour un refus, c'est la règle « une alerte qui se déclenche quoi qu'il arrive est du bruit, et le bruit est ignoré » appliquée aux refus. |
-> | **0ao** | **Redémarrer l'AppHost, puis ajouter « Santé Publique » et « Simulation Médicale » au CNPN 1650.25 de la 3ᵉ MED** — le sélecteur les offrira enfin (voir la session 51). ⚠ **Puis s'arrêter et lire la ligne suivante avant de toucher à la planification.** | Sans redémarrage l'API porte encore le plafond de page à 100 et `GET /stages?levelId=3&pageSize=200` répond **400** : la liste des stages revient vide et le champ reste grisé en disant « Tous les stages du niveau sont listés ». Rien à sauvegarder — enregistrer un CNPN n'écrit que `Curriculums`/`CurriculumStages`. |
-> | **0ap** | ⚠ **Poser les axes AVANT de répartir, maintenant que reposer un axe est gratuit.** Mesuré le 07/09/2026 après la remise à zéro : 2026-2027 porte **0 roster, 0 cohorte, 0 cellule**, et il reste **71 créneaux** — 5ᵉ MED (7 stages × 9 colonnes) et 5ᵉ Pharmacie (2 × 4). L'axe de la 3ᵉ MED a disparu avec son bloc. **Rien n'est publié nulle part**, donc `ApplyRotationCycleCommand` ne refusera sur aucune promotion : c'est exactement le moment où les nouvelles durées peuvent entrer dans la grille. | ⚠ **Une durée n'entre dans l'axe que par *k*ₛ**, jamais par une colonne plus large : les colonnes d'un axe ont toutes la même largeur, c'est ce qui rend le croisement possible. La 3ᵉ MED a maintenant **8 stages** au catalogue (30 j. pour Médecine et Chirurgie, 15 pour les six autres) : si les huit sont exigés par le texte, *T* = 2+2+1+1+1+1+1+1 = **10 colonnes de 15 jours**. ⚠ **Un stage exigé par le CNPN et sans créneau est dû et jamais servi** — donc l'ordre est : arrêter le texte (item 0ao), puis poser l'axe, puis découper, puis répartir, puis publier. [`docs/planning-rotation.md`](docs/planning-rotation.md). |
+> | **0bc** | **Rendre atomiques les trois actes destructeurs qui écrivent par `ExecuteDelete`.** `DeleteAllGroupsCommand` enchaîne **six** `ExecuteDelete`, `DeleteAllCohortsCommand` cinq, `EmptyAllYearGroupsCommand` un `ExecuteUpdate` — chacun est une instruction séparée, **hors transaction**. Une annulation à mi-parcours (l'onglet fermé, la connexion tombée : ASP.NET annule le jeton) laisse une destruction à moitié faite, et ce qui reste ressemble à un état que quelqu'un aurait voulu. `ExecuteAtomicallyAsync` est l'outil, et il existe déjà. | ⚠ **Il faut d'abord régler son interaction avec `IAuditTrail`** (phase 28.3) : sur une nouvelle tentative, `ExecuteAtomicallyAsync` vide le change tracker puis **re-stage** les entités relevées avant la transaction — dont l'entrée de journal *telle qu'ouverte*, sans son constat — alors que la piste tient la remplaçante. Résultat : deux lignes pour un acte, ou un `Remove` sur une entité détachée. Les deux mécanismes répondent au même besoin par deux chemins ; c'est le choix à trancher, pas un bug à contourner. ⚠ **Revu le 11/09/2026 : le choix reste à trancher et il n'a pas été forcé.** Ce qui *a* été enveloppé au même passage, c'est le découpage (`AutoArrangeGroupsCommandHandler`) et la désignation de l'année courante (`CurrentYearDesignation`) — les deux actes de la campagne qui n'appellent **pas** `RecordOutcome`, donc où l'enveloppe ne coûte aucun arbitrage. Les trois d'ici l'appellent tous. ⚠ **Gravité relue** : une annulation à mi-parcours laisse **moins** d'enfants et plus de parents (les périodes partent avant les affectations), donc rejouer l'acte répare l'état — ce qui est perdu pour de bon est la **ligne de journal**. ⚠ **Et c'est sur la base vivante que ça compte** : ces trois actes sont ceux de la campagne de répartition, rejoués par promotion.
+> | **0bd** | **Finir le balayage « un acte auditable atteint-il un `SaveChanges` ? ».** Le 10/09/2026 le balayage n'a retenu que les handlers qui n'appellent **jamais** `SaveChanges` — deux, tous deux défectueux. Restent ceux dont le `SaveChanges` est **conditionnel** : `UnpublishStageScheduleCommandHandler` gardait le sien sous `if (removed > 0)`, donc un balayage qui ne défait rien parce que tout a commencé n'écrivait rien — corrigé au passage, mais la même forme peut vivre ailleurs parmi les ~60 actes audités. ⚠ **Une troisième occurrence trouvée et corrigée le 11/09/2026**, sur un acte qui n'était pas audité du tout : « Publier » (voir la session ci-dessous). Le publisher n'enregistre que s'il a des périodes à poser, donc l'entrée d'un « Publier » rejoué sur un stage déjà publié serait morte avec la requête — le handler termine par un `SaveChanges` **inconditionnel**. Restent les ~60 autres actes audités. | ⚠ **Le défaut est invisible par construction** : la ligne est mise en attente par `AuditLogPipelineBehavior` et validée par un `SaveChanges` que le handler appelle **pour une autre raison**. Rien ne relie les deux, rien ne se compile en erreur, et un acte réussi qui n'écrit rien est indiscernable d'un acte refusé qui n'écrit rien — même cause exactement. ⚠ **Deux fois déjà** : `ExecuteAtomicallyAsync` vidant le tracker (05/09, `STAGE_SERVICE_ORDER_SET`) et `ExecuteDelete` sans sauvegarde (10/09). ⚠ Un test par acte est le seul filet ; le sweep par réflexion ne peut pas lire l'intérieur d'une méthode.
+> | ~~0be~~ | ✅ **Fermé le 11/09/2026 — les 18 sites sont triés.** `Problem` ne veut plus dire qu'une **panne**, et il est désormais *nommé* dans `CustomResults.GetStatusCode` plutôt que d'arriver au bras `_` par accident : restent les trois `BackupErrors` et `PgDumpBackupArchive`, qui sont des 5xx et que `BackupEndpointTests` a raison de tenir. Les **13** autres étaient des refus métier et passent à `Conflict` (la demande rencontre l'état) ou `Validation` (la demande est mal formée), à leur source. | ⚠ **Le pire n'était pas celui mesuré à l'écran.** `AcademicYearResolver` → `StageErrors.NoCurrentAcademicYear` est le repli de **tout** handler qui omet l'année : une base sans année courante — très exactement ce qu'une désignation interrompue laissait derrière elle, voir la session ci-dessous — faisait répondre **500 à tous les écrans**, la seule phrase qui disait quoi faire étant jetée par `errorMiddleware` au-dessus de 500. Pinné par `ErrorStatusMappingEndpointTests`, avec ses deux témoins et la morsure vérifiée. |
+> | **0ay** | **Un jour férié qui compte comme un jour ouvré — un drapeau sur `Holiday`, et la contrainte de planification enfin dite en toutes lettres.** Règle donnée par l'utilisateur le 10/09/2026 : **la seule** contrainte de planification est qu'une période ne **commence** ni ne **finisse** un week-end ou un jour férié. Un férié peut donc être **traversé** sans allonger la fenêtre. Ajouter le drapeau (`Holiday.CountsAsWorkingDay`, `false` par défaut pour que rien de posé ne bouge), puis **scinder le prédicat unique de `WorkingDayCalendar`** : `IsWorkingDay` répond aujourd'hui à **deux** questions à trois endroits — `Count` (ce jour compte-t-il dans la durée), `NextWorkingDay` (une fenêtre peut-elle **commencer** là) et `Lay` (les deux à la fois : il avance la durée *et* son dernier jour devient le `End`). Donc deux prédicats — « compte dans la durée » et « peut borner une fenêtre ». Week-end : ni l'un ni l'autre. Férié sans drapeau : ni l'un ni l'autre (inchangé). Férié drapeau : **compte**, mais ne borne pas. | ⚠ **`Lay` doit tenir sa promesse** — « `End` est toujours un jour bornable ». Poser N jours peut faire tomber le Nᵉ sur un férié drapeau : la fenêtre doit alors s'étendre jusqu'au jour bornable suivant **sans le compter**, sinon le compte et la date de fin se contredisent. Le décider, l'écrire, le couvrir. ⚠ **`WorkingDaysLost` doit tomber à 0** pour un férié drapeau (`HolidayResponse`, `GetHolidayCoverageQuery`, `PromotionPauseImpactReader`), sinon l'écran de couverture réclame des jours que personne n'a perdus. ⚠ **`PromotionPause` est de l'autre côté de `ICalendarClosure`**, et une semaine d'examens ne compte **jamais** comme ouvrée : décider si le drapeau reste sur `Holiday` seul ou monte sur l'interface avec les pauses répondant `false` — et l'écrire sur l'interface, pas seulement dans la migration. ⚠ **« Dire ce que le blanc veut dire »** : l'écran doit distinguer « férié, chômé » de « férié, travaillé », sinon un seul nombre porte deux états qui appellent des actes opposés. ⚠ **Ordre : avant l'item 0ap.** Un axe posé avant que le drapeau existe est posé sur l'ancienne arithmétique, et le reposer est justement ce que 0ap dit être devenu gratuit. |
+> | **0ba** | **Un canevas de découpage : une ligne par étudiant, une colonne « Groupe », et on le renvoie.** Demandé le 10/09/2026. Télécharger un `.xlsx` listant toutes les inscriptions d'une (année, niveau) avec la colonne à remplir, puis l'importer : les groupes manquants sont créés et chacun est rattaché là où la feuille le dit. **Les deux moitiés du patron existent déjà** — `GetDeliberationTemplateQuery` / `GetInscriptionTemplateQuery` / `GetEvaluationImportTemplateQuery` pour la descente, `ApplyReinscriptionSheetCommand` pour la remontée ; ClosedXML est déjà référencé par `PGSH.Infrastructure`. | ⚠ **Ce n'est pas `ApplyBulkRosterAssignmentCommand`** : celui-là vise **un** roster avec une liste nommée, ici la feuille nomme **tous** les rosters à la fois. Ce qui se réutilise est son vocabulaire — `BulkRosterAssignmentRowStatus` (`WillJoin` / `WillMove` / `AlreadyThere` / `Underway` / `WrongPromotion` / `CursusEnded` / `NotFound` / `WrongYear`) — et ses **deux verbes décidés par étudiant**, jamais un seul. ⚠ **Aperçu obligatoire et `ConfirmedCount`** : l'acte tombe sur des lignes que personne n'a tapées une par une. Et **l'annulation à côté**, qui est la règle de l'item 0aw. ⚠ **Apparier sur `Appogee` *et* CNE** : le CNE est **facultatif** (46 % du rôle n'en portait pas avant le 01/09/2026), donc le canevas porte les deux colonnes et l'appariement indexe les deux. ⚠ **Un groupe nommé dans la feuille et qui n'existe pas** : le créer est ce qui rend la fonction utile, mais cela veut dire qu'un tableur peut faire naître des rosters — l'aperçu compte donc « groupes à créer » **séparément**, et la confirmation porte ce nombre-là aussi. ⚠ **Deux textes CNPN dans un même groupe est un refus par ligne, nommé** : « un groupe tourne ensemble sur un jeu de stages », c'est ce que le découpage automatique s'interdit par construction, et une feuille ne doit pas pouvoir le contourner en silence. |
+> | **0ap** | ⚠ **Poser les axes après le découpage, avant de répartir.** ✅ **L'ordre est vérifié dans le code (11/09/2026)** : `PreviewRotationCycleQuery` lit les partitions sur `AcademicGroups.RotationGroup`, donc sans roster l'axe refuse par `NoPartitions`. Découper et partitionner d'abord — ni l'un ni l'autre ne dépend d'une date. **Mesuré dans la base le 10/09/2026** : 2026-2027 porte **0 roster, 0 cohorte, 0 cellule et 0 créneau**. ⚠ **Les 71 créneaux que cet item annonçait n'existent plus** — l'axe de la 5ᵉ MED et celui de la 5ᵉ Pharmacie ont disparu avec la remise à blanc. Rien n'est publié nulle part, donc `ApplyRotationCycleCommand` ne refusera sur aucune promotion : c'est exactement le moment où les nouvelles durées peuvent entrer dans la grille. | ⚠ **Une durée n'entre dans l'axe que par *k*ₛ**, jamais par une colonne plus large : les colonnes d'un axe ont toutes la même largeur, c'est ce qui rend le croisement possible. ✅ **Le texte de la 3ᵉ MED est arrêté** (vérifié le 10/09/2026 : CNPN 1650.25 exige les **8** stages, Santé Publique et Simulation Médicale compris) — donc *T* = 2+2+1+1+1+1+1+1 = **10 colonnes de 15 jours**. ⚠ **Deux choses doivent précéder la pose de l'axe, et une seule est du code** : l'item **0ay** (un férié traversé n'allonge pas la colonne — 8 fériés tombent dans l'année scolaire 2026-2027 et allongent aujourd'hui toute colonne qui les croise), et **les semaines d'examens** : `PromotionPauses` est à **0** pour 2026-2027, or déclarer une pause après coup **ne déplace aucun créneau**. [`docs/planning-rotation.md`](docs/planning-rotation.md). |
 > | **0ar** | **Repartir de zéro sur 2026-2027 : découper chaque promotion, poser son axe, répartir, publier.** Les **6 839** inscriptions de l'année sont toutes détachées (0 roster), donc `AutoArrangeGroupsCommand` les ramassera intégralement — c'est la condition qu'il exige et elle est remplie partout. Promotions à servir : 3ᵉ MED 933, 4ᵉ MED 925, 5ᵉ MED 842, 6ᵉ MED 701, 7ᵉ MED 1 347, 5ᵉ Pharma 212, 6ᵉ Pharma 314, plus les petites années. | ⚠ **La 7ᵉ MED a 0 stage au catalogue** — rien ne peut l'y placer, et ses 510 stages dus sont tous revalidables (item A7). ⚠ **L'historique importé est intact** : 13 793 cohortes, 98 555 affectations, 105 626 périodes sur les six années passées — la remise à zéro n'a touché que 2026-2027, ce qui est le comportement attendu et vérifié le 07/09/2026. Point de sauvegarde avant chaque « Générer le plan ». |
 > | **0aq** | **Redémarrer l'AppHost, puis dérouler `SMOKE-TEST.md` §53** — « Supprimer les groupes » est désormais scopé sur la promotion affichée. ⚠ **La base a été remise à zéro côté planification par l'utilisateur** (07/09/2026), donc les nombres de §51 et des items 0an / 0ap ne valent plus : les relire sur l'écran avant de s'en servir. | Sans redémarrage l'API ignore le nouveau `levelId` (un paramètre de requête inconnu ne se lie à rien) et l'acte reste annuel — donc toujours refusé dès qu'un étudiant est rattaché n'importe où dans l'année. ⚠ C'est un acte **destructeur** : il supprime les rosters **et leurs cohortes**. Point de sauvegarde avant, même sur une base sans planification. |
 > | **A1** | **Phase 18.2 — la restauration, pour de vrai.** 18.1 est **livré** (session 40) : dumps planifiés, points nommés, manifeste, plan de restauration chiffré, et la bannière « y a-t-il un retour en arrière ? » dans la déliberation, la réinscription et l'application d'un axe. Reste : **une restauration que quelqu'un a réellement exécutée** (contre une base de rebut), `pgsh-snapshot`/`pgsh-restore` en scripts hors API, l'assertion des effectifs en SQL, le volume **Keycloak**, et l'undo par acte pour la déliberation et le rouleau. | ⚠ **`BackupVerification.Restored` est une valeur que rien ne pose aujourd'hui** — l'application sait relire la table des matières d'une archive (`pg_restore -l`), ce qui attrape une archive tronquée et rien de plus. **Une sauvegarde que personne n'a restaurée est une hypothèse.** Et il n'y a **volontairement pas** de bouton « Restaurer » : un processus ne peut pas remplacer la base dont il se sert ; le plan affiche la commande, la pile arrêtée. `PHASES.md` §18.2, `SMOKE-TEST.md` §41. |
 > | **A2** | **Phase 17.1 — the mid-flight reschedule.** « On est en P3, peut-on changer P7 ? » ⚠ **Phase 17 itself is done (session 49)**, and it built the calendar half this needs: a promotion's window now joins its own `WorkingDayCalendar` and the axis laid afterwards steps over it, in jours ouvrables, with no date pushed onto any assignment. What remains is the *other* direction — moving a column that is **already published**. ⚠ **Measured on the live base 06/09/2026 and no longer a guess**: the 3ᵉ MED holds **804 published cells**, so « Appliquer l'axe » is disabled and `ApplyRotationCycleCommand` refuses on `PublishedCells > 0` — a promotion pause declared after publication therefore has **no remedy at all** today, and the preview now says so instead of prescribing a refused button. Today: no, and `UpdateStageSlotCommandHandler` is the dangerous half: it has **no published-guard at all** and rewrites a window without touching the périodes published from it. `SetCohortSlotAssignment` refuses on « the cohorte is published » where `PublishedCells.IsCellPublishedAsync` would answer « is *this cell* published », and `UnpublishCohortSchedule` has no period scope, so undoing P7 undoes P1-P10 and `Force` takes the marks and attendance with it. | Filed as `PHASES.md` §17.1 because "shift the later périodes *and their cells*" is one operation. ⚠ Phase 17's answer does **not** cover it: a declared window changes what a *future* axis is laid against, and says nothing about a column already published. ⚠ `SingleService` complicates all three: the *kₛ* cells fold into one `ServicePeriod`, so editing a column mid-run splits a stay. |
-> | **A3** | **Faire écrire les six actes destructeurs qui n'écrivent rien.** `DeleteAllCohortsCommand` (« Réinitialiser les cohortes »), `DeleteCohortCommand`, `UnpublishCohortScheduleCommand`, `UnpublishStageScheduleCommand`, `StageSlotCommands` : aucun ne porte `IAuditableCommand`. ✅ **`DeleteAllGroupsCommand` est sorti de cette liste le 07/09/2026** (session 52) — il écrit `YEAR_GROUPS_DELETED` / `PROMOTION_GROUPS_DELETED`, ce qui laisse **cinq** actes muets, tous du côté cohorte. Ce sont ceux qui suppriment affectations, périodes, **évaluations et présences** — « Dépublier » avec `Force` détruit les notes. Chaque entrée doit porter ce qui a été détruit (le `AffectationToll` est déjà calculé sur place). | ⚠ **Trouvé le 07/09/2026 en cherchant des données orphelines, et c'est la moitié manquante de la réponse.** La base est **propre** — 34 contrôles, 0 ligne dans chaque classe de résidu qui compte (`NOTES.md`, session 50) — mais le registre ne peut pas dire ce qui a été fait : `ROTATION_CYCLE_DELETED` est enregistré, « Réinitialiser les cohortes » ne l'est pas. La phase 20 avait comblé les cinq actes côté **roster** et laissé le côté **cohorte** entier. `PHASES.md` §20. |
 > | **A4** | **Distinguer, sur « Signalements », les absents encore `Active` des diplômés.** ✅ **La règle est tranchée (07/09/2026) et le comportement ne bouge pas** : le fichier Excel est la seule liste de ceux qui se réinscrivent, tout absent est exclu / diplômé / non pris en considération / une anomalie, et la page est le **registre** où on les garde — pas une file à vider. Ce qui reste est de la lisibilité : `RegistrationHoldsPage` filtre par raison et par état du signalement, **jamais par statut d'inscription**, donc les **49** absents encore `Active` ne se distinguent pas des **1 217** diplômés. | Petit : `RegistrationHoldResponse.RegistrationStatus` est **déjà envoyé** et déjà affiché sur la ligne ; il manque le filtre (et le compte par statut au-dessus de la liste). ⚠ Ne **pas** exempter les diplômés ni leur inventer une raison à part — la raison est la même, c'est le statut qui dit lequel des quatre cas c'est. `docs/year-closing.md`, section `RegistrationHold`. |
 > | **A7** | ✅ **Règle tranchée le 07/09/2026, à implémenter — « un stage acquis ne se ressert jamais ».** Trois pièces, dans cet ordre. **①** `StudentAffectationService` cesse de créer une affectation pour un stage que l'étudiant a déjà validé dans une année non annulée, en lisant **la même règle** qu'`OutstandingStageFinder` (une seule source, sinon deux écrans divergent sur « acquis »), et **nomme** ce qu'il écarte — « 3 étudiants non affectés : stage déjà acquis » — via le `BulkResponse` par ligne. **②** Généraliser « Revalider » en « servir un stage dû » : retirer la précondition `NothingToRevalidate` pour qu'un stage **jamais tenté** ou resté `NonÉvalué` puisse être confié, en gardant le refus sur un stage validé (= item 13). **③** Élargir « ce qu'il doit » à *exigé par le CNPN − validé* dans `OutstandingStageFinder` — le fichier dit déjà que c'est l'endroit naturel. | ⚠ **① est un no-op sur la base d'aujourd'hui, ce qui en fait le moment le moins cher pour l'installer** : les seuls redoublants des promotions planifiées de 2026-2027 sont **27 étudiants** dont **toutes** les tentatives antérieures sont `NonÉvalué`. ⚠ **② et ③ vont ensemble et attendent l'item 1** (les jeux d'exigences 1650.25) : tant que « dû » = « toutes les tentatives échouées », ce qui est dû est exactement ce qui est revalidable — c'est cohérent, et ③ seul créerait des dettes sans bouton. ⚠ **La 7ᵉ année n'est concernée par aucune des trois** : elle a 0 stage au catalogue, donc rien ne peut l'y replacer, et ses **510** stages dus (242 étudiants) sont **tous** revalidables aujourd'hui. `docs/progression.md`. |
 > | **A8** | **Faire saisir les 4 196 tentatives `NonÉvalué` des 7ᵉ année Médecine** — servies, jamais notées. **Ce n'est pas du code**, c'est l'import d'évaluations et la liste de travail des chefs. | ⚠ **C'est le vrai risque sur « ce qu'il lui reste »**, et il est invisible : un stage servi mais non noté n'est ni acquis (23 569 le sont) ni dû (510 le sont) — il est en limbes, sur aucune des deux listes. Le jour où la faculté tranche que « non noté » vaut « non fait », 4 196 lignes deviennent des dettes d'un coup, sur des étudiants qui se croyaient finis. Mesuré le 07/09/2026 sur les 1 347 inscrits de 7ᵉ MED 2026-2027. |
+> | **0bb** | 🕓 **Basse priorité, demandé le 10/09/2026 — un modèle de planification par niveau.** « Les groupes 1-2 passent en P1 au service S1, en P2 à S2… » : tout le circuit nommé une fois, puis appliqué à une promotion. Et la réciproque, **enregistrer comme modèle** une répartition qu'on vient de générer. La forme : un modèle est la grille **sans ses dates et sans ses rosters** — (partition, `PeriodNumber`, `ServiceId`) par stage — parce que ce qui est fixe est le **nombre de colonnes** (P1, P2…), tandis que les dates et les étudiants changent chaque année. L'appliquer, c'est écrire des `CohortSlotAssignment` sur les cohortes de l'année contre ses `StageSlot` ; l'enregistrer, c'est les relire. | ⚠ **C'est l'axe qui rend les colonnes comparables.** *T* = Σ*k*ₛ : un modèle ne va qu'à une promotion de même *T* **et** de même jeu de stages — et le CNPN peut avoir bougé entre-temps. Il faut donc un contrôle de compatibilité qui **nomme l'écart**, jamais une écriture partielle. ⚠ **Une cellule venue d'un modèle est une décision humaine** → `CellSource.Pinned`, pas `Arranged`, sinon la répartition automatique suivante la réécrit en annonçant un `Assigned = N` parfaitement normal. ⚠ **L'identité des partitions doit être explicite** : le modèle dit « partition A », l'année nomme les siennes selon `PartitionStrategy` (`Interleaved` / `Contiguous`) — la stratégie voyage **avec** le modèle, ou le même modèle se lit comme un autre plan. ⚠ **Un service du modèle peut avoir disparu, être `Reserved` (`StageAllowedService.PlacementMode`), ou dépasser le quota de la promotion** : appliquer est un aperçu et des refus, exactement comme l'arrangeur. ⚠ **Basse priorité, et c'est l'utilisateur qui l'a dit** : c'est un confort par-dessus un chemin qui marche déjà (poser l'axe, répartir, épingler), pas un manque. |
 > | **0as** | **Dérouler `SMOKE-TEST.md` §54 — il ne reste qu'une ligne à voir.** L'AppHost a été redémarré le 08/09/2026 et le reste de §54 a été **vérifié à l'écran** (motif du groupe, partition K, cohortes, bascule « Réservé », épinglage, et l'assertion : la cellule épinglée a survécu à une répartition sur **toutes** les partitions, le service réservé est resté à 0/20 et le compte de services saturés est passé de 3 à 2). Ce qui n'a pas pu être lu est le **libellé** des deux nombres dans le bandeau : `Grille de planning` → filtre **Toutes** → `Répartition auto.` → fenêtre **P1** → `Répartir` doit annoncer « N cellule(s) épinglée(s) conservée(s), N service(s) réservé(s), hors rotation ». | Les champs eux-mêmes sont épinglés par `NominativePlacementEndpointTests.The_arrange_response_carries_what_it_left_alone` (morsure vérifiée), et l'API qui tourne porte le correctif `c0e5755` depuis le redémarrage — il ne reste que le rendu. ⚠ **À confirmer au passage** : dans le sélecteur de service d'une cellule de la grille, un **clic souris** sur une option n'a déclenché aucune requête là où le **clavier** (↓ puis Entrée) a écrit la cellule. Ce peut être un défaut de coordonnées de l'automatisation et non un défaut de l'écran — le vérifier à la main avant d'ouvrir quoi que ce soit. |
 > | **A5** | **Reprendre les cinq constats du balayage du 07/09/2026 laissés « à vérifier plus tard »** (`NOTES.md`, session 50 — chacun a sa requête) : ① **189 cohortes** dont le stage n'est pas de la promotion du roster (`Interne CHU Médecine` et `Retrait` n'ont aucun stage à eux — histoire réelle, mais elles se comptent dans deux promotions selon le chemin de lecture) ; ② **19 étudiants sans aucune inscription** (état supporté, mais invisibles de toute promotion et rien ne dit qu'ils sont incomplets) ; ③ **10 paires de périodes qui se chevauchent** pour un même étudiant, toutes issues de l'import Access ; ④ **10 631 périodes qui débordent la fin de leur année** (toutes *après* le 31 août — l'année COVID, surtout) ; ⑤ **36 346 inscriptions `Active` sur des années passées** (= le trou connu, Phase 14.3). | **Aucun n'est un résidu produit par PGSH** et aucun ne bloque quoi que ce soit aujourd'hui — c'est pourquoi ils sont ici et non plus haut. Le balayage complet (34 contrôles) est à **0** sur toutes les classes de résidu qui comptent : l'affectation qui survit au pointeur, le roster affiché vide qui porte encore des affectations, l'inscription rattachée à une autre année ou promotion, la cellule d'une autre cohorte. ⚠ ③ et ④ ne sont **pas** réparables sans une décision de la faculté : ce sont des faits enregistrés sur des années closes. |
 > | **0am** | **Relancer l'AppHost (migration `ExternalServices`), créer le service « Stage hors CHU — Kénitra », puis dérouler `SMOKE-TEST.md` §49.** Sans la migration l'API interroge une colonne qui n'existe pas et la liste des services répond **500**. Back **et** front sont faits : 31 tests neufs (1 650 verts), `tsc`, `eslint` et `npm run build` propres. Rien n'a été **cliqué**. | ⚠ **Aucun service externe n'existe dans la base** : le drapeau vaut `false` partout et rien de la phase n'est visible tant que la ligne n'est pas créée. La seule étape destructrice est §49.5 (elle supprime les rotations planifiées des étudiants nommés) — **point de sauvegarde avant**. Le contrôle qui compte est le `ConfirmedCount` : lancer l'aperçu, inscrire un étudiant de plus dans le roster depuis un autre onglet, appliquer → doit **refuser** en nommant les deux nombres, et n'écrire **rien**. `PHASES.md` §25. |
@@ -80,6 +87,497 @@
 > 400 avec un objectif au libellé vide. `StagesPage.handleSave` **filtre** ces objectifs avant
 > l'envoi, donc la requête ne part pas. Le contrôle réel est passif (aucun bandeau) et la
 > démonstration est côté serveur.
+
+## Session 63 — 2026-09-11 · Supprimer un service : la même question, un cran plus bas
+
+Question posée en séance : « si on supprime un service utilisé dans une promotion, que se passe-t-il ? »
+Réponse mesurée sur le schéma : **`DeleteServiceCommandHandler` ne gardait rien** — un commentaire
+« *(e.g., Check if students are currently assigned to this service)* » tenait la place de la garde,
+et le schéma répondait donc à sa place, de deux façons opposées.
+
+- **`RESTRICT` → 500 opaque** : `CohortSlotAssignments.ServiceId` et `ServicePeriods.ServiceId`.
+  ⚠ Sur cette base c'est le cas **ordinaire**, pas le cas rare : les ~105 000 périodes reprises de
+  l'Access retiennent presque tout service réel, donc l'écran affichait « Une erreur serveur est
+  survenue » sans jamais dire que le bouton ne marcherait pas.
+- **`CASCADE` → silence** : `ServiceLevelCapacity` (les quotas), `ServiceChefAssignment` (l'historique
+  des chefs) et le rattachement du personnel. Et l'acte **n'était pas audité**, donc rien ne pouvait
+  plus dire combien.
+
+**Corrigé** : `ServiceErrors.StillInUse` (`Conflict`) compte toutes les raisons **ensemble** et nomme
+les stages. `SERVICE_DELETED` porte `serviceName`, `hospitalId`, `quotasRemoved`,
+`chefTenuresRemoved`, `staffDetached`, lus **avant** le `Remove`.
+
+⚠ **Deux décisions qui ne se copient pas de `DeleteStageCommand`.**
+
+1. **Les stages qui autorisent le service refusent au lieu de cascader.** `StageAllowedServices` est
+   en `CASCADE`, mais la ligne joint **deux** entités indépendantes et c'est le *stage* qui survit
+   amputé : elle porte un `Rank` et un `PlacementMode`, et `ServiceRotationOrder` tient les rangs pour
+   **contigus depuis 1**. Une ligne retirée par la base laisse un trou — un numéro affiché qui n'est
+   plus la place occupée dans la file. Le retrait passe par `ServiceRankWriter`, qui rebase.
+2. **Le conseil du refus dépend de ce qui retient.** Des cellules et des autorisations se retirent ;
+   des périodes déjà enregistrées, **non** — elles sont au dossier de l'étudiant. « Retirez ces
+   rattachements d'abord » enverrait alors chercher une manœuvre qui n'existe pas ; le refus dit
+   plutôt de retirer le service des listes de services autorisés.
+
+**+6 tests handler** (`DeleteServiceGuardTests`) **+3 tests d'endpoint** (`ServiceDeleteEndpointTests`
+— le **409 avec sa phrase**, qu'un test de handler ne voit pas, plus le témoin qui doit toujours
+passer). Morsure vérifiée des deux côtés : garde retirée, 4 des 6 et 1 des 3 tombent. **1 821 verts.**
+
+⚠ **Côté client** : le contrat reste `204`/`void`, rien à changer sur `InfrastructurePage` — le refus
+409 est déjà affiché par `errorMiddleware`. Seul `auditActions.ts` bouge : `SERVICE_DELETED` (et
+`STAGE_DELETED`, ajouté hier côté serveur et jamais libellé) rejoignent la table et la liste des actes
+destructeurs.
+
+**Pas fait, et c'était la seconde moitié de la question** : *remplacer* un service par un autre sur
+une colonne entière. Aujourd'hui cela se fait **cellule par cellule**
+(`PUT stages/{id}/slots/{slotId}/cohorts/{cohortId}`, qui épingle), et pas du tout sur une période
+déjà publiée — voir la file, **0bj**.
+
+## Session 62 — 2026-09-11 · Les colonnes n'étaient pas égales, et la marge annoncée n'existait pas
+
+Demandé : « est-ce qu'on est bons ? » — la 3ᵉ MED venant d'être publiée sur la base vivante.
+**Un défaut trouvé et corrigé**, une ligne de `HANDOFF` corrigée, et un constat de capacité porté en
+avant. **1 812 verts** (+11), morsure vérifiée. ⚠ **Aucune écriture dans la base vivante.**
+
+### Ce qui est sain — la 3ᵉ MED telle que publiée
+
+**0** chevauchement sur 7 464 périodes · **0** début et **0** fin en week-end · **0** en jour férié ·
+**933/933** étudiants à exactement 8 périodes · couverture complète (2 cellules sur les stages de 30 j,
+1 sur ceux de 15 j, **0** période orpheline) · roster/cohorte/affectation : les quatre invariants
+(année, niveau) à **0** · **0** résidu des remises à zéro · les 8 publications au registre avec leur
+constat complet. Le processus qui tourne porte bien le code de la session 61.
+
+### ① L'équilibre gagné dans un roster était rendu entre les colonnes
+
+`RosterCut` rendait les grands rosters **en tête** ; `PartitionAllocator.Contiguous` — la convention de
+la faculté, **choisie 8 fois sur 8** d'après le registre — donne à la partition A le **premier bloc de
+numéros**. Les deux actes sont corrects séparément : composés, tous les rosters surdimensionnés
+atterrissent dans les premières partitions.
+
+⚠ **Mesuré** : la 3ᵉ MED est sortie en **100, 100, 100, 93, 90 ×6** — écart de **10 étudiants** là où le
+découpage promettait 1.
+
+- **Le correctif est un ordre, pas une taille** : `(i · larger) mod count < larger`. Mêmes tailles, même
+  nombre, même convention de blocs contigus. La même coupe donnerait **94, 94, 94, 93 ×7**.
+- ⚠ **Rien n'a été rejoué sur la 3ᵉ MED**, qui est publiée : le correctif ne vaut que pour les coupes à
+  venir, et `AssignRotationGroupsCommandHandler` refuse de redécouper sous une cellule publiée.
+  Vérifié après coup — les dix colonnes sont inchangées.
+
+### ② Et c'est ce qui avait fait annoncer une marge qui n'existait pas
+
+`0bg` donnait Santé Publique et Simulation Médicale à **+6** (100 places pour 94). **94 est la colonne
+moyenne, et aucune colonne ne vaut la moyenne** : les deux stages portaient **exactement 100 sur trois
+colonnes sur dix**, soit une marge de **0**, sans que rien à l'écran ne le dise. La ligne `0bg` est
+corrigée, et elle gagne une précision : un **cinquième** service autorisé résoudrait Dermatologie
+*exactement* (5 × 2 rosters = 18-20), là où 4 ne peuvent donner que 3/3/2/2 — le 27-30 observé n'est donc
+pas un défaut de l'arrangeur.
+
+### ③ Le même calcul porté en avant — nouvel item `0bh`
+
+La formule est calibrée sur les deux valeurs déjà mesurées. Elle annonce **4ᵉ MED** Pédiatrie −231,
+Cardio et Pneumo −116 ; **5ᵉ MED** Gynéco-Obstétrique −173 ; **6ᵉ MED** −41 au pire. ⚠ **Les services
+sont partagés** : la 4ᵉ MED veut les quatre services de dermatologie que la 3ᵉ occupe déjà. Plus les
+stages qu'aucun service n'autorise, dont **les deux de la 2ᵉ MED (1 027 étudiants)**. Configuration
+faculté, pas code — mais à voir avant de publier, pas pendant.
+
+### Couverture
+
++11 : `RosterCutTests` — l'ordre exact rendu par `BySize(232, 20)`, le cas de la 3ᵉ MED en une
+assertion (aucune colonne à 100 ni à 90), et un balayage de propriété sur **9 promotions × 7 comptes de
+partitions × 4 tailles de bloc** affirmant qu'aucun bloc de rosters n'a plus d'un étudiant d'avance.
+⚠ Morsure : ordre d'origine rétabli → **11 tombent**.
+
+## Session 61 — 2026-09-11 · Balayage avant la campagne : ce qui se perd sans bruit
+
+Demandé : vérifier ce qui pourrait gêner, la campagne se jouant désormais sur la donnée vivante.
+Quatre défauts trouvés et corrigés, un cinquième analysé et **laissé ouvert délibérément**.
+**1 797 verts** (+8), morsure vérifiée sur les deux garde-fous neufs.
+
+### ① Un refus métier arrivait en 500, et le client jette la phrase — item `0be` fermé
+
+`ErrorType.Problem` n'était nommé nulle part dans `CustomResults.GetStatusCode` : il tombait sur `_`
+et sortait en **500**. Or `errorMiddleware`, ligne 108, remplace `detail` par « Une erreur serveur est
+survenue. Réessayez plus tard. » dès 500 — donc **treize** refus rédigés avec soin n'arrivaient à
+personne. Les 18 sites sont triés : 13 en `Conflict`/`Validation` à leur source, 5 restent des pannes
+(`BackupErrors`, `PgDumpBackupArchive`) et `Problem` est maintenant *nommé* dans le `switch` pour le
+dire.
+
+⚠ **Le pire n'était pas celui mesuré à l'écran la veille.** `AcademicYearResolver` →
+`StageErrors.NoCurrentAcademicYear` est le repli de **tout** handler qui omet l'année. Une base sans
+année courante ne faisait donc pas échouer un écran : elle les faisait **tous** répondre 500, sans que
+rien n'indique nulle part qu'il fallait choisir une année.
+
+### ② …et cet état-là était atteignable
+
+`CurrentYearDesignation` enchaînait deux `SaveChanges` — rétrograder, puis promouvoir — **hors
+transaction**, en documentant l'exposition comme « la panne délibérément laissée ». Entre les deux, la
+base n'est flaguée **nulle part**, et une requête annulée là (l'onglet fermé) l'y laissait. La raison
+donnée pour ne pas transactionner (« rien dans le dépôt n'a cette surface ») avait cessé d'être vraie :
+`ExecuteAtomicallyAsync` existe depuis le plan macro. Enveloppé — ce qui couvre « créer une année » et
+« définir l'année en cours » d'un coup, les deux passant par là.
+
+### ③ Le découpage n'était pas atomique — et c'est le premier acte de la campagne
+
+`AutoArrangeGroupsCommandHandler` enregistre les rosters d'un texte dès qu'il les crée (leur clé
+générée par le magasin est ce que les inscriptions reçoivent ensuite) et n'écrit les inscriptions
+qu'au dernier `SaveChanges`. Entre les deux, une requête annulée laissait la promotion porteuse de
+**rosters vides**, toutes ses inscriptions encore détachées.
+
+⚠ **Et rejouer ne répare pas** : la numérotation reprend au plus haut `GroupNumber` existant, donc la
+seconde tentative construit un **second** jeu à côté des orphelins. Sur la 7ᵉ MED — 1 347 inscriptions,
+deux textes — c'est un acte assez long pour que la fenêtre compte. Enveloppé ; sûr ici parce que ce
+handler n'appelle pas `RecordOutcome`.
+
+### ④ « Publier » n'était pas audité, « Dépublier » l'était
+
+Le registre tenait le *défaire* sans le *faire*, sur l'acte qui crée les `ServicePeriod` — tout ce que
+les chefs notent et tout ce que les présences visent. La seule trace d'une publication était l'absence
+de sa dépublication. Deux codes : `COHORT_SCHEDULE_PUBLISHED`, `STAGE_SCHEDULE_PUBLISHED`.
+
+- ⚠ **`allowOverCapacity` voyage avec l'entrée**, comme `forced` sur la dépublication : passer outre un
+  service qui a déclaré refuser d'être dépassé est un geste posé **contre** ce refus, et c'est
+  exactement ce qu'on viendra demander au registre.
+- ⚠ **Le `SaveChanges` du handler est inconditionnel** là où le publisher n'écrit que s'il a des
+  périodes à poser : « Publier » rejoué sur un stage déjà publié n'aurait rien laissé. C'est la forme
+  *conditionnelle* d'`0bd`, et la troisième occurrence de cette famille.
+- `PublishCohortAsync` répond désormais un **nombre** de périodes : un acte audité doit dire *combien*.
+
+### ⑤ Laissé ouvert : `0bc`, et pourquoi
+
+Les trois actes destructeurs par `ExecuteDelete` restent hors transaction. Ils appellent tous
+`RecordOutcome`, et les deux mécanismes **ne se composent pas** — l'envelopper demande de trancher
+`ExecuteAtomicallyAsync` × `IAuditTrail`, ce qui est une décision de conception, pas un nettoyage, et
+n'a pas été forcé au milieu d'un balayage. ⚠ **Gravité relue** : les enfants partent avant les parents,
+donc une annulation à mi-parcours se répare en rejouant l'acte ; ce qui est perdu pour de bon est la
+**ligne de journal**.
+
+### Couverture
+
++8 : `PublishScheduleAuditTests` (5 — dont le cas mordant, le stage déjà publié, et le témoin refus /
+acceptation) et `ErrorStatusMappingEndpointTests` (3 — le refus, plus **deux** témoins : l'année
+nommée, et l'année courante rétablie). ⚠ **Morsure vérifiée sur les deux** : `Problem` rétabli → 500 au
+lieu de 409 ; `SaveChanges` remis sous condition → le registre est vide là où l'acte a eu lieu.
+
+⚠ **Rien n'a été écrit dans la base vivante** : tout ce qui précède est du code et des tests. Ce qui
+reste à voir à l'écran est en `SMOKE-TEST.md` §59, **après redémarrage de l'AppHost** — le processus
+qui tourne porte l'ancien code, donc « aucune année courante » y répond encore 500 et « Publier » n'y
+écrit encore rien.
+
+## Session 61b — 2026-09-11 · Supprimer un stage demandait au schéma de répondre à sa place
+
+Signalé à l'usage pendant la campagne : supprimer un stage rattaché à un CNPN levait une
+`DbUpdateException` (`23503 … FK_CurriculumStages_Stages_StageId`). L'application n'a pas planté —
+`GlobalExceptionHandler` a fait son travail — mais le refus arrivait en **500**, et l'opérateur a dû
+deviner qu'il fallait d'abord retirer le stage du texte.
+
+**`DeleteStageCommandHandler` ne gardait rien** : il retirait et sauvegardait. Relevé sur le schéma
+vivant, une suppression de stage est destructrice de deux façons, dont aucune ne s'annonçait :
+
+- **`RESTRICT` → 500 opaque** : `Cohorts.StageId`, `CurriculumStages.StageId`, et `ObjectiveScores`
+  un cran plus bas via `StageObjectives` — celui-là aurait nommé une table que l'opérateur n'a jamais
+  vue.
+- **`CASCADE` → silence** : `StageSlots` (les créneaux, de **toutes** les années),
+  `StageAllowedServices` (l'ordre des services et les modes « Réservé ») et `StageObjectives`. Poser
+  un créneau et ordonner les services sont pourtant des actes **audités** ; le registre tenait donc la
+  construction sans la destruction.
+
+**Corrigé** : `StageErrors.StillInUse` (`Conflict`) nomme toutes les raisons **ensemble** — et nomme
+le **code du texte**, pas « 1 CNPN », parce que dire où aller est toute la raison d'être du refus. La
+cascade reste (un créneau d'un stage supprimé n'enregistre rien, même marché que
+`DeleteAcademicYearCommand`), mais son ampleur part au registre : `STAGE_DELETED` porte
+`slotsRemoved`, `allowedServicesRemoved`, `objectivesRemoved`. ⚠ La réponse est un `204` et ne peut
+rien porter — le registre est le seul endroit où ces nombres se relisent.
+
+**+4 tests** (`DeleteStageGuardTests`), morsure vérifiée : garde retirée, trois tombent. **1 801 verts.**
+⚠ Le magasin *in-memory* ne tient **aucune** FK, donc sans garde explicite la suppression y réussit et
+n'échoue qu'en production : c'est pourquoi le refus doit être celui du handler, jamais celui du schéma.
+
+⚠ **Rien n'a été changé côté client** — le contrat reste `204`/`void`.
+
+## Session 60 — 2026-09-11 · Une coupe se demande dans une unité, et elle tombe juste
+
+**Item `0az` fermé** — le dernier qui touchait la donnée que la campagne va écrire en premier.
+
+- **Les deux unités, une seule commande.** `AutoArrangeGroupsCommand` porte `GroupSize?` **ou**
+  `GroupCount?` : « des groupes de 20 » et « la 5ᵉ MED en 100 groupes » sont deux façons de nommer la
+  même coupe. ⚠ Le validateur refuse **les deux et aucune** — un défaut silencieux ici découperait une
+  promotion que personne n'a dimensionnée.
+- ⚠ **Le chemin par taille est corrigé aussi, et le nombre de groupes ne bouge pas.** 232 en taille 20
+  fait toujours 12 rosters, mais **4 × 20 + 8 × 19** au lieu de **11 × 20 + 1 × 12**. Ce groupe de 12,
+  mesuré à l'écran le 10/09, partait en rotation comme une cohorte entière : il occupait la place d'un
+  service pour 60 % d'un groupe.
+- **`RosterCut`** porte l'arithmétique, seule et pure — même forme et même raison que `RotationTiling`.
+  ⚠ **C'est ce qui la rend vérifiable** : le défaut ne se voit pas dans un test de handler, qui répond
+  « 12 groupes, 232 étudiants » des deux répartitions. Ce qui les sépare est la **forme**, et rien ne
+  la regardait.
+- ⚠ **Les paniers CNPN cassent la division**, et c'est le cœur : chaque texte prend des rosters
+  entiers, donc « N » s'apporte entre eux avant qu'on ne coupe. Un texte qui porte des étudiants
+  reçoit toujours au moins un roster, et jamais plus qu'il n'a d'étudiants — l'une ou l'autre borne
+  écarte le total du nombre demandé, d'où la **forme obtenue** affichée à côté du compte.
+- **Plus de groupes que d'étudiants : refusé**, en nommant les deux nombres. Un refus qui n'en
+  nommerait qu'un renvoie l'opérateur deviner lequel il a mal lu.
+
+**Couverture.** +27 : 17 sur l'arithmétique (dont une propriété parcourue sur dix effectifs réels de
+promotion × neuf découpes), 5 sur le handler (l'apport entre textes, le refus, les signalements
+toujours écartés nommément) et 5 de bout en bout sur le validateur — ⚠ **une règle de validateur est
+couverte dans `Integration/` ou elle ne l'est pas**. **1 789 verts.** ⚠ **Morsure vérifiée** :
+l'ancienne forme rétablie, la propriété tombe sur **sept** effectifs à la fois.
+
+**Front** : bascule « par taille » / « par nombre », et la **forme obtenue** sous le résumé — lue en
+retour du serveur, jamais recalculée ici. `tsc`, `eslint`, `npm run build` propres. ⚠ `tsc --noEmit` a
+laissé passer un import manquant que `tsc -b` a vu : **c'est `npm run build` qui tranche.**
+
+⚠ **Une note de file corrigée** : `0ap` annonçait « poser l'axe, puis découper ». C'est l'inverse —
+`PreviewRotationCycleQuery` lit les partitions sur les rosters, donc l'axe refuse par `NoPartitions`
+tant qu'il n'y en a pas. Découpage et partitions ne dépendent d'aucune date : **ce que `0ay` bloque
+est l'axe, pas la coupe.** [`docs/planning-rotation.md`](docs/planning-rotation.md).
+
+**La base est prête.** 2026-2027 ne porte plus que ses **6 839 inscriptions** — 0 roster, 0 partition,
+0 cohorte, 0 créneau, 0 cellule, 0 affectation, 0 période, 0 transfert, 0 délocalisation. Restent les
+**86 signalements** (la parole de la faculté, que le découpage écarte nommément) et le registre.
+`pg_dump` avant : `backups/manual/20260911-pre-fresh-2026-2027.dump`.
+
+### La coupe a été jouée sur la base vivante (§58, 11/09/2026)
+
+**Quatre contrôles sur cinq passés à l'écran**, sur trois promotions réelles — 4ᵉ Pharmacie (232),
+1ʳᵉ Médecine (44), 7ᵉ Médecine (1 347). Par taille **et** par nombre donnent les **mêmes 12 groupes**
+et la **même forme, « 4 × 20, 8 × 19 »** : l'avorton de 12 mesuré la veille a disparu à nombre de
+groupes inchangé. Sur la 7ᵉ, `assignés 1 288 / échecs 59 / traités 1 347`, forme « 4 × 108,
+8 × 107 », **chaque refus portant sa preuve nominative**.
+
+⚠ **Le cinquième a trouvé un défaut, et il est devenu l'item `0be`.** Le refus « plus de groupes que
+d'étudiants » revenait en **500** : `Error.Problem` est le seul `ErrorType` que
+`CustomResults.GetStatusCode` ne nomme pas. Corrigé à sa source en `Error.Conflict` et pinné par un
+test d'endpoint — **à rejouer après redémarrage de l'AppHost**, l'API tournante portant l'ancien code.
+⚠ Le remède **global** a été essayé et écarté : `Problem → 400` fait tomber `BackupEndpointTests`,
+**qui a raison** — une archive injoignable *est* une panne. Les 17 autres sites restent à trier.
+
+⚠ **Un chiffre de briefing corrigé** : sur les 86 signalements de 2026-2027, **59 seulement** écartent
+du découpage (`OutstandingPriorStages`, tous en 7ᵉ Médecine). Les 27 autres sont
+`IncompleteStudentFile`, que `RegistrationHoldPolicy` classe **consultatifs** — ils sont découpés
+normalement. « 86 seront écartés » était faux.
+
+**Et le registre a tenu — c'est la vérification en vrai de `A3`.** Le démontage a écrit ses deux
+lignes **avec leur ampleur** : `YEAR_GROUPS_EMPTIED` → `{"rostersInScope": 36,
+"registrationsDetached": 1564}` et `YEAR_GROUPS_DELETED` → `{"cohortsDeleted": 0,
+"rostersDeleted": 36}`. Avant la session 58 ces deux actes n'écrivaient **rien**.
+`GROUPS_AUTO_ARRANGED` distingue en outre `"askedBy": "size"` de `"askedBy": "count"` : l'unité
+**demandée** est au journal, pas seulement son résultat.
+
+**Décor démonté, état revérifié en base** : 2026-2027 est de nouveau à **6 839 inscriptions**,
+0 roster, 0 rattachement, 0 cohorte, 0 créneau, 0 cellule, 0 affectation, 0 période, 0 transfert,
+0 délocalisation — plus ses 86 signalements et le registre.
+`pg_dump` avant : `backups/manual/20260911-pre-smoke58.dump`.
+
+**File** : la campagne peut commencer par le **découpage**. **0ay** avant les axes. Puis **0ba**,
+**0aw**, **0au**, **0bc**, **0bd**, **0be**, **0as**.
+
+## Session 59 — 2026-09-11 · Une phrase qui s'affichait deux fois, et des rosters que l'écran ne voyait plus
+
+**Items `0at` et `0av` fermés**, tous deux côté client, tous deux mesurés à l'écran.
+
+### `0at` — chaque acte nomme les écrans qu'il périme
+
+Quatre actes manquaient à l'appel, et le plus grave n'invalidait **rien du tout** :
+
+- ⚠ **`autoArrangeGroups`** — l'acte qui fait exister les rosters. Après « Lancer la répartition »,
+  l'onglet *Groupes* affichait « Aucun groupe pour cette année. Lancez d'abord la répartition
+  automatique » pendant que la base en portait douze. **Et les deux boutons destructeurs disparaissent
+  avec la liste vide** : l'écran conseille de rejouer l'acte *et* retire le moyen de le défaire.
+- **`transferStudent`** — 12 étudiants affichés là où 11 restaient. Il prend maintenant
+  `sourceGroupId` en champ client-only, et son corps est **épelé** pour que ce champ ne parte pas au
+  serveur.
+- **`assignStudentToGroup`** — la fiche de la cible. Pas de source : rejoindre, c'est l'inscription
+  qui n'était dans aucun roster.
+- **`applyBulkRosterAssignment`** — ⚠ **les sources sont plurielles et le client ne les connaît pas.**
+  Une sélection peut nommer une promotion entière, et c'est le serveur qui a lu l'`AcademicGroupId` de
+  chaque inscription. **Changement serveur** : `BulkRosterAssignmentRow` porte `CurrentGroupId` et le
+  rapport porte `SourceGroupIds`, mesuré sur **toutes** les lignes et non sur `Rows`, qui est plafonné.
+- ⚠ **Et deux actes qui ne doivent *pas* nommer de roster, vérifiés plutôt que corrigés à l'aveugle** :
+  `delocalizeStudent` / `cancelDelocalization`. Une délocalisation laisse l'étudiant dans son roster ;
+  ce qui bouge est **où il se tient**. L'aller avait oublié la grille du stage alors que son propre
+  retour s'en souvenait — donc envoyer une promotion dehors laissait la saturation affichée
+  exactement comme elle était. Les deux invalident maintenant la grille et l'occupation des services.
+
+### `0av` — un seul propriétaire pour la phrase du serveur
+
+**89 appels à `notify.error`, il en reste 11.** 62 étaient la même phrase une seconde fois. Le `catch`
+reste — il avale le rejet et remet l'état local — c'est la *phrase* qui part.
+
+- **Le critère** : un `catch` autour d'un `.unwrap()` dont le message réimprime `detail` ou reformule
+  l'acte (« Impossible de X ») est un doublon. Les deux disent moins que le middleware.
+- **Ce qui reste** : trois téléchargements sous `isReportedByErrorMiddleware` ; la pop-up et la fiche
+  indisponible de `StudentRecordModal` (une 404 sur une *query*, la seule que le middleware avale) ;
+  et les deux messages de `RotationCyclePage`, qui ne sont pas des `catch` mais des **résultats
+  d'acte** portant des nombres que le refus ne contient pas.
+- ⚠ **`StagesPage` lisait `errors[]` elle-même et avait raison** — jusqu'à la session 51, où le
+  middleware a été corrigé. Sa lecture était devenue la seconde, et rien dans le fichier ne le disait.
+- ⚠ **Une erreur de ma part, rattrapée** : trois téléchargements ont d'abord été balayés avec le
+  reste, ce qui les laissait muets sur la seule rejection que le middleware ne montre pas. Un contrôle
+  sans état vide à dessiner garde son message, sous le garde.
+
+### Trouvé en chemin — 39 codes d'acte sans libellé
+
+⚠ **39 des 68 codes du serveur s'affichaient en SCREAMING_SNAKE**, dont **les dix ajoutés la veille** :
+ajouter la ligne dans `auditActions.ts` fait partie de l'ajout d'un `IAuditableCommand`, et je ne
+l'avais pas fait. Deux autres libellés visaient des codes que le serveur ne produit plus
+(`REGISTRATION_OUTCOME_*` → `YEAR_OUTCOME_*`), et un troisième un code qui n'a jamais existé. ⚠ **Les
+deux sens de la dérive sont silencieux** — un code sans libellé s'affiche brut, un libellé sans code
+ne s'affiche jamais — ce qui est exactement ce qui les rend durables. La table couvre les 68, et la
+teinte « destructif » suit les treize nouveaux actes qui en sont.
+
+**Couverture.** +1 : `The_report_names_the_rosters_the_act_empties_and_only_those` — les sources sont
+les **déplacements** seuls (celui qui rejoint ne vient d'aucun roster, celui qui y est déjà ne change
+rien) et elles sont mesurées avant le plafond. **1 762 verts.** ⚠ **Morsure vérifiée** : la règle
+inversée, le test tombe en disant `{20}` au lieu des deux rosters de départ.
+
+**Front** : `tsc`, `eslint`, `npm run build` propres.
+
+### ✅ §57 déroulé le soir même — quatre points sur sept
+
+Décor monté et démonté sur la 4ᵉ Pharmacie ; état final revérifié en base : **0 roster, 0 cohorte,
+6 839 inscriptions**.
+
+- ✅ **Le défaut du 10/09 a disparu** : après « Lancer la répartition », **sans recharger**, l'onglet
+  *Groupes* affiche les 12 rosters **et** les deux boutons destructeurs.
+- ✅ **Le transfert vide la page de départ** : en-tête **20 → 19** sans rechargement, l'étudiant retiré
+  de la liste, et la liste des groupes montrant **19** et **21** au même instant.
+- ✅ **Un refus, un seul bandeau** : « Conflit », celui du serveur, nommant les 12 rosters et les 232
+  étudiants. Compté par observateur DOM — **un titre distinct**, là où il y en avait deux.
+- ✅ **Aucun code brut au journal** : les 68 codes portent leur libellé.
+- ✅ **Bonus** : « Vider toute l'année » remet les douze compteurs à 0 dans la liste sans rechargement.
+- ⚠ **Trois points non joués, et ce ne sont pas des échecs** : le rattachement et l'affectation de
+  masse n'ont pas été pilotés (la moitié serveur de la seconde, `sourceGroupIds`, a un test qui mord),
+  et **la délocalisation est inatteignable** — l'année ne porte ni cohorte ni créneau, donc il n'y a
+  rien à délocaliser. À reprendre après la pose des axes.
+
+⚠ **Un résidu, volontaire** : le transfert définitif a laissé un `GroupTransfer` au dossier d'un
+étudiant réel. C'est la règle — un transfert garde sa trace, c'est ce qui le sépare du « changement de
+groupe ». L'effacer demande du SQL sur la base vivante : **décision de l'utilisateur**.
+
+**File** : **0aw**, **0au**, **0bc**, **0bd**, **0as**, puis la campagne (**0ay** avant les axes).
+
+## Session 58 — 2026-09-10 · Deux actes qui se disaient audités, et un trou qui ne pouvait pas les dire
+
+**Item `A3` fermé**, et il cachait plus que ce qu'il annonçait.
+
+- **Ce qui était demandé.** Cinq actes destructeurs côté cohorte ne portaient pas
+  `IAuditableCommand` : « Réinitialiser les cohortes », la suppression d'une cohorte, les deux
+  dépublications, et `StageSlotCommands`. Ils sont audités — **dix codes**, la grille comprise, parce
+  que « qui a posé cet axe » est la même question que « qui l'a supprimé ».
+- ⚠ **Ce qui a été trouvé en balayant.** `DeleteAllGroupsCommand` et `EmptyAllYearGroupsCommand`
+  portaient le marqueur **depuis la phase 20** et n'écrivaient **aucune ligne**. Tout leur écrit passe
+  par `ExecuteDelete` / `ExecuteUpdate`, qui contournent le change tracker, et **rien n'appelait
+  `SaveChanges`** : la ligne mise en attente par `AuditLogPipelineBehavior` mourait avec la portée de
+  la requête. A3 les comptait faits. ⚠ **Un acte réussi qui n'écrit rien et un acte refusé qui n'écrit
+  rien ont exactement la même cause** — c'est la deuxième fois que cette propriété se perd (le
+  05/09 c'était `ExecuteAtomicallyAsync` vidant le tracker).
+- ⚠ **Et le trou de couverture est la vraie leçon.** Le fournisseur *in-memory* **refuse**
+  `ExecuteDelete` — « not supported by the current database provider » — donc le chemin de succès de
+  ces actes n'était atteignable par **aucun** test du dépôt, ni handler ni bout en bout. Les tests
+  existants n'assertaient que leurs refus, non par choix mais parce que c'est tout ce qui pouvait
+  s'exécuter. Ouvert avec **SQLite** (`TestHarness.NewSqliteContext` / `OpenSqlite`, le paquet était
+  déjà épinglé et jamais référencé) ; `ExecuteDeleteAuditTests` est le fichier.
+- **`IAuditTrail`, parce qu'une commande ne sait pas ce qu'elle a emporté.** Le behavior *ouvre*
+  l'entrée, le handler y dépose son constat avant de sauvegarder, et la piste **remplace** l'entité en
+  attente au lieu de la modifier — `AuditLog` reste immuable, et compléter une insertion non validée
+  n'est pas corriger le registre après coup. C'est aussi ce qui fait entrer l'**année réellement
+  atteinte** dans l'entrée : une année omise vaut l'année en cours, et seul le handler l'a résolue.
+- **Un acte sans effet s'enregistre avec son zéro** ; un acte refusé continue de n'écrire rien. Sans
+  cela l'absence de ligne recouvre « personne ne l'a joué » et « joué sur une promotion déjà vide ».
+- ⚠ **Un défaut de fixture que seul le relationnel pouvait dire** : `Hospital.CenterId` est une FK non
+  nullable et **toutes** les fixtures la laissaient à `0`. Tout le projet construisait un graphe que
+  PostgreSQL refuserait. `TestHarness.DefaultCenter()`.
+
+**Couverture.** +11 : 5 sur SQLite (les trois actes `ExecuteDelete`, plus le zéro et le refus avec son
+témoin) et 6 de bout en bout (dépublication, colonne vidée, épinglage, créneau déplacé, refus +
+témoin, acte sans effet). **1 761 verts.** ⚠ **Morsure vérifiée** : le `SaveChanges` retiré, le test
+tombe en disant le défaut — *« le registre est la seule chose qui puisse encore le dire, but the
+collection is empty »*.
+
+**Front** : rien. ⚠ **Rien n'a été cliqué** — `SMOKE-TEST.md` §56 est à dérouler, et il demande
+surtout de relire le journal à l'écran après une réinitialisation.
+
+**File** : **0ao** (le texte CNPN, avant tout axe), puis **0ay**, puis la campagne. Nouveaux :
+**0bc** (rendre ces trois actes atomiques) et **0bd** (finir le balayage `SaveChanges`).
+
+### §56 déroulé le soir même, sur la base vivante
+
+⚠ **Point de sauvegarde pris d'abord** (« Stress test registre session 58 », 19,5 Mo, schéma
+**compatible**) — le dernier datait du 08/09 et la bannière le disait elle-même. Décor monté puis
+démonté sur la **4ᵉ année Pharmacie**, 232 inscriptions.
+
+| | acte | ce que le registre a écrit |
+|---|---|---|
+| 22:52 | Point de sauvegarde | `kind: Named`, `label` |
+| 22:56 | Découpage en groupes | `levelId: 12`, `groupSize: 20` |
+| 22:59 | **Groupes d'une promotion vidés** | `levelId: 12`, `rostersInScope: 12`, **`registrationsDetached: 232`** |
+| 23:02 | **Tous les groupes de l'année supprimés** | `rostersDeleted: 12`, `cohortsDeleted: 0` |
+| 23:06 | Découpage en groupes | `levelId: 12`, `groupSize: 20` |
+| — | « Tout supprimer » **refusé** (les rosters portent 232 étudiants) | ⚠ **rien** |
+| 23:09 | Tous les groupes de l'année vidés | `rostersInScope: 12`, `registrationsDetached: 232` |
+| 23:10 | Tous les groupes de l'année supprimés | `rostersDeleted: 12`, `cohortsDeleted: 0` |
+
+**552 → 559 entrées : sept actes, sept lignes, et le refus n'en écrit aucune.** Les deux actes des
+lignes en gras sont ceux qui, avant ce matin, détruisaient tout cela sans laisser un mot.
+
+- **La portée fonctionne** : niveau sélectionné, les boutons deviennent « Vider **la promotion** » /
+  « Supprimer **la promotion** » et la métadonnée porte `levelId`.
+- **Le refus est lisible et unique** : un seul bandeau « Conflit », qui nomme les 12 rosters, les 232
+  étudiants et le remède. ⚠ Pas le doublon de l'item 0av — celui-là est ailleurs.
+- ⚠ **« Supprimer » nomme son compte dans la confirmation (« les 12 groupes »), « Vider » non.**
+  L'un applique la règle « confirmer ce qui ne se défait pas », l'autre pas.
+
+**État final vérifié** : 6 839 inscriptions, 35 stages, **0 groupe** — exactement l'état de départ.
+Ne restent que les 7 lignes de registre, permanentes par construction.
+
+**Deux défauts trouvés au clic**, tous deux versés à leur item :
+- ⚠ **`autoArrangeGroups` n'invalide pas la liste des groupes** (item **0at**, troisième acte) : après
+  la répartition, l'onglet *Groupes* dit « Aucun groupe pour cette année, lancez d'abord la
+  répartition automatique » **et fait disparaître les deux boutons destructeurs**, alors que les 12
+  rosters existent. Un rechargement les ramène.
+- ⚠ **Le découpage de 232 en taille 20 donne 11×20 + 1×12** (item **0az**), vu à l'écran ligne par
+  ligne. Également, ce serait 4×20 + 8×19.
+
+**Ce que §56 n'a pas pu montrer** : les six actes de la grille (`STAGE_SLOT_*`, `COHORT_SLOT_*`,
+`STAGE_COHORTS_RESET`, les dépublications). 2026-2027 ne porte ni cohorte ni créneau, et les monter
+demandait de poser un axe — c'est l'item **0ap**, et il attend le texte CNPN (**0ao**). Ces six-là
+restent couverts par la suite seule.
+
+### Ce qui manque pour commencer, mesuré dans la base (10/09/2026)
+
+Lecture seule sur `TodoDatabase`. ⚠ **Plusieurs chiffres de la file étaient périmés** — corrigés
+ci-dessus.
+
+**L'état de 2026-2027** : 0 roster, 0 cohorte, 0 cellule, **0 créneau** (l'item 0ap en annonçait 71 :
+ils ont disparu avec la remise à blanc), 0 pause de promotion. Le calendrier des fériés, lui, est
+**complet** : 14 fermetures couvrent l'année, dont les 4 lunaires en **estimation** — l'état voulu.
+
+**Ce que chaque promotion peut recevoir**, inscriptions × stages au catalogue :
+
+| promotion | inscrits | stages | planifiable ? |
+|---|---:|---:|---|
+| 7ᵉ MED | 1 347 | **0** | non — année de thèse, comportement voulu (`PHASES.md` §26) |
+| 2ᵉ MED | 1 027 | 2 | ⚠ les deux stages d'immersion n'ont **aucun service autorisé** |
+| 3ᵉ MED | 933 | 8 | **oui** — texte arrêté, *T* = 10 |
+| 4ᵉ MED | 925 | 5 | **oui** |
+| 5ᵉ MED | 842 | 7 | **oui** |
+| 6ᵉ MED | 701 | 6 | **oui** |
+| 6ᵉ Pharma | 314 | **0** | ⚠ décision faculté : cette année fait-elle des stages ? |
+| 4ᵉ Pharma | 232 | 1 | ⚠ son unique stage n'a aucun service autorisé |
+| 5ᵉ Pharma | 212 | 3 | oui, sauf « Pharmacie Clinique 3 » (sans service) |
+| 2ᵉ Pharma | 163 | 1 | ⚠ sans service |
+| 3ᵉ Pharma | 86 | **0** | ⚠ décision faculté |
+| 1ʳᵉ MED | 44 | 2 | ⚠ sans service |
+| 1ʳᵉ Pharma | 13 | **0** | ⚠ décision faculté |
+
+- ⚠ **1 760 inscriptions qu'aucune répartition ne peut toucher** (7ᵉ MED + les trois années de
+  Pharmacie sans catalogue). Pour la 7ᵉ c'est la règle ; pour les trois autres c'est une question
+  posée à la faculté, pas un défaut du logiciel.
+- ⚠ **7 stages n'ont aucun service autorisé**, donc ils se découpent mais ne se répartissent pas.
+- ✅ **Un niveau sans texte CNPN n'est pas bloqué** : `CohortProvisioner` ne filtre que lorsqu'il
+  trouve un `Curriculum` pour (texte, niveau) — sinon **le catalogue fait foi**. Seules la 1ʳᵉ, la
+  2ᵉ et la 3ᵉ MED portent un texte ; les autres planifient sur leur catalogue, ce qui est sûr.
 
 ## Session 57 — 2026-09-10 · La fenêtre d'une délocalisation appartient à la cohorte
 

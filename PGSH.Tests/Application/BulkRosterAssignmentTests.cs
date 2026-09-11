@@ -350,4 +350,47 @@ public class BulkRosterAssignmentTests
         applied.Error.Code.Should().Be("RosterAssignment.NotAllowed");
         (await db.Registrations.FirstAsync(r => r.Id == student.Id)).AcademicGroupId.Should().Be(SourceGroupId);
     }
+
+    /// <summary>
+    /// The rosters the act empties, named by the report — because only the server knows them.
+    /// </summary>
+    /// <remarks>
+    /// <para>⚠ <b>This exists for a cache, and that is not a small thing.</b> Both roster detail pages
+    /// go stale on a move, and the client cannot name the ones it is emptying: a selection may be a
+    /// whole promotion given by roster id or by a pasted list, and it is the server that read each
+    /// registration's <c>AcademicGroupId</c>. Named by nobody, the source page goes on listing
+    /// students who have left — which reads as an act that did nothing.</para>
+    ///
+    /// <para>⚠ <b>And it is measured before the display cap.</b> A source read off <c>Rows</c> would
+    /// silently omit every roster whose lines were cut, exactly as a count computed off that list
+    /// reads low.</para>
+    /// </remarks>
+    [Fact]
+    public async Task The_report_names_the_rosters_the_act_empties_and_only_those()
+    {
+        await using var db = TestHarness.NewContext(nameof(The_report_names_the_rosters_the_act_empties_and_only_those));
+        var s = Seed(db);
+
+        // A second roster, so « the sources » is a set and not a single value dressed up as one.
+        var other = db.SeedGroup(11, 11);
+        db.SeedCohortFor(s.Stage, other, 103);
+
+        var moved      = db.SeedRegistration("Salma", "Idrissi", s.Source);
+        var movedToo   = db.SeedRegistration("Karim", "Benali", other);
+        var joining    = db.SeedRegistration("Nadia", "Alaoui");
+        var alreadyIn  = db.SeedRegistration("Youssef", "Tazi", s.Target);
+        await db.SaveChangesAsync();
+
+        var targets = new StudentTargets(
+            RegistrationIds: [moved.Id, movedToo.Id, joining.Id, alreadyIn.Id]);
+
+        var preview = await db.AssignToRosterPreview().Handle(Preview(targets), default);
+
+        preview.Value.SourceGroupIds.Should().BeEquivalentTo([SourceGroupId, 11],
+            "only a move leaves a roster — the student who joins comes from none, and the one already "
+            + "in the target changes nothing");
+
+        preview.Value.SourceGroupIds.Should().NotContain(TargetGroupId,
+            "the destination is not a roster the act empties");
+    }
 }

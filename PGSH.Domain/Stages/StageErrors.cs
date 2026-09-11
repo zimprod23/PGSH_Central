@@ -10,6 +10,28 @@ public static class StageErrors
         "Stages.NotFound",
         $"The stage with Id = '{stageId}' was not found.");
 
+    /// <summary>
+    /// Le stage ne peut pas partir : quelque chose le nomme encore.
+    /// </summary>
+    /// <remarks>
+    /// <para>⚠ <b>Sans cette garde, la contrainte parlait à la place du refus.</b> <c>Cohorts</c> et
+    /// <c>CurriculumStages</c> sont <c>RESTRICT</c>, et <c>ObjectiveScores</c> l'est un cran plus bas
+    /// via <c>StageObjectives</c> — donc supprimer un stage rattaché à un CNPN remontait en
+    /// <c>DbUpdateException</c> → <b>500</b>, avec pour seule explication le nom d'une contrainte
+    /// PostgreSQL. Mesuré à l'usage le 11/09/2026 : l'opérateur a dû deviner qu'il fallait d'abord
+    /// retirer le stage du texte.</para>
+    ///
+    /// <para>⚠ <b>Les raisons sont comptées ensemble, jamais court-circuitées à la première.</b> Un
+    /// utilisateur qui retire le stage de son texte pour s'entendre dire ensuite qu'il porte des
+    /// cohortes a fait le tour deux fois. Même règle et même forme que
+    /// <c>AcademicYearErrors.StillInUse</c>.</para>
+    /// </remarks>
+    public static Error StillInUse(string stageName, IReadOnlyList<string> holdings) => Error.Conflict(
+        "Stages.StillInUse",
+        $"« {stageName} » ne peut pas être supprimé : il est encore référencé par "
+        + string.Join(", ", holdings)
+        + ". Retirez ces rattachements d'abord.");
+
     public static Error DuplicateName(string name) => Error.Conflict(
         "Stages.DuplicateName",
         $"A stage with the name '{name}' already exists.");
@@ -125,12 +147,17 @@ public static class StageErrors
         "ServiceEvaluations.AlreadyExists",
         $"An evaluation already exists for service period '{periodId}'.");
 
-    public static Error ObjectiveNotInStage(int objectiveId) => Error.Problem(
+    /// <summary>
+    /// L'objectif nommé par la requête n'est pas du stage de cette période : c'est la demande qui est
+    /// mal formée, pas le serveur qui est en panne.
+    /// </summary>
+    public static Error ObjectiveNotInStage(int objectiveId) => Error.Validation(
         "ServiceEvaluations.ObjectiveNotInStage",
         $"L'objectif '{objectiveId}' n'appartient pas au stage de cette période.");
 
     // === Evaluation import ===
-    public static Error ImportPeriodNotInStage(int periodNumber, int stageId) => Error.Problem(
+    /// <summary>La feuille nomme une période que le stage n'a pas cette année-là.</summary>
+    public static Error ImportPeriodNotInStage(int periodNumber, int stageId) => Error.Validation(
         "ServiceEvaluations.ImportPeriodNotInStage",
         $"Le stage '{stageId}' n'a pas de période P{periodNumber} pour l'année sélectionnée.");
 
@@ -138,11 +165,11 @@ public static class StageErrors
     /// The stage ran in other years but not the one being imported. Distinguished from an empty stage
     /// because the fix differs: switch the year in the navbar, rather than plan the stage.
     /// </summary>
-    public static Error ImportYearHasNoStudents(int stageId, string yearLabel) => Error.Problem(
+    public static Error ImportYearHasNoStudents(int stageId, string yearLabel) => Error.Conflict(
         "ServiceEvaluations.ImportYearHasNoStudents",
         $"Aucun étudiant n'est affecté au stage '{stageId}' pour l'année {yearLabel}.");
 
-    public static readonly Error ImportModeNotSupported = Error.Problem(
+    public static readonly Error ImportModeNotSupported = Error.Conflict(
         "ServiceEvaluations.ImportModeNotSupported",
         "L'import ne gère que la note chiffrée et la validation globale : la validation par objectif "
         + "demande une note par objectif, qui ne tient pas dans une ligne de tableur.");
@@ -152,7 +179,8 @@ public static class StageErrors
         $"{errorCount} ligne(s) en erreur — aucune note n'a été enregistrée. "
         + "Un import de notes est appliqué en totalité ou pas du tout.");
 
-    public static readonly Error ImportSheetUnreadable = Error.Problem(
+    /// <summary>Le fichier déposé n'est pas un classeur lisible — un refus sur l'entrée, pas une panne.</summary>
+    public static readonly Error ImportSheetUnreadable = Error.Validation(
         "ServiceEvaluations.ImportSheetUnreadable",
         "Fichier illisible — attendu un classeur Excel (.xlsx) reprenant les colonnes du modèle.");
 
@@ -209,7 +237,15 @@ public static class StageErrors
     /// passed none and no year is flagged current — never silently widened to "all years", which is
     /// what made the import canvas list every promotion the stage ever had.
     /// </summary>
-    public static readonly Error NoCurrentAcademicYear = Error.Problem(
+    /// <remarks>
+    /// ⚠ <b><c>Conflict</c>, et c'est le plus important des dix-huit.</b> <c>AcademicYearResolver</c>
+    /// est le chemin de <i>tout</i> handler qui omet l'année, donc une base sans année courante —
+    /// l'état que <c>CurrentYearDesignation</c> laisse si elle est interrompue entre ses deux
+    /// écritures — rendait <b>chaque écran</b> en 500. Or <c>errorMiddleware</c> jette <c>detail</c>
+    /// au-dessus de 500 et affiche « Une erreur serveur est survenue » : la seule phrase qui dit quoi
+    /// faire n'atteignait jamais personne.
+    /// </remarks>
+    public static readonly Error NoCurrentAcademicYear = Error.Conflict(
         "AcademicYears.NoCurrent",
         "Aucune année universitaire courante n'est définie — sélectionnez une année.");
 

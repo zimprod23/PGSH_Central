@@ -27,18 +27,24 @@ internal sealed class SchedulePublisher(
     ServiceOccupancyCalculator occupancyCalculator,
     ServiceIntakeCalculator intakeCalculator)
 {
-    public async Task<Result> PublishCohortAsync(int cohortId, bool allowOverCapacity, CancellationToken ct)
+    /// <returns>
+    /// The number of périodes created. ⚠ <b>A count, where this used to answer a bare
+    /// <c>Result</c></b> — an audited act has to say <i>how much</i>, and « Publier » on a cohorte of
+    /// forty and on one of four wrote the same entry. The strict publish refuses everything it cannot
+    /// materialise, so the figure is never a partial success being passed off as one.
+    /// </returns>
+    public async Task<Result<int>> PublishCohortAsync(int cohortId, bool allowOverCapacity, CancellationToken ct)
     {
         bool cohortExists = await dbContext.Cohorts.AnyAsync(c => c.Id == cohortId, ct);
         if (!cohortExists)
-            return Result.Failure(StageErrors.CohortNotFound(cohortId));
+            return Result.Failure<int>(StageErrors.CohortNotFound(cohortId));
 
         if (await PublishedAssignmentsQuery(dbContext, cohortId).AnyAsync(ct))
-            return Result.Failure(StageErrors.ScheduleAlreadyPublished);
+            return Result.Failure<int>(StageErrors.ScheduleAlreadyPublished);
 
         var slotAssignments = await LoadSlotAssignmentsAsync([cohortId], null, ct);
         if (slotAssignments.Count == 0)
-            return Result.Failure(StageErrors.ScheduleNotConfigured);
+            return Result.Failure<int>(StageErrors.ScheduleNotConfigured);
 
         // ⚠ An assignment that already holds a period has already been served — an imported
         // historical rotation, a délocalisation, a revalidation. Publishing over it would add a
@@ -47,16 +53,16 @@ internal sealed class SchedulePublisher(
         var assignmentIds = await UnservedAssignmentIdsQuery(dbContext, cohortId).ToListAsync(ct);
 
         if (assignmentIds.Count == 0)
-            return Result.Failure(StageErrors.NoPlannedAssignments);
+            return Result.Failure<int>(StageErrors.NoPlannedAssignments);
 
         var intake = await EnsureIntakeAsync(slotAssignments, allowOverCapacity, ct);
         if (intake.IsFailure)
-            return intake;
+            return Result.Failure<int>(intake.Error);
 
         var periods = BuildPeriods(slotAssignments, assignmentIds);
         await dbContext.ServicePeriods.AddRangeAsync(periods, ct);
         await dbContext.SaveChangesAsync(ct);
-        return Result.Success();
+        return Result.Success(periods.Count);
     }
 
     public async Task<Result<PublishResult>> PublishStageAsync(

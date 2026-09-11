@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Stages.Cohorts.UnpublishSchedule;
 using PGSH.Domain.Stages;
@@ -54,7 +54,7 @@ public class UnpublishStageScheduleTests
     }
 
     private static UnpublishStageScheduleCommandHandler Handler(ApplicationDbContext db) =>
-        new(db, new PGSH.Application.AcademicYears.AcademicYearResolver(db));
+        new(db, new PGSH.Application.AcademicYears.AcademicYearResolver(db), new RecordingAuditTrail());
 
     [Fact]
     public async Task Every_cohorte_that_has_not_begun_is_unpublished_in_one_act()

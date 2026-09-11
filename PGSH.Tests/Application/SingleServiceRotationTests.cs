@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Stages.Planning;
 using PGSH.Application.Stages.Slots;
@@ -348,7 +348,7 @@ public class SingleServiceRotationTests
         await db.SaveChangesAsync();
         await Publisher(db).PublishCohortAsync(CohortId, false, default);
 
-        var handler = new DeleteStageSlotCommandHandler(db);
+        var handler = new DeleteStageSlotCommandHandler(db, new RecordingAuditTrail());
         var result = await handler.Handle(new DeleteStageSlotCommand(300), default);
 
         result.IsFailure.Should().BeTrue("slot 300 holds the third cell of a run that is published");

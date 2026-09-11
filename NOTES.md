@@ -1,4 +1,4 @@
-# NOTES.md — Project Familiarization Notes
+﻿# NOTES.md — Project Familiarization Notes
 
 This file captures accumulated context, domain knowledge, and non-obvious observations built up while working through the PGSH codebase. It is a living document — update it as understanding deepens.
 
@@ -4277,3 +4277,382 @@ Vider le premier et garder le second n'est pas une incohérence, c'est leur diff
 
 Les 11 contrôles de résidu sont à **0**, et les années passées sont intactes : 7 232 lignes de
 dossier (2025-2026), 105 626 périodes, 13 793 cohortes.
+
+## La seule contrainte de planification, dite par la faculté (10/09/2026)
+
+⚠ **Ce n'est pas une mesure, c'est une règle donnée** — par l'utilisateur, en toutes lettres, et elle
+est plus **permissive** que ce que le code fait aujourd'hui :
+
+> La seule contrainte de planification est qu'une période ne **commence** ni ne **finisse** un week-end
+> ou un jour férié.
+
+**Ce que cela change.** Un jour férié tombant **à l'intérieur** d'une période ne l'allonge pas
+nécessairement : la faculté peut décider qu'il est travaillé. `WorkingDayCalendar` ne sait pas le dire
+— un `Holiday` y est chômé, ou bien il n'existe pas — donc chaque férié déclaré repousse aujourd'hui la
+fin de toutes les colonnes qui le traversent, qu'on l'ait voulu ou non.
+
+**Pourquoi ce n'est pas une colonne mais une scission.** `IsWorkingDay` répond à **deux** questions
+différentes, à trois appels, depuis le premier jour :
+
+| question | appelée par | week-end | férié chômé | férié travaillé |
+|---|---|---|---|---|
+| ce jour compte-t-il dans la durée ? | `Count`, l'avance de `Lay` | non | non | **oui** |
+| une fenêtre peut-elle s'ouvrir/fermer ici ? | `NextWorkingDay`, le `End` de `Lay` | non | non | **non** |
+
+Les deux premières colonnes sont identiques — c'est ce qui a permis à un seul prédicat de tenir
+jusqu'ici, et c'est aussi pourquoi la troisième ne peut pas y entrer sans le scinder. La
+`PromotionPause` reste sur la ligne « chômé » : une semaine d'examens ne compte jamais comme ouvrée.
+
+⚠ **Le piège à couvrir** : `Lay` promet que son `End` est un jour bornable. Le Nᵉ jour posé peut
+tomber sur un férié travaillé — la fenêtre s'étend alors au jour bornable suivant **sans le compter**,
+sinon le compte de jours et la date de fin se contredisent.
+
+⚠ **Et `WorkingDaysLost` doit tomber à 0** pour un tel férié, sinon l'écran de couverture réclame des
+jours que personne n'a perdus — même piège que celui qu'il évite déjà en comptant contre le calendrier
+week-ends seuls.
+
+**Rien n'est implémenté.** `HANDOFF.md` **0ay**, `PHASES.md` §27.1,
+[`docs/audit-calendar.md`](docs/audit-calendar.md).
+
+
+## Un acte auditable qui n'écrivait rien, et le trou de couverture qui l'a permis (10/09/2026, session 58)
+
+**Cherché** : marquer `IAuditableCommand` sur les cinq actes destructeurs côté cohorte que
+`HANDOFF.md` A3 nommait. **Trouvé en chemin** : deux actes qui portaient déjà le marqueur
+n'écrivaient **aucune ligne**.
+
+### Le balayage
+
+Pour chaque commande auditable du dépôt, son handler appelle-t-il `SaveChangesAsync` (ou un
+collaborateur qui le fait) ? Sept candidats, dont cinq délèguent à un collaborateur qui sauvegarde
+(`CurrentYearDesignation`, `ServiceRankWriter`, `InscriptionApplier`, `CurriculumHistoryReconstructor`).
+Deux ne sauvegardent nulle part :
+
+| commande | ses écrits | `SaveChanges` |
+|---|---|---|
+| `DeleteAllGroupsCommand` — « Supprimer les groupes » | 6 × `ExecuteDelete` | **0** |
+| `EmptyAllYearGroupsCommand` — « Vider les groupes » | 1 × `ExecuteUpdate` | **0** |
+
+### Pourquoi cela ne laissait rien
+
+`AuditLogPipelineBehavior` **met la ligne en attente avant le handler** et c'est le `SaveChanges` de
+celui-ci qui la valide — la forme même qui fait qu'un acte **refusé** n'écrit rien. `ExecuteDelete` et
+`ExecuteUpdate` contournent le change tracker : ils suppriment, et la ligne d'audit reste en attente
+jusqu'à la fin de la portée de la requête, où elle disparaît. ⚠ **Un acte réussi qui n'écrit rien et
+un acte refusé qui n'écrit rien ont exactement la même cause**, et rien ne les distinguait.
+
+C'est la deuxième fois que cette propriété se perd : le 05/09/2026 c'était `ExecuteAtomicallyAsync`
+qui vidait le tracker en entrant, et un réordonnancement écrivait ses rangs sans son
+`STAGE_SERVICE_ORDER_SET`. Le mécanisme est juste et **fragile** — il tient à ce qu'un handler
+appelle `SaveChanges` pour une raison qui n'a rien à voir avec l'audit.
+
+### ⚠ Et aucun test ne pouvait le voir — ce n'est pas un oubli de couverture
+
+Le fournisseur *in-memory* **refuse** `ExecuteDelete`/`ExecuteUpdate` :
+
+> `InvalidOperationException: The methods 'ExecuteDelete' and 'ExecuteDeleteAsync' are not supported
+> by the current database provider.`
+
+Donc le **chemin de succès** de ces actes n'était atteignable par **aucun** test du dépôt. Les tests
+de handler existants (`RosterTeardownGuardTests`) n'assertent que leurs refus — non par choix, mais
+parce que c'est tout ce qui pouvait s'exécuter. Un test de bout en bout répond 500 avant d'y arriver.
+
+**Ouvert avec SQLite** (`Microsoft.EntityFrameworkCore.Sqlite` était déjà épinglé dans
+`Directory.Packages.props`, jamais référencé) : `TestHarness.NewSqliteContext(connection)` +
+`OpenSqlite()`. Relationnel, donc il exécute les deux. ⚠ Ce n'est **pas** PostgreSQL — pas d'index
+filtré, pas de `NULLS NOT DISTINCT` — donc il répond « cet acte s'exécute-t-il et laisse-t-il sa
+trace », jamais quoi que ce soit sur le schéma réel.
+
+**Morsure vérifiée** : le `SaveChanges` retiré, `ExecuteDeleteAuditTests` tombe en disant le défaut —
+*« Expected entries to contain a single item because « PROMOTION_GROUPS_DELETED » a eu lieu, et le
+registre est la seule chose qui puisse encore le dire, but the collection is empty. »*
+
+### Un défaut de fixture que seul le relationnel pouvait dire
+
+`Hospital.CenterId` est une clé étrangère **non nullable**, et toutes les fixtures la laissaient à
+`0` — un hôpital dans un centre qui n'existe pas. Le fournisseur in-memory ignore les clés
+étrangères, donc **tout ce projet construisait un graphe que PostgreSQL refuserait**, sans que rien
+ne le dise. `TestHarness.DefaultCenter()` le corrige (id 99, pour ne pas heurter une fixture qui
+nomme son propre centre).
+
+### Ce que la commande ne pouvait pas savoir
+
+Un code d'acte seul ne sépare pas « Réinitialiser les cohortes » joué sur une promotion vierge de la
+même chose jouée sur une promotion publiée. `IAuditableCommand` ne décrit que ce qui a été
+**demandé** ; ce qui a été **emporté** n'existe qu'après le handler. D'où `IAuditTrail` : le behavior
+*ouvre* l'entrée, le handler y dépose son constat avant de sauvegarder, et la piste **remplace**
+l'entité en attente plutôt que de la modifier — `AuditLog` reste immuable, et compléter une insertion
+non validée n'est pas corriger le registre après coup.
+
+⚠ **Incompatible avec `ExecuteAtomicallyAsync`** : sur une nouvelle tentative celui-ci re-stage
+l'entrée telle qu'ouverte pendant que la piste tient la remplaçante — deux lignes pour un acte. Écrit
+dans `IAuditTrail`, parce que rien d'autre ne l'attraperait.
+## Un refus que le serveur avait expliqué, et qui arrivait en panne (11/09/2026, session 60)
+
+Demander **400 groupes** sur une promotion de **232** revenait à l'écran en « Erreur 500 — Une erreur
+serveur est survenue ». Le handler refusait pourtant correctement, et sa phrase nommait bien les deux
+nombres.
+
+`CustomResults.GetStatusCode` nomme `Failure`, `Validation`, `NotFound`, `Conflict` et `Forbidden`.
+**`ErrorType.Problem` est le seul membre absent du `switch`** : il tombe sur le bras `_` et sort en
+**500**. La phrase voyageait bien dans `detail` — mais **le client masque `detail` sur un 5xx** et
+affiche sa propre phrase de panne. Un refus corrigeable arrivait donc comme un plantage, et
+l'opérateur n'avait aucun moyen de savoir lequel des deux nombres il avait mal lu.
+
+### ⚠ Le remède global est faux, et ce sont les tests qui l'ont dit
+
+Mapper `Problem → 400` dans `CustomResults` fait tomber deux `BackupEndpointTests` —
+« l'archive est injoignable », « le runner a échoué ». **Ces tests ont raison** : un `pg_dump` qui
+échoue *est* une panne serveur, et la réécrire en 400 dirait à l'opérateur qu'il a mal demandé.
+
+**`Error.Problem` porte donc deux sens à la fois** sur ses 18 sites de construction : des refus
+métier que l'opérateur peut corriger, et de vraies pannes. Aucun code de statut ne peut satisfaire
+les deux, et le `switch` n'est pas l'endroit où les séparer — **c'est l'appelant qui sait lequel des
+deux il veut dire**. Corrigé à sa source (`MoreGroupsThanStudents` → `Error.Conflict`, 409, pinné par
+`AutoArrangeUnitEndpointTests`), les 17 autres sites restés à trier : `HANDOFF.md` **0be**.
+
+⚠ **Le défaut n'est visible que de l'écran.** Le test de handler passe — il lit un
+`Result.Failure`, pas un statut HTTP. Ce qui l'attrape est un test d'endpoint qui **asserte le
+statut**, et personne n'écrit cette assertion tant qu'on n'a pas vu le 500.
+
+
+## Le tri des 18 `Error.Problem`, et le site qui comptait le plus (11/09/2026, session 61)
+
+Suite directe de l'entrée ci-dessus, qui laissait 17 sites à trier. Le tri donne **5 pannes et 13
+refus**, et la répartition n'est pas celle qu'on aurait devinée en lisant les noms.
+
+**Restent des pannes** (donc 500, et `BackupEndpointTests` a raison de les tenir) : les trois
+`BackupErrors` — archive injoignable, `pg_dump` échoué, vérification échouée — et le refus interne de
+`PgDumpBackupArchive`. Quatre sites, tous dans la sauvegarde, tous des choses qui ne dépendent pas de
+ce que l'opérateur a demandé.
+
+**Passent en `Conflict`** — la demande rencontre l'état : `NoCurrentAcademicYear`, les six de
+`CnpnErrors` (`NoAcademicYears`, `NoTextGovernsAnyIntake`, `NoVersionForIntake`,
+`TargetNothingToApply`, `CloneSourceEmpty`, `EffectivityNothingToApply`), `WaiverNotNeeded`,
+`ImportYearHasNoStudents` et `ImportModeNotSupported`.
+
+**Passent en `Validation`** — la demande elle-même est mal formée : `ObjectiveNotInStage`,
+`ImportPeriodNotInStage` et `ImportSheetUnreadable` (« fichier illisible » est un refus sur l'entrée,
+pas une panne du serveur).
+
+### ⚠ Le site qui comptait n'était pas celui qu'on avait vu
+
+`AcademicYearResolver` est le chemin de **tout** handler qui omet l'année — « omise » veut dire
+« celle en cours », c'est la règle la plus répandue du dépôt. Son repli `NoCurrentAcademicYear` était
+`Error.Problem`. Donc une base sans `IsCurrent` ne faisait pas échouer un écran : elle les faisait
+**tous** répondre 500, chacun affichant « Une erreur serveur est survenue. Réessayez plus tard. »
+pendant que le serveur envoyait « Aucune année universitaire courante n'est définie — sélectionnez
+une année » dans un `detail` que le client jette.
+
+**Et cet état était atteignable.** `CurrentYearDesignation` enchaîne deux `SaveChanges` — rétrograder
+les années courantes, puis promouvoir la cible — dans cet ordre parce que `IX_AcademicYear_IsCurrent`
+est unique et filtré et que Postgres vérifie en fin d'instruction. Entre les deux, **rien n'est
+flagué**. Sa propre documentation appelait cela « la panne délibérément laissée », en donnant une
+raison qui avait cessé d'être vraie : « une transaction demanderait une surface que rien dans le
+dépôt n'a » — `ExecuteAtomicallyAsync` existe depuis le plan macro.
+
+⚠ **C'est la conjonction qui fait le défaut**, et aucune des deux moitiés ne se lit comme grave seule.
+« Une fenêtre de quelques millisecondes où la base n'a pas d'année courante » est acceptable si
+quelque chose le dit ; « un refus mal typé » est cosmétique s'il ne peut pas arriver. Ensemble :
+l'application entière tombe, et le seul message qui expliquerait pourquoi est supprimé à la dernière
+étape.
+
+### Ce que le balayage a aussi montré
+
+- **Le découpage n'était pas atomique** — `AutoArrangeGroupsCommandHandler` enregistre ses rosters
+  dans la boucle des textes CNPN et ses inscriptions à la fin. Même famille que le plan macro, corrigé
+  par la même enveloppe. ⚠ Ce qui rend le cas plus méchant que le plan macro : **rejouer l'acte ne
+  répare pas**, la numérotation reprenant au plus haut `GroupNumber` existant.
+- **« Publier » n'était pas audité du tout**, alors que « Dépublier » l'est depuis la phase 20 — le
+  registre tenait le défaire sans le faire, sur l'acte qui crée les `ServicePeriod`. ⚠ Trouvé en
+  comparant les deux commandes côte à côte, pas par un balayage : `IAuditableCommand` étant déclaratif,
+  **rien ne signale un acte qui ne le déclare pas**. C'est la limite structurelle du sweep de `0bd`,
+  qui ne peut interroger que les ~60 actes déjà marqués.
+
+
+## La 3ᵉ MED publiée, et le stage qui ne pouvait pas la contenir (11/09/2026, session 61)
+
+Première publication réelle d'une promotion sur cette base. **8 stages, 100 cohortes chacun,
+933 périodes chacun**, `academicYearId: 22` résolu par le serveur dans chacune des huit entrées de
+registre — la moitié « Publier » du journal, qui n'existait pas le matin même, a donc été inaugurée
+par le vrai travail et non par un décor de test.
+
+⚠ **Les huit portent `allowOverCapacity: true`.** Le défaut est `false` aux trois points d'appel du
+client (`ScheduleGridModal` ×2, `StageDetailPage`), donc la case a été cochée huit fois. La question
+n'est pas pourquoi on l'a cochée — c'est pourquoi il le fallait.
+
+### La mesure : un stage est structurellement trop petit, les sept autres passent
+
+Charge réelle par service = le **pic** d'instants où les périodes se recouvrent, jamais la somme de
+ce qui traverse la fenêtre (règle `ServiceOccupancyLookup`). Calculé sur les instants candidats, qui
+sont les dates de début — une charge ne peut croître qu'à un début.
+
+| Stage | colonnes | capacité/colonne | besoin (933 ÷ 10) | marge |
+|---|---|---|---|---|
+| **Dermatologie - Endocrinologie** | 10 | **80** | 94 | **−14** |
+| Santé Publique | 10 | 100 | 94 | +6 |
+| Simulation Médicale | 10 | 100 | 94 | +6 |
+| Neurologie - Neurochirurgie | 10 | 120 | 94 | +26 |
+| Rhumatologie - Radiologie | 10 | 140 | 94 | +46 |
+| Cardiologie - Pneumologie | 10 | 160 | 94 | +66 |
+| Médecine | 10 | 220 | 94 | +126 |
+| Chirurgie | 10 | 260 | 94 | +166 |
+
+`Dermatologie - Endocrinologie` n'autorise que **4 services** en rotation, 20 places chacun. Les
+932 périodes qu'il doit poser sur dix colonnes en demandent 94 à la fois : **il en manque 14 à chaque
+colonne**, et c'est ce qui ressort en base — les deux services « Dermatologie » (id 13, Hôpital
+Militaire Mohammed V ; id 127, Maternité Souissi) portent **27 à 30** pour un plafond de **20**, sur
+**les dix** périodes P1→P10, sans exception.
+
+⚠ **Ce n'est donc pas un défaut de placement et re-répartir ne le corrigera pas.** C'est la même
+arithmétique que « le nombre de partitions s'annule » : les étudiants d'un stage sont `N·kₛ/T`, et
+aucune façon de les découper ne change le total qui doit tenir dans une colonne. Les trois issues
+sont de la faculté : un cinquième service autorisé, une capacité relevée, ou 27-30 assumés.
+
+⚠ **Et deux stages passent à +6.** Santé Publique et Simulation Médicale tiennent 94 dans 100, sur un
+seul service chacun. Une promotion de 940 au lieu de 933 les ferait basculer à leur tour — la marge
+est de sept étudiants, pas d'un ordre de grandeur.
+
+### Ce que la vérification a aussi confirmé, sans rien écrire
+
+« 1500 groupes » sur une promotion de 1027 : bandeau **orange « Conflit »** nommant **les deux**
+nombres, là où la veille le même refus revenait en « Erreur 500 — Une erreur serveur est survenue ».
+Le client ne rend ce titre que pour un 409 (`errorMiddleware`, branche `status === 409`), donc le
+statut *et* la survie de `detail` sont prouvés d'un seul écran. **Registre inchangé à 612 lignes
+avant et après** : un acte refusé n'écrit rien, vérifié sur la base vivante et non seulement en test.
+
+## Les colonnes n'étaient pas égales, et la marge annoncée n'existait pas (11/09/2026, session 62)
+
+Balayage demandé après la publication de la 3ᵉ MED — « est-ce qu'on est bons ? ». La promotion elle-même
+est saine : **0** chevauchement sur 7 464 périodes, **0** début et **0** fin en week-end ou en jour
+férié, **933/933** étudiants portant exactement 8 périodes, couverture complète (2 cellules sur les
+stages de 30 j, 1 sur ceux de 15 j, **0** période orpheline), et aucun résidu des remises à zéro. Ce
+qui n'allait pas est **en amont** de la publication.
+
+### La mesure : une coupe équilibrée, des colonnes qui ne le sont pas
+
+```
+A = rosters   1–10  → 10 × 10 = 100        D = rosters 31–40 → 3×10 + 7×9 = 93
+B = rosters  11–20  → 10 × 10 = 100        E..J              → 10 ×  9  = 90
+C = rosters  21–30  → 10 × 10 = 100
+```
+
+933 en 100 rosters donne 33 rosters de 10 puis 67 de 9 — équilibré, c'est le correctif de la session 60.
+Mais `RosterCut` les rendait **les gros d'abord**, donc les 33 grands portaient les numéros 1 à 33 ; et
+`PartitionAllocator.Contiguous` — la convention de la faculté, **choisie 8 fois sur 8** d'après le
+registre — donne à A le premier bloc de numéros. Les deux actes sont corrects séparément ; c'est leur
+composition qui concentre.
+
+⚠ **L'équilibre gagné *dans* un roster était rendu *entre* les colonnes** : écart de **10 étudiants**
+là où le découpage promettait 1.
+
+### Ce que cela coûtait, et la correction de la ligne du dessus
+
+Le tableau de la session 61 donne Santé Publique et Simulation Médicale à **+6** (100 places pour
+94). **Ce chiffre est la colonne *moyenne*, et aucune colonne ne vaut la moyenne.** Relevé par
+colonne :
+
+| stage | service | plafond | colonnes à 90 | à 93 | **à 100** | marge réelle |
+|---|---|---|---|---|---|---|
+| Santé Publique | 76 (unique) | 100 | 6 | 1 | **3** | **0** |
+| Simulation Médicale | 150 (unique) | 100 | 6 | 1 | **3** | **0** |
+
+Les deux stages étaient assis **exactement** sur leur plafond, sur trois colonnes sur dix, sans que rien
+à l'écran ne le dise. Une arrivée tardive ou un changement de groupe vers A, B ou C les faisait
+dépasser. La marge de sept étudiants annoncée la veille n'a jamais existé.
+
+⚠ **Dermatologie n'est pas concerné par ce défaut** — il manquait 14 places à *chaque* colonne, y
+compris à celles de 90. Le 3/3/2/2 observé (27-30 sur les deux Dermatologie, 18-20 sur les deux
+Endocrinologie) n'est pas non plus un défaut de l'arrangeur : **10 rosters sur 4 services de capacité
+égale ne peuvent pas mieux tomber**. ⚠ **Un cinquième service autorisé le résoudrait exactement** —
+5 × 2 rosters = 18-20 chacun, zéro dépassement — ce qui est la plus précise des trois issues de l'item
+`0bg`.
+
+### Le correctif : un ordre, pas une taille
+
+`(i · larger) mod count < larger` vaut pour exactement `larger` des `count` positions quel que soit leur
+PGCD, et les espace aussi régulièrement que les entiers le permettent. Mêmes tailles, même nombre, même
+convention de blocs contigus. 232 en taille 20 se lit `20, 19, 19, 20, 19, 19…` ; la 3ᵉ MED donnerait
+**94, 94, 94, 93 ×7**, et les +6 de Santé Publique redeviendraient vrais.
+
+⚠ **Rien n'a été rejoué sur la 3ᵉ MED, qui est publiée** — le correctif ne vaut que pour les coupes à
+venir, et `AssignRotationGroupsCommandHandler` refuse de redécouper sous une cellule publiée. **Aucune
+écriture dans la base vivante de toute la session.**
+
+**+11 tests** (`RosterCutTests`), **1 812 verts**. Morsure vérifiée : ordre d'origine rétabli → **11
+tombent**, dont le balayage de propriété (9 promotions × 7 comptes de partitions × 4 tailles de bloc).
+
+### Le même calcul, porté en avant sur les promotions qui restent
+
+La formule est calibrée : elle retrouve le −14 mesuré sur Dermatologie et le +6 de Santé Publique.
+Demande simultanée d'un stage = `N × durée_s ÷ Σdurées`, comparée à la somme des capacités autorisées.
+
+| | stage | besoin | places | manque |
+|---|---|---|---|---|
+| **4ᵉ MED** (925) | Pédiatrie | 351 | 120 | **−231** |
+| | Cardiologie | 176 | 60 | −116 |
+| | Pneumologie | 176 | 60 | −116 |
+| | Dermatologie Endocrinologie | 112 | 80 | −32 |
+| **5ᵉ MED** (842) | Gynécologie Obstétrique | 273 | 100 | **−173** |
+| | ORL | 87 | 40 | −47 |
+| | Ophtalmologie | 87 | 60 | −27 |
+| | Neurologie Neuro-chirurgie | 137 | 120 | −17 |
+| **6ᵉ MED** (701) | GYNECOLOGIE OBSTETRIQUE | 141 | 100 | −41 |
+| | PEDIATRIE | 141 | 140 | −1 |
+
+⚠ **Et les services sont partagés.** Le stage `Dermatologie Endocrinologie` de la 4ᵉ MED autorise les
+services **12, 13, 127, 135** — exactement les quatre sur lesquels la 3ᵉ MED est déjà assise à 27-30
+pour un plafond de 20. Le manque de la 4ᵉ s'ajoute à celui de la 3ᵉ, il ne se pose pas à côté.
+
+**Stages qu'aucun service n'autorise** (donc impossibles à placer) : les deux de la 1ʳᵉ MED, les deux de
+la 2ᵉ MED (**1 027 étudiants**), celui de la 2ᵉ Pharmacie, celui de la 4ᵉ Pharmacie, et
+`Pharmacie Clinique 3`. **Niveaux sans aucun stage au catalogue** : 7ᵉ MED (1 347 — déjà en `0ar`),
+1ʳᵉ / 3ᵉ / 6ᵉ Pharmacie (13 / 86 / 314).
+
+Tout ce bloc est de la configuration faculté, pas du code — même classe que `0bg`. Il est écrit ici pour
+que la campagne le rencontre **avant** de publier, et non une publication à la fois avec la case
+« dépassement autorisé » cochée.
+
+## Supprimer un service : ce que le schéma répondait à la place du handler (11/09/2026, session 63)
+
+Question posée en séance — « si on supprime un service utilisé dans une promotion, que se
+passe-t-il ? ». Relevé sur le schéma et sur le code, pas sur la base : `DeleteServiceCommandHandler`
+lisait le service, l'enlevait, sauvegardait. Aucune garde ; à la place, un commentaire
+« *(e.g., Check if students are currently assigned to this service)* » resté depuis l'échafaudage.
+
+**Les six clés étrangères qui pointent sur `Services`**, avec ce que chacune fait d'une suppression :
+
+| Référence | `OnDelete` | Ce que ça donnait |
+|---|---|---|
+| `CohortSlotAssignments.ServiceId` | `RESTRICT` | 23503 → `DbUpdateException` → **500 « Server failure »** |
+| `ServicePeriods.ServiceId` | `RESTRICT` | idem — et c'est le cas ordinaire, voir plus bas |
+| `StageAllowedServices.ServiceId` | `CASCADE` | le stage perd l'autorisation, son rang et son mode « Réservé », en silence |
+| `ServiceLevelCapacities.ServiceId` | `CASCADE` | les quotas partent — et « aucune ligne » veut dire *ouvert à tous*, pas *non configuré* |
+| `ServiceChefAssignment.ServiceId` | `CASCADE` | l'historique des chefs part : qui l'a dirigé devient irrécupérable |
+| `EmployeeService.ServiceId` | `CASCADE` | le rattachement du personnel part |
+
+⚠ **Le 500 était le cas ordinaire, pas le cas rare.** La base porte **105 626 périodes** sur les
+années 2017-18 → 2025-26 (mesuré le 06/09/2026, voir « les années importées n'ont pas de grille ») :
+presque tout service réel est donc retenu par sa seule histoire, indépendamment de tout plan en
+cours. L'écran affichait « Une erreur serveur est survenue » — `errorMiddleware` jette `detail`
+au-dessus de 500 — sans jamais dire que le bouton ne marcherait pas.
+
+⚠ **Et l'acte n'était pas audité**, donc sur un service *libre* les trois cascades ne laissaient
+aucune trace de leur ampleur.
+
+**La décision qui ne se copiait pas de `DeleteStageCommand`** : `StageAllowedServices` est en
+`CASCADE` comme les créneaux d'un stage, mais ce n'est pas le même marché. Un créneau d'un stage
+supprimé n'enregistre rien ; une autorisation, elle, joint **deux entités indépendantes**, et c'est le
+**stage** qui survit amputé. La ligne porte un `Rank` et un `PlacementMode`, et
+`ServiceRotationOrder` tient les rangs pour **contigus depuis 1** — « le rang est la place, pas une
+étiquette ». Une ligne retirée par la base laisse donc un trou, c'est-à-dire un numéro affiché à côté
+d'un service qui n'est plus la place qu'il occupe dans la file : un nombre pour deux choses, la classe
+de défaut que ce dépôt traque partout ailleurs. D'où un **refus** qui nomme les stages, et le renvoi
+vers `ServiceRankWriter`, qui rebase.
+
+**Ce que le refus dit dépend de ce qui retient**, parce que les deux situations n'ont pas la même
+issue : des cellules et des autorisations se retirent ; des périodes, **non** — elles sont au dossier
+de l'étudiant, et il n'existe aujourd'hui aucun archivage d'un service. Dire « retirez ces
+rattachements d'abord » à quelqu'un que retient l'histoire l'enverrait chercher une manœuvre qui
+n'existe pas ; le refus lui dit de retirer le service des listes de services autorisés, ce qui est la
+seule chose vraie qu'il puisse faire d'un service fermé.

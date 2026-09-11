@@ -773,6 +773,10 @@ the resolver — the stage set is matched against the slots on disk instead.
 | ServicePeriod → ServicePeriodSlotCoverage | CASCADE | Coverage describes a période that no longer exists |
 | CohortSlotAssignment → ServicePeriodSlotCoverage | CASCADE | …and a cell that no longer exists |
 | Service → ServiceLevelCapacity | CASCADE | Quotas are part of the service's own intake rules |
+| ServicePeriod → Service | RESTRICT | A service a student was sent to cannot vanish from his dossier |
+| Stage → StageAllowedService | CASCADE | The authorisation is part of the stage definition |
+| Service → StageAllowedService | CASCADE | …and of the service — ⚠ but the *stage* survives amputated, so DeleteServiceCommand refuses instead of letting it fire: the row carries a Rank ServiceRotationOrder holds contiguous from 1 |
+| Service → ServiceChefAssignment | CASCADE | A tenure of a service that no longer exists names nothing |
 | Level → ServiceLevelCapacity | RESTRICT | A promotion a service has a quota for cannot vanish under it |
 | Student → FinalYearEntryWaiver | CASCADE | The waiver is about that student and nobody else |
 | AcademicYear → FinalYearEntryWaiver | RESTRICT | The year it permitted entry to must stay nameable |
@@ -780,6 +784,26 @@ the resolver — the stage set is matched against the slots on disk instead.
 | Registration → RegistrationHold | CASCADE | A signalement is a fact *about* a registration and means nothing without it |
 | CnpnVersion → CnpnLevelEffectivity | CASCADE | The rule is part of the text that states it |
 | Level / AcademicYear → CnpnLevelEffectivity | RESTRICT | The (level, year) the rule names must stay nameable |
+
+### ⚠ A delete handler has to read this table — the two columns fail in opposite ways
+
+Neither behaviour announces itself, and a handler that guards for neither is the one that ships a
+defect. Measured on the live base 2026-09-11, on `DeleteStageCommand`, which guarded for **neither**:
+
+- **`RESTRICT` reached without a guard is a 500.** EF raises `DbUpdateException`, the inner
+  `PostgresException` is `23503`, and the only content that reaches the operator is the name of a
+  constraint — *« viole la contrainte FK_CurriculumStages_Stages_StageId »*. Worse when it restricts
+  a level down: deleting a stage whose objectives carry scores names `ObjectiveScores`, a table the
+  operator has never seen. The guard counts **every** reason together and refuses with `Conflict`.
+- **`CASCADE` without a count is silent destruction.** Deleting a stage takes its `StageSlots` — the
+  créneaux of *every* year — plus `StageAllowedServices` with its order and « Réservé » modes. The
+  cascade is the right bargain (a créneau of a stage that no longer exists records nothing), but the
+  numbers must be **captured before the delete** and put where they can be read back: the audit
+  register, since a `204` response carries nothing.
+
+`DeleteAcademicYearCommand`, `DeleteCnpnVersionCommand`, `DeleteStageCommand` and
+`DeleteServiceCommand` are the four that do this. Anything new that deletes a catalogue row joins them. → `CLAUDE.md`, « A delete asks the
+schema first ».
 
 ---
 

@@ -385,6 +385,113 @@ anything saying what was lost.
 runs, so thirteen rosters numbered 48-60 print « 48-60 » and the same thirteen scattered through the
 promotion print as a spray of singletons.
 
+## ✅ Deux façons de nommer une découpe, et une seule forme correcte (11/09/2026)
+
+`RosterCut` (`Application/AcademicGroups/Manage/`) — arithmétique pure, sans magasin ni horloge, donc
+les cas tordus se parcourent exhaustivement au lieu de se discuter. Même forme et même raison que
+`RotationTiling`. `PHASES.md` §27.2 ; l'item **0ba** (le canevas) reste ouvert.
+
+**① La coupe se demande dans *une* unité, et le validateur refuse les deux et aucune.**
+`AutoArrangeGroupsCommand` porte `GroupSize?` **ou** `GroupCount?` — « des groupes de 20 » et « la
+5ᵉ MED en 100 groupes » sont deux façons de dire la même coupe, elles diffèrent par ce qui est tenu
+fixe. ⚠ **Un défaut silencieux ici découperait une promotion que personne n'a dimensionnée**, donc la
+règle est dite plutôt que défaultée — et elle vit dans le validateur, donc elle est couverte dans
+`PGSH.Tests/Integration/` (`AutoArrangeUnitEndpointTests`) ou elle ne l'est pas.
+
+**② « Également » veut dire plus grand reste, jamais `Skip`/`Take`.** L'ancienne boucle prenait
+`GroupSize` à la fois, donc le dernier groupe portait le reste : **mesuré à l'écran le 10/09/2026**,
+les 232 inscriptions de la 4ᵉ Pharmacie en taille 20 donnaient **onze groupes de 20 et un de 12**.
+Ce groupe-là partait ensuite en rotation comme une cohorte entière — il occupe la place d'un service
+pour 60 % d'un groupe, et la colonne imprimée ne s'équilibre pas.
+
+- ⚠ **Le chemin « par taille » est corrigé lui aussi, et le nombre de groupes ne bouge pas** : 232 en
+  taille 20 fait toujours ⌈232 ÷ 20⌉ = 12 rosters, mais 4 × 20 + 8 × 19 au lieu de 11 × 20 + 1 × 12.
+  L'écran nomme ce champ « nombre **maximum** d'étudiants par groupe », et une coupe équilibrée
+  respecte ce maximum tout aussi bien.
+- ⚠ **Jamais de groupe vide.** Plus de groupes demandés que d'étudiants : un par étudiant. Un roster
+  que personne n'habite n'est pas un roster plus petit — c'est une ligne que la répartition porte à
+  travers tous les stages de l'année pour rien. Le handler **refuse** avant d'en arriver là, en
+  nommant **les deux nombres** : un refus qui n'en nommerait qu'un renvoie l'opérateur deviner lequel
+  il a mal lu.
+
+**②ter ⚠ …et l'*ordre* des tailles décide de l'équilibre des colonnes — corrigé le 11/09/2026.**
+L'équilibre gagné **dans** un roster était rendu **entre** les partitions, parce que deux actes
+corrects se composaient mal.
+
+- `RosterCut` rendait les grands rosters **en tête** (« les gros d'abord, pour que `Skip`/`Take`
+  parcoure la promotion dans l'ordre des numéros ») — raison qui ne tenait pas : le handler avance
+  avec un décalage courant, donc **toute** permutation place les mêmes étudiants.
+- `PartitionAllocator.Contiguous` donne à la partition A le **premier bloc de numéros**, à B le
+  suivant, etc. C'est la convention de la faculté — et la seule stratégie que le registre montre
+  choisie, **8 fois sur 8**.
+- Mis bout à bout, tous les rosters surdimensionnés atterrissaient dans les premières partitions.
+  ⚠ **Mesuré sur la base vivante le 11/09/2026** : la 3ᵉ MED — 933 inscriptions, 100 rosters (33 de
+  10 puis 67 de 9), 10 partitions — est sortie en
+  **100, 100, 100, 93, 90, 90, 90, 90, 90, 90**. Écart de **10 étudiants** entre colonnes.
+
+⚠ **Et une partition est une *colonne*, c'est-à-dire ce qu'un service tient à un instant.** C'est ce
+qui a fait passer **Santé Publique** et **Simulation Médicale** d'une marge annoncée de **+6**
+(100 places pour une colonne moyenne de 94) à exactement **0** sur trois colonnes sur dix : les deux
+stages étaient assis sur leur plafond sans que rien à l'écran ne le dise. Une seule arrivée tardive,
+ou un seul changement de groupe vers A, B ou C, les faisait dépasser.
+
+- **Le correctif est un ordre, pas une taille.** `(i · larger) mod count < larger` vaut pour
+  exactement `larger` des `count` positions, quel que soit leur PGCD, et les espace aussi
+  régulièrement que les entiers le permettent. Mêmes tailles, même nombre, même convention de blocs
+  contigus : 232 en taille 20 se lit désormais `20, 19, 19, 20, 19, 19…` et la même coupe de la
+  3ᵉ MED donnerait **94, 94, 94, 93 ×7**.
+- ⚠ **Rien n'est rejoué sur la 3ᵉ MED, qui est publiée.** Le correctif est de l'arithmétique : il ne
+  vaut que pour les coupes **à venir**. Les colonnes de la 3ᵉ MED restent 100/100/100/93/90×6 jusqu'à
+  ce que quelqu'un décide de la redécouper — ce que `AssignRotationGroupsCommandHandler` refuse tant
+  qu'une cellule est publiée, et c'est bien ainsi.
+- La morsure est vérifiée : ordre d'origine rétabli → **11 tests tombent** (`RosterCutTests`), dont le
+  balayage de propriété sur les neuf promotions de 2026-2027 × sept comptes de partitions × quatre
+  tailles de bloc.
+
+**②bis ⚠ La coupe est *une* transaction — corrigé le 11/09/2026.** Les rosters d'un texte sont
+enregistrés dès qu'ils sont créés (c'est leur clé générée par le magasin que les inscriptions
+reçoivent ensuite), et les inscriptions ne sont écrites qu'au tout dernier `SaveChanges`. Entre les
+deux, une requête annulée — l'onglet fermé, la connexion tombée : ASP.NET annule le jeton — laissait
+la promotion porteuse de **rosters vides**, toutes ses inscriptions encore détachées.
+
+- ⚠ **Et rejouer l'acte ne répare pas** : la numérotation reprend au plus haut `GroupNumber`
+  existant, donc la seconde tentative construit un **second** jeu à côté des orphelins. Rien à
+  l'écran ne distingue cet état d'une coupe voulue.
+- L'enveloppe est `dbContext.ExecuteAtomicallyAsync`, la même que le plan macro. ⚠ Elle est sûre ici
+  **parce que le handler n'appelle pas `IAuditTrail.RecordOutcome`** : les deux mécanismes ne se
+  composent pas (voir [`docs/audit-calendar.md`](audit-calendar.md)), et ce que cet acte a fait est
+  déjà dans `AuditMetadata` — l'unité demandée et son chiffre. ⚠ Le fournisseur *in-memory* n'honore
+  aucune transaction : cette suite prouve les étapes, jamais l'atomicité.
+
+**③ Les paniers CNPN cassent la division, et c'est le cœur.** Les groupes ne mélangent jamais deux
+textes, donc chaque texte prend des rosters **entiers** : « N » s'apporte entre eux *avant* qu'on ne
+coupe quoi que ce soit (`RosterCut.Apportion`, plus grand reste sur les parties fractionnaires).
+
+- ⚠ **Un texte qui porte des étudiants reçoit toujours au moins un roster** — sinon ses inscrits n'ont
+  aucun groupe, ce qu'aucun arrondi ne doit pouvoir produire — **et jamais plus de rosters qu'il n'a
+  d'étudiants**. L'une ou l'autre borne écarte le total de ce qui a été demandé, et c'est pourquoi
+  l'écran affiche la **forme obtenue** (« 4 × 20, 8 × 19 ») à côté du nombre : « 12 groupes » est vrai
+  des deux répartitions, et seule l'une est celle qu'on a demandée.
+- ⚠ **« 100 » veut dire 100 *de plus*** tant que la numérotation continue depuis le plus haut numéro
+  existant (voir « Numbering restarts at 1 per promotion » ci-dessus). Non traité : la promotion est
+  découpée sur une année vierge dans la campagne, et le dire à l'écran reste à faire.
+
+**② Le canevas de découpage.** Un `.xlsx` d'une ligne par inscription d'une (année, niveau) avec une
+colonne « Groupe » à remplir, puis l'import : les groupes manquants sont créés, chacun est rattaché là
+où la feuille le dit. Les deux moitiés du patron existent déjà (`Get*TemplateQuery` pour la descente,
+`ApplyReinscriptionSheetCommand` pour la remontée ; ClosedXML est référencé par `PGSH.Infrastructure`).
+
+- ⚠ **Ce n'est pas l'acte de masse ci-dessus.** `ApplyBulkRosterAssignmentCommand` vise **un** roster
+  avec une liste nommée ; la feuille les nomme **tous**. Ce qui se réutilise est son vocabulaire —
+  `BulkRosterAssignmentRowStatus` — et ses **deux verbes décidés par étudiant**, qui restent la règle.
+- ⚠ **Aperçu et `ConfirmedCount`, plus l'annulation à côté** : la feuille tombe sur des lignes que
+  personne n'a tapées une par une, exactement comme la délocalisation de masse (item 0aw).
+- ⚠ **Apparier sur `Appogee` *et* CNE**, le CNE étant facultatif.
+- ⚠ **Un tableur peut faire naître des rosters.** C'est ce qui rend la fonction utile, et c'est aussi
+  ce qui demande que « groupes à créer » se compte **à part** et voyage dans la confirmation.
+- ⚠ **Deux textes CNPN dans un même groupe est un refus par ligne, nommé** — la feuille ne doit pas
+  pouvoir contourner en silence ce que le découpage automatique s'interdit par construction.
+
 ## « Retrait » is a status wearing a level's clothes — `Level.IsPromotion`
 The Access base used `CODE_N = 'MED00'` to mark a **withdrawal** rather than a year of study, and
 `LegacyImport.LevelMapper` deliberately kept it as a `Level` with `Year = 0` so the registration — and

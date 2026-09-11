@@ -1,6 +1,7 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
+using PGSH.Application.Audit;
 using PGSH.Application.Stages.Planning;
 using PGSH.Domain.Stages;
 using PGSH.SharedKernel;
@@ -24,7 +25,8 @@ namespace PGSH.Application.Stages.Cohorts.Delete;
 /// </remarks>
 internal sealed class DeleteCohortCommandHandler(
     IApplicationDbContext dbContext,
-    AffectationTollReader tollReader)
+    AffectationTollReader tollReader,
+    IAuditTrail auditTrail)
     : ICommandHandler<DeleteCohortCommand, DeleteCohortResult>
 {
     public async Task<Result<DeleteCohortResult>> Handle(
@@ -62,6 +64,13 @@ internal sealed class DeleteCohortCommandHandler(
         dbContext.CohortMembership.RemoveRange(visitingMemberships);
         dbContext.InternshipAssignments.RemoveRange(assignments);
         dbContext.Cohorts.Remove(cohort);
+
+        // Avant le SaveChanges, qui valide l'entrée de journal en même temps que les suppressions :
+        // une seule unité de travail, donc l'acte et sa trace ne peuvent pas diverger.
+        auditTrail.RecordOutcome(
+            ("cohortLabel", cohort.Label),
+            ("affectationsRemoved", assignments.Count),
+            ("periodsRemoved", periodsRemoved));
 
         await dbContext.SaveChangesAsync(cancellationToken);
 

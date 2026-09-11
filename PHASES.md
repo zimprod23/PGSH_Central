@@ -1,4 +1,4 @@
-# PHASES.md — PGSH Development Roadmap
+﻿# PHASES.md — PGSH Development Roadmap
 
 **Project:** Plateforme de Gestion des Stages Hospitaliers
 **Stack:** .NET 9 · ASP.NET Core Minimal API · EF Core 9 · PostgreSQL · Keycloak · React 19 · .NET Aspire
@@ -3143,3 +3143,147 @@ porte une tentative échouée. **Pour la 7ᵉ année, la règle de l'utilisateur
 (23 569 le sont), ni dues (510 le sont) — en limbes, sur aucune des deux listes. Le jour où la faculté
 tranche que « non noté » vaut « non fait », elles deviennent des dettes d'un coup, sur des étudiants
 qui se croyaient finis. Le remède est l'import d'évaluations et la liste de travail des chefs.
+
+## 📋 Phase 27 — Le découpage et le calendrier, dits comme la faculté les dit (planifié, rien d'écrit)
+
+**Quatre demandes de l'utilisateur, le 10/09/2026.** Elles ne partagent pas un mécanisme mais une
+forme : chacune remplace une façon détournée de dire une chose par la façon dont la faculté la dit
+déjà. ⚠ **Rien n'est implémenté.** `HANDOFF.md` **0ay**, **0az**, **0ba**, **0bb**.
+
+### 27.1 — Un férié qu'on traverse, et la contrainte de planification dite en toutes lettres
+**La règle, telle qu'elle a été donnée** : *la seule* contrainte de planification est qu'une période
+ne **commence** ni ne **finisse** un week-end ou un jour férié. Un férié peut donc tomber **à
+l'intérieur** d'une fenêtre sans l'allonger. Aujourd'hui PGSH ne sait pas le dire : `Holiday` est
+chômé ou n'existe pas.
+
+- **Le drapeau** : `Holiday.CountsAsWorkingDay`, `false` par défaut — aucun axe déjà posé ne bouge.
+- ⚠ **Le cœur technique est une scission, pas une colonne.** `WorkingDayCalendar.IsWorkingDay` répond
+  à **deux** questions à trois appels : `Count` (ce jour compte-t-il dans la durée), `NextWorkingDay`
+  (une fenêtre peut-elle **commencer** là), `Lay` (les deux — il avance la durée *et* son dernier jour
+  devient le `End`). Il en faut deux : « compte dans la durée » et « peut borner une fenêtre ».
+  Week-end : ni l'un ni l'autre. Férié sans drapeau : ni l'un ni l'autre. Férié drapeau : compte, mais
+  ne borne pas.
+- ⚠ **`Lay` doit tenir sa promesse** — « `End` est toujours un jour bornable ». Le Nᵉ jour posé peut
+  tomber sur un férié drapeau : la fenêtre s'étend alors au jour bornable suivant **sans le compter**,
+  sinon le compte et la date de fin se contredisent.
+- ⚠ **`WorkingDaysLost` tombe à 0** pour un férié drapeau, sinon l'écran de couverture réclame des
+  jours que personne n'a perdus.
+- ⚠ **La `PromotionPause` ne prend pas le drapeau** — une semaine d'examens ne compte jamais comme
+  ouvrée. Si le drapeau monte sur `ICalendarClosure`, les pauses répondent `false` et l'interface le
+  dit.
+- **Ordre** : avant de reposer les axes de 2026-2027 (`HANDOFF.md` 0ap).
+
+### ✅ 27.2 — Découper en *N* groupes, et pas seulement en groupes de *N* *(livré le 11/09/2026)*
+« Répartir la 5ᵉ MED en 100 groupes » : on ne donne que 100. `AutoArrangeGroupsCommand` ne porte que
+`GroupSize` ; la cible en **nombre** rejoint la même commande, les deux exclusives.
+
+- ⚠ **« Également » veut dire plus grand reste.** 933 en 100 = **33 × 10 et 67 × 9**, jamais 99 × 10
+  et 1 × 33 — ce que donne le `Skip`/`Take` actuel.
+- ⚠ **Les paniers CNPN cassent la division.** La coupe est par (année, niveau, `CnpnVersionId`) et
+  chaque texte prend des groupes entiers : « 100 » s'apporte entre paniers, et un panier de 7 ne rend
+  pas 12 groupes. Le rapport nomme le nombre réellement créé **et** l'écart.
+- ⚠ **« 100 » veut dire 100 de plus** tant que la numérotation continue : le dire, ou refuser sur une
+  promotion déjà découpée.
+- ✅ ⚠ **Et l'*ordre* des tailles compte autant que les tailles** *(corrigé le 11/09/2026, session
+  62)*. Les grands rosters étaient rendus **en tête**, et `PartitionAllocator.Contiguous` — la
+  convention de la faculté, choisie 8 fois sur 8 — donne à la partition A le premier bloc de numéros :
+  tous les rosters surdimensionnés atterrissaient donc dans les premières colonnes. La 3ᵉ MED est
+  sortie en **100, 100, 100, 93, 90 ×6** au lieu de **94, 94, 94, 93 ×7**, ce qui a consommé toute la
+  marge de Santé Publique et de Simulation Médicale. Le correctif est un ordre, pas une taille.
+  → [`docs/planning-rosters.md`](docs/planning-rosters.md) §②ter.
+
+### 27.3 — Le canevas de découpage
+Une ligne par étudiant, une colonne « Groupe », on remplit, on renvoie — et les groupes manquants sont
+créés. **Les deux moitiés du patron existent** (`Get*TemplateQuery` pour la descente,
+`ApplyReinscriptionSheetCommand` pour la remontée ; ClosedXML est déjà là).
+
+- ⚠ **Ce n'est pas `ApplyBulkRosterAssignmentCommand`**, qui vise **un** roster : la feuille les nomme
+  tous. Ce qui se réutilise est son vocabulaire (`BulkRosterAssignmentRowStatus`) et ses deux verbes
+  décidés par étudiant.
+- ⚠ **Aperçu et `ConfirmedCount` obligatoires**, plus l'annulation à côté — la feuille tombe sur des
+  lignes que personne n'a tapées une par une.
+- ⚠ **Apparier sur `Appogee` *et* CNE** : le CNE est facultatif.
+- ⚠ **Un tableur peut faire naître des rosters** : « groupes à créer » se compte à part et voyage dans
+  la confirmation.
+
+### 27.4 — Un modèle de planification par niveau *(basse priorité, dit par l'utilisateur)*
+« Groupes 1-2 en P1 au service S1, en P2 à S2… » : le circuit nommé une fois, appliqué à une
+promotion ; et la réciproque, enregistrer comme modèle une répartition générée. **Un modèle est la
+grille sans ses dates et sans ses rosters** — (partition, `PeriodNumber`, `ServiceId`) par stage —
+parce que ce qui est fixe est le nombre de colonnes, pas les dates ni les étudiants.
+
+- ⚠ **C'est l'axe qui rend les colonnes comparables** : même *T* = Σ*k*ₛ et même jeu de stages, sinon
+  un contrôle de compatibilité qui **nomme l'écart** plutôt qu'une écriture partielle.
+- ⚠ **Une cellule venue d'un modèle est `CellSource.Pinned`** — une décision humaine. `Arranged` la
+  ferait réécrire par la répartition suivante sous un `Assigned = N` parfaitement normal.
+- ⚠ **La `PartitionStrategy` voyage avec le modèle**, ou « partition A » ne désigne pas les mêmes
+  groupes d'une année à l'autre.
+- **Pourquoi basse priorité** : c'est un confort par-dessus un chemin qui marche (poser l'axe,
+  répartir, épingler), pas un manque.
+
+
+## ✅ Phase 28 — Le registre couvre enfin la planification, et deux actes qui mentaient
+
+**Livré le 10/09/2026** (`HANDOFF.md` A3). La campagne de répartition de 2026-2027 est une boucle
+d'actes destructeurs rejouée par promotion — découper, poser l'axe, répartir, publier, regarder,
+dépublier, réinitialiser, recommencer — et **cinq des actes de cette boucle n'écrivaient rien**.
+
+### 28.1 — Dix codes d'actes de plus
+Côté cohorte : `STAGE_COHORTS_RESET`, `COHORT_DELETED`, `COHORT_SCHEDULE_UNPUBLISHED`,
+`STAGE_SCHEDULE_UNPUBLISHED`. Côté grille : `STAGE_SLOT_CREATED`, `STAGE_SLOT_UPDATED`,
+`STAGE_SLOT_DELETED`, `COHORT_SLOT_PINNED`, `COHORT_SLOT_CLEARED`, `STAGE_SLOT_CELLS_CLEARED`.
+
+- ⚠ **Les actes constructeurs sont audités aussi**, pour la raison qui a fait auditer
+  `AutoArrangeGroupsCommand` : « qui a posé cet axe » est la même question que « qui l'a supprimé ».
+- ⚠ **`forced` voyage dans `COHORT_SCHEDULE_UNPUBLISHED`** : forcé, cet acte détruit des notes de
+  chef et des journées de présence, et elles ne survivent nulle part ailleurs.
+
+### 28.2 — ⚠ Deux actes portaient `IAuditableCommand` depuis la phase 20 et n'écrivaient rien
+`DeleteAllGroupsCommand` et `EmptyAllYearGroupsCommand` n'écrivent que par `ExecuteDelete` /
+`ExecuteUpdate`, qui contournent le change tracker, et **n'appelaient jamais `SaveChanges`** — la
+ligne mise en attente par `AuditLogPipelineBehavior` mourait avec la portée de la requête. La phase 20
+les comptait faits. Corrigé par un `SaveChangesAsync` explicite, et couvert.
+
+- ⚠ **Le trou de couverture est la vraie leçon** : le fournisseur *in-memory* **refuse**
+  `ExecuteDelete`, donc le chemin de succès de ces actes n'était atteignable par **aucun** test du
+  dépôt — les tests de handler existants n'assertaient que leurs refus parce que c'est tout ce qui
+  pouvait s'exécuter. `TestHarness.NewSqliteContext` l'ouvre (SQLite est relationnel) ;
+  `ExecuteDeleteAuditTests` est le fichier. Cela reste **loin** d'un vrai PostgreSQL : voir 18.x.
+
+### 28.3 — `IAuditTrail` : une entrée dit ce qu'elle a emporté
+Une commande ne connaît que ce qui a été *demandé*. Le behavior **ouvre** l'entrée, le handler y
+dépose son constat avant son `SaveChanges`, et la piste **remplace** l'entité en attente au lieu de
+la modifier — `AuditLog` reste immuable. C'est aussi ce qui fait entrer dans l'entrée l'**année
+réellement atteinte**, qu'une commande omettant l'année ne peut pas nommer.
+
+- **Un acte sans effet s'enregistre avec son zéro** ; un acte **refusé** continue de n'écrire rien.
+- ⚠ **Incompatible avec `ExecuteAtomicallyAsync`**, dont la reprise re-stage l'entrée telle
+  qu'ouverte : deux lignes pour un acte. Écrit dans `IAuditTrail`.
+
+### 28.4 — ⚠ « Publier » n'était pas audité du tout, alors que « Dépublier » l'était (11/09/2026)
+Le registre tenait le *défaire* sans le *faire*, sur l'acte qui crée les `ServicePeriod` — tout ce que
+les chefs notent et tout ce que les présences visent. `COHORT_SCHEDULE_PUBLISHED` et
+`STAGE_SCHEDULE_PUBLISHED` (portée visée comprise, l'acte étant scopable comme son inverse).
+
+- ⚠ **`allowOverCapacity` voyage avec l'entrée**, exactement comme `forced` en 28.1 : passer outre un
+  service ayant déclaré refuser d'être dépassé est un geste posé **contre** ce refus.
+- ⚠ **Le `SaveChanges` du handler est inconditionnel**, là où le publisher n'écrit que s'il a des
+  périodes à poser — c'est la forme *conditionnelle* du défaut de 28.2, et sa troisième occurrence.
+  « Publier » rejoué sur un stage déjà publié n'aurait sinon rien laissé.
+- `PublishCohortAsync` répond un **nombre** de périodes et non un `Result` nu : 28.3 exige qu'une
+  entrée dise *combien*. `PublishScheduleAuditTests`.
+- ⚠ **Trouvé en comparant deux commandes, pas par un balayage.** `IAuditableCommand` est déclaratif,
+  donc **rien ne signale un acte qui ne le déclare pas** — c'est la limite structurelle du sweep de
+  `0bd`, qui ne peut interroger que les actes déjà marqués.
+
+### Ce qui reste
+- **L'atomicité de ces trois actes.** `DeleteAllGroups`, `EmptyAllYearGroups` et `DeleteAllCohorts`
+  enchaînent jusqu'à six `ExecuteDelete` **hors transaction** : une annulation à mi-parcours laisse
+  une destruction à moitié faite. `ExecuteAtomicallyAsync` est l'outil, et il faudra d'abord régler
+  son interaction avec la piste (28.3). `HANDOFF.md` **0bc**.
+- **Le reste des actes auditables n'a pas été balayé de bout en bout** : seuls ceux qui ne
+  sauvegardaient pas l'ont été. Un acte dont le `SaveChanges` est *conditionnel* écrirait de la même
+  façon dans le cas non couvert. `HANDOFF.md` **0bd**. ⚠ 28.4 en est la troisième occurrence.
+- ⚠ **Et le balayage ne peut pas voir un acte qui ne se déclare pas.** Les deux publications l'ont
+  montré : la question « cet acte devrait-il être audité ? » ne se pose qu'en lisant les actes
+  symétriques deux à deux (publier/dépublier, créer/supprimer, appliquer/annuler).

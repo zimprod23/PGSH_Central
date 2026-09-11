@@ -101,7 +101,7 @@ internal sealed class BulkRosterAssignmentPlanner(
 
             rows.Add(new BulkRosterAssignmentRow(
                 registration.Id, registration.StudentName, registration.Cne, registration.Appogee,
-                registration.CurrentGroupLabel, status, message, source));
+                registration.CurrentGroupLabel, registration.AcademicGroupId, status, message, source));
 
             if (status.IsApplicable())
                 work.Add(new PlannedRosterAssignment(
@@ -175,7 +175,9 @@ internal sealed class BulkRosterAssignmentPlanner(
 
     /// <summary>One unresolved line of the selection, in this act's vocabulary.</summary>
     private static BulkRosterAssignmentRow Refuse(UnresolvedTarget target) =>
-        new(target.RegistrationId, target.StudentName, target.Cne, target.Appogee, null,
+        // Both roster fields are null: an unresolved line names nobody, so there is no roster to
+        // leave — and no source for the report to collect.
+        new(target.RegistrationId, target.StudentName, target.Cne, target.Appogee, null, null,
             target.Reason == TargetResolution.NotFound
                 ? BulkRosterAssignmentRowStatus.NotFound
                 : BulkRosterAssignmentRowStatus.WrongYear,

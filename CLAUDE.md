@@ -94,9 +94,45 @@ area, so they are worth carrying in your head on **every** change:
 - **Confirm what cannot be undone.** A bulk act that writes onto rows nobody named carries the count
   the operator was shown and refuses on a mismatch — a boolean cannot do it, because a row created
   between the preview and the apply is the whole risk.
+- **An audited act has to reach a `SaveChanges`, and its entry has to say *how much*.**
+  `AuditLogPipelineBehavior` stages the row **before** the handler and the handler's `SaveChanges`
+  commits it — which is what makes a refused act write nothing, and what makes an act that never
+  saves write nothing *either*. ⚠ So a handler writing only through `ExecuteDelete`/`ExecuteUpdate`
+  ends with an explicit `SaveChangesAsync`. And the code alone is not the record: « Réinitialiser les
+  cohortes » on a virgin promotion and on a published one are the same code and unrelated events, so
+  the handler deposits what it actually destroyed through **`IAuditTrail.RecordOutcome`**, before it
+  saves. → `docs/audit-calendar.md`
 - **A validator describes what a *save* must satisfy, not what a good record looks like.** It is
   applied to rows that already exist; a rule the imported data fails makes those rows read-only.
   → its own section below
+- **A delete asks the schema first, or the constraint answers for it.** A `RESTRICT` FK reached
+  without a guard surfaces as `DbUpdateException` → a **500** whose only content is the name of a
+  PostgreSQL constraint; a `CASCADE` one takes its children **silently**. `SCHEMA.md` says which is
+  which, and the count has to be asked *before* the delete — afterwards there is nothing left to
+  count. Count every reason **together** rather than short-circuiting on the first: a user who clears
+  one and is then told about the next has been sent round the loop twice, and the second trip looks
+  like the first fix having failed. `DeleteAcademicYearCommand` is the shape; `DeleteStageCommand` and
+  `DeleteServiceCommand` were the two that had no guard at all. ⚠ And a `CASCADE` is not automatically
+  the right bargain: it is, when the children are meaningless without the parent (a créneau of a
+  deleted stage), and it is **not** when the join row hangs off a *second* aggregate that survives
+  amputated — `StageAllowedService` carries a `Rank` and a `PlacementMode`, so deleting a service
+  refuses on the stages authorising it rather than punching a hole in an order
+  `ServiceRotationOrder` holds contiguous from 1. → [`docs/services.md`](docs/services.md)
+- **`ErrorType.Problem` means a *fault*, and nothing else may use it.** `CustomResults` maps it to
+  **500**, and the client discards `detail` above 500 (`errorMiddleware` shows the fixed « Une erreur
+  serveur est survenue »), so a business refusal typed `Problem` loses the one sentence that explains
+  it. Thirteen did. The worst was `AcademicYearResolver`'s `NoCurrentAcademicYear` — the fallback of
+  *every* handler that omits a year, i.e. a base with no current year made **every screen** 500 with
+  nothing on any of them saying to pick a year. A refusal is `Conflict` (the request meets the state),
+  `Validation` (the request is malformed), `NotFound` or `Forbidden`; `Problem` is for an unreachable
+  archive or a `pg_dump` out of disk. → `PGSH.Tests/Integration/ErrorStatusMappingEndpointTests.cs`
+- **A multi-step write is one `ExecuteAtomicallyAsync`, or it is a half-written state somebody will
+  read as deliberate.** ASP.NET cancels the token whenever the tab closes or the connection drops, so
+  "the request stopped between two saves" is the ordinary case, not the exotic one. The roster cut
+  committed its rosters and their members separately — a promotion left carrying **empty rosters**,
+  and re-running builds a *second* set beside them because the numbering continues. ⚠ It does **not**
+  compose with `IAuditTrail.RecordOutcome` (a retry re-stages the entry as opened and the trail holds
+  its replacement, giving two rows): a handler picks one. → « Shared helpers », `IAuditTrail`
 - **The base is live.** Take a `pg_dump -Fc` before every bulk act, and never write to the base to
   verify something. → [`docs/operations.md`](docs/operations.md)
 
@@ -151,6 +187,12 @@ Every endpoint implements `IEndpoint` (defined in `PGSH.API/Endpoints/IEndpoint.
 ### Result Pattern
 All handlers return `Result<T>`. Endpoints map failures to HTTP problem responses via `CustomResults.Problem(result)`. Never throw exceptions for expected business failures — use `Result.Failure(Error.NotFound(...))` etc.
 
+⚠ **The error's `ErrorType` is what picks the status code**, in `CustomResults.GetStatusCode`:
+`Validation` → 400, `NotFound` → 404, `Conflict` → 409, `Forbidden` → 403, and `Failure`/`Problem`
+→ 500. `Failure` additionally *masks* its own message (« An unexpected error occurred »). So typing a
+business refusal `Problem` is how a carefully written sentence becomes « Une erreur serveur est
+survenue » on screen — see the rule above.
+
 ⚠ **`Result<T>` cannot carry a null success value.** Its implicit operator is
 `value is not null ? Success(value) : Failure(Error.NullValue)`, so returning `null` from a method
 declared `Result<T?>` silently produces a *failure*, not an empty success. Never model an optional
@@ -194,6 +236,19 @@ Scalar UI at `/scalar/v1`, Swagger UI at `/swagger`. Both are configured with Ke
 - ⚠ **Known blind spot:** `UseInMemoryDatabase` ignores FK constraints, unique indexes, `OnDelete` behaviour and
   SQL translatability — constraint and query-translation defects remain invisible. **Testcontainers is still
   not built**; do not read a green suite as proof that a query runs on PostgreSQL.
+  - ⚠ **And it *refuses* `ExecuteDelete` / `ExecuteUpdate` outright** — « not supported by the current
+    database provider ». A handler that writes only through them therefore has a **success path no
+    test in this repository can reach by any route**: the handler tests can assert its refusals and
+    nothing else, and an endpoint test 500s before it touches the act. Measured 2026-09-10, and it is
+    how `DeleteAllGroupsCommand` and `EmptyAllYearGroupsCommand` carried `IAuditableCommand` from
+    Phase 20 onward while **writing no journal entry at all** — every write went through
+    `ExecuteDelete`, so nothing ever called `SaveChanges` to commit the pending row.
+  - **`TestHarness.NewSqliteContext(connection)` is the way in** (`OpenSqlite()` holds the
+    connection open — an SQLite in-memory database dies with it). Relational, so it runs both, and it
+    enforces foreign keys and unique indexes as a bonus — that is what exposed every fixture building
+    a `Hospital` with `CenterId = 0`. ⚠ **It is not PostgreSQL**: no filtered indexes, no
+    `NULLS NOT DISTINCT`, different type affinities. It answers « does this act run and write », never
+    anything about the real schema. `ExecuteDeleteAuditTests` is the pattern.
   - ⚠ **It bit for real on 2026-08-26.** `CohortProvisioner` projected
     `g.Registrations.Select(r => r.CnpnVersionId ?? r.Student.CnpnVersionId).Distinct().ToList()`
     *inside* a `Select(g => new { … })`. The subquery's element is a computed value carrying no key,

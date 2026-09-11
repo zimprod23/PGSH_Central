@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Stages.Cohorts.UnpublishSchedule;
 using PGSH.Application.Stages.Planning;
@@ -33,7 +33,8 @@ public class UnpublishScheduleTests
     private static SchedulePublisher Publisher(ApplicationDbContext db) =>
         new(db, new ServiceOccupancyCalculator(db), new ServiceIntakeCalculator(db));
 
-    private static UnpublishCohortScheduleCommandHandler Handler(ApplicationDbContext db) => new(db);
+    private static UnpublishCohortScheduleCommandHandler Handler(ApplicationDbContext db) =>
+        new(db, new RecordingAuditTrail());
 
     private static async Task<(Cohort Cohort, Service Service)> SeedPublishedAsync(
         ApplicationDbContext db, int students = 2)

@@ -1,4 +1,4 @@
-using PGSH.Application.Abstractions.Messaging;
+﻿using PGSH.Application.Abstractions.Messaging;
 
 namespace PGSH.Application.Stages.Cohorts.DeleteAll;
 
@@ -13,7 +13,21 @@ namespace PGSH.Application.Stages.Cohorts.DeleteAll;
 /// exactly as everywhere else.
 /// </remarks>
 public sealed record DeleteAllCohortsCommand(int StageId, int? AcademicYearId = null)
-    : ICommand<DeleteAllCohortsResult>;
+    : ICommand<DeleteAllCohortsResult>, IAuditableCommand
+{
+    public string AuditAction => "STAGE_COHORTS_RESET";
+    public string AuditEntityType => "Stage";
+    public string? AuditEntityId => StageId.ToString();
+
+    /// <summary>
+    /// ⚠ L'année demandée, qui peut être absente — « l'année en cours ». Celle que l'acte a
+    /// réellement touchée est écrite par le handler, qui est le seul à l'avoir résolue : une entrée
+    /// disant <c>null</c> ne permettrait pas de savoir quelle promotion a été réinitialisée.
+    /// </summary>
+    public string? AuditMetadata => AcademicYearId is null
+        ? null
+        : AuditMetadataJson.Of(("requestedAcademicYearId", AcademicYearId.Value));
+}
 
 /// <param name="CohortsRemoved">Cohortes deleted.</param>
 /// <param name="AffectationsRemoved">Affectations that hung off them.</param>

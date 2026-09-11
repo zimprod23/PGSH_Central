@@ -2,10 +2,12 @@
 using Level = PGSH.Domain.Common.Utils.Level;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.Data.Sqlite;
 using NSubstitute;
 using PGSH.Application.Abstractions.Authentication;
 using PGSH.Application.Abstractions.Authorization;
 using PGSH.Application.AcademicYears;
+using PGSH.Application.Audit;
 using PGSH.Application.Stages.Delocalization;
 using PGSH.Application.Stages.Delocalization.Bulk;
 using PGSH.Application.Stages.Evaluations;
@@ -41,6 +43,9 @@ public static class TestHarness
     public const int LevelId        = 1;
     public const int StageId        = 1;
     public const int HospitalId     = 1;
+
+    /// <summary>⚠ 99, not 1: a fixture naming its own centre must not collide with this one.</summary>
+    public const int DefaultCenterId = 99;
 
     /// <summary>The superseded seven-year text. Recorded but governing no intake, so it never wins
     /// version selection — tests that want it name it explicitly.</summary>
@@ -81,6 +86,46 @@ public static class TestHarness
         new(new DbContextOptionsBuilder<ApplicationDbContext>()
             .UseNpgsql("Host=127.0.0.1;Port=1;Database=translation-only;Username=none;Password=none")
             .Options);
+
+    /// <summary>
+    /// A context on <b>SQLite in-memory</b>, schema created — for the acts the in-memory provider
+    /// cannot run at all.
+    /// </summary>
+    /// <remarks>
+    /// <para>⚠ <b>Why it had to exist.</b> <c>ExecuteDelete</c> and <c>ExecuteUpdate</c> are
+    /// <i>refused outright</i> by the in-memory provider — « not supported by the current database
+    /// provider ». So a handler that writes only through them has a success path that <b>no test in
+    /// this repository could reach</b>, by any route: the handler tests could only assert its
+    /// refusals, and the endpoint tests 500 before they touch it. That is exactly how
+    /// <c>DeleteAllGroupsCommand</c> and <c>EmptyAllYearGroupsCommand</c> carried
+    /// <c>IAuditableCommand</c> while writing no journal entry at all, from phase 20 to 10/09/2026.</para>
+    ///
+    /// <para>SQLite is relational, so it runs both, and it also enforces foreign keys and unique
+    /// indexes. ⚠ <b>It is still not PostgreSQL</b> — no filtered indexes, no <c>NULLS NOT
+    /// DISTINCT</c>, different type affinities — so this is a way to <i>execute</i> those acts, never
+    /// a proof about the real schema. Translatability stays <c>SqlTranslationTests</c>'s question and
+    /// the real base stays Testcontainers' (still unbuilt).</para>
+    ///
+    /// <para>⚠ The connection is kept open by the caller: an SQLite in-memory database lives exactly
+    /// as long as its connection, so disposing it early empties the store mid-test.</para>
+    /// </remarks>
+    public static ApplicationDbContext NewSqliteContext(SqliteConnection connection)
+    {
+        var db = new ApplicationDbContext(new DbContextOptionsBuilder<ApplicationDbContext>()
+            .UseSqlite(connection)
+            .Options);
+
+        db.Database.EnsureCreated();
+        return db;
+    }
+
+    /// <summary>An open SQLite in-memory connection, to be disposed after the context.</summary>
+    public static SqliteConnection OpenSqlite()
+    {
+        var connection = new SqliteConnection("DataSource=:memory:");
+        connection.Open();
+        return connection;
+    }
 
     /// <summary>A caller identified by <paramref name="keycloakId"/> holding exactly <paramref name="roles"/>.</summary>
     public static IUserContext UserContext(Guid keycloakId, params string[] roles)
@@ -298,9 +343,33 @@ public static class TestHarness
     public static Hospital SeedHospital(
         this ApplicationDbContext db, int hospitalId, string name, string city = "Rabat")
     {
-        var hospital = new Hospital { Id = hospitalId, Name = name, City = city };
+        var hospital = new Hospital
+        {
+            Id = hospitalId, Name = name, City = city, CenterId = db.DefaultCenter().Id,
+        };
         db.Hospitals.Add(hospital);
         return hospital;
+    }
+
+    /// <summary>
+    /// The centre every seeded hospital hangs off, created once per context.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ <b>It was missing, and only a relational provider could say so.</b> <c>Hospital.CenterId</c>
+    /// is a non-nullable foreign key, and the fixtures left it at <c>0</c> — a hospital in a centre
+    /// that does not exist. The in-memory provider ignores foreign keys, so every fixture in this
+    /// project was building a graph PostgreSQL would refuse, and nothing said so until
+    /// <see cref="NewSqliteContext"/> ran one. Idempotent, and it never takes an id a fixture might
+    /// have chosen for a centre of its own.
+    /// </remarks>
+    public static Center DefaultCenter(this ApplicationDbContext db)
+    {
+        var existing = db.Centers.Local.FirstOrDefault(c => c.Id == DefaultCenterId);
+        if (existing is not null) return existing;
+
+        var centre = new Center { Id = DefaultCenterId, Name = "CHU Ibn Sina", City = "Rabat" };
+        db.Centers.Add(centre);
+        return centre;
     }
 
     /// <summary>
@@ -316,7 +385,10 @@ public static class TestHarness
         var hospital = db.Hospitals.Local.FirstOrDefault(h => h.Id == wanted);
         if (hospital is null)
         {
-            hospital = new Hospital { Id = wanted, Name = "CHU Ibn Sina", City = "Rabat" };
+            hospital = new Hospital
+            {
+                Id = wanted, Name = "CHU Ibn Sina", City = "Rabat", CenterId = db.DefaultCenter().Id,
+            };
             db.Hospitals.Add(hospital);
         }
 
@@ -624,6 +696,44 @@ public static class TestHarness
         return coverage;
     }
 
+    /// <summary>
+    /// Requires <paramref name="stage"/> of the text <paramref name="cnpnVersionId"/> — the row that
+    /// makes « ce que l'étudiant doit » a fact about a CNPN rather than about the stage.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ <c>CurriculumStages.StageId</c> is <c>RESTRICT</c>, so this is also what a stage delete has
+    /// to refuse over. The in-memory provider holds no foreign key, so the refusal has to be the
+    /// handler's — see <c>DeleteStageGuardTests</c>.
+    /// </remarks>
+    public static CurriculumStage SeedCurriculumStage(
+        this ApplicationDbContext db, int cnpnVersionId, Stage stage,
+        int coefficient = 1, int durationInDays = 30)
+    {
+        var curriculum = db.Curriculums.Local
+            .FirstOrDefault(c => c.CnpnVersionId == cnpnVersionId && c.LevelId == stage.LevelId);
+
+        if (curriculum is null)
+        {
+            curriculum = new Curriculum
+            {
+                Id = cnpnVersionId * 1000 + stage.LevelId,
+                LevelId = stage.LevelId,
+                CnpnVersionId = cnpnVersionId,
+            };
+            db.Curriculums.Add(curriculum);
+        }
+
+        var required = new CurriculumStage
+        {
+            CurriculumId = curriculum.Id, Curriculum = curriculum,
+            StageId = stage.Id, Stage = stage,
+            Coefficient = coefficient, DurationInDays = durationInDays,
+        };
+
+        db.CurriculumStages.Add(required);
+        return required;
+    }
+
     public static StageObjective SeedObjective(
         this ApplicationDbContext db, Stage stage, int id, string label, int weight, bool mandatory = false)
     {
@@ -679,5 +789,34 @@ public static class TestHarness
 
         db.PromotionPauses.Add(pause);
         return pause;
+    }
+}
+
+
+/// <summary>
+/// Une piste d'audit qui retient ce qu'on lui dit, sans rien derrière.
+/// </summary>
+/// <remarks>
+/// <para>Un test de handler appelle le handler <b>directement</b>, donc
+/// <c>AuditLogPipelineBehavior</c> n'a rien ouvert et la vraie <c>AuditTrail</c> serait
+/// silencieuse — ce qui est exactement son comportement voulu hors d'un acte auditable, et
+/// exactement ce qui rendrait le constat intestable ici.</para>
+///
+/// <para>⚠ <b>Ce double ne prouve pas que l'entrée est écrite</b>, seulement que le handler a dit
+/// ce qu'il a fait. Que la ligne atteigne la base est la question de <c>PGSH.Tests/Integration/</c>,
+/// et c'est là qu'elle se pose : c'est précisément le trou par lequel « Supprimer les groupes » a
+/// pu porter <c>IAuditableCommand</c> pendant des semaines sans jamais rien écrire.</para>
+/// </remarks>
+public sealed class RecordingAuditTrail : IAuditTrail
+{
+    private readonly Dictionary<string, object?> _fields = [];
+
+    /// <summary>Le dernier constat déposé pour chaque clé, dans l'ordre où les clés sont apparues.</summary>
+    public IReadOnlyDictionary<string, object?> Fields => _fields;
+
+    public void RecordOutcome(params (string Key, object? Value)[] fields)
+    {
+        foreach (var (key, value) in fields)
+            _fields[key] = value;
     }
 }

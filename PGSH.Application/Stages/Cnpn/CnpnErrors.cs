@@ -1,4 +1,4 @@
-using PGSH.Domain.Common.Utils;
+﻿using PGSH.Domain.Common.Utils;
 using PGSH.Domain.Stages;
 using PGSH.SharedKernel;
 
@@ -20,7 +20,7 @@ public static class CnpnErrors
     /// back through the list of years, so there is nothing to walk — this is a base the import has not
     /// run against yet, not a student PGSH cannot place.
     /// </summary>
-    public static readonly Error NoAcademicYears = Error.Problem(
+    public static readonly Error NoAcademicYears = Error.Conflict(
         "Cnpn.NoAcademicYears",
         "Aucune année universitaire enregistrée : l'attribution des CNPN se déduit de la suite des "
         + "années, et il n'y en a aucune à parcourir.");
@@ -38,7 +38,7 @@ public static class CnpnErrors
     /// <c>CnpnVersioning</c> reads its intake years out of <c>AcademicYears</c>, which is empty when
     /// the migration chain runs before the import — see <c>CnpnIntakeYearsBackfill</c>.
     /// </remarks>
-    public static Error NoTextGovernsAnyIntake(int studentsConsidered) => Error.Problem(
+    public static Error NoTextGovernsAnyIntake(int studentsConsidered) => Error.Conflict(
         "Cnpn.NoTextGovernsAnyIntake",
         $"Aucun des {studentsConsidered} étudiants n'a pu être rattaché à un CNPN : aucun texte "
         + "enregistré ne revendique d'année d'entrée. Un texte sans « année d'entrée » n'est pas "
@@ -51,7 +51,7 @@ public static class CnpnErrors
     /// fallback to the newest version: guessing here would put an old student under a CNPN that
     /// shortens their degree.
     /// </summary>
-    public static Error NoVersionForIntake(AcademicProgram program, DateOnly entryStart) => Error.Problem(
+    public static Error NoVersionForIntake(AcademicProgram program, DateOnly entryStart) => Error.Conflict(
         "Cnpn.NoVersionForIntake",
         $"Aucun CNPN enregistré pour la filière {program} couvrant une entrée en {entryStart:yyyy}.");
 
@@ -73,7 +73,7 @@ public static class CnpnErrors
         $"Le CNPN {code} ne régit aucune promotion : renseignez son année d'entrée en vigueur avant "
         + "d'y rattacher des étudiants.");
 
-    public static readonly Error TargetNothingToApply = Error.Problem(
+    public static readonly Error TargetNothingToApply = Error.Conflict(
         "Cnpn.TargetNothingToApply",
         "Aucun étudiant à rattacher : la règle ne retient personne, ou tous sont déjà rattachés.");
 
@@ -101,7 +101,7 @@ public static class CnpnErrors
         "Cnpn.CloneProgramMismatch",
         $"Les CNPN {from} et {to} ne relèvent pas de la même filière.");
 
-    public static readonly Error CloneSourceEmpty = Error.Problem(
+    public static readonly Error CloneSourceEmpty = Error.Conflict(
         "Cnpn.CloneSourceEmpty",
         "Le CNPN source ne comporte aucune exigence à reprendre.");
 
@@ -152,7 +152,7 @@ public static class CnpnErrors
         $"Vous avez confirmé {confirmed} inscription(s) à re-rattacher, mais {actual} le seraient "
         + "maintenant. Relancez l'aperçu avant d'appliquer.");
 
-    public static readonly Error EffectivityNothingToApply = Error.Problem(
+    public static readonly Error EffectivityNothingToApply = Error.Conflict(
         "CnpnEffectivity.NothingToApply",
         "Aucune inscription à re-rattacher : toutes relèvent déjà de ce texte, ou aucune n'existe "
         + "encore pour ce niveau depuis l'entrée en vigueur.");

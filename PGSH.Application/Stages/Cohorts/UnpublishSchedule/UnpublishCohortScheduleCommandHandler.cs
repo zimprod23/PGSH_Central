@@ -1,6 +1,7 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
+using PGSH.Application.Audit;
 using PGSH.Domain.Stages;
 using PGSH.SharedKernel;
 
@@ -17,7 +18,9 @@ namespace PGSH.Application.Stages.Cohorts.UnpublishSchedule;
 /// longer an undo, and the caller is told exactly what it would cost before being allowed to
 /// insist.</para>
 /// </summary>
-internal sealed class UnpublishCohortScheduleCommandHandler(IApplicationDbContext dbContext)
+internal sealed class UnpublishCohortScheduleCommandHandler(
+    IApplicationDbContext dbContext,
+    IAuditTrail auditTrail)
     : ICommandHandler<UnpublishCohortScheduleCommand, UnpublishResult>
 {
     public async Task<Result<UnpublishResult>> Handle(
@@ -64,6 +67,15 @@ internal sealed class UnpublishCohortScheduleCommandHandler(IApplicationDbContex
 
         int removed = assignments.Sum(a => a.RemovePublishedPeriods());
         int adHocKept = assignments.Sum(a => a.ServicePeriods.Count);
+
+        // ⚠ Les notes et les présences perdues sont enregistrées ici parce qu'elles ne sont nulle
+        // part ailleurs après l'acte : elles cascadent avec la période et rien ne les garde. Le
+        // registre est la seule chose qui puisse encore dire qu'elles ont existé.
+        auditTrail.RecordOutcome(
+            ("periodsRemoved", removed),
+            ("evaluationsLost", toll.Evaluated),
+            ("attendanceDaysLost", toll.Attendance),
+            ("adHocPeriodsKept", adHocKept));
 
         await dbContext.SaveChangesAsync(cancellationToken);
 

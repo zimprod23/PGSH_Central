@@ -337,3 +337,39 @@ those rows; until then, printing the note beats printing nothing on 95% of the d
 = `SourceNoteOnly`. The two `ServiceChefAssignment` rows in the base were linked to try
 the mechanism out, so resolving them prints a **test account** beside real students. The order above
 is still the rule and is still tested; the constant says how much of it is in force. See below.
+
+## ✅ Supprimer un service : ce qui le retient, et ce que la cascade emporte (2026-09-11)
+`DeleteServiceCommandHandler` ne gardait **rien** — un commentaire
+« *(e.g., Check if students are currently assigned to this service)* » tenait la place de la garde —
+et le schéma répondait donc à sa place, de deux façons opposées selon ce qui nommait le service.
+
+- **`CohortSlotAssignment.ServiceId` et `ServicePeriod.ServiceId` sont `RESTRICT`.** La suppression
+  remontait en `DbUpdateException` → **500 « Server failure »**, dont le client jette même le
+  `detail`. Sur cette base c'est le cas **ordinaire** et non le cas rare : les ~105 000 périodes
+  reprises de l'Access suffisent à retenir presque tout service réel, et l'écran ne disait pas que
+  le bouton ne marcherait jamais.
+- **`ServiceLevelCapacity`, `ServiceChefAssignment` et le rattachement du personnel sont `CASCADE`.**
+  Un service libre partait donc avec ses quotas, l'historique de ses chefs et ses employés,
+  silencieusement — et l'acte n'était pas audité, donc rien ne pouvait plus dire combien.
+
+Le handler compte maintenant **toutes** les raisons ensemble et refuse en `Conflict` ; ce que la
+cascade emporte part au registre (`SERVICE_DELETED`) avant le `SaveChanges`.
+
+⚠ **Les stages qui autorisent le service refusent, au lieu de cascader** — et c'est la seule
+différence de forme avec `DeleteStageCommand`. `StageAllowedServices` est en `CASCADE` lui aussi,
+mais la ligne joint **deux entités indépendantes** et c'est le *stage* qui survit amputé : elle porte
+un `Rank` et un `PlacementMode`, deux décisions humaines, et `ServiceRotationOrder` tient les rangs
+pour **contigus depuis 1**. Une ligne retirée par la base laisse un trou, donc un numéro affiché à
+côté d'un service qui n'est plus la place qu'il occupe dans la file — un nombre pour deux choses.
+Le retrait passe par `ServiceRankWriter`, qui rebase, et c'est là que le refus renvoie.
+
+⚠ **Le conseil du refus dépend de ce qui retient**, parce que les deux situations n'ont pas la même
+issue : des cellules et des autorisations se retirent ; des périodes déjà enregistrées, **non** —
+elles sont au dossier de l'étudiant. Dire « retirez ces rattachements d'abord » à quelqu'un que
+retient l'histoire l'enverrait chercher une manœuvre qui n'existe pas. Il n'y a pas encore d'archivage
+d'un service : la seule chose à faire d'un service fermé est de le retirer des listes de services
+autorisés pour que plus aucun stage ne l'utilise.
+
+Couvert par `PGSH.Tests/Application/DeleteServiceGuardTests.cs` (la garde, et le constat déposé au
+registre) et `PGSH.Tests/Integration/ServiceDeleteEndpointTests.cs` (le **409 avec sa phrase**, qu'un
+test de handler ne voit pas).

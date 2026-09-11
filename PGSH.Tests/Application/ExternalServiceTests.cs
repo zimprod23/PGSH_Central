@@ -52,7 +52,7 @@ public class ExternalServiceTests
         db.SeedSlot(stage, 1, 1, Start, End);
         await db.SaveChangesAsync();
 
-        var result = await new SetCohortSlotAssignmentCommandHandler(db, new GroupScheduleConflictGuard(db))
+        var result = await new SetCohortSlotAssignmentCommandHandler(db, new GroupScheduleConflictGuard(db), new RecordingAuditTrail())
             .Handle(new SetCohortSlotAssignmentCommand(cohort.Id, 1, ExternalServiceId), default);
 
         result.IsFailure.Should().BeTrue();

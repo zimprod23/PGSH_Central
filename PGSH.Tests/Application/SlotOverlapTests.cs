@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Stages.Slots;
 using PGSH.Domain.Common.Utils;
@@ -51,7 +51,7 @@ public class SlotOverlapTests
         new(db, new SlotOverlapGuard(db));
 
     private static UpdateStageSlotCommandHandler UpdateHandler(ApplicationDbContext db) =>
-        new(db, new SlotOverlapGuard(db), new GroupScheduleConflictGuard(db));
+        new(db, new SlotOverlapGuard(db), new GroupScheduleConflictGuard(db), new RecordingAuditTrail());
 
     private static CreateStageSlotCommand NewSlot(
         int stageId, int periodNumber, DateOnly start, DateOnly end, int? academicYearId = null) =>

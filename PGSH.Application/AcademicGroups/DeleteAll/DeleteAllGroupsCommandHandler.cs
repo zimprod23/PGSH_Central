@@ -1,6 +1,7 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
+using PGSH.Application.Audit;
 using PGSH.Application.Stages.Planning;
 using PGSH.Domain.Common.Utils;
 using PGSH.Domain.Registrations;
@@ -26,7 +27,8 @@ namespace PGSH.Application.AcademicGroups.DeleteAll;
 /// </remarks>
 internal sealed class DeleteAllGroupsCommandHandler(
     IApplicationDbContext dbContext,
-    AffectationTollReader tollReader)
+    AffectationTollReader tollReader,
+    IAuditTrail auditTrail)
     : ICommandHandler<DeleteAllGroupsCommand, int>
 {
     public async Task<Result<int>> Handle(DeleteAllGroupsCommand request, CancellationToken cancellationToken)
@@ -51,8 +53,16 @@ internal sealed class DeleteAllGroupsCommandHandler(
             .Select(g => g.Id)
             .ToListAsync(cancellationToken);
 
+        // ⚠ Un acte qui ne trouve rien à supprimer est un acte, pas un refus : il s'enregistre, avec
+        // son zéro. Sans cela l'absence de ligne recouvrirait deux états — « personne n'a joué cet
+        // acte » et « quelqu'un l'a joué sur une promotion déjà vide » — et c'est précisément ce que
+        // le registre existe pour départager.
         if (groupIds.Count == 0)
+        {
+            auditTrail.RecordOutcome(("rostersDeleted", 0), ("cohortsDeleted", 0));
+            await dbContext.SaveChangesAsync(cancellationToken);
             return Result.Success(0);
+        }
 
         int students = await dbContext.Registrations
             .CountAsync(
@@ -120,6 +130,18 @@ internal sealed class DeleteAllGroupsCommandHandler(
         int deleted = await dbContext.AcademicGroups
             .Where(g => groupIds.Contains(g.Id))
             .ExecuteDeleteAsync(cancellationToken);
+
+        auditTrail.RecordOutcome(
+            ("rostersDeleted", deleted),
+            ("cohortsDeleted", cohortIds.Count));
+
+        // ⚠ Cet acte n'écrivait rien au registre, et il portait pourtant IAuditableCommand depuis la
+        // phase 20. Tout passe par ExecuteDelete, qui contourne le change tracker, et rien n'appelait
+        // SaveChanges : la ligne ajoutée par AuditLogPipelineBehavior restait en attente jusqu'à la
+        // fin de la requête, puis disparaissait avec la portée. « Supprimer les groupes » a donc
+        // détruit des rosters et leurs cohortes sans laisser une ligne, exactement comme les actes
+        // qui ne déclaraient rien du tout. Mesuré le 10/09/2026.
+        await dbContext.SaveChangesAsync(cancellationToken);
 
         return Result.Success(deleted);
     }

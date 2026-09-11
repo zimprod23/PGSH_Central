@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using PGSH.Application.Abstractions.Authorization;
 using PGSH.Application.AcademicYears;
 using PGSH.Application.AcademicYears.Manage;
+using PGSH.Application.Audit;
 using PGSH.Application.Backups;
 using PGSH.Application.Behaviors;
 using PGSH.Application.Calendar;
@@ -40,6 +41,12 @@ public static class DependencyInjection
         });
 
         services.AddValidatorsFromAssembly(typeof(DependencyInjection).Assembly, includeInternalTypes: true);
+
+        // Une piste par requête, et la même des deux côtés : le behavior ouvre l'entrée par le type
+        // concret, le handler la complète par l'interface. Deux instances en feraient deux entrées,
+        // dont une sans constat.
+        services.AddScoped<AuditTrail>();
+        services.AddScoped<IAuditTrail>(sp => sp.GetRequiredService<AuditTrail>());
 
         services.AddScoped<DatabaseCensusReader>();
         services.AddScoped<SafePointTaker>();

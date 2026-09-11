@@ -1,4 +1,4 @@
-# Managing the academic year itself
+﻿# Managing the academic year itself
 
 > Read before creating, correcting, deleting, or moving the current-year flag on an `AcademicYear`.
 >
@@ -20,6 +20,21 @@ the year cannot see about itself.
   the in-memory provider*, so the demote `CreateAcademicYearCommandHandler` performed could never be
   reached by a test — the one part of the handler that can leave the base with no current year at all.
   The exposure is identical either way; only the coverage differs.
+- ⚠ **…and the two saves are now one transaction — corrected 11/09/2026.** The order is what
+  Postgres requires *inside* a transaction; between the two statements the base is flagged **nowhere**,
+  and a request cancelled there (the tab closed, the connection dropped — ASP.NET cancels the token)
+  used to leave it that way. That is not a small residue, and the old note calling it « the failure
+  deliberately left » under-read it: `AcademicYearResolver` is the path of **every** handler that
+  omits a year, so « aucune année courante » is not one screen refusing — it is all of them, and
+  nobody would think to re-run a designation they never saw fail. `CurrentYearDesignation.PromoteAsync`
+  wraps both saves in `ExecuteAtomicallyAsync`, which covers create **and** set-current at once
+  because both go through it.
+  - The old note also gave a reason that had stopped being true: « une transaction demanderait une
+    surface que rien dans le dépôt n'a ». `IApplicationDbContext.ExecuteAtomicallyAsync` exists since
+    the macro plan, and `AcademicYearResolver`'s refusal was hardened in the same pass — it was
+    `Error.Problem`, i.e. a **500** that threw its own sentence away. See `CLAUDE.md`.
+  - ⚠ The in-memory provider honours no transaction, so this suite proves the **order**, never the
+    atomicity — the same admission `TestHarness.NewContext` makes.
 - **Deleting is refused while anything year-constituted exists, and the refusal names every count** —
   registrations, périodes, cohortes, dérogations, règles d'effectivité, CNPN whose intake year it is.
   Counted together rather than short-circuited: a user who clears the registrations only to be told

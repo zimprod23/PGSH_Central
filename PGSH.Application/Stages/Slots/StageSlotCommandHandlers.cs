@@ -2,6 +2,7 @@
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
+using PGSH.Application.Audit;
 using PGSH.Application.Stages.Planning;
 using PGSH.Domain.Stages;
 using PGSH.SharedKernel;
@@ -56,7 +57,8 @@ internal sealed class CreateStageSlotCommandHandler(
 internal sealed class UpdateStageSlotCommandHandler(
     IApplicationDbContext dbContext,
     SlotOverlapGuard overlapGuard,
-    GroupScheduleConflictGuard groupGuard)
+    GroupScheduleConflictGuard groupGuard,
+    IAuditTrail auditTrail)
     : ICommandHandler<UpdateStageSlotCommand>
 {
     public async Task<Result> Handle(UpdateStageSlotCommand request, CancellationToken cancellationToken)
@@ -82,6 +84,15 @@ internal sealed class UpdateStageSlotCommandHandler(
         if (free.IsFailure)
             return free;
 
+        // ⚠ Relevées avant l'écrasement : une fois la ligne écrite, les anciennes dates n'existent
+        // plus nulle part, et « d'où ce créneau a-t-il été déplacé » est la question qu'on pose au
+        // registre après avoir vu une promotion décalée.
+        auditTrail.RecordOutcome(
+            ("academicYearId", slot.AcademicYearId),
+            ("periodNumber", slot.PeriodNumber),
+            ("fromStartDate", slot.StartDate.ToString("yyyy-MM-dd")),
+            ("fromEndDate", slot.EndDate.ToString("yyyy-MM-dd")));
+
         slot.Label     = request.Label;
         slot.StartDate = request.StartDate;
         slot.EndDate   = request.EndDate;
@@ -91,7 +102,9 @@ internal sealed class UpdateStageSlotCommandHandler(
     }
 }
 
-internal sealed class DeleteStageSlotCommandHandler(IApplicationDbContext dbContext)
+internal sealed class DeleteStageSlotCommandHandler(
+    IApplicationDbContext dbContext,
+    IAuditTrail auditTrail)
     : ICommandHandler<DeleteStageSlotCommand>
 {
     public async Task<Result> Handle(DeleteStageSlotCommand request, CancellationToken cancellationToken)
@@ -107,6 +120,15 @@ internal sealed class DeleteStageSlotCommandHandler(IApplicationDbContext dbCont
         if (hasPublishedCells)
             return Result.Failure(StageErrors.SlotPublished);
 
+        // Un identifiant de créneau ne survit pas à sa ligne : sans ces champs l'entrée nommerait
+        // une colonne que plus rien ne permet de situer.
+        auditTrail.RecordOutcome(
+            ("stageId", slot.StageId),
+            ("academicYearId", slot.AcademicYearId),
+            ("periodNumber", slot.PeriodNumber),
+            ("startDate", slot.StartDate.ToString("yyyy-MM-dd")),
+            ("endDate", slot.EndDate.ToString("yyyy-MM-dd")));
+
         dbContext.StageSlots.Remove(slot);
         await dbContext.SaveChangesAsync(cancellationToken);
         return Result.Success();
@@ -115,7 +137,8 @@ internal sealed class DeleteStageSlotCommandHandler(IApplicationDbContext dbCont
 
 internal sealed class SetCohortSlotAssignmentCommandHandler(
     IApplicationDbContext dbContext,
-    GroupScheduleConflictGuard groupGuard)
+    GroupScheduleConflictGuard groupGuard,
+    IAuditTrail auditTrail)
     : ICommandHandler<SetCohortSlotAssignmentCommand, int>
 {
     public async Task<Result<int>> Handle(SetCohortSlotAssignmentCommand request, CancellationToken cancellationToken)
@@ -181,6 +204,13 @@ internal sealed class SetCohortSlotAssignmentCommandHandler(
             // arranger chose IS the human decision, so leaving it Arranged would let the next
             // auto-arrange undo the correction that was just made — the exact defect the marker
             // exists to close, arrived at from the other direction.
+            // ⚠ Le service d'avant, et si la cellule était déjà une décision humaine : épingler une
+            // cellule vide et écraser le choix de quelqu'un d'autre sont deux actes, et le code seul
+            // ne les distingue pas.
+            auditTrail.RecordOutcome(
+                ("replacedServiceId", existing.ServiceId),
+                ("wasPinned", existing.IsPinned));
+
             existing.ServiceId = request.ServiceId;
             existing.Source    = CellSource.Pinned;
             await dbContext.SaveChangesAsync(cancellationToken);
@@ -200,13 +230,17 @@ internal sealed class SetCohortSlotAssignmentCommandHandler(
             Source      = CellSource.Pinned,
         };
 
+        auditTrail.RecordOutcome(("replacedServiceId", null), ("wasPinned", false));
+
         dbContext.CohortSlotAssignments.Add(assignment);
         await dbContext.SaveChangesAsync(cancellationToken);
         return assignment.Id;
     }
 }
 
-internal sealed class ClearCohortSlotAssignmentCommandHandler(IApplicationDbContext dbContext)
+internal sealed class ClearCohortSlotAssignmentCommandHandler(
+    IApplicationDbContext dbContext,
+    IAuditTrail auditTrail)
     : ICommandHandler<ClearCohortSlotAssignmentCommand>
 {
     public async Task<Result> Handle(ClearCohortSlotAssignmentCommand request, CancellationToken cancellationToken)
@@ -214,13 +248,24 @@ internal sealed class ClearCohortSlotAssignmentCommandHandler(IApplicationDbCont
         var existing = await dbContext.CohortSlotAssignments
             .FirstOrDefaultAsync(a => a.CohortId == request.CohortId && a.StageSlotId == request.StageSlotId, cancellationToken);
 
+        // ⚠ Vider une cellule déjà vide réussit, et s'enregistre comme tel : le registre a besoin de
+        // séparer « personne n'a joué cet acte » de « quelqu'un l'a joué sans effet ».
         if (existing is null)
+        {
+            auditTrail.RecordOutcome(("cellExisted", false), ("clearedServiceId", null));
+            await dbContext.SaveChangesAsync(cancellationToken);
             return Result.Success();
+        }
 
         bool isPublished = await dbContext.IsCellPublishedAsync(existing.Id, cancellationToken);
 
         if (isPublished)
             return Result.Failure(StageErrors.ScheduleAlreadyPublished);
+
+        auditTrail.RecordOutcome(
+            ("cellExisted", true),
+            ("clearedServiceId", existing.ServiceId),
+            ("wasPinned", existing.IsPinned));
 
         dbContext.CohortSlotAssignments.Remove(existing);
         await dbContext.SaveChangesAsync(cancellationToken);
@@ -228,7 +273,9 @@ internal sealed class ClearCohortSlotAssignmentCommandHandler(IApplicationDbCont
     }
 }
 
-internal sealed class ClearSlotAssignmentsCommandHandler(IApplicationDbContext dbContext)
+internal sealed class ClearSlotAssignmentsCommandHandler(
+    IApplicationDbContext dbContext,
+    IAuditTrail auditTrail)
     : ICommandHandler<ClearSlotAssignmentsCommand, ClearSlotResult>
 {
     public async Task<Result<ClearSlotResult>> Handle(ClearSlotAssignmentsCommand request, CancellationToken cancellationToken)
@@ -245,10 +292,18 @@ internal sealed class ClearSlotAssignmentsCommandHandler(IApplicationDbContext d
                      && !dbContext.ServicePeriodSlotCoverage.Any(c => c.CohortSlotAssignmentId == a.Id))
             .ToListAsync(cancellationToken);
 
+        int cleared = unpublishedAssignments.Count;
+
+        // Les deux nombres, jamais le seul « cleared » : à zéro il recouvre une colonne déjà vide et
+        // une colonne entièrement publiée, qui appellent des actes opposés.
+        auditTrail.RecordOutcome(
+            ("cellsCleared", cleared),
+            ("cellsKeptPublished", total - cleared),
+            ("pinnedCellsCleared", unpublishedAssignments.Count(a => a.IsPinned)));
+
         dbContext.CohortSlotAssignments.RemoveRange(unpublishedAssignments);
         await dbContext.SaveChangesAsync(cancellationToken);
 
-        int cleared = unpublishedAssignments.Count;
         return new ClearSlotResult(cleared, total - cleared);
     }
 }

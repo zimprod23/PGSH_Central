@@ -4,6 +4,21 @@
 >
 > Split out of `CLAUDE.md` on 2026-09-06 — the text is unchanged. See [`CLAUDE.md`](../CLAUDE.md) for the always-on rules and the map of these documents.
 
+## ⚠ L'axe vient APRÈS le découpage, pas avant
+
+`PreviewRotationCycleQuery` lit les partitions sur `AcademicGroups.RotationGroup` de la promotion :
+sans roster, `partitionLabels` est vide et `ApplyRotationCycleCommand` refuse par
+`RotationCycleErrors.NoPartitions`. L'ordre réel d'une campagne est donc :
+
+1. **découper la promotion en rosters** (`AutoArrangeGroupsCommand`),
+2. **assigner les partitions** (`AssignRotationGroupsCommand`),
+3. **poser l'axe** (`ApplyRotationCycleCommand`) — c'est ici que les dates entrent,
+4. répartir en services, 5. publier.
+
+⚠ **Conséquence pratique** : le découpage et les partitions ne dépendent d'aucune date, donc ni le
+calendrier des fériés ni les semaines d'examens ne les bloquent. Ce qu'ils bloquent est l'**étape 3**.
+Vérifié dans le code le 11/09/2026, contre une note de file qui annonçait l'ordre inverse.
+
 ## A block of stages runs on one axis, and the crossover is solved, not formula'd
 `Stages/RotationCycle/` turns "these stages run concurrently, stage *s* for *kₛ* periods" into the matrix
 `GenerateMacroPlanCommand` already consumes. It generates what used to be ticked by hand; nothing
@@ -153,6 +168,15 @@ every période, one call — is a real button that does not.
 - **A service `IsExternal` is dropped from the pool** before anything is weighted, even if an older row
   authorises it. It is a place the faculty does not run; the only way a student reaches it is a
   délocalisation.
+- ⚠ **…and the arranger balances a column it did not size.** How many students a column *holds* is
+  settled two acts earlier, by the cut and the partitioning — `RotationArranger` only decides which
+  services carry them. Until 11/09/2026 those two acts composed badly: `RosterCut` emitted the larger
+  rosters first and `PartitionAllocator.Contiguous` gives partition A the first block of roster
+  numbers, so every oversized roster landed in the leading partitions. Measured on the live base: the
+  3ᵉ MED came out **100, 100, 100, 93, 90 ×6** where the cut was meant to be even, which spent the
+  entire margin of Santé Publique and Simulation Médicale (100 places, columns of 100) without any
+  screen saying so. Fixed in `RosterCut` — the sizes and the count are unchanged, only the order they
+  are dealt in. → [`planning-rosters.md`](planning-rosters.md) §②ter.
 
 ## Which stage a partition is in is authored; which service it lands in is computed
 Two decisions, two owners, and confusing them is where this area goes wrong.
@@ -564,6 +588,16 @@ waited on by the lifecycle. Publication materialises a plan; it never re-materia
 Filtered per **assignment**, not per cohort: a cohort routinely mixes students with the stage behind them
 (repeaters, délocalisés) and students without, and the latter still need their schedule.
 
+### ⚠ …et la publication est auditée depuis le 11/09/2026, sa dépublication l'étant depuis la phase 20
+Le registre tenait le *défaire* sans le *faire*, sur l'acte qui crée les `ServicePeriod` — tout ce que
+les chefs notent et tout ce que les présences visent. `COHORT_SCHEDULE_PUBLISHED` et
+`STAGE_SCHEDULE_PUBLISHED`, avec la portée visée et **`allowOverCapacity`** : passer outre un service
+qui a déclaré refuser d'être dépassé est un geste posé sciemment contre ce refus, et une publication
+forcée était jusqu'ici indiscernable d'une publication ordinaire. ⚠ Le `SaveChanges` du handler est
+**inconditionnel** là où le publisher n'écrit que s'il a des périodes à poser : « Publier » rejoué sur
+un stage déjà publié — l'acte le plus banal d'une campagne — n'aurait sinon rien laissé.
+[`docs/audit-calendar.md`](audit-calendar.md) ; `PublishScheduleAuditTests`.
+
 ## ⚠ Nothing declares that two stages share a period — the axis is derived
 `StageSlot` is keyed `(StageId, AcademicYearId, PeriodNumber)`, so Médecine P1 and Chirurgie P1 are
 independent rows with independent dates. No constraint ties them, and neither guard notices a drift:
@@ -589,3 +623,31 @@ independent rows with independent dates. No constraint ties them, and neither gu
   - The cells' own windows are unioned in rather than assumed to be a subset — a cell is tied to the
     level through its *cohort*, so a slot reached via another stage would otherwise take its column,
     and its cells, out of the table entirely.
+
+## 📋 Un modèle de planification par niveau (demandé le 10/09/2026, basse priorité)
+
+« Les groupes 1-2 passent en P1 au service S1, en P2 à S2… » : le circuit d'une promotion nommé une
+fois, puis appliqué ; et la réciproque, **enregistrer comme modèle** une répartition qu'on vient de
+générer. ⚠ **Rien n'est implémenté** : `HANDOFF.md` **0bb**, `PHASES.md` §27.4.
+
+**La forme, et c'est la seule chose vraiment décidée ici : un modèle est la grille *sans ses dates et
+sans ses rosters*** — (partition, `PeriodNumber`, `ServiceId`) par stage. Ce qui reste fixe d'une année
+sur l'autre est le **nombre de colonnes** (P1, P2… — *T* = Σ*k*ₛ) ; les dates et les étudiants changent
+chaque année. L'appliquer, c'est écrire des `CohortSlotAssignment` sur les cohortes de l'année contre
+ses `StageSlot` ; l'enregistrer, c'est les relire.
+
+- ⚠ **C'est l'axe qui rend deux années comparables**, et rien d'autre. Un modèle ne va qu'à une
+  promotion de même *T* **et** de même jeu de stages — or le CNPN peut avoir bougé entre-temps, et un
+  stage exigé sans créneau est dû et jamais servi. Donc un contrôle de compatibilité qui **nomme
+  l'écart**, jamais une écriture partielle.
+- ⚠ **Une cellule venue d'un modèle est une décision humaine → `CellSource.Pinned`.** Écrite
+  `Arranged`, elle est détruite par la première « auto-répartir ce stage » sous un `Assigned = N`
+  parfaitement normal — c'est exactement le défaut que la section précédente a coûté.
+- ⚠ **La `PartitionStrategy` voyage avec le modèle.** Le modèle dit « partition A » ; l'année nomme
+  les siennes en `Interleaved` ou `Contiguous`, et les groupes qu'un même nom désigne ne sont alors pas
+  les mêmes. Sans la stratégie, le même modèle se lit comme un autre plan.
+- ⚠ **Appliquer est un aperçu et des refus, comme l'arrangeur** : un service du modèle peut avoir
+  disparu, être tenu hors rotation (`StageAllowedService.PlacementMode = Reserved`, dont la capacité
+  part avec lui) ou dépasser le quota de la promotion.
+- **Pourquoi basse priorité, et l'utilisateur l'a dit** : c'est un confort par-dessus un chemin qui
+  marche déjà — poser l'axe, répartir, épingler — pas un manque.

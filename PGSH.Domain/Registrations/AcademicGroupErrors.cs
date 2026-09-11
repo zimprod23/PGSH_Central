@@ -168,6 +168,30 @@ public static class AcademicGroupErrors
     /// <para>Deleting rosters is only ever needed to change their <i>number</i> or their
     /// <i>numbering</i> — emptied ones refill — so the order it enforces is: empty, then delete.</para>
     /// </remarks>
+    /// <summary>
+    /// « Découper cette promotion en N groupes » avec un N plus grand que l'effectif à répartir.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ <b>Les deux nombres sont nommés.</b> Un refus qui dirait « trop de groupes » renverrait
+    /// l'opérateur deviner lequel des deux il a mal lu — le nombre qu'il a tapé, ou l'effectif qu'il
+    /// croyait avoir. Et l'effectif annoncé est celui <i>à répartir</i>, signalements déduits : c'est
+    /// le seul qui explique l'écart.
+    /// </remarks>
+    /// <remarks>
+    /// ⚠ <b><c>Conflict</c>, pas <c>Problem</c>.</b> <c>ErrorType.Problem</c> n'est nommé nulle part
+    /// dans <c>CustomResults.GetStatusCode</c> : il tombe sur le bras <c>_</c> et devient un
+    /// <b>500</b>, sur lequel le client n'affiche que « Une erreur serveur est survenue ». La phrase
+    /// ci-dessous, avec ses deux nombres, n'atteindrait jamais l'écran. Mesuré le 11/09/2026 en
+    /// pilotant la coupe. C'est un conflit entre la demande et l'état, exactement comme
+    /// <see cref="RostersHaveStudents"/> juste en dessous.
+    /// </remarks>
+    public static Error MoreGroupsThanStudents(int asked, int plannable, string promotionLabel) =>
+        Error.Conflict(
+            "AcademicGroups.MoreGroupsThanStudents",
+            $"{asked} groupes demandés pour {promotionLabel}, qui ne compte que {plannable} "
+            + "inscription(s) à répartir : chaque groupe doit recevoir au moins un étudiant. "
+            + $"Demandez au plus {plannable} groupes, ou répartissez par taille.");
+
     public static Error RostersHaveStudents(string scopeLabel, int students, int rosters) =>
         Error.Conflict(
             "AcademicGroups.HasStudents",

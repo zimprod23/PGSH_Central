@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Domain.Registrations;
 using PGSH.SharedKernel;
@@ -20,12 +20,16 @@ namespace PGSH.Application.AcademicYears.Manage;
 /// flow no test could reach — and it is the part that can leave the base with <em>no</em> current year
 /// at all.</para>
 ///
-/// <para>The residual exposure is a crash between the two saves, which leaves nothing flagged. That is
-/// deliberately the failure that is left: <c>AcademicYearResolver</c> then refuses loudly rather than
-/// guessing, and running the designation again fixes it. The alternative — one explicit transaction —
-/// would need a transaction surface on <c>IApplicationDbContext</c> that nothing else in the codebase
-/// has, and the in-memory provider cannot honour it, so every test through these handlers would have
-/// to suppress a warning to keep working.</para>
+/// <para>⚠ <b>And the two saves are one transaction.</b> The order above is still what Postgres
+/// requires — it is <i>within</i> a transaction that they must fall in that order — but between them
+/// the base is flagged nowhere, and a request cancelled there (the tab closed, the connection
+/// dropped) used to leave it that way. That is not a small residue: <c>AcademicYearResolver</c> is
+/// the path of <b>every</b> handler that omits a year, so « aucune année courante » is not one screen
+/// refusing, it is all of them. Nobody would think to re-run a designation they never saw fail.</para>
+///
+/// <para>The in-memory provider honours no transaction, so <c>ExecuteAtomicallyAsync</c> is a no-op
+/// there and this suite cannot prove the atomicity — the same admission <c>TestHarness.NewContext</c>
+/// makes. It proves the order, which is the half a test can see.</para>
 ///
 /// <para>Shared by create and set-current so the ordering is stated once. Callers <b>must</b> have
 /// established that the target is not already current — <see cref="AcademicYear.MakeCurrent"/> refuses
@@ -41,7 +45,10 @@ public sealed class CurrentYearDesignation(IApplicationDbContext dbContext)
     /// carry a null success — its implicit operator turns null into <c>Error.NullValue</c> — so « no
     /// year stood down », the ordinary state of a fresh base, would come back as a failure.
     /// </remarks>
-    public async Task<Result<CurrentYearChange>> PromoteAsync(AcademicYear target, CancellationToken ct)
+    public Task<Result<CurrentYearChange>> PromoteAsync(AcademicYear target, CancellationToken ct) =>
+        dbContext.ExecuteAtomicallyAsync(inner => DesignateAsync(target, inner), ct);
+
+    private async Task<Result<CurrentYearChange>> DesignateAsync(AcademicYear target, CancellationToken ct)
     {
         var sitting = await dbContext.AcademicYears
             .Where(y => y.IsCurrent && y.Id != target.Id)

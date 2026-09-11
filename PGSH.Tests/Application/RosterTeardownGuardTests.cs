@@ -61,10 +61,10 @@ public class RosterTeardownGuardTests
         new(db, new AffectationTollReader(db));
 
     private static DeleteCohortCommandHandler DeleteHandler(ApplicationDbContext db) =>
-        new(db, new AffectationTollReader(db));
+        new(db, new AffectationTollReader(db), new RecordingAuditTrail());
 
     private static DeleteAllCohortsCommandHandler ResetHandler(ApplicationDbContext db) =>
-        new(db, new AcademicYearResolver(db), new AffectationTollReader(db));
+        new(db, new AcademicYearResolver(db), new AffectationTollReader(db), new RecordingAuditTrail());
 
     // --- « Vider le groupe » --------------------------------------------------
 
@@ -156,7 +156,7 @@ public class RosterTeardownGuardTests
         var world = Seed(nameof(Emptying_every_roster_of_a_year_is_refused_while_any_affectation_exists));
 
         var result = await new EmptyAllYearGroupsCommandHandler(
-                world.Db, new AffectationTollReader(world.Db))
+                world.Db, new AffectationTollReader(world.Db), new RecordingAuditTrail())
             .Handle(new EmptyAllYearGroupsCommand(TestHarness.CurrentYearId), default);
 
         // No DropAffectations on this one, on purpose: a year's affectations are the whole faculty's
@@ -190,7 +190,7 @@ public class RosterTeardownGuardTests
         world.Db.SeedRegistration("Nabil", "Cherkaoui", otherRoster, levelId: otherLevel.Id);
         world.Db.SaveChanges();
 
-        var handler = new EmptyAllYearGroupsCommandHandler(world.Db, new AffectationTollReader(world.Db));
+        var handler = new EmptyAllYearGroupsCommandHandler(world.Db, new AffectationTollReader(world.Db), new RecordingAuditTrail());
 
         // Year-wide, the toll is the whole faculty's: still refused, and rightly so.
         var yearWide = await handler.Handle(
@@ -229,7 +229,7 @@ public class RosterTeardownGuardTests
         var world = Seed(nameof(Emptying_an_unknown_promotion_is_refused_rather_than_widened_to_the_year));
 
         var result = await new EmptyAllYearGroupsCommandHandler(
-                world.Db, new AffectationTollReader(world.Db))
+                world.Db, new AffectationTollReader(world.Db), new RecordingAuditTrail())
             .Handle(new EmptyAllYearGroupsCommand(TestHarness.CurrentYearId, 4242), default);
 
         result.IsFailure.Should().BeTrue();
@@ -267,7 +267,7 @@ public class RosterTeardownGuardTests
         world.Db.SeedRegistration("Nabil", "Cherkaoui", otherRoster, levelId: otherLevel.Id);
         world.Db.SaveChanges();
 
-        var handler = new DeleteAllGroupsCommandHandler(world.Db, new AffectationTollReader(world.Db));
+        var handler = new DeleteAllGroupsCommandHandler(world.Db, new AffectationTollReader(world.Db), new RecordingAuditTrail());
 
         // Year-wide the inhabited roster is in scope, so the refusal is correct.
         var yearWide = await handler.Handle(
@@ -309,7 +309,7 @@ public class RosterTeardownGuardTests
         world.Db.Registrations.Single().AcademicGroupId = null;
         world.Db.SaveChanges();
 
-        var result = await new DeleteAllGroupsCommandHandler(world.Db, new AffectationTollReader(world.Db))
+        var result = await new DeleteAllGroupsCommandHandler(world.Db, new AffectationTollReader(world.Db), new RecordingAuditTrail())
             .Handle(new DeleteAllGroupsCommand(TestHarness.CurrentYearId, TestHarness.LevelId), default);
 
         result.IsFailure.Should().BeTrue();
@@ -327,7 +327,7 @@ public class RosterTeardownGuardTests
         // every promotion's rosters after a check that only looked at one.
         var world = Seed(nameof(Deleting_an_unknown_promotion_is_refused_rather_than_widened_to_the_year));
 
-        var result = await new DeleteAllGroupsCommandHandler(world.Db, new AffectationTollReader(world.Db))
+        var result = await new DeleteAllGroupsCommandHandler(world.Db, new AffectationTollReader(world.Db), new RecordingAuditTrail())
             .Handle(new DeleteAllGroupsCommand(TestHarness.CurrentYearId, 4242), default);
 
         result.IsFailure.Should().BeTrue();

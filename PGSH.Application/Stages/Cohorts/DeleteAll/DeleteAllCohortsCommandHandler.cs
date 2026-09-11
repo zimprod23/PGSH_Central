@@ -1,7 +1,8 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
 using PGSH.Application.AcademicYears;
+using PGSH.Application.Audit;
 using PGSH.Application.Stages.Planning;
 using PGSH.Domain.Stages;
 using PGSH.SharedKernel;
@@ -20,7 +21,8 @@ namespace PGSH.Application.Stages.Cohorts.DeleteAll;
 internal sealed class DeleteAllCohortsCommandHandler(
     IApplicationDbContext dbContext,
     AcademicYearResolver yearResolver,
-    AffectationTollReader tollReader)
+    AffectationTollReader tollReader,
+    IAuditTrail auditTrail)
     : ICommandHandler<DeleteAllCohortsCommand, DeleteAllCohortsResult>
 {
     public async Task<Result<DeleteAllCohortsResult>> Handle(
@@ -46,8 +48,15 @@ internal sealed class DeleteAllCohortsCommandHandler(
             .Select(c => c.Id)
             .ToListAsync(cancellationToken);
 
+        // ⚠ Un stage sans cohorte cette année-là est un acte sans effet, pas un refus : il
+        // s'enregistre avec ses zéros. « Réinitialiser » sur une promotion déjà vierge et sur une
+        // promotion publiée écriraient sinon la même ligne, et ce sont deux événements sans rapport.
         if (cohortIds.Count == 0)
+        {
+            RecordOutcome(yearId, 0, 0, 0);
+            await dbContext.SaveChangesAsync(cancellationToken);
             return new DeleteAllCohortsResult(0, 0, 0);
+        }
 
         var toll = await tollReader.ForCohortsAsync(cohortIds, cancellationToken);
 
@@ -91,6 +100,25 @@ internal sealed class DeleteAllCohortsCommandHandler(
             .Where(c => cohortIds.Contains(c.Id))
             .ExecuteDeleteAsync(cancellationToken);
 
+        RecordOutcome(yearId, deleted, assignmentIds.Count, periodsRemoved);
+
+        // ⚠ Tout ce qui précède passe par ExecuteDelete, qui contourne le change tracker : sans ce
+        // SaveChanges la ligne de journal mise en attente par AuditLogPipelineBehavior mourrait avec
+        // la portée de la requête, et l'acte le plus destructeur de la planification ne laisserait
+        // rien. C'est le défaut mesuré le 10/09/2026 sur « Supprimer les groupes ».
+        await dbContext.SaveChangesAsync(cancellationToken);
+
         return new DeleteAllCohortsResult(deleted, assignmentIds.Count, periodsRemoved);
     }
+
+    /// <summary>
+    /// Ce que l'acte a emporté, plus l'année qu'il a réellement touchée — la commande ne pouvait pas
+    /// la donner, puisqu'une année absente veut dire « celle en cours » et que la résolution est ici.
+    /// </summary>
+    private void RecordOutcome(int yearId, int cohorts, int affectations, int periods) =>
+        auditTrail.RecordOutcome(
+            ("academicYearId", yearId),
+            ("cohortsRemoved", cohorts),
+            ("affectationsRemoved", affectations),
+            ("periodsRemoved", periods));
 }

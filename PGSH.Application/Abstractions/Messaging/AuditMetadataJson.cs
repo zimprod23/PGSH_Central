@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 
 namespace PGSH.Application.Abstractions.Messaging;
 
@@ -34,6 +34,48 @@ public static class AuditMetadataJson
             return null;
 
         var payload = new Dictionary<string, object?>(fields.Length);
+
+        foreach (var (key, value) in fields)
+            payload[key] = value;
+
+        return JsonSerializer.Serialize(payload);
+    }
+
+    /// <summary>
+    /// <paramref name="json"/> augmenté de <paramref name="fields"/> — ce que la commande a demandé,
+    /// plus ce que le handler a constaté. Voir <c>IAuditTrail</c> pour pourquoi les deux moitiés
+    /// n'arrivent pas en même temps.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ <b>Ne lève pas, pour la raison qui vaut pour <see cref="Of"/></b> : ceci s'exécute dans
+    /// l'unité de travail de l'acte, donc une métadonnée illisible ferait tomber l'acte lui-même.
+    /// Une valeur déjà présente est écrasée par le constat — c'est le constat qui dit ce qui a eu
+    /// lieu, la demande ne disait que ce qui était visé.
+    /// </remarks>
+    public static string? Merge(string? json, params (string Key, object? Value)[] fields)
+    {
+        if (fields.Length == 0)
+            return json;
+
+        if (string.IsNullOrWhiteSpace(json))
+            return Of(fields);
+
+        Dictionary<string, object?>? payload;
+
+        try
+        {
+            payload = JsonSerializer.Deserialize<Dictionary<string, object?>>(json);
+        }
+        catch (JsonException)
+        {
+            payload = null;
+        }
+
+        // Métadonnée illisible ou qui n'est pas un objet : garder les deux moitiés sous une clé
+        // plutôt qu'en perdre une. Le cas n'existe pas aujourd'hui — toutes les métadonnées du dépôt
+        // sont des objets plats — et cette branche est ce qui fait que sa découverte ne coûterait ni
+        // l'acte, ni son constat.
+        payload ??= new Dictionary<string, object?> { ["asked"] = json };
 
         foreach (var (key, value) in fields)
             payload[key] = value;

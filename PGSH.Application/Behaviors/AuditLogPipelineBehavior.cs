@@ -1,7 +1,7 @@
-using MediatR;
+﻿using MediatR;
 using PGSH.Application.Abstractions.Authentication;
-using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
+using PGSH.Application.Audit;
 using PGSH.Domain.Audit;
 using PGSH.SharedKernel;
 
@@ -19,7 +19,7 @@ namespace PGSH.Application.Behaviors;
 /// <c>AuditLogEndpointTests.A_refused_act_writes_no_entry</c>.
 /// </remarks>
 public sealed class AuditLogPipelineBehavior<TRequest, TResponse>(
-    IApplicationDbContext db,
+    AuditTrail trail,
     IUserContext userContext,
     IDateTimeProvider clock)
     : IPipelineBehavior<TRequest, TResponse>
@@ -34,7 +34,11 @@ public sealed class AuditLogPipelineBehavior<TRequest, TResponse>(
         {
             // L'instant vient de l'horloge injectée, pas de l'entité : une date que le domaine se
             // donne à lui-même n'est ni vérifiable ni déplaçable.
-            db.AuditLogs.Add(AuditLog.Record(
+            //
+            // Ouverte sur la piste plutôt qu'ajoutée au contexte directement : le handler peut
+            // ensuite y déposer ce que l'acte a réellement emporté, ce qu'une commande ne peut pas
+            // savoir d'elle-même. Voir IAuditTrail.
+            trail.Open(AuditLog.Record(
                 auditable.AuditAction,
                 auditable.AuditEntityType,
                 auditable.AuditEntityId,

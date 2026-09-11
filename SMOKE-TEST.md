@@ -4050,3 +4050,277 @@ annulation **n'efface pas** la délocalisation du dossier, c'est écrit dans
 [`docs/delocalization.md`](docs/delocalization.md) (« le dossier se lit comme une suite de choses qui
 ont eu lieu »). Les effacer demanderait du SQL sur la base vivante et ferait **diverger le dossier du
 registre** : c'est une décision de l'utilisateur, pas un nettoyage.
+
+
+## ✅ §58 — La coupe, dans les deux unités (session 60, déroulé le 11/09/2026)
+
+**Quatre points sur cinq vérifiés à l'écran ; le cinquième attend un redémarrage de l'AppHost.**
+Décor monté sur trois promotions (4ᵉ Pharmacie 232, 1ʳᵉ Médecine 44, 7ᵉ Médecine 1 347) puis
+démonté ; état final revérifié en base : **0 roster, 0 rattachement, 6 839 inscriptions**.
+`pg_dump` avant : `backups/manual/20260911-pre-smoke58.dump`.
+
+| # | ce qui a été vu |
+|---|---|
+| **1 ✅** | Par taille 20 sur 232 : « GROUPES CRÉÉS **12**, ÉTUDIANTS ASSIGNÉS **232**, ÉCHECS 0 » et, sous le résumé, « Répartition : **4 × 20, 8 × 19** ». L'avorton de 12 mesuré le 10/09 a disparu, à nombre de groupes inchangé. |
+| **2 ✅** | Par nombre 12 sur la même promotion : **12 groupes, 232 étudiants, même forme**. La même coupe, demandée dans l'autre unité. |
+| **3 ⚠** | *Le refus nommant les deux chiffres* — **non vérifiable dans cette session**. Il est revenu en « **Erreur 500 — Une erreur serveur est survenue** » : `MoreGroupsThanStudents` était construit avec `Error.Problem`, le seul membre que `CustomResults.GetStatusCode` ne nomme pas. Corrigé en `Error.Conflict` (409) et **pinné par `AutoArrangeUnitEndpointTests`** ; à rejouer **après redémarrage de l'AppHost**, l'API tournante portant encore l'ancien code. |
+| **4 ✅** | La liste se remplit **sans rechargement** : 12 lignes, tailles `20,20,20,20,19,19,19,19,19,19,19,19`, et les deux boutons destructeurs présents. (C'est §57, revu par le même écran.) |
+| **5 ✅** | 7ᵉ Médecine : `assignés 1 288, échecs 59, traités 1 347`, forme « 4 × 108, 8 × 107 » — et **chaque refus porte sa preuve** : « *Inscription signalée — stages antérieurs non validés : … Cardiologie (Quatrième Année Médecine), Pneumologie (Quatrième Année Médecine). Faites-les revalider, ou accordez une dérogation nominative.* » |
+
+⚠ **Correction à une note de briefing** : sur les **86** signalements que porte 2026-2027, seuls
+**59** écartent du découpage — tous des `OutstandingPriorStages`, tous sur la 7ᵉ Médecine. Les **27**
+autres sont des `IncompleteStudentFile`, que `RegistrationHoldPolicy` classe **consultatifs** : ces
+inscriptions-là sont découpées normalement. « 86 seront écartés » était faux ; le chiffre à lire est
+celui du résumé, promotion par promotion.
+
+**Le registre a tenu, et c'est la vérification de `A3`.** Les deux actes de démontage ont écrit, avec
+leur ampleur : `YEAR_GROUPS_EMPTIED` → `{"rostersInScope": 36, "registrationsDetached": 1564}`,
+`YEAR_GROUPS_DELETED` → `{"cohortsDeleted": 0, "rostersDeleted": 36}`. Avant la session 58, ces deux
+actes n'écrivaient **rien du tout**. Et `GROUPS_AUTO_ARRANGED` distingue désormais `"askedBy": "size"`
+de `"askedBy": "count"` — l'unité demandée est au journal, pas seulement son résultat.
+
+### Les étapes, pour la prochaine promotion
+
+**À voir avant de découper pour de vrai.** ⚠ Point de sauvegarde d'abord — c'est le premier acte qui
+écrit sur 2026-2027.
+
+1. **Par taille, sans avorton.** *Répartition automatique* → « Par taille de groupe » → 20 sur une
+   promotion de 232. Le résumé doit annoncer **12 groupes** et, sous lui, « Répartition : **4 × 20,
+   8 × 19** ». ⚠ Avant, c'était 11 × 20 et un groupe de 12 — et rien à l'écran ne le disait.
+2. **Par nombre.** « Par nombre de groupes » → 12 sur la même promotion : mêmes 12 groupes, même
+   forme. C'est la même coupe demandée dans l'autre unité.
+3. **Un nombre impossible est refusé en nommant les deux chiffres.** Demander 400 groupes sur une
+   promotion de 232 : un bandeau qui dit **400** et **232**, et **aucun groupe créé**.
+4. **La liste se remplit sans rechargement** (c'est §57, et elle passe par le même écran).
+5. **Les signalements restent écartés nommément** : sur une promotion qui en porte, le résumé compte
+   les échecs et la liste dessous donne la preuve de chaque signalement.
+
+## ✅ §57 — Le cache des rosters et le bandeau unique (session 59, déroulé le 11/09/2026)
+
+⚠ **Quatre points sur sept vérifiés à l'écran** ; les trois autres ne sont pas des échecs, ils sont
+**inatteignables tant que 2026-2027 n'a ni cohorte ni grille**. Décor monté et démonté sur la 4ᵉ
+Pharmacie ; état final revérifié en base : **0 roster, 0 cohorte, 6 839 inscriptions**.
+
+| # | ce qui a été vu |
+|---|---|
+| **1 ✅** | Après « Lancer la répartition », **sans recharger**, l'onglet *Groupes* affiche les 12 rosters à 20 étudiants **et** les deux boutons destructeurs. C'est le défaut mesuré le 10/09, qui affichait « Aucun groupe pour cette année » et faisait disparaître les boutons. |
+| **2 ✅** | Transfert définitif d'un étudiant : l'en-tête de la page de départ passe de **20 à 19 étudiant(s)** sans rechargement, et l'étudiant disparaît de la liste. La liste des groupes montre au même instant **19** et **21**. |
+| **3 ⚠** | *Rattachement à un groupe* — non joué. |
+| **4 ⚠** | *Affectation en masse* — non joué. La moitié serveur (`sourceGroupIds`) est couverte par un test qui **mord**. |
+| **5 ⚠** | *Délocalisation* — **impossible aujourd'hui** : l'année ne porte ni cohorte ni créneau, donc il n'y a rien à délocaliser. À reprendre après la pose des axes. |
+| **6 ✅** | Refus de « Tout supprimer » sur des rosters habités : **un seul bandeau**, « Conflit », celui du serveur, nommant les 12 rosters et les 232 étudiants. Compté par observateur DOM : **un titre distinct**. |
+| **7 ✅** | *Journal des actions* : **aucun code brut en SCREAMING_SNAKE** sur la page. « Transfert d'un étudiant » et les autres s'affichent en français. |
+
+**Bonus vu au passage** : « Vider toute l'année » remet les douze compteurs à **0** dans la liste sans
+rechargement — la même invalidation, sur un troisième acte.
+
+⚠ **Résidu, une ligne** : le transfert définitif a laissé un `GroupTransfer` au dossier d'un étudiant
+réel (Hiba Abadi, Groupe 1 → Groupe 2). **C'est la règle, pas un oubli** — un transfert garde sa
+trace, c'est ce qui le distingue du « changement de groupe ». L'effacer demanderait du SQL sur la base
+vivante : **décision de l'utilisateur**.
+
+### Les étapes, pour la prochaine promotion
+
+**À voir au prochain démarrage.** ⚠ **Ce sont deux défauts que seul l'écran peut confirmer** : ni
+`tsc`, ni `eslint`, ni les 1 762 tests ne voient un cache périmé ou un bandeau de trop.
+
+1. **Le découpage se voit tout de suite.** Onglet *Répartition automatique* → « Lancer la
+   répartition » sur une promotion, puis **sans recharger** l'onglet *Groupes*. Les groupes doivent
+   être là, avec « Vider » et « Supprimer ». ⚠ Avant, l'écran disait « Aucun groupe pour cette année,
+   lancez d'abord la répartition automatique » **et** faisait disparaître les deux boutons.
+2. **Le transfert vide la fiche de départ.** Depuis un groupe, transférer un étudiant vers un autre :
+   le compte de la page **d'où l'on vient** doit baisser d'un, sans rechargement.
+3. **Le rattachement remplit la fiche d'arrivée**, même chose depuis « affecter à un groupe ».
+4. **L'affectation en masse vide *tous* les groupes d'origine** — pas seulement celui de la cible.
+   ⚠ C'est le cas que le client ne pouvait pas deviner : les sources viennent du rapport du serveur.
+5. **La délocalisation change la grille.** Délocaliser un étudiant, puis regarder la saturation du
+   stage : elle doit baisser sans rechargement. Idem à l'annulation.
+6. ⚠ **Un refus n'affiche qu'un seul bandeau.** Provoquer n'importe quel refus (« Tout supprimer » sur
+   des groupes habités, par exemple) : **un** bandeau, celui du serveur. Avant : deux.
+7. **Le journal n'affiche plus de SCREAMING_SNAKE.** Ouvrir *Journal des actions* : tous les codes
+   doivent porter un libellé français, les destructeurs teintés.
+
+⚠ **Vérifier 1 à 5 avec le journal réseau ouvert**, pas à l'œil : une page qui se rafraîchit *parce
+qu'on y revient* masque exactement ce défaut. Ce qui le prouve est le refetch après le `POST`.
+
+## ✅ §56 — Les actes de planification écrivent enfin au registre (session 58, déroulé le 10/09/2026)
+
+⚠ **Déroulé sur la base vivante le soir même**, sauvegarde prise d'abord. **552 → 559 entrées :
+sept actes, sept lignes, et le refus n'en écrit aucune.** Le détail des métadonnées, ce que la
+passe n'a pas pu montrer, et les deux défauts trouvés au clic (`autoArrangeGroups` qui n'invalide
+pas la liste — item 0at ; le découpage 11×20 + 1×12 — item 0az) sont dans `HANDOFF.md`, session 58.
+**Les étapes ci-dessous restent la marche à suivre pour la prochaine promotion.**
+
+**Ce qui a changé.** Dix actes destructeurs ou structurants de la planification écrivent maintenant
+une ligne, et cette ligne dit **combien** — et surtout : deux actes qui se disaient audités depuis la
+phase 20 n'écrivaient **rien du tout**.
+
+⚠ **Point de sauvegarde avant.** Tout ce qui suit est destructeur, sur la base vivante.
+⚠ **AppHost à redémarrer** — c'est du code serveur.
+
+### Ce qu'il faut avoir sous la main
+Une promotion de 2026-2027 portant au moins un axe et quelques cohortes. Si l'année est encore vierge
+(0 roster, 0 cohorte), monter le décor minimal : découper une promotion, poser un axe sur un stage,
+générer les cohortes. Le journal se lit sur **Administration → Journal des actions**.
+
+### Les six choses à voir
+
+1. **« Supprimer les groupes » laisse une ligne.** Sur une promotion vidée, cliquer « Supprimer les
+   groupes », puis ouvrir le journal filtré sur `PROMOTION_GROUPS_DELETED`.
+   - ⚠ **C'est le test qui compte** : avant cette session l'acte détruisait les rosters et le journal
+     restait **vide**. Une ligne doit apparaître, avec un auteur nommé (pas un GUID) et une
+     métadonnée portant `rostersDeleted` et `cohortsDeleted`.
+   - Même chose pour « Vider les groupes » → `PROMOTION_GROUPS_EMPTIED`, avec `rostersInScope` et
+     `registrationsDetached`.
+
+2. **« Réinitialiser les cohortes » dit ce qu'elle a emporté.** Sur un stage, `STAGE_COHORTS_RESET` :
+   la métadonnée porte `academicYearId`, `cohortsRemoved`, `affectationsRemoved`, `periodsRemoved`.
+   - ⚠ **`academicYearId` est le point** : la requête ne l'envoie pas (« omise » veut dire « l'année
+     en cours »), et c'est le serveur qui l'a résolue. Vérifier qu'il nomme bien **2026-2027** et pas
+     `null`.
+
+3. **Un acte sans effet s'enregistre quand même.** Rejouer « Réinitialiser les cohortes » sur le même
+   stage : une **seconde** ligne, avec `cohortsRemoved: 0`.
+   - ⚠ Sans elle, l'absence de ligne recouvrirait « personne ne l'a joué » et « joué sur une
+     promotion déjà vide ».
+
+4. **Un acte refusé n'écrit rien.** Tenter de supprimer un créneau couvert par une période publiée :
+   le refus s'affiche, et **aucune** ligne `STAGE_SLOT_DELETED` n'apparaît. Puis supprimer un créneau
+   libre — le témoin — qui doit, lui, écrire sa ligne avec `periodNumber` et ses dates.
+
+5. **Épingler nomme celui qui a choisi.** Poser une cellule à la main dans la grille →
+   `COHORT_SLOT_PINNED`, avec `serviceId`, `replacedServiceId` et `wasPinned`.
+   - ⚠ `wasPinned` sépare « écraser ce que la rotation avait placé » de « écraser le choix d'un
+     collègue ». Le vérifier en épinglant deux fois la même cellule : la seconde doit dire `true`.
+
+6. **Déplacer un créneau garde les dates d'avant.** Changer les dates d'un créneau →
+   `STAGE_SLOT_UPDATED`, avec `fromStartDate`/`fromEndDate` **et** `toStartDate`/`toEndDate`.
+   - ⚠ Les dates d'avant ne survivent nulle part ailleurs : la ligne du créneau a été écrasée.
+
+### Ce que cette passe ne peut pas montrer
+- **L'atomicité.** Ces actes enchaînent jusqu'à six suppressions **hors transaction** ; une coupure à
+  mi-parcours laisse une destruction à moitié faite. Rien à l'écran ne le révèle — item **0bc**.
+- **Le reste des ~60 actes audités.** Seuls ceux qui n'appelaient *jamais* `SaveChanges` ont été
+  balayés ; un `SaveChanges` **conditionnel** produit le même silence — item **0bd**.
+
+
+## 59 · Un refus qui s'explique, et une publication qui laisse une trace (8 min) — session 61
+
+⚠ **Redémarrer l'AppHost d'abord.** Le processus qui tourne porte l'ancien code : « aucune année
+courante » y répond encore **500**, et « Publier » n'y écrit encore **rien** au registre. Le contrôle
+qui distingue « ancien processus » de « défaut » est l'étape 1 — sur l'ancien, elle donne un 500.
+
+⚠ **Rien ici n'est destructeur sauf l'étape 3**, qui publie. La jouer sur un stage dont la
+publication est voulue, ou être prêt à dépublier derrière.
+
+### A — Le refus arrive avec sa phrase
+
+1. **Aucune année courante → « Conflit », pas « Erreur 500 ».** Le plus simple sans toucher à la base :
+   ouvrir la grille d'un stage en forçant une année qui n'existe pas —
+   `/api/stages/{id}/schedule?academicYearId=99999` — le refus doit être **404**, jamais 500.
+   - ⚠ **Le vrai cas**, s'il se présente un jour : une base sans `IsCurrent` faisait répondre 500 à
+     **tous** les écrans, `AcademicYearResolver` étant le repli de tout handler qui omet l'année. Le
+     refus est désormais un **409** portant « Aucune année universitaire courante n'est définie —
+     sélectionnez une année ». Ne pas fabriquer cet état sur la base vivante pour le voir : c'est
+     `ErrorStatusMappingEndpointTests` qui le tient.
+
+2. **Plus de groupes que d'étudiants.** *Admin → Groupes*, promotion de 232, demander **400** groupes
+   par nombre. Le bandeau doit être **orange « Conflit »** et nommer **les deux** chiffres — 400 et
+   232 — et non le rouge « Erreur 500 · Une erreur serveur est survenue » mesuré le 11/09.
+   - ⚠ C'est le point le plus visible du lot : la phrase existait déjà côté serveur et voyageait dans
+     `detail`, mais le client la **jette** au-dessus de 500.
+
+### B — La publication laisse sa ligne
+
+3. **Publier, puis lire le registre.** Publier un stage (ou une cohorte), puis *Admin → Journal* :
+   - `STAGE_SCHEDULE_PUBLISHED` (entité `Stage`) ou `COHORT_SCHEDULE_PUBLISHED` (entité `Cohort`).
+   - La métadonnée porte `periodsCreated` — **le comparer au nombre de périodes réellement créées**.
+     Sur le stage, aussi `academicYearId` (résolu par le serveur, jamais `null`), `cohortsPublished`,
+     `cohortsSkipped`, `assignmentsAlreadyServed`.
+   - ⚠ Avant cette session **aucune de ces lignes n'existait** : le registre tenait « Dépublier » sans
+     « Publier ».
+
+4. **Rejouer « Publier » sur le même stage écrit une *seconde* ligne**, avec `cohortsPublished: 0` et
+   `cohortsSkipped` égal au nombre de cohortes déjà publiées.
+   - ⚠ **C'est l'étape qui mord.** Le publisher n'enregistre que s'il a des périodes à poser : avec un
+     `SaveChanges` conditionnel, cette seconde ligne n'existerait pas, et « joué sans effet » serait
+     indiscernable de « jamais joué ».
+
+5. **Une publication forcée se lit comme telle.** Sur un service qui refuse d'être dépassé, publier
+   avec le dépassement autorisé → la métadonnée porte `allowOverCapacity: true`.
+   - ⚠ Sans lui, forcer contre le refus d'un service et publier normalement écrivent la même ligne.
+
+### C — Ce que cette passe ne peut pas montrer
+- **L'atomicité du découpage et de la désignation d'année.** Les deux sont désormais enveloppés dans
+  une transaction ; le prouver demanderait de couper la connexion au bon millième de seconde. Aucun
+  test de ce dépôt ne le prouve non plus — le fournisseur *in-memory* n'honore aucune transaction.
+- **`0bc`** reste ouvert : les trois actes destructeurs par `ExecuteDelete` sont toujours hors
+  transaction, parce que l'enveloppe ne se compose pas avec `IAuditTrail`.
+
+## 60 · Une coupe dont toutes les colonnes pèsent pareil (5 min) — session 62
+
+⚠ **Redémarrer l'AppHost d'abord** : le correctif est dans `RosterCut`, donc le processus qui tourne
+découpe encore « les gros d'abord ».
+
+⚠ **Ne pas jouer ceci sur la 3ᵉ MED.** Elle est **publiée** — ses colonnes sont figées à
+100/100/100/93/90×6 et c'est voulu : le correctif ne vaut que pour les coupes à venir, et un
+re-découpage sous une cellule publiée est refusé de toute façon. Prendre une promotion **non encore
+découpée** (4ᵉ MED, 5ᵉ MED, 6ᵉ MED…), ou une promotion de rebut.
+
+1. **Découper.** *Admin → Groupes*, choisir la promotion, « Répartition automatique », demander un
+   **nombre** de groupes qui ne divise pas l'effectif — p. ex. la 4ᵉ MED (925) en **100 groupes**
+   (925 = 25 × 10 + 75 × 9).
+   - Attendu : **100 groupes**, tailles **10 et 9** seulement, total **925**.
+   - ⚠ **Le point du test** : les groupes de 10 doivent être **dispersés** dans la numérotation, pas
+     être les numéros 1 à 25. Repère rapide à l'écran — le groupe **nº 1** et le groupe **nº 100**
+     doivent pouvoir différer d'au plus un étudiant ; avant le correctif, nº 1 valait 10 et nº 100
+     valait 9 **systématiquement**, et les 25 grands étaient les 25 premiers.
+
+2. **Partitionner.** « Assigner les partitions », stratégie **Contiguë** (celle de la faculté), le
+   nombre de colonnes de la promotion.
+   - Attendu : chaque partition affiche sa plage de numéros (`A : 1-10`, `B : 11-20`…) — inchangé.
+   - ⚠ **Le contrôle qui compte** : les effectifs **par partition** ne doivent pas s'étager. Sur la
+     4ᵉ MED en 100 groupes / 10 colonnes, attendre **92 ou 93 partout**, jamais `100, 100, …, 90`.
+
+3. **Le témoin.** Refaire l'étape 1 avec un effectif **divisible** (p. ex. 6ᵉ MED 701 en… non : prendre
+   une promotion où le nombre divise, ou 100 en 10). Toutes les tailles doivent être **égales** — le
+   correctif ne doit rien changer quand il n'y a pas de reste à répartir.
+
+**Ce que ceci ne prouve pas.** Que les colonnes **tiennent** dans les services : c'est l'item `0bh`, et
+c'est de la capacité, pas du découpage. Une promotion parfaitement équilibrée peut dépasser sur tous
+ses services à la fois.
+
+## 61 · Supprimer un service dit pourquoi il ne peut pas (4 min) — session 63
+
+⚠ **Redémarrer l'AppHost d'abord** : la garde est côté serveur, donc le processus qui tourne supprime
+encore sans rien demander.
+
+⚠ **Ne supprimer aucun service réel.** Les deux premières étapes sont des refus — elles ne détruisent
+rien, c'est tout leur intérêt. La troisième crée un service jetable pour avoir un témoin.
+
+1. **Un service que la grille utilise.** *Admin → Infrastructure → Services*, prendre un service qui
+   apparaît dans un planning publié (p. ex. l'une des deux « Dermatologie » de la 3ᵉ MED), « Supprimer »,
+   confirmer.
+   - Attendu : la suppression est **refusée** avec une phrase lisible — « … ne peut pas être supprimé :
+     N cellule(s) de planning, N période(s) de stage déjà enregistrée(s)… ».
+   - ⚠ **Le point du test** : ce n'est **pas** « Une erreur serveur est survenue ». Avant, c'était un
+     500 dont le seul contenu était le nom d'une contrainte PostgreSQL.
+   - Attendu aussi : la phrase dit que les périodes **ne se retirent pas** et renvoie vers les listes de
+     services autorisés — et non « retirez ces rattachements d'abord », qui n'aurait rien voulu dire ici.
+
+2. **Un service que seul un stage autorise.** Prendre un service sans planning mais présent dans
+   *Admin → Stages → (un stage) → Services autorisés*.
+   - Attendu : refus **nommant le stage**, et cette fois « Retirez ces rattachements d'abord ».
+   - Le retirer de la liste du stage, réessayer : il part.
+
+3. **Le témoin.** Créer un service bidon (« ZZ Test »), ne le rattacher à rien, le supprimer.
+   - Attendu : **204**, il disparaît de la liste.
+   - Puis *Admin → Journal* : une ligne **« Service supprimé du catalogue »**, teintée destructrice,
+     dont les métadonnées portent `serviceName`, `quotasRemoved`, `chefTenuresRemoved`,
+     `staffDetached`. ⚠ Vérifier aussi qu'**aucune** ligne n'a été écrite par les refus des étapes 1
+     et 2 : le registre enregistre les actes, pas les tentatives.
+
+**Ce que cette passe ne peut pas montrer.** Que la base aurait refusé toute seule : les tests tournent
+sur un magasin *in-memory* qui ne tient aucune clé étrangère, et ici c'est la **garde** qui refuse,
+avant tout `SaveChanges`. Ni ce qui arrive à un service *encore* supprimable et qui porte des quotas :
+la cascade les emporte, et seule la ligne du registre pourra encore dire combien.

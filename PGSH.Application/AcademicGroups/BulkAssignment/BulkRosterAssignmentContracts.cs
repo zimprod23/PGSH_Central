@@ -1,4 +1,4 @@
-namespace PGSH.Application.AcademicGroups.BulkAssignment;
+﻿namespace PGSH.Application.AcademicGroups.BulkAssignment;
 
 /// <summary>What the act would do to one student, in the words the preview shows.</summary>
 public enum BulkRosterAssignmentRowStatus
@@ -77,6 +77,12 @@ public sealed record BulkRosterAssignmentRow(
     string? Appogee,
     /// <summary>The roster the student is in today — null when he is in none.</summary>
     string? CurrentGroupLabel,
+    /// <summary>
+    /// The same roster, by id. ⚠ Carried because a <b>label</b> identifies nothing: it repeats in
+    /// every promotion, and what the client needs it for is naming the cache entry of the page the
+    /// student is leaving. See <see cref="BulkRosterAssignmentReport.SourceGroupIds"/>.
+    /// </summary>
+    int? CurrentGroupId,
     BulkRosterAssignmentRowStatus Status,
     string  Message,
     /// <summary>The identifier that produced this row, when it came from a pasted list — so an
@@ -119,7 +125,21 @@ public sealed record BulkRosterAssignmentReport(
     int    RefusedCount,
     int    JoinCount,
     int    MoveCount,
-    int    AlreadyThereCount)
+    int    AlreadyThereCount,
+    /// <summary>
+    /// The rosters this act takes students <b>out</b> of, distinct and in no particular order.
+    /// </summary>
+    /// <remarks>
+    /// <para>⚠ <b>Measured over every row, never over <paramref name="Rows"/>.</b> The list is
+    /// capped, so a source read from it would silently omit the rosters whose lines were cut — the
+    /// same trap the counts above avoid, arrived at from a different direction.</para>
+    ///
+    /// <para>Only a <c>WillMove</c> row leaves a roster: a <c>WillJoin</c> comes from none, and a
+    /// refused or already-there row changes nothing. The client cannot derive this — a selection can
+    /// name a whole promotion and it is the <i>server</i> that read each registration's
+    /// <c>AcademicGroupId</c>.</para>
+    /// </remarks>
+    IReadOnlyList<int> SourceGroupIds)
 {
     /// <summary>
     /// How many lines travel with the report. Large enough that an ordinary act — a roster, a dozen
@@ -155,7 +175,12 @@ public sealed record BulkRosterAssignmentReport(
             allRows.Count(r => r.Status.NeedsAttention()),
             allRows.Count(r => r.Status == BulkRosterAssignmentRowStatus.WillJoin),
             allRows.Count(r => r.Status == BulkRosterAssignmentRowStatus.WillMove),
-            allRows.Count(r => r.Status == BulkRosterAssignmentRowStatus.AlreadyThere));
+            allRows.Count(r => r.Status == BulkRosterAssignmentRowStatus.AlreadyThere),
+            // Before the cap, and from the moves alone — see SourceGroupIds.
+            [.. allRows
+                .Where(r => r.Status == BulkRosterAssignmentRowStatus.WillMove && r.CurrentGroupId is not null)
+                .Select(r => r.CurrentGroupId!.Value)
+                .Distinct()]);
 }
 
 /// <summary>

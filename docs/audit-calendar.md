@@ -56,6 +56,93 @@
   rotation de toute une promotion sans toucher une seule cellule, donc l'effet apparaît à la
   répartition suivante, longtemps après le clic, et « pourquoi ce service n'est-il plus utilisé ? »
   n'a aucune autre réponse. Même raison que `STAGE_SERVICE_ORDER_SET`.
+- **Dix codes de plus le 10/09/2026 (`HANDOFF.md` A3) — tout le côté cohorte et toute la grille.**
+  Côté cohorte : `STAGE_COHORTS_RESET` (« Réinitialiser les cohortes », entité `Stage`),
+  `COHORT_DELETED`, `COHORT_SCHEDULE_UNPUBLISHED` (⚠ la métadonnée porte **`forced`** : forcé, cet
+  acte détruit des notes de chef et des journées de présence, et une dépublication ordinaire ne doit
+  pas se lire pareil) et `STAGE_SCHEDULE_UNPUBLISHED` (avec les partitions visées, l'acte étant
+  scopable). Côté grille : `STAGE_SLOT_CREATED`, `STAGE_SLOT_UPDATED`, `STAGE_SLOT_DELETED`,
+  `COHORT_SLOT_PINNED`, `COHORT_SLOT_CLEARED`, `STAGE_SLOT_CELLS_CLEARED`.
+  - ⚠ **Les actes qui *construisent* sont audités aussi**, pour la raison qui a fait auditer
+    `AutoArrangeGroupsCommand` : « qui a posé cet axe » est la même question que « qui l'a
+    supprimé », et une campagne de répartition rejoue les deux en boucle. Épingler est le cas le plus
+    net — `COHORT_SLOT_PINNED` écrit une décision humaine que la répartition automatique n'aura plus
+    le droit de réécrire, donc le registre est la moitié « qui » de ce que `PinnedCellsKept` compte.
+- ⚠ **Et « Publier » n'était pas audité du tout, alors que « Dépublier » l'était — 11/09/2026.**
+  Le registre tenait donc le *défaire* sans le *faire*, sur l'acte qui crée les `ServicePeriod` :
+  tout ce que les chefs notent et tout ce que les présences visent. La seule trace d'une publication
+  était l'absence de sa dépublication. Deux codes de plus : `COHORT_SCHEDULE_PUBLISHED` (entité
+  `Cohort`) et `STAGE_SCHEDULE_PUBLISHED` (entité `Stage`, avec les partitions et les périodes
+  visées, l'acte étant scopable comme son inverse).
+  - ⚠ **`allowOverCapacity` voyage avec l'entrée**, exactement comme `forced` sur la dépublication.
+    Un service peut refuser d'être dépassé (`Service.AllowsOverCapacity`) ; passer outre est un geste
+    posé sciemment **contre** ce refus, et c'est précisément ce qu'on viendra demander au registre.
+    Une publication forcée et une publication ordinaire étaient indiscernables.
+  - ⚠ **Le `SaveChanges` du handler est inconditionnel**, là où le publisher n'écrit que s'il a des
+    périodes à poser. « Publier » rejoué sur un stage déjà publié — l'acte le plus banal d'une
+    campagne — n'aurait sinon rien laissé : c'est la forme *conditionnelle* du défaut ci-dessous,
+    celle que le balayage du 10/09 avait laissée de côté (`HANDOFF.md` **0bd**). Zéro cohorte publiée
+    n'est pas un non-acte, c'est le constat que tout l'était déjà.
+  - `PublishCohortAsync` répond désormais un **nombre** de périodes et non un `Result` nu : un acte
+    audité doit dire *combien*, et « Publier » sur une cohorte de quatre et sur une de quarante
+    écrivaient la même ligne. Épinglé par `PublishScheduleAuditTests`, dont le cas mordant est le
+    stage déjà publié.
+- ⚠ **`STAGE_DELETED` — 11/09/2026.** Supprimer un stage du catalogue n'était pas audité, alors que
+  poser un créneau (`STAGE_SLOT_CREATED`) et ordonner ses services (`STAGE_SERVICE_ORDER_SET`) le
+  sont — et que la suppression emporte **les deux** en cascade, pour toutes les années. Le registre
+  tenait la construction sans la destruction. L'entrée porte `slotsRemoved`,
+  `allowedServicesRemoved`, `objectivesRemoved` : la réponse est un `204` et ne peut rien porter, donc
+  c'est le seul endroit où l'ampleur de la cascade se relit. ⚠ Les compteurs sont lus **avant** le
+  `Remove` — après, il n'y a plus rien à compter.
+- ⚠ **`SERVICE_DELETED` — 11/09/2026.** Même asymétrie, un cran plus bas : supprimer un service
+  emportait en cascade ses quotas (`ServiceLevelCapacity`), l'historique de ses chefs
+  (`ServiceChefAssignment`) et le rattachement de son personnel, sans une ligne au registre. Accorder
+  un quota et nommer un chef sont des décisions humaines que rien d'autre ne conserve. L'entrée porte
+  `serviceName`, `hospitalId`, `quotasRemoved`, `chefTenuresRemoved`, `staffDetached` — lus, comme
+  ci-dessus, **avant** le `Remove`. ⚠ Et l'acte n'était pas seulement muet : il n'avait **aucune
+  garde**, donc un service porté par la grille ou par des périodes sortait en **500** au lieu d'un
+  refus. Voir [`docs/services.md`](services.md).
+- ⚠ **Deux actes portaient le marqueur et n'écrivaient rien — mesuré le 10/09/2026.**
+  `DeleteAllGroupsCommand` (« Supprimer les groupes ») et `EmptyAllYearGroupsCommand` (« Vider les
+  groupes ») déclaraient `YEAR_GROUPS_DELETED` / `PROMOTION_GROUPS_DELETED` et leurs jumeaux depuis
+  la phase 20, et **la table restait vide** : tout leur écrit passe par `ExecuteDelete` /
+  `ExecuteUpdate`, qui contournent le change tracker, et **rien n'appelait `SaveChanges`** — la ligne
+  mise en attente par le pipeline mourait avec la portée de la requête. La propriété « un acte refusé
+  n'écrit rien » et le défaut « un acte réussi n'écrit rien » ont exactement la même cause, et rien
+  ne les distinguait. Les deux handlers terminent maintenant par un `SaveChangesAsync` explicite.
+  - ⚠ **Aucun test ne pouvait le voir**, et ce n'est pas un oubli de couverture : le fournisseur
+    *in-memory* **refuse** `ExecuteDelete`, donc le chemin de succès de ces actes n'était atteignable
+    par aucun test du dépôt. C'est `TestHarness.NewSqliteContext` qui l'ouvre — voir `CLAUDE.md`,
+    « Known blind spot », et `ExecuteDeleteAuditTests`.
+- ⚠ **Une entrée doit dire *combien*, et la commande ne peut pas le savoir — `IAuditTrail`.**
+  `IAuditableCommand` décrit ce qui a été **demandé** ; sur un acte destructeur la question posée au
+  registre trois mois plus tard est « combien cela a-t-il emporté ». « Réinitialiser les cohortes »
+  sur une promotion vierge et sur une promotion publiée écrivent le même code : deux événements sans
+  rapport, une seule ligne. C'est la règle « dire ce que le blanc veut dire », appliquée au journal.
+  - **Le mécanisme.** Le behavior *ouvre* l'entrée sur une piste de portée requête ; le handler y
+    dépose son constat par `RecordOutcome(("cohortsRemoved", n), …)` **avant** son `SaveChanges`.
+    L'immuabilité d'`AuditLog` reste entière : la piste **remplace** l'entité en attente au lieu de la
+    modifier — tant que l'insertion n'est pas validée, la compléter n'est pas corriger le registre
+    après coup, c'est finir la phrase avant de la valider. Et c'est aussi ainsi que l'**année
+    réellement atteinte** entre dans l'entrée : une année omise vaut l'année en cours, et seule la
+    résolution du handler sait laquelle.
+  - ✅ **Vérifié sur la base vivante le 11/09/2026.** Le démontage du décor de §58 a écrit ses deux
+    lignes **avec leur ampleur** : `YEAR_GROUPS_EMPTIED` → `{"rostersInScope": 36,
+    "registrationsDetached": 1564}`, `YEAR_GROUPS_DELETED` → `{"cohortsDeleted": 0,
+    "rostersDeleted": 36}`. ⚠ **Ce sont précisément les deux actes qui n'écrivaient rien du tout**
+    depuis la phase 20 — c'est la mesure qui ferme la boucle, et aucun test de ce dépôt ne pouvait
+    la produire. Au même passage, `GROUPS_AUTO_ARRANGED` porte désormais `"askedBy": "size"` ou
+    `"count"` : **l'unité demandée** est au journal, pas seulement le nombre de groupes obtenu — les
+    deux unités produisent le même résultat et le registre doit pouvoir dire laquelle a été dite.
+  - ⚠ **Jamais dans un handler enveloppé par `ExecuteAtomicallyAsync`.** Sur une nouvelle tentative
+    celui-ci vide le change tracker puis *re-stage* les entités relevées avant la transaction — dont
+    l'entrée telle qu'ouverte, sans son constat — alors que la piste tient la remplaçante : deux
+    lignes pour un acte. Les deux mécanismes répondent au même besoin par deux chemins et il faut en
+    choisir un.
+  - **Un acte sans effet s'enregistre quand même, avec son zéro.** Sans cela l'absence de ligne
+    recouvre « personne ne l'a joué » et « quelqu'un l'a joué sur une promotion déjà vide », qui
+    appellent des lectures opposées. Un acte **refusé**, lui, continue de n'écrire rien : ce n'est
+    pas la même chose, et c'est la distinction que le registre existe pour tenir.
 - ⚠ **Les codes d'actes sont des littéraux dispersés dans autant de fichiers, et
   `AuditLogVocabularyTests` est ce qui les tient ensemble.** Une faute de frappe crée un type d'acte
   de plus, une copie de fichier en fusionne deux, et le journal — dont tout l'intérêt est qu'on
@@ -166,6 +253,16 @@ in nothing else** — so both implement `ICalendarClosure` rather than growing a
   holiday costs zero — so a férié falling on a Sunday correctly reads 0.
 - **A window opens and closes on a worked day.** Asked to start on a Saturday it starts Monday, and it
   never swallows a trailing weekend, so consecutive columns cannot overlap the rest day between them.
+- 📋 **La règle de la faculté, dite le 10/09/2026 : la *seule* contrainte de planification est qu'une
+  période ne commence ni ne finisse un week-end ou un jour férié.** Un férié peut donc être
+  **traversé** sans allonger la fenêtre — ce que le modèle ne sait pas encore dire, un `Holiday` étant
+  aujourd'hui chômé ou inexistant. ⚠ **Rien n'est implémenté** : `HANDOFF.md` **0ay**, `PHASES.md`
+  §27.1. Ce que la règle demande n'est pas une colonne mais une **scission** : `IsWorkingDay` répond
+  à deux questions à la fois — « ce jour compte-t-il dans la durée » (`Count`, l'avance de `Lay`) et
+  « une fenêtre peut-elle s'ouvrir ou se fermer ici » (`NextWorkingDay`, le `End` de `Lay`) — et un
+  férié drapeau `CountsAsWorkingDay` répond **oui** à la première et **non** à la seconde. Le
+  week-end répond non aux deux, et une `PromotionPause` aussi : une semaine d'examens ne compte
+  jamais comme ouvrée.
 - ⚠ **A per-service working week is deliberately not modelled.** Many services run Saturday mornings
   and a garde runs every day. This calendar answers a *planning* question about a promotion; attendance
   is recorded per day against `AttendanceRecord` and is never derived from it.

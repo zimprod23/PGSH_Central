@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Stages.Planning;
 using PGSH.Application.Stages.Slots;
@@ -28,7 +28,7 @@ public class GroupScheduleConflictTests
     private static readonly DateOnly P2End   = new(2026, 2, 28);
 
     private static SetCohortSlotAssignmentCommandHandler Handler(ApplicationDbContext db) =>
-        new(db, new GroupScheduleConflictGuard(db));
+        new(db, new GroupScheduleConflictGuard(db), new RecordingAuditTrail());
 
     /// <summary>
     /// Two stages sharing one period axis — the shape under test. Médecine and Chirurgie each own a
@@ -284,7 +284,7 @@ public class GroupScheduleConflictTests
         await handler.Handle(new SetCohortSlotAssignmentCommand(chir.Id, chirLate.Id, 20), default);
 
         var moved = await new UpdateStageSlotCommandHandler(
-                db, new SlotOverlapGuard(db), new GroupScheduleConflictGuard(db))
+                db, new SlotOverlapGuard(db), new GroupScheduleConflictGuard(db), new RecordingAuditTrail())
             .Handle(new UpdateStageSlotCommand(chirLate.Id, ChirurgieId, null, P1Start, P1End), default);
 
         moved.IsFailure.Should().BeTrue();
@@ -304,7 +304,7 @@ public class GroupScheduleConflictTests
         await db.SaveChangesAsync();
 
         var moved = await new UpdateStageSlotCommandHandler(
-                db, new SlotOverlapGuard(db), new GroupScheduleConflictGuard(db))
+                db, new SlotOverlapGuard(db), new GroupScheduleConflictGuard(db), new RecordingAuditTrail())
             .Handle(new UpdateStageSlotCommand(chirLate.Id, ChirurgieId, null, P1Start, P1End), default);
 
         moved.IsSuccess.Should().BeTrue("an empty period places nobody");

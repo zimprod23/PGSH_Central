@@ -126,7 +126,7 @@ public static class RegistrationErrors
     /// Granting a waiver to a student who owes nothing. Not harmful, but it would sit in the record
     /// as evidence of an exception that never happened.
     /// </summary>
-    public static readonly Error WaiverNotNeeded = Error.Problem(
+    public static readonly Error WaiverNotNeeded = Error.Conflict(
         "FinalYearWaiver.NotNeeded",
         "Cet étudiant ne doit aucun stage antérieur : aucune dérogation n'est nécessaire.");
 

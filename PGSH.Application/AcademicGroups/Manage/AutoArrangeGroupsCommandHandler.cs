@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
 using PGSH.Domain.Common.Utils;
@@ -19,7 +19,27 @@ namespace PGSH.Application.AcademicGroups.Manage;
 internal sealed class AutoArrangeGroupsCommandHandler(IApplicationDbContext dbContext)
     : ICommandHandler<AutoArrangeGroupsCommand, BulkResponse<Guid, int>>
 {
-    public async Task<Result<BulkResponse<Guid, int>>> Handle(
+    /// <summary>
+    /// ⚠ <b>One transaction over the whole cut.</b> The rosters of each CNPN text are saved as they
+    /// are created — a store-generated key is what the members are then pointed at — but the members
+    /// themselves are only flushed at the very end. Between the two, a cancelled request (the tab
+    /// closed, the connection dropped: ASP.NET cancels the token) left the promotion carrying
+    /// <b>rosters with nobody in it</b> and every inscription still detached. Nothing on the screen
+    /// distinguishes that from a cut somebody meant, and re-running does not repair it: the numbering
+    /// continues from the highest existing <c>GroupNumber</c>, so the second attempt builds a
+    /// <i>second</i> set beside the orphans. Measured on the 7ᵉ MED, 1 347 inscriptions in two texts.
+    /// </summary>
+    public Task<Result<BulkResponse<Guid, int>>> Handle(
+        AutoArrangeGroupsCommand request, CancellationToken cancellationToken) =>
+        dbContext.ExecuteAtomicallyAsync(ct => CutAsync(request, ct), cancellationToken);
+
+    /// <remarks>
+    /// ⚠ No <c>IAuditTrail.RecordOutcome</c> here, and that is what makes the wrapper safe: the two
+    /// mechanisms answer the same need by two paths and a handler picks one. What this act did is
+    /// already in <c>AutoArrangeGroupsCommand.AuditMetadata</c> — the unit asked for and its figure —
+    /// so nothing has to be deposited after the fact.
+    /// </remarks>
+    private async Task<Result<BulkResponse<Guid, int>>> CutAsync(
         AutoArrangeGroupsCommand request, CancellationToken cancellationToken)
     {
         // Only a promotion is arranged into groups. « Retrait » (year 0) is a withdrawal marker the
@@ -61,6 +81,14 @@ internal sealed class AutoArrangeGroupsCommandHandler(IApplicationDbContext dbCo
                 default,
                 HeldError(r)))
             .ToList();
+
+        // ⚠ Asked for more rosters than there are students to put in them. Refused rather than
+        // clamped: the operator typed a number, and silently cutting into fewer would leave him
+        // believing a promotion has a shape it does not. The message names **both** figures — a
+        // refusal that says only « trop de groupes » sends him to guess which one was wrong.
+        if (request.GroupCount is { } asked && asked > registrations.Count)
+            return Result.Failure<BulkResponse<Guid, int>>(AcademicGroupErrors.MoreGroupsThanStudents(
+                asked, registrations.Count, level.Label ?? $"niveau {request.LevelId}"));
 
         if (registrations.Count == 0)
         {
@@ -113,10 +141,25 @@ internal sealed class AutoArrangeGroupsCommandHandler(IApplicationDbContext dbCo
             .OrderBy(g => g.Key ?? int.MaxValue)
             .ToList();
 
-        foreach (var bucket in buckets)
+        // ⚠ A target *count* is apportioned across the texts before anything is cut, because each
+        // text takes whole rosters of its own. A target *size* needs no apportioning — it applies
+        // to every bucket alike. See RosterCut.
+        var quotas = request.GroupCount is { } wanted
+            ? RosterCut.Apportion([.. buckets.Select(b => b.Count())], wanted)
+            : null;
+
+        for (int bucketIndex = 0; bucketIndex < buckets.Count; bucketIndex++)
         {
+            var bucket = buckets[bucketIndex];
             var members = bucket.ToList();
-            int groupCount = (int)Math.Ceiling((double)members.Count / request.GroupSize);
+
+            // Sizes rather than a count: the students are spread evenly instead of piling into the
+            // first rosters, which is what left a group of 12 beside eleven of 20.
+            var sizes = quotas is null
+                ? RosterCut.BySize(members.Count, request.GroupSize!.Value)
+                : RosterCut.ByCount(members.Count, quotas[bucketIndex]);
+
+            int groupCount = sizes.Count;
 
             // The code only qualifies the label when there is something to distinguish: naming every
             // group after its CNPN would be noise in the ordinary case where a level has just one.
@@ -139,13 +182,16 @@ internal sealed class AutoArrangeGroupsCommandHandler(IApplicationDbContext dbCo
             dbContext.AcademicGroups.AddRange(newGroups);
             await dbContext.SaveChangesAsync(cancellationToken);
 
+            int taken = 0;
             for (int i = 0; i < newGroups.Count; i++)
             {
-                foreach (var reg in members.Skip(i * request.GroupSize).Take(request.GroupSize))
+                foreach (var reg in members.Skip(taken).Take(sizes[i]))
                 {
                     reg.AcademicGroupId = newGroups[i].Id;
                     itemResults.Add(new BulkItemResult<Guid, int>(reg.StudentId, newGroups[i].Id, null));
                 }
+
+                taken += sizes[i];
             }
 
             nextNumber += groupCount;

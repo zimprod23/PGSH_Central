@@ -1,4 +1,4 @@
-using PGSH.Application.Abstractions.Messaging;
+﻿using PGSH.Application.Abstractions.Messaging;
 
 namespace PGSH.Application.Stages.Cohorts.Delete;
 
@@ -9,7 +9,19 @@ namespace PGSH.Application.Stages.Cohorts.Delete;
 /// Refused once anything on it has begun, exactly as <c>DeleteAllCohortsCommand</c> is. There is no
 /// force: the act that removes started périodes is « Dépublier », which names what it costs.
 /// </remarks>
-public sealed record DeleteCohortCommand(int CohortId) : ICommand<DeleteCohortResult>;
+public sealed record DeleteCohortCommand(int CohortId)
+    : ICommand<DeleteCohortResult>, IAuditableCommand
+{
+    public string AuditAction => "COHORT_DELETED";
+    public string AuditEntityType => "Cohort";
+    public string? AuditEntityId => CohortId.ToString();
+
+    /// <summary>
+    /// Rien de plus que la cible : ce qui compte ici est le <i>coût</i>, et le handler est le seul à
+    /// le connaître. Voir <c>IAuditTrail</c>.
+    /// </summary>
+    public string? AuditMetadata => null;
+}
 
 /// <param name="AffectationsRemoved">Affectations deleted with the cohorte.</param>
 /// <param name="PeriodsRemoved">

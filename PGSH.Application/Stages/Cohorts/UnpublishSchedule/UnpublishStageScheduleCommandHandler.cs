@@ -1,7 +1,8 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
 using PGSH.Application.AcademicYears;
+using PGSH.Application.Audit;
 using PGSH.Application.Stages.Planning;
 using PGSH.Domain.Stages;
 using PGSH.SharedKernel;
@@ -20,7 +21,8 @@ namespace PGSH.Application.Stages.Cohorts.UnpublishSchedule;
 /// </summary>
 internal sealed class UnpublishStageScheduleCommandHandler(
     IApplicationDbContext dbContext,
-    AcademicYearResolver yearResolver)
+    AcademicYearResolver yearResolver,
+    IAuditTrail auditTrail)
     : ICommandHandler<UnpublishStageScheduleCommand, UnpublishStageResult>
 {
     public async Task<Result<UnpublishStageResult>> Handle(
@@ -42,8 +44,15 @@ internal sealed class UnpublishStageScheduleCommandHandler(
             .CohortIdsQuery(dbContext, request.StageId, year.Value, request.PartitionLabels)
             .ToListAsync(cancellationToken);
 
+        // ⚠ Rien de publié sur ce stage cette année-là : un acte sans effet, qui s'enregistre quand
+        // même. Voir UnpublishStageResult.NothingWasPublished — le registre a le même besoin que
+        // l'écran de distinguer « rien à défaire » de « tout a commencé ».
         if (cohortIds.Count == 0)
+        {
+            RecordOutcome(year.Value, 0, 0, 0, 0, 0, 0);
+            await dbContext.SaveChangesAsync(cancellationToken);
             return Result.Success(new UnpublishStageResult(0, 0, 0, 0, 0, 0, 0, []));
+        }
 
         var tolls = await CohortTollsQuery(dbContext, cohortIds).ToListAsync(cancellationToken);
 
@@ -68,8 +77,20 @@ internal sealed class UnpublishStageScheduleCommandHandler(
         int removed = assignments.Sum(a => a.RemovePublishedPeriods());
         int adHocKept = assignments.Sum(a => a.ServicePeriods.Count);
 
-        if (removed > 0)
-            await dbContext.SaveChangesAsync(cancellationToken);
+        // ⚠ Le constat AVANT la sauvegarde, et la sauvegarde inconditionnelle : un balayage qui ne
+        // défait rien parce que tout a commencé est un acte joué, et l'entrée de journal en attente
+        // est à elle seule une raison d'écrire. Gardée sous « removed > 0 », elle se perdait
+        // exactement dans le cas le plus intéressant à relire.
+        RecordOutcome(
+            year.Value,
+            undoable.Count,
+            removed,
+            adHocKept,
+            underway.Count,
+            underway.Sum(t => t.Evaluations),
+            underway.Sum(t => t.AttendanceDays));
+
+        await dbContext.SaveChangesAsync(cancellationToken);
 
         var heaviest = underway
             .OrderByDescending(t => t.Evaluations)
@@ -92,6 +113,23 @@ internal sealed class UnpublishStageScheduleCommandHandler(
             AttendanceDaysAtRisk:   underway.Sum(t => t.AttendanceDays),
             HeaviestSkipped:        heaviest));
     }
+
+    /// <summary>
+    /// Ce que le balayage a défait, et ce qu'il a laissé — les deux, parce qu'un zéro seul ne dit pas
+    /// laquelle des deux causes l'a produit. L'année vient d'ici : la commande peut l'omettre, et
+    /// « omise » veut dire « l'année en cours ».
+    /// </summary>
+    private void RecordOutcome(
+        int yearId, int cohortsUnpublished, int periodsRemoved, int adHocKept,
+        int cohortsSkippedUnderway, int evaluationsAtRisk, int attendanceDaysAtRisk) =>
+        auditTrail.RecordOutcome(
+            ("academicYearId", yearId),
+            ("cohortsUnpublished", cohortsUnpublished),
+            ("periodsRemoved", periodsRemoved),
+            ("adHocPeriodsKept", adHocKept),
+            ("cohortsSkippedUnderway", cohortsSkippedUnderway),
+            ("evaluationsAtRisk", evaluationsAtRisk),
+            ("attendanceDaysAtRisk", attendanceDaysAtRisk));
 
     /// <summary>
     /// One row per cohorte that holds at least one <b>grid-linked</b> période, with the four counts
