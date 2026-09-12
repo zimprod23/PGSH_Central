@@ -374,6 +374,27 @@ Couvert par `PGSH.Tests/Application/DeleteServiceGuardTests.cs` (la garde, et le
 registre) et `PGSH.Tests/Integration/ServiceDeleteEndpointTests.cs` (le **409 avec sa phrase**, qu'un
 test de handler ne voit pas).
 
+## ⚠ Le dépassement de capacité est l'état normal, et il ne se garde pas (2026-09-12)
+Décision de l'utilisateur, tranchée le 12/09/2026 : « il y a trop d'étudiants et trop de services,
+nous sommes obligés de dépasser la capacité dans la plupart des cas ; le système doit être souple et
+nous laisser tout au plus **voir** ». ~10 000 étudiants pour 148 services portant tous la capacité
+par défaut de l'import (20), que personne n'a saisie.
+
+**Ce que cela impose au code :**
+
+- **Une fonctionnalité de capacité est une *lecture*.** Afficher la charge, nommer le manque, et
+  s'arrêter là. Pas de refus nouveau, pas de garde nouvelle, pas d'écran qui exige une correction
+  avant de laisser agir.
+- **La seule exception est déjà construite et reste telle quelle** : `Service.AllowsOverCapacity =
+  false`, la déclaration d'un service que *son* chiffre n'est pas négociable (voir plus haut). `true`
+  sur toutes les lignes de la base aujourd'hui, donc rien n'est bloqué en pratique.
+- **Ne pas rouvrir « il manque N places à cette promotion »** (`HANDOFF.md` `0bg` / `0bh`) : c'est
+  mesuré, c'est affiché, et la réponse est *accepté*.
+
+⚠ **Une liste de services vide n'est pas un dépassement**, et c'est la distinction qui reste utile :
+un stage qui n'autorise aucun service est refusé par l'arrangeur (`Schedule.NoAllowedServices`),
+quel que soit l'effectif. Le panneau ci-dessous les sépare déjà.
+
 ## ✅ « Cette promotion tient-elle ? » — la capacité lue avant qu'il existe un plan (2026-09-12)
 `GET /services/promotion-fit` — `Application/Hospitals/Services/PromotionFit/`, à côté
 d'`OccupancyReport` dont il reprend le vocabulaire.

@@ -398,6 +398,12 @@ behaviour; each caller states its own.**
   evaluated candidates.
 - **Service capacity** — two numbers, never one. `ServiceOccupancyCalculator` says how many students are
   *there*; `ServiceIntakeCalculator` says how many are *allowed*. Every capacity decision compares the two.
+  - ⚠ **…and the comparison is *shown*, never enforced.** Settled 12/09/2026: ~10 000 students over 148
+    services all carrying the import's default 20, so over-capacity is how this faculty runs. Capacity
+    features are **reads** — no new refusal, no new guard, no screen that demands a correction before
+    it will act. The one exception stays as built: `Service.AllowsOverCapacity = false`, a service's
+    own statement that its number is firm (`true` on every row today).
+    → [`docs/services.md`](docs/services.md)
   - …and a third question they cannot answer: **how many will be there once a promotion is planned**.
     `PromotionAxis` (`Domain/Stages/`) is that arithmetic and it is pure — `kₛ = durée_s / pgcd`,
     `T = Σkₛ`, and the slice standing in a stage at one instant is `⌈N·kₛ/T⌉`. Never restate it: the
