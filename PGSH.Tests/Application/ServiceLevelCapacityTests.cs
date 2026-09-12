@@ -573,7 +573,7 @@ public class ServiceLevelCapacityTests
         db.SeedLevelCapacity(pharmacieOnly, OtherLevelId, 15);
         await db.SaveChangesAsync();
 
-        var result = await new AddAllowedServiceCommandHandler(db, new ServiceRankWriter(db))
+        var result = await new AddAllowedServiceCommandHandler(db, new ServiceRankWriter(db, new RecordingAuditTrail()))
             .Handle(new AddAllowedServiceCommand(stage.Id, ServiceId), default);
 
         result.IsFailure.Should().BeTrue();
@@ -595,7 +595,7 @@ public class ServiceLevelCapacityTests
         db.SeedLevelCapacity(service, TestHarness.LevelId, 10);
         await db.SaveChangesAsync();
 
-        var result = await new AddAllowedServiceCommandHandler(db, new ServiceRankWriter(db))
+        var result = await new AddAllowedServiceCommandHandler(db, new ServiceRankWriter(db, new RecordingAuditTrail()))
             .Handle(new AddAllowedServiceCommand(stage.Id, ServiceId), default);
 
         result.IsSuccess.Should().BeTrue();
@@ -611,7 +611,7 @@ public class ServiceLevelCapacityTests
         db.SeedService(ServiceId, "Cardiologie");
         await db.SaveChangesAsync();
 
-        var result = await new AddAllowedServiceCommandHandler(db, new ServiceRankWriter(db))
+        var result = await new AddAllowedServiceCommandHandler(db, new ServiceRankWriter(db, new RecordingAuditTrail()))
             .Handle(new AddAllowedServiceCommand(stage.Id, ServiceId), default);
 
         result.IsSuccess.Should().BeTrue("no rules authored means no promotion excluded");

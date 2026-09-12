@@ -134,11 +134,15 @@
     la produire. Au même passage, `GROUPS_AUTO_ARRANGED` porte désormais `"askedBy": "size"` ou
     `"count"` : **l'unité demandée** est au journal, pas seulement le nombre de groupes obtenu — les
     deux unités produisent le même résultat et le registre doit pouvoir dire laquelle a été dite.
-  - ⚠ **Jamais dans un handler enveloppé par `ExecuteAtomicallyAsync`.** Sur une nouvelle tentative
-    celui-ci vide le change tracker puis *re-stage* les entités relevées avant la transaction — dont
-    l'entrée telle qu'ouverte, sans son constat — alors que la piste tient la remplaçante : deux
-    lignes pour un acte. Les deux mécanismes répondent au même besoin par deux chemins et il faut en
-    choisir un.
+  - ✅ **Et cela compose avec une transaction depuis le 12/09/2026 — par
+    `IAuditTrail.RunAtomicallyAsync`, jamais par `IApplicationDbContext.ExecuteAtomicallyAsync`
+    directement.** L'enveloppe vide le change tracker à chaque nouvelle tentative, donc l'entrée mise
+    en attente avant le handler disparaît avec lui. Le contexte en relevait autrefois une photographie
+    à l'entrée et la remettait telle quelle : impossible ici, puisque le constat **remplace** l'entrée
+    en attente — la tentative suivante remettait donc celle d'avant, sans constat, pendant que la
+    piste tenait la remplaçante. Deux lignes pour un acte, dont une fausse. C'est la piste qui remet
+    la sienne, parce qu'elle est seule à savoir laquelle est la bonne ; le contexte ne remet plus
+    rien. Épinglé par `AtomicUnitOfWorkTests`.
   - **Un acte sans effet s'enregistre quand même, avec son zéro.** Sans cela l'absence de ligne
     recouvre « personne ne l'a joué » et « quelqu'un l'a joué sur une promotion déjà vide », qui
     appellent des lectures opposées. Un acte **refusé**, lui, continue de n'écrire rien : ce n'est

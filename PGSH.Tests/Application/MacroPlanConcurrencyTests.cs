@@ -36,6 +36,7 @@ public class MacroPlanConcurrencyTests
 
     private static GenerateMacroPlanCommandHandler Handler(ApplicationDbContext db) =>
         new(db,
+            new RecordingAuditTrail(),
             new CohortProvisioner(db),
             new StudentAffectationService(db),
             db.Arranger(),

@@ -31,7 +31,19 @@ internal sealed class DeleteAllGroupsCommandHandler(
     IAuditTrail auditTrail)
     : ICommandHandler<DeleteAllGroupsCommand, int>
 {
-    public async Task<Result<int>> Handle(DeleteAllGroupsCommand request, CancellationToken cancellationToken)
+    /// <summary>
+    /// ⚠ <b>Une transaction, parce qu'il y a six suppressions et qu'elles se suivent.</b> Périodes,
+    /// historique de cohorte, affectations, cellules, cohortes, groupes : chacune est une instruction
+    /// séparée qui atterrit pour de bon dès qu'elle passe. Une requête interrompue entre la troisième
+    /// et la quatrième — l'onglet fermé, la connexion coupée : ASP.NET annule le jeton — laissait les
+    /// groupes et leurs cohortes en place, la grille pleine de cellules, et <b>plus personne
+    /// dedans</b> : un plan complet et confiant pour zéro étudiant, que rien à l'écran ne distingue
+    /// d'un plan voulu. Et le registre se taisait, puisque sa ligne est la septième instruction.
+    /// </summary>
+    public Task<Result<int>> Handle(DeleteAllGroupsCommand request, CancellationToken cancellationToken) =>
+        auditTrail.RunAtomicallyAsync(ct => DeleteAsync(request, ct), cancellationToken);
+
+    private async Task<Result<int>> DeleteAsync(DeleteAllGroupsCommand request, CancellationToken cancellationToken)
     {
         int? levelId = request.LevelId;
         string? levelLabel = null;

@@ -532,7 +532,7 @@ public class ReinscriptionSheetTests
 
         await db.SaveChangesAsync();
 
-        var handler = new AutoArrangeGroupsCommandHandler(db);
+        var handler = new AutoArrangeGroupsCommandHandler(db, new RecordingAuditTrail());
 
         var result = await handler.Handle(
             new AutoArrangeGroupsCommand(TestHarness.LevelId, TestHarness.CurrentYearId, GroupSize: 10),

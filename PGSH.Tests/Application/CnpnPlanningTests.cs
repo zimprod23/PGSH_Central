@@ -43,7 +43,7 @@ public class CnpnPlanningTests
         await db.SaveChangesAsync();
 
         // A size of 20 would fit all three in one group if the text were ignored.
-        var result = await new AutoArrangeGroupsCommandHandler(db).Handle(
+        var result = await new AutoArrangeGroupsCommandHandler(db, new RecordingAuditTrail()).Handle(
             new AutoArrangeGroupsCommand(TestHarness.CurrentYearId, TestHarness.LevelId, 20), default);
 
         result.IsSuccess.Should().BeTrue();
@@ -69,7 +69,7 @@ public class CnpnPlanningTests
         for (int i = 0; i < 5; i++) Enrol(db, $"E{i}", "Test", NewText);
         await db.SaveChangesAsync();
 
-        await new AutoArrangeGroupsCommandHandler(db).Handle(
+        await new AutoArrangeGroupsCommandHandler(db, new RecordingAuditTrail()).Handle(
             new AutoArrangeGroupsCommand(TestHarness.CurrentYearId, TestHarness.LevelId, 20), default);
 
         var groups = await db.AcademicGroups.ToListAsync();
@@ -87,7 +87,7 @@ public class CnpnPlanningTests
         Enrol(db, "Inconnu", "Sans-CNPN", null);
         await db.SaveChangesAsync();
 
-        await new AutoArrangeGroupsCommandHandler(db).Handle(
+        await new AutoArrangeGroupsCommandHandler(db, new RecordingAuditTrail()).Handle(
             new AutoArrangeGroupsCommand(TestHarness.CurrentYearId, TestHarness.LevelId, 20), default);
 
         var groups = await db.AcademicGroups.OrderBy(g => g.GroupNumber).ToListAsync();

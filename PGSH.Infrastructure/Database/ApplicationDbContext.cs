@@ -102,32 +102,24 @@ public sealed class ApplicationDbContext : DbContext, IApplicationDbContext
         // which would turn every wrapped handler into a 500 rather than into an atomic one.
         var strategy = Database.CreateExecutionStrategy();
 
-        // ⚠ Entities staged BEFORE this transaction began were staged deliberately by something
-        // upstream — `AuditLogPipelineBehavior` adds the act's journal entry ahead of the handler, so
-        // that a refused act writes nothing and a successful one records itself in the same unit of
-        // work. Clearing the tracker on the way in destroyed exactly that: the act succeeded and its
-        // trail vanished, silently, on the one table whose whole purpose is to be read back later.
-        // Measured 2026-09-05 on the live base — a reorder wrote its ranks and no STAGE_SERVICE_ORDER_SET.
-        var preStaged = ChangeTracker.Entries()
-            .Where(e => e.State == EntityState.Added)
-            .Select(e => e.Entity)
-            .ToList();
-
         int attempt = 0;
 
         return await strategy.ExecuteAsync(async ct =>
         {
             // ⚠ Only from the second attempt. A retry re-runs the operation from the top, so anything
-            // the *failed* attempt tracked has to go — left behind it would be inserted twice — but on
-            // the first attempt there is no failed attempt to clean up, only what was staged above.
-            // Those are then re-staged, or a retry would succeed while losing the journal entry.
+            // the *failed* attempt tracked has to go — left behind it would be inserted twice — and on
+            // the first attempt there is nothing to clean up.
+            //
+            // ⚠ **Whatever was staged BEFORE this unit of work is its owner's to put back, not
+            // ours.** `AuditLogPipelineBehavior` stages the act's journal entry ahead of the handler,
+            // and this method used to photograph every `Added` entity here and re-add the photograph.
+            // That is wrong the moment a staged entity is *replaced* rather than mutated — which is
+            // exactly what `IAuditTrail.RecordOutcome` does, so the retry re-staged the entry as
+            // opened, without its outcome, while the trail held the replacement: two rows for one
+            // act. An audited unit of work therefore goes through `IAuditTrail.RunAtomicallyAsync`,
+            // which re-stages the entry it currently holds. Corrected 2026-09-12.
             if (attempt++ > 0)
-            {
                 ChangeTracker.Clear();
-
-                foreach (var entity in preStaged)
-                    Add(entity);
-            }
 
             await using var transaction = await Database.BeginTransactionAsync(ct);
 

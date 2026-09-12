@@ -25,7 +25,17 @@ internal sealed class DeleteAllCohortsCommandHandler(
     IAuditTrail auditTrail)
     : ICommandHandler<DeleteAllCohortsCommand, DeleteAllCohortsResult>
 {
-    public async Task<Result<DeleteAllCohortsResult>> Handle(
+    /// <summary>
+    /// ⚠ <b>Une transaction : cinq suppressions se suivent, et chacune est définitive dès qu'elle
+    /// passe.</b> Interrompue au milieu, « Réinitialiser les cohortes » laissait un stage à moitié
+    /// remis à zéro — des cohortes sans affectation, des cellules sans cohorte — sans une ligne au
+    /// registre, celle-ci n'étant validée qu'à la fin. Voir <c>DeleteAllGroupsCommandHandler</c>.
+    /// </summary>
+    public Task<Result<DeleteAllCohortsResult>> Handle(
+        DeleteAllCohortsCommand request, CancellationToken cancellationToken) =>
+        auditTrail.RunAtomicallyAsync(ct => ResetAsync(request, ct), cancellationToken);
+
+    private async Task<Result<DeleteAllCohortsResult>> ResetAsync(
         DeleteAllCohortsCommand request, CancellationToken cancellationToken)
     {
         var year = await yearResolver.ResolveWithLabelAsync(request.AcademicYearId, cancellationToken);

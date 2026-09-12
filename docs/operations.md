@@ -209,3 +209,28 @@ and restored **0 of 2**, without an error.
 ⚠ **The 2026-2027 year has to be restored before the effectivity rules**, one of which takes effect
 from it — and `IX_AcademicYear_IsCurrent` is unique and filtered, so demote and promote are **two
 statements in that order**, never one `UPDATE`.
+
+## ✅ Les trois actes destructeurs sont atomiques (2026-09-12)
+`DeleteAllGroupsCommand`, `DeleteAllCohortsCommand` et `EmptyAllYearGroupsCommand` n'écrivent que par
+`ExecuteDelete` / `ExecuteUpdate`, **hors du change tracker**. Chaque instruction atterrissait pour de
+bon dès qu'elle passait, et rien ne les liait : six pour « Supprimer les groupes », cinq pour
+« Réinitialiser les cohortes », une plus la ligne du registre pour « Vider les groupes ».
+
+**Ce que laissait une interruption.** Les six vont dans cet ordre — périodes, historique de cohorte,
+affectations, cellules, cohortes, groupes — puis la ligne de journal. Une requête coupée après la
+troisième laissait les groupes, leurs cohortes et **toute la grille** en place, avec plus personne
+dedans : un plan complet et confiant pour zéro étudiant, que rien à l'écran ne distingue d'un plan
+voulu. Et le registre se taisait, sa ligne étant la septième instruction — donc des périodes détruites
+sans une trace, sur l'acte le plus destructeur de la campagne.
+
+⚠ **Ce n'est pas un scénario rare.** ASP.NET annule la requête dès que la connexion tombe, et un
+onglet fermé *est* une connexion tombée. Sur une promotion de 925 étudiants, l'acte dure des secondes
+visibles.
+
+**Corrigé** : chacun des trois est enveloppé dans `IAuditTrail.RunAtomicallyAsync` — tout atterrit, ou
+rien. ⚠ Par la **piste** et non par le contexte : l'acte est audité, une nouvelle tentative vide le
+change tracker, et seule la piste sait quelle version de l'entrée est la bonne. Voir
+[`docs/audit-calendar.md`](audit-calendar.md).
+
+⚠ **La sauvegarde reste la règle** : `pg_dump -Fc` avant tout acte de masse. L'atomicité protège d'une
+destruction *à moitié faite*, jamais d'une destruction complète qu'on regrette.

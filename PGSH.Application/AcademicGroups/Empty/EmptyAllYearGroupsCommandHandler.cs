@@ -28,7 +28,17 @@ internal sealed class EmptyAllYearGroupsCommandHandler(
     IAuditTrail auditTrail)
     : ICommandHandler<EmptyAllYearGroupsCommand, int>
 {
-    public async Task<Result<int>> Handle(
+    /// <summary>
+    /// ⚠ <b>Une transaction, bien qu'il n'y ait qu'un <c>ExecuteUpdate</c>.</b> Une instruction est
+    /// atomique à elle seule, mais la ligne du registre en est une seconde : sans l'enveloppe, une
+    /// requête interrompue entre les deux détachait toute une promotion et n'en gardait aucune trace.
+    /// « Qui a vidé les groupes de la 4ᵉ MED ? » n'a alors plus de réponse.
+    /// </summary>
+    public Task<Result<int>> Handle(
+        EmptyAllYearGroupsCommand request, CancellationToken cancellationToken) =>
+        auditTrail.RunAtomicallyAsync(ct => EmptyAsync(request, ct), cancellationToken);
+
+    private async Task<Result<int>> EmptyAsync(
         EmptyAllYearGroupsCommand request, CancellationToken cancellationToken)
     {
         int? levelId = request.LevelId;

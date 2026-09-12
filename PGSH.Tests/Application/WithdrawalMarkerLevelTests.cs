@@ -76,7 +76,7 @@ public class WithdrawalMarkerLevelTests
         db.SeedRegistration("Parti", "Étudiant", levelId: RetraitId);
         await db.SaveChangesAsync();
 
-        var result = await new AutoArrangeGroupsCommandHandler(db).Handle(
+        var result = await new AutoArrangeGroupsCommandHandler(db, new RecordingAuditTrail()).Handle(
             new AutoArrangeGroupsCommand(RetraitId, TestHarness.CurrentYearId, GroupSize: 20), default);
 
         result.IsFailure.Should().BeTrue();

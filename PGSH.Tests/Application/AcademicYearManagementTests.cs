@@ -37,7 +37,7 @@ public class AcademicYearManagementTests
     }
 
     private static SetCurrentAcademicYearCommandHandler SetCurrent(ApplicationDbContext db) =>
-        new(db, new CurrentYearDesignation(db), db.AdminAuthorizer());
+        new(db, new CurrentYearDesignation(db, new RecordingAuditTrail()), db.AdminAuthorizer());
 
     private static DeleteAcademicYearCommandHandler Delete(ApplicationDbContext db) =>
         new(db, db.AdminAuthorizer());

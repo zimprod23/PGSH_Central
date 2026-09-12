@@ -46,7 +46,7 @@ public class RosterCutByCountTests
     {
         await using var db = await SeedPromotionAsync(nameof(A_promotion_is_cut_into_the_number_of_groups_asked_for), 232);
 
-        var result = await new AutoArrangeGroupsCommandHandler(db).Handle(
+        var result = await new AutoArrangeGroupsCommandHandler(db, new RecordingAuditTrail()).Handle(
             new AutoArrangeGroupsCommand(
                 TestHarness.LevelId, TestHarness.CurrentYearId, GroupSize: null, GroupCount: 12),
             default);
@@ -69,7 +69,7 @@ public class RosterCutByCountTests
     {
         await using var db = await SeedPromotionAsync(nameof(Cutting_by_size_no_longer_leaves_a_runt_group), 232);
 
-        var result = await new AutoArrangeGroupsCommandHandler(db).Handle(
+        var result = await new AutoArrangeGroupsCommandHandler(db, new RecordingAuditTrail()).Handle(
             new AutoArrangeGroupsCommand(TestHarness.LevelId, TestHarness.CurrentYearId, GroupSize: 20),
             default);
 
@@ -92,7 +92,7 @@ public class RosterCutByCountTests
     {
         await using var db = await SeedPromotionAsync(nameof(More_groups_than_students_is_refused_by_naming_both_numbers), 5);
 
-        var result = await new AutoArrangeGroupsCommandHandler(db).Handle(
+        var result = await new AutoArrangeGroupsCommandHandler(db, new RecordingAuditTrail()).Handle(
             new AutoArrangeGroupsCommand(
                 TestHarness.LevelId, TestHarness.CurrentYearId, GroupSize: null, GroupCount: 40),
             default);
@@ -124,7 +124,7 @@ public class RosterCutByCountTests
 
         await db.SaveChangesAsync();
 
-        var result = await new AutoArrangeGroupsCommandHandler(db).Handle(
+        var result = await new AutoArrangeGroupsCommandHandler(db, new RecordingAuditTrail()).Handle(
             new AutoArrangeGroupsCommand(
                 TestHarness.LevelId, TestHarness.CurrentYearId, GroupSize: null, GroupCount: 9),
             default);
@@ -170,7 +170,7 @@ public class RosterCutByCountTests
             new DateTime(2026, 9, 2, 0, 0, 0, DateTimeKind.Utc)).IsSuccess.Should().BeTrue();
         await db.SaveChangesAsync();
 
-        var result = await new AutoArrangeGroupsCommandHandler(db).Handle(
+        var result = await new AutoArrangeGroupsCommandHandler(db, new RecordingAuditTrail()).Handle(
             new AutoArrangeGroupsCommand(
                 TestHarness.LevelId, TestHarness.CurrentYearId, GroupSize: null, GroupCount: 3),
             default);

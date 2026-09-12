@@ -1,4 +1,6 @@
-﻿namespace PGSH.Application.Audit;
+﻿using PGSH.SharedKernel;
+
+namespace PGSH.Application.Audit;
 
 /// <summary>
 /// Ce que l'acte en cours a réellement fait, ajouté à l'entrée qu'il est déjà en train d'écrire.
@@ -24,17 +26,37 @@
 /// écrit est le même ; c'est l'ordre qui est propre. Épinglé par les tests de bout en bout de chaque
 /// acte.</para>
 ///
-/// <para>⚠ <b>Et jamais dans un handler enveloppé par <c>ExecuteAtomicallyAsync</c>.</b> Sur une
-/// nouvelle tentative, celui-ci vide le change tracker puis <i>re-stage</i> les entités qu'il avait
-/// relevées avant la transaction — dont l'entrée telle qu'ouverte, sans son constat. La piste, elle,
-/// tient la remplaçante : elle retirerait une entité détachée et en ajouterait une troisième, ce qui
-/// donne deux lignes pour un acte. Les deux mécanismes répondent au même besoin par deux chemins, et
-/// il faut en choisir un : un handler qui écrit par <c>ExecuteDelete</c>/<c>ExecuteUpdate</c> —
-/// hors unité de travail — termine par un <c>SaveChangesAsync</c> qui valide l'entrée, et se passe
-/// de l'enveloppe.</para>
+/// <para>✅ <b>Et cela compose désormais avec une unité de travail atomique — par
+/// <see cref="IAuditTrail.RunAtomicallyAsync{T}"/>, jamais par
+/// <c>IApplicationDbContext.ExecuteAtomicallyAsync</c> directement.</b> Corrigé le 12/09/2026.
+/// L'enveloppe vide le change tracker à chaque nouvelle tentative, donc l'entrée mise en attente
+/// <i>avant</i> la transaction disparaît avec lui. Elle relevait autrefois les entités concernées à
+/// l'entrée et les remettait telles quelles, ce qui ne pouvait pas marcher ici : le constat
+/// <b>remplace</b> l'entité en attente, si bien que la tentative suivante remettait l'entrée
+/// <i>sans son constat</i> pendant que la piste tenait la remplaçante — deux lignes pour un acte.
+/// C'est la piste, seule, qui sait quelle entrée est la bonne, donc c'est elle qui la remet.</para>
 /// </remarks>
 public interface IAuditTrail
 {
+    /// <summary>
+    /// Exécute <paramref name="operation"/> comme <b>une</b> transaction — elle atterrit entière ou
+    /// pas du tout — en gardant l'entrée du registre attachée à cette unité de travail.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>C'est la seule façon dont un acte audité ouvre une transaction.</b>
+    /// <c>IApplicationDbContext.ExecuteAtomicallyAsync</c> reste pour les actes qui n'écrivent rien
+    /// au registre : rien n'y est mis en attente avant le handler, donc rien n'y est à remettre.</para>
+    ///
+    /// <para>⚠ Sans effet sur l'entrée quand l'acte n'est pas auditable — la piste n'a alors rien
+    /// ouvert — donc un collaborateur partagé peut envelopper son travail sans savoir qui l'appelle,
+    /// exactement comme il appelle <see cref="RecordOutcome"/> sans le savoir.</para>
+    ///
+    /// <para>⚠ Un <c>Result</c> en échec annule la transaction, comme dans l'enveloppe sous-jacente :
+    /// un refus rendu à mi-parcours est le même état partiel qu'une connexion coupée.</para>
+    /// </remarks>
+    Task<Result<T>> RunAtomicallyAsync<T>(
+        Func<CancellationToken, Task<Result<T>>> operation, CancellationToken cancellationToken = default);
+
     /// <summary>
     /// Ajoute <paramref name="fields"/> aux métadonnées de l'entrée en attente. Sans effet si l'acte
     /// n'est pas auditable — un collaborateur partagé n'a pas à savoir lequel de ses appelants l'est.

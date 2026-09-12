@@ -62,7 +62,7 @@ public class GroupPerLevelIdentityTests
                 academicYearId: TestHarness.CurrentYearId, levelId: SixthYearId);
         await db.SaveChangesAsync();
 
-        var handler = new AutoArrangeGroupsCommandHandler(db);
+        var handler = new AutoArrangeGroupsCommandHandler(db, new RecordingAuditTrail());
 
         await handler.Handle(
             new AutoArrangeGroupsCommand(TestHarness.LevelId, TestHarness.CurrentYearId, GroupSize: 2), default);
@@ -88,7 +88,7 @@ public class GroupPerLevelIdentityTests
         for (int i = 0; i < 3; i++) db.SeedRegistration($"T{i}", "Troisieme");
         await db.SaveChangesAsync();
 
-        await new AutoArrangeGroupsCommandHandler(db).Handle(
+        await new AutoArrangeGroupsCommandHandler(db, new RecordingAuditTrail()).Handle(
             new AutoArrangeGroupsCommand(TestHarness.LevelId, TestHarness.CurrentYearId, GroupSize: 2), default);
 
         (await db.AcademicGroups.ToListAsync())

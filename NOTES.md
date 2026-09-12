@@ -4693,3 +4693,42 @@ retirées à personne : deux promotions qui autorisent le même service peuvent 
 les mêmes lits. Le 11/09 c'était le cas réel — les quatre services de Dermatologie de la 4ᵉ MED sont
 ceux où la 3ᵉ est déjà assise à 27-30 pour un plafond de 20. La colonne « aussi autorisé par » est
 donc calculée sur toute l'année, filtre ou pas.
+
+## Deux mécanismes qui répondaient au même besoin, et pourquoi ils ne composaient pas (12/09/2026, session 65)
+
+Le symptôme était une règle : « une unité de travail atomique et `IAuditTrail.RecordOutcome` ne se
+composent pas, un handler choisit ». Elle était vraie, et elle laissait sans transaction très
+exactement les trois actes les plus destructeurs de la campagne — ceux qui écrivent par
+`ExecuteDelete`, donc hors du change tracker, donc par instructions séparées et définitives.
+
+**La mécanique, en trois faits.**
+
+1. `AuditLogPipelineBehavior` met l'entrée du journal en attente **avant** le handler. C'est ce qui
+   fait qu'un acte refusé n'écrit rien, et qu'un acte réussi s'enregistre dans la même unité de
+   travail que lui.
+2. `ExecuteAtomicallyAsync` vide le change tracker à chaque nouvelle tentative — sinon ce que la
+   tentative ratée avait suivi serait inséré deux fois. Il relevait donc à l'entrée la liste des
+   entités `Added` et les remettait après le vide.
+3. `RecordOutcome` **remplace** l'entrée en attente par une copie enrichie, au lieu de la muter —
+   parce qu'`AuditLog` est immuable et doit le rester (« un registre qui se corrige après coup n'est
+   pas un registre »).
+
+Les trois ensemble : la photographie du point 2 tient l'objet du point 1, le point 3 en fabrique un
+autre, et la reprise remet le premier — l'entrée **sans son constat** — pendant que la piste tient le
+second. Deux lignes pour un acte, dont une qui ne dit pas ce qui a eu lieu.
+
+⚠ **Le correctif n'est pas un contournement, c'est un déplacement de responsabilité.** La
+photographie était une supposition du contexte sur ce qu'il fallait remettre. Or l'entrée appartient à
+la piste : elle seule sait laquelle est la bonne à un instant donné. Donc c'est elle qui la remet, en
+tête de chaque tentative, et le contexte ne remet plus rien de lui-même. `IAuditTrail.RunAtomicallyAsync`
+est le seul chemin pour un acte audité ; `ExecuteAtomicallyAsync` reste celui d'un acte sans journal,
+où il n'y a rien à remettre.
+
+**Deux raisons de ne pas l'avoir fait autrement.**
+
+- *Muter la métadonnée de l'entrée en attente* aurait supprimé le problème d'un mot, et ouvert la
+  possibilité de réécrire une entrée déjà écrite : rien n'empêcherait d'appeler la même méthode sur
+  une ligne relue de la base.
+- *Faire porter au `DbContext` une liste de rappels* était le premier réflexe. Il est **pooled**
+  (`AddNpgsqlDbContext`), donc un champ mutable qu'aucun `ResetState` ne vide se serait promené d'une
+  requête à la suivante — un rappel périmé remettant l'entrée d'une requête précédente.

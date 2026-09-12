@@ -3334,3 +3334,47 @@ l'arrangeur n'utilisera pas serait pire que de ne rien afficher.
 - **`0bg` et `0bh` restent entiers** : Pédiatrie qui demande 351 places là où il en existe 120 est une
   décision de la faculté, pas un écran.
 - **Rien n'est encore vu au navigateur** : `SMOKE-TEST.md` **§62**, après redémarrage de l'AppHost.
+
+---
+
+## ✅ Phase 30 — Les actes destructeurs atterrissent entiers, ou pas du tout
+
+**Livré le 12/09/2026** (`HANDOFF.md` **0bc**, ouvert par la phase 28). Les trois actes de masse de la
+campagne n'écrivent que par `ExecuteDelete` / `ExecuteUpdate` : six instructions séparées pour
+« Supprimer les groupes », cinq pour « Réinitialiser les cohortes », une plus le journal pour
+« Vider les groupes ». Chacune était définitive dès qu'elle passait, et **rien ne les liait**.
+
+### 30.1 — Ce qu'une interruption laissait
+Coupée après la troisième suppression, « Supprimer les groupes » laissait les groupes, leurs cohortes
+et toute la grille debout, avec plus personne dedans : un plan complet pour zéro étudiant, que rien à
+l'écran ne distingue d'un plan voulu — et **aucune ligne au registre**, la sienne étant la septième
+instruction. ⚠ ASP.NET annule la requête dès que la connexion tombe, et un onglet fermé *est* une
+connexion tombée : sur une promotion de 925 étudiants l'acte dure des secondes visibles.
+
+### 30.2 — Pourquoi cela n'était pas une ligne de code
+`ExecuteAtomicallyAsync` vide le change tracker à chaque tentative et remettait une **photographie**
+des entités mises en attente à l'entrée. Or `IAuditTrail.RecordOutcome` **remplace** l'entrée en
+attente (l'`AuditLog` est immuable), donc la reprise remettait celle d'avant le constat pendant que la
+piste tenait la remplaçante : deux lignes pour un acte. D'où l'ancienne règle « choisir entre
+l'enveloppe et le constat », qui laissait sans transaction précisément les actes qui en avaient le
+plus besoin.
+
+### 30.3 — La responsabilité va où est la connaissance
+L'entrée appartient à la piste : c'est elle qui la remet, en tête de chaque tentative, dans sa version
+courante. `IAuditTrail.RunAtomicallyAsync` est désormais le seul chemin d'un acte **audité** ;
+`IApplicationDbContext.ExecuteAtomicallyAsync` reste celui d'un acte sans journal et ne remet plus
+rien de lui-même. Les quatre appelants qui l'utilisaient déjà — `AutoArrangeGroups`,
+`GenerateMacroPlan`, `CurrentYearDesignation`, `ServiceRankWriter` — passent par la piste : **un seul
+mécanisme**.
+
+⚠ **Aucun état mutable n'a été ajouté au `DbContext`**, qui est *pooled* : un champ que rien ne
+réinitialise se serait promené d'une requête à la suivante.
+
+### Ce qui reste
+- **L'atomicité ne protège pas d'une destruction complète qu'on regrette** : `pg_dump -Fc` avant tout
+  acte de masse, comme avant.
+- **La reprise réelle n'est pas testable ici** — elle ne se déclenche que sur une panne transitoire de
+  la base. `AtomicUnitOfWorkTests` reproduit le vide et le rejeu à la main, ce qui vérifie la
+  propriété exacte dont le mécanisme dépend.
+- **`0bd` reste ouvert** : le balayage « un acte auditable atteint-il un `SaveChanges` ? » n'a couvert
+  que les handlers qui n'en appelaient jamais.

@@ -457,11 +457,13 @@ la promotion porteuse de **rosters vides**, toutes ses inscriptions encore déta
 - ⚠ **Et rejouer l'acte ne répare pas** : la numérotation reprend au plus haut `GroupNumber`
   existant, donc la seconde tentative construit un **second** jeu à côté des orphelins. Rien à
   l'écran ne distingue cet état d'une coupe voulue.
-- L'enveloppe est `dbContext.ExecuteAtomicallyAsync`, la même que le plan macro. ⚠ Elle est sûre ici
-  **parce que le handler n'appelle pas `IAuditTrail.RecordOutcome`** : les deux mécanismes ne se
-  composent pas (voir [`docs/audit-calendar.md`](audit-calendar.md)), et ce que cet acte a fait est
-  déjà dans `AuditMetadata` — l'unité demandée et son chiffre. ⚠ Le fournisseur *in-memory* n'honore
-  aucune transaction : cette suite prouve les étapes, jamais l'atomicité.
+- L'enveloppe est `auditTrail.RunAtomicallyAsync`, la même que le plan macro et que les trois actes
+  destructeurs. ⚠ **Elle passe par la piste et non par le contexte** parce que l'acte est audité :
+  une nouvelle tentative vide le change tracker, et l'entrée du journal est à la piste de la remettre
+  (voir [`docs/audit-calendar.md`](audit-calendar.md)). Ce que cet acte a fait est de toute façon
+  déjà dans `AuditMetadata` — l'unité demandée et son chiffre — mais l'enveloppe est la même dans les
+  deux cas. ⚠ Le fournisseur *in-memory* n'honore aucune transaction : cette suite prouve les étapes,
+  jamais l'atomicité, qui se vérifie sur SQLite (`AtomicUnitOfWorkTests`).
 
 **③ Les paniers CNPN cassent la division, et c'est le cœur.** Les groupes ne mélangent jamais deux
 textes, donc chaque texte prend des rosters **entiers** : « N » s'apporte entre eux *avant* qu'on ne

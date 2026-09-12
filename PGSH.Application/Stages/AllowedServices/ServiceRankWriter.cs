@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
+using PGSH.Application.Audit;
 using PGSH.Domain.Stages;
 using PGSH.SharedKernel;
 
@@ -31,7 +32,7 @@ namespace PGSH.Application.Stages.AllowedServices;
 /// That is the same defect <c>CnpnTargetPlanner</c> had from an <c>AsNoTracking()</c>: preview
 /// right, apply reporting success, not one row moved.</para>
 /// </summary>
-internal sealed class ServiceRankWriter(IApplicationDbContext dbContext)
+internal sealed class ServiceRankWriter(IApplicationDbContext dbContext, IAuditTrail auditTrail)
 {
     /// <summary>
     /// The service ids of a stage, in the order the rotation currently walks them — for <i>deciding</i>
@@ -92,7 +93,7 @@ internal sealed class ServiceRankWriter(IApplicationDbContext dbContext)
         int? insertServiceId,
         int? removeServiceId,
         CancellationToken cancellationToken) =>
-        await dbContext.ExecuteAtomicallyAsync<int>(async ct =>
+        await auditTrail.RunAtomicallyAsync<int>(async ct =>
         {
             var rows = await OrderedQuery(dbContext, stageId).ToListAsync(ct);
             var ranking = ServiceRotationOrder.RanksFor(serviceIdsInOrder);

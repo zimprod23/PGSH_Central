@@ -19,6 +19,7 @@ using PGSH.Domain.Hospitals;
 using PGSH.Domain.Registrations;
 using PGSH.Domain.Stages;
 using PGSH.Domain.Students;
+using PGSH.SharedKernel;
 using PGSH.Infrastructure.Database;
 using PGSH.Application.AcademicGroups.BulkAssignment;
 using PGSH.Application.AcademicGroups.GroupChange;
@@ -819,4 +820,14 @@ public sealed class RecordingAuditTrail : IAuditTrail
         foreach (var (key, value) in fields)
             _fields[key] = value;
     }
+
+    /// <summary>
+    /// Exécute l'opération telle quelle. ⚠ <b>Aucune transaction, et c'est honnête</b> : ce double
+    /// sert aux tests de handler, qui tournent sur le fournisseur en mémoire — lequel n'honore aucune
+    /// transaction de toute façon. L'atomicité se vérifie sur SQLite, dans
+    /// <c>AtomicUnitOfWorkTests</c>.
+    /// </summary>
+    public Task<Result<T>> RunAtomicallyAsync<T>(
+        Func<CancellationToken, Task<Result<T>>> operation, CancellationToken cancellationToken = default) =>
+        operation(cancellationToken);
 }

@@ -31,7 +31,7 @@ public class ExternalServiceTests
         db.SeedService(ExternalServiceId, "Kénitra", isExternal: true);
         await db.SaveChangesAsync();
 
-        var result = await new AddAllowedServiceCommandHandler(db, new ServiceRankWriter(db))
+        var result = await new AddAllowedServiceCommandHandler(db, new ServiceRankWriter(db, new RecordingAuditTrail()))
             .Handle(new AddAllowedServiceCommand(stage.Id, ExternalServiceId), default);
 
         result.IsFailure.Should().BeTrue();

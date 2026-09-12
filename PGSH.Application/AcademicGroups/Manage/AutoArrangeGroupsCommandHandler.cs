@@ -1,6 +1,7 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
+using PGSH.Application.Audit;
 using PGSH.Domain.Common.Utils;
 using PGSH.Domain.Registrations;
 using PGSH.SharedKernel;
@@ -16,7 +17,9 @@ namespace PGSH.Application.AcademicGroups.Manage;
 /// on the six-year CNPN and those repeating under the seven-year one), so the split is by
 /// (year, level, <c>CnpnVersionId</c>) and each text gets whole groups of its own.</para>
 /// </summary>
-internal sealed class AutoArrangeGroupsCommandHandler(IApplicationDbContext dbContext)
+internal sealed class AutoArrangeGroupsCommandHandler(
+    IApplicationDbContext dbContext,
+    IAuditTrail auditTrail)
     : ICommandHandler<AutoArrangeGroupsCommand, BulkResponse<Guid, int>>
 {
     /// <summary>
@@ -31,13 +34,14 @@ internal sealed class AutoArrangeGroupsCommandHandler(IApplicationDbContext dbCo
     /// </summary>
     public Task<Result<BulkResponse<Guid, int>>> Handle(
         AutoArrangeGroupsCommand request, CancellationToken cancellationToken) =>
-        dbContext.ExecuteAtomicallyAsync(ct => CutAsync(request, ct), cancellationToken);
+        auditTrail.RunAtomicallyAsync(ct => CutAsync(request, ct), cancellationToken);
 
     /// <remarks>
-    /// ⚠ No <c>IAuditTrail.RecordOutcome</c> here, and that is what makes the wrapper safe: the two
-    /// mechanisms answer the same need by two paths and a handler picks one. What this act did is
+    /// ⚠ The unit of work goes through the <b>trail</b> rather than through the context: a retry
+    /// clears the change tracker, and the journal entry the pipeline staged before this handler is
+    /// the trail's to put back. See <c>IAuditTrail.RunAtomicallyAsync</c>. What this act did is
     /// already in <c>AutoArrangeGroupsCommand.AuditMetadata</c> — the unit asked for and its figure —
-    /// so nothing has to be deposited after the fact.
+    /// so nothing has to be deposited after the fact, but the wrapper is the same either way.
     /// </remarks>
     private async Task<Result<BulkResponse<Guid, int>>> CutAsync(
         AutoArrangeGroupsCommand request, CancellationToken cancellationToken)

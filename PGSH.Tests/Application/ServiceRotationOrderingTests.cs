@@ -95,7 +95,7 @@ public class ServiceRotationOrderingTests
 
         (await PlacementByGroupAsync(db))[1].Should().Be(First);
 
-        var reorder = await new SetAllowedServiceOrderCommandHandler(db, new ServiceRankWriter(db))
+        var reorder = await new SetAllowedServiceOrderCommandHandler(db, new ServiceRankWriter(db, new RecordingAuditTrail()))
             .Handle(new SetAllowedServiceOrderCommand(TestHarness.StageId, [Second, Third, First]), default);
 
         reorder.IsSuccess.Should().BeTrue();
@@ -138,7 +138,7 @@ public class ServiceRotationOrderingTests
         db.AllowInOrder(stage, Svc(db, First), Svc(db, Second), Svc(db, Third));
         await db.SaveChangesAsync();
 
-        var result = await new SetAllowedServiceOrderCommandHandler(db, new ServiceRankWriter(db))
+        var result = await new SetAllowedServiceOrderCommandHandler(db, new ServiceRankWriter(db, new RecordingAuditTrail()))
             .Handle(new SetAllowedServiceOrderCommand(TestHarness.StageId, [Third, First, Second]), default);
 
         result.IsSuccess.Should().BeTrue();
@@ -163,7 +163,7 @@ public class ServiceRotationOrderingTests
         db.AllowInOrder(stage, Svc(db, First), Svc(db, Second), Svc(db, Third));
         await db.SaveChangesAsync();
 
-        var result = await new SetAllowedServiceOrderCommandHandler(db, new ServiceRankWriter(db))
+        var result = await new SetAllowedServiceOrderCommandHandler(db, new ServiceRankWriter(db, new RecordingAuditTrail()))
             .Handle(new SetAllowedServiceOrderCommand(TestHarness.StageId, [Second, First, Third]), default);
 
         result.IsSuccess.Should().BeTrue();
@@ -185,7 +185,7 @@ public class ServiceRotationOrderingTests
         db.AllowInOrder(stage, Svc(db, First), Svc(db, Second), Svc(db, Third));
         await db.SaveChangesAsync();
 
-        var result = await new SetAllowedServiceOrderCommandHandler(db, new ServiceRankWriter(db))
+        var result = await new SetAllowedServiceOrderCommandHandler(db, new ServiceRankWriter(db, new RecordingAuditTrail()))
             .Handle(new SetAllowedServiceOrderCommand(TestHarness.StageId, [First, Second, Third]), default);
 
         result.IsSuccess.Should().BeTrue();
@@ -216,7 +216,7 @@ public class ServiceRotationOrderingTests
             "STAGE_SERVICE_ORDER_SET", "Stage", TestHarness.StageId.ToString(),
             null, null, new DateTime(2026, 9, 5, 9, 0, 0, DateTimeKind.Utc)));
 
-        var result = await new SetAllowedServiceOrderCommandHandler(db, new ServiceRankWriter(db))
+        var result = await new SetAllowedServiceOrderCommandHandler(db, new ServiceRankWriter(db, new RecordingAuditTrail()))
             .Handle(new SetAllowedServiceOrderCommand(TestHarness.StageId, [Third, First, Second]), default);
 
         result.IsSuccess.Should().BeTrue();
@@ -238,7 +238,7 @@ public class ServiceRotationOrderingTests
         db.AllowInOrder(stage, Svc(db, First), Svc(db, Second), Svc(db, Third));
         await db.SaveChangesAsync();
 
-        var result = await new SetAllowedServiceOrderCommandHandler(db, new ServiceRankWriter(db))
+        var result = await new SetAllowedServiceOrderCommandHandler(db, new ServiceRankWriter(db, new RecordingAuditTrail()))
             .Handle(new SetAllowedServiceOrderCommand(TestHarness.StageId, [Third, First]), default);
 
         result.IsFailure.Should().BeTrue();
@@ -266,7 +266,7 @@ public class ServiceRotationOrderingTests
         await db.SaveChangesAsync();
 
         // The order somebody decided while the stage still held only two services.
-        var result = await new ServiceRankWriter(db)
+        var result = await new ServiceRankWriter(db, new RecordingAuditTrail())
             .ApplyAsync(TestHarness.StageId, [Second, First], default);
 
         result.IsFailure.Should().BeTrue();
@@ -292,7 +292,7 @@ public class ServiceRotationOrderingTests
         db.AllowInOrder(stage, Svc(db, First), Svc(db, Second), Svc(db, Third));
         await db.SaveChangesAsync();
 
-        await new SetAllowedServiceOrderCommandHandler(db, new ServiceRankWriter(db))
+        await new SetAllowedServiceOrderCommandHandler(db, new ServiceRankWriter(db, new RecordingAuditTrail()))
             .Handle(new SetAllowedServiceOrderCommand(TestHarness.StageId, [Third, Second, First]), default);
 
         (await db.StageAllowedServices.AsNoTracking().ToListAsync())
@@ -307,7 +307,7 @@ public class ServiceRotationOrderingTests
         SeedThreeServiceStage(db);
         await db.SaveChangesAsync();
 
-        var result = await new SetAllowedServiceOrderCommandHandler(db, new ServiceRankWriter(db))
+        var result = await new SetAllowedServiceOrderCommandHandler(db, new ServiceRankWriter(db, new RecordingAuditTrail()))
             .Handle(new SetAllowedServiceOrderCommand(4242, []), default);
 
         result.IsFailure.Should().BeTrue();
@@ -325,7 +325,7 @@ public class ServiceRotationOrderingTests
         db.AllowInOrder(stage, Svc(db, Third), Svc(db, First));
         await db.SaveChangesAsync();
 
-        var result = await new AddAllowedServiceCommandHandler(db, new ServiceRankWriter(db))
+        var result = await new AddAllowedServiceCommandHandler(db, new ServiceRankWriter(db, new RecordingAuditTrail()))
             .Handle(new AddAllowedServiceCommand(TestHarness.StageId, Second), default);
 
         result.IsSuccess.Should().BeTrue();
@@ -345,7 +345,7 @@ public class ServiceRotationOrderingTests
         db.AllowInOrder(stage, Svc(db, First), Svc(db, Second), Svc(db, Third));
         await db.SaveChangesAsync();
 
-        var result = await new RemoveAllowedServiceCommandHandler(db, new ServiceRankWriter(db))
+        var result = await new RemoveAllowedServiceCommandHandler(db, new ServiceRankWriter(db, new RecordingAuditTrail()))
             .Handle(new RemoveAllowedServiceCommand(TestHarness.StageId, Second), default);
 
         result.IsSuccess.Should().BeTrue();

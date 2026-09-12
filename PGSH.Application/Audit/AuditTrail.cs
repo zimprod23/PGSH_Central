@@ -1,6 +1,7 @@
 ﻿using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
 using PGSH.Domain.Audit;
+using PGSH.SharedKernel;
 
 namespace PGSH.Application.Audit;
 
@@ -42,6 +43,23 @@ public sealed class AuditTrail(IApplicationDbContext dbContext) : IAuditTrail
     }
 
     /// <inheritdoc />
+    public Task<Result<T>> RunAtomicallyAsync<T>(
+        Func<CancellationToken, Task<Result<T>>> operation, CancellationToken cancellationToken = default) =>
+        dbContext.ExecuteAtomicallyAsync(
+            ct =>
+            {
+                // ⚠ Première ligne de chaque tentative, et c'est tout le mécanisme. L'enveloppe vide
+                // le change tracker avant de rejouer, donc l'entrée mise en attente par le behavior
+                // n'y est plus ; la remettre ici la remet **dans sa version courante**, constat
+                // compris, là où une photographie prise à l'entrée aurait rendu celle d'avant.
+                // Sans effet à la première tentative — rien n'a été vidé, et ré-ajouter une entité
+                // déjà `Added` ne fait rien.
+                Restage();
+                return operation(ct);
+            },
+            cancellationToken);
+
+    /// <inheritdoc />
     public void RecordOutcome(params (string Key, object? Value)[] fields)
     {
         if (_pending is null || fields.Length == 0)
@@ -61,5 +79,24 @@ public sealed class AuditTrail(IApplicationDbContext dbContext) : IAuditTrail
         dbContext.AuditLogs.Add(completed);
 
         _pending = completed;
+    }
+
+    /// <summary>
+    /// Remet l'entrée en attente dans le contexte si elle n'y est plus.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ <b>Idempotent, et il doit l'être</b> : appelé à chaque tentative de
+    /// <see cref="RunAtomicallyAsync{T}"/>, dont la première où l'entrée est déjà suivie. Ré-ajouter
+    /// une entité déjà <c>Added</c> ne change rien ; c'est après un <c>ChangeTracker.Clear()</c> que
+    /// l'appel compte.
+    ///
+    /// <para>⚠ Et c'est <c>_pending</c> qui est remis, pas l'entrée d'origine : après un constat les
+    /// deux sont deux objets différents, et remettre le premier écrirait une ligne qui ne dit pas ce
+    /// que l'acte a fait.</para>
+    /// </remarks>
+    private void Restage()
+    {
+        if (_pending is not null)
+            dbContext.AuditLogs.Add(_pending);
     }
 }

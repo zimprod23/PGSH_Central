@@ -69,6 +69,11 @@ public interface IApplicationDbContext
     /// <para>⚠ Domain events still publish from each inner <c>SaveChangesAsync</c>, i.e. <i>before</i>
     /// the outer commit. A unit of work wrapped here must therefore raise no event whose handler
     /// assumes the write is already durable.</para>
+    /// <para>⚠ <b>An <i>audited</i> act does not call this directly — it calls
+    /// <c>IAuditTrail.RunAtomicallyAsync</c>.</b> A retry clears the change tracker, so the journal
+    /// entry the pipeline staged before the handler has to be put back, and only the trail knows
+    /// which version of it is current (a constat <i>replaces</i> the pending entry). This method puts
+    /// nothing back on its own.</para>
     /// </remarks>
     Task<Result<T>> ExecuteAtomicallyAsync<T>(
         Func<CancellationToken, Task<Result<T>>> operation, CancellationToken cancellationToken = default);

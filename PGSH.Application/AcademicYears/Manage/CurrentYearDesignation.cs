@@ -1,5 +1,6 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
+using PGSH.Application.Audit;
 using PGSH.Domain.Registrations;
 using PGSH.SharedKernel;
 
@@ -38,7 +39,7 @@ namespace PGSH.Application.AcademicYears.Manage;
 /// <param name="PreviousLabel">The year that stood down, or null when none was current.</param>
 public sealed record CurrentYearChange(string? PreviousLabel);
 
-public sealed class CurrentYearDesignation(IApplicationDbContext dbContext)
+public sealed class CurrentYearDesignation(IApplicationDbContext dbContext, IAuditTrail auditTrail)
 {
     /// <remarks>
     /// ⚠ The outcome is wrapped rather than returned as <c>Result&lt;string?&gt;</c>: that type cannot
@@ -46,7 +47,7 @@ public sealed class CurrentYearDesignation(IApplicationDbContext dbContext)
     /// year stood down », the ordinary state of a fresh base, would come back as a failure.
     /// </remarks>
     public Task<Result<CurrentYearChange>> PromoteAsync(AcademicYear target, CancellationToken ct) =>
-        dbContext.ExecuteAtomicallyAsync(inner => DesignateAsync(target, inner), ct);
+        auditTrail.RunAtomicallyAsync(inner => DesignateAsync(target, inner), ct);
 
     private async Task<Result<CurrentYearChange>> DesignateAsync(AcademicYear target, CancellationToken ct)
     {

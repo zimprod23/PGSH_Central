@@ -126,13 +126,20 @@ area, so they are worth carrying in your head on **every** change:
   nothing on any of them saying to pick a year. A refusal is `Conflict` (the request meets the state),
   `Validation` (the request is malformed), `NotFound` or `Forbidden`; `Problem` is for an unreachable
   archive or a `pg_dump` out of disk. → `PGSH.Tests/Integration/ErrorStatusMappingEndpointTests.cs`
-- **A multi-step write is one `ExecuteAtomicallyAsync`, or it is a half-written state somebody will
-  read as deliberate.** ASP.NET cancels the token whenever the tab closes or the connection drops, so
-  "the request stopped between two saves" is the ordinary case, not the exotic one. The roster cut
+- **A multi-step write is one transaction, or it is a half-written state somebody will read as
+  deliberate.** ASP.NET cancels the token whenever the tab closes or the connection drops, so "the
+  request stopped between two statements" is the ordinary case, not the exotic one. The roster cut
   committed its rosters and their members separately — a promotion left carrying **empty rosters**,
-  and re-running builds a *second* set beside them because the numbering continues. ⚠ It does **not**
-  compose with `IAuditTrail.RecordOutcome` (a retry re-stages the entry as opened and the trail holds
-  its replacement, giving two rows): a handler picks one. → « Shared helpers », `IAuditTrail`
+  and re-running builds a *second* set beside them because the numbering continues. « Supprimer les
+  groupes » fires **six** `ExecuteDelete` in a row, and stopping after the third left the rosters,
+  the cohortes and the whole grid standing with **nobody in them**.
+  - ⚠ **An audited act wraps through `IAuditTrail.RunAtomicallyAsync`, never through
+    `IApplicationDbContext.ExecuteAtomicallyAsync` directly.** A retry clears the change tracker, so
+    the journal entry the pipeline staged before the handler has to be put back — and only the trail
+    knows which version of it is current, because `RecordOutcome` **replaces** the pending entry
+    rather than mutating it. The context re-staged a photograph taken on the way in, which is how the
+    two mechanisms used to be incompatible; it now puts nothing back on its own. The context helper
+    remains correct for an act that writes no journal entry. → `IAuditTrail`, `AtomicUnitOfWorkTests`
 - **The base is live.** Take a `pg_dump -Fc` before every bulk act, and never write to the base to
   verify something. → [`docs/operations.md`](docs/operations.md)
 

@@ -1,5 +1,6 @@
 ﻿using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
+using PGSH.Application.Audit;
 using PGSH.Application.Stages.Planning;
 using PGSH.SharedKernel;
 
@@ -7,6 +8,7 @@ namespace PGSH.Application.Stages.MacroPlan;
 
 internal sealed class GenerateMacroPlanCommandHandler(
     IApplicationDbContext dbContext,
+    IAuditTrail auditTrail,
     CohortProvisioner provisioner,
     StudentAffectationService affectation,
     RotationArranger arranger,
@@ -23,7 +25,7 @@ internal sealed class GenerateMacroPlanCommandHandler(
     /// </summary>
     public Task<Result<MacroPlanResult>> Handle(
         GenerateMacroPlanCommand request, CancellationToken cancellationToken) =>
-        dbContext.ExecuteAtomicallyAsync(ct => PlanAsync(request, ct), cancellationToken);
+        auditTrail.RunAtomicallyAsync(ct => PlanAsync(request, ct), cancellationToken);
 
     private async Task<Result<MacroPlanResult>> PlanAsync(
         GenerateMacroPlanCommand request, CancellationToken cancellationToken)
