@@ -286,9 +286,12 @@ internal sealed class RotationArranger(
         // that is already published (a ServicePeriod points at it) is a locked execution
         // record. It is never deleted nor rewritten, so a started stage keeps its history
         // while its newly-added periods can still be arranged.
+        // ⚠ ServiceId travels with the row, and it is not decoration: a locked cell puts real students
+        // in a real service for that column, and the placement below has to subtract them from what
+        // that service has left. See LockedLoad.
         var existingCells = await dbContext.CohortSlotAssignments
             .Where(a => targetCohortIds.Contains(a.CohortId) && slotIds.Contains(a.StageSlotId))
-            .Select(a => new { a.Id, a.CohortId, a.StageSlotId, a.Source })
+            .Select(a => new { a.Id, a.CohortId, a.StageSlotId, a.Source, a.ServiceId })
             .ToListAsync(cancellationToken);
 
         // ⚠ Via the coverage table, never via ServicePeriod.CohortSlotAssignmentId: that FK names only
@@ -311,6 +314,31 @@ internal sealed class RotationArranger(
             .Where(e => publishedCellIdSet.Contains(e.Id) || e.Source == CellSource.Pinned)
             .Select(e => (e.CohortId, e.StageSlotId))
             .ToHashSet();
+
+        // ⚠ **What a locked cell costs the column it sits in.** Until 13/09/2026 the free cohorts of a
+        // column were spread over the services as though those services were empty, because locked
+        // cells are excluded from `columnBySlotId` — so a service already holding a published cohort
+        // received its full proportional share of free ones on top of it, and the balance the result
+        // reported said nothing about it.
+        //
+        // Harmless while the base published nothing; it stopped being harmless the day the 3ᵉ MED was
+        // published (1 000 cellules, 7 464 périodes). A service is now offered to the queue with what
+        // it has *left* for that column, which is the same arithmetic the queue already does — the
+        // weight is « how many whole average cohorts can this service still hold », not « could it
+        // have held ».
+        var studentsByCohortId = ordered.ToDictionary(c => c.Id, c => c.StudentCount);
+
+        var lockedLoadBySlotId = slots.ToDictionary(
+            slot => slot.Id,
+            slot => existingCells
+                .Where(e => e.StageSlotId == slot.Id
+                         && lockedCells.Contains((e.CohortId, e.StageSlotId)))
+                .GroupBy(e => e.ServiceId)
+                .ToDictionary(
+                    g => g.Key,
+                    g => g.Sum(e => studentsByCohortId.TryGetValue(e.CohortId, out int students)
+                        ? students
+                        : 0)));
 
         int n = ordered.Count;
 
@@ -437,12 +465,30 @@ internal sealed class RotationArranger(
         // several columns of the stage moves between services rather than repeating one.
         // ⚠ The step is at least 1: a column smaller than the cycle gave a step of 0, i.e. the same
         // service for every column of a PerPeriod run — SingleService by accident.
-        Dictionary<int, int> Place(List<int> column, int phase)
+        Dictionary<int, int> Place(List<int> column, int phase, IReadOnlyDictionary<int, int> lockedLoad)
         {
             int m = column.Count;
             if (m == 0) return [];
 
-            var queue  = BuildServiceQueue(services, column.Select(ci => ordered[ci]).ToList(), m, phase);
+            // ⚠ Clamped at zero rather than allowed to go negative: a service filled past its own
+            // number by what is already published has *no* room left, and a negative one would pull
+            // the proportional share of every other service off balance in the opposite direction.
+            // Over-capacity is this faculty's normal state — the arithmetic must survive it.
+            var remaining = services
+                .Select(s => s with
+                {
+                    Capacity = Math.Max(0, s.Capacity - (lockedLoad.TryGetValue(s.Id, out int used) ? used : 0)),
+                })
+                .ToList();
+
+            // Everything locked solid: no service has room, so there is nothing to weight by. Fall
+            // back to the untouched pool rather than to an all-zero one, which would make the queue
+            // arbitrary — the cohorts have to go somewhere, and « where they would have gone » is a
+            // better answer than « wherever the tie-break lands ».
+            if (remaining.All(s => s.Capacity == 0))
+                remaining = services;
+
+            var queue  = BuildServiceQueue(remaining, column.Select(ci => ordered[ci]).ToList(), m, phase);
             int step   = cycleLength > 1 ? Math.Max(1, m / cycleLength) : 0;
             int offset = phase * step;
 
@@ -457,9 +503,18 @@ internal sealed class RotationArranger(
         // collapses the run's cells into one period with one evaluation. It is decided over everyone
         // the run touches and from the run's first phase rather than a fixed one, so two partitions
         // doing the stage in different windows still land on different services.
+        // ⚠ Under SingleService the run is placed once, so the load it must respect is the *heaviest*
+        // any column of the run carries — a service full in one column of the run is full for the
+        // whole stay, since the cohort does not move.
+        var runLockedLoad = lockedLoadBySlotId.Values
+            .SelectMany(load => load)
+            .GroupBy(entry => entry.Key)
+            .ToDictionary(g => g.Key, g => g.Max(entry => entry.Value));
+
         var runPlacement = singleService
             ? Place(columnBySlotId.Values.SelectMany(c => c).Distinct().Order().ToList(),
-                    phaseBySlotId[slots.MinBy(s => s.PeriodNumber)!.Id])
+                    phaseBySlotId[slots.MinBy(s => s.PeriodNumber)!.Id],
+                    runLockedLoad)
             : null;
 
         var newAssignments = new List<CohortSlotAssignment>(n * slots.Count);
@@ -467,7 +522,7 @@ internal sealed class RotationArranger(
         foreach (var slot in slots)
         {
             var column    = columnBySlotId[slot.Id];
-            var placement = runPlacement ?? Place(column, phaseBySlotId[slot.Id]);
+            var placement = runPlacement ?? Place(column, phaseBySlotId[slot.Id], lockedLoadBySlotId[slot.Id]);
 
             foreach (int ci in column)
             {

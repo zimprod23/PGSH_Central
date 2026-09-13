@@ -5155,3 +5155,45 @@ seulement savoir qu'il est désormais réel.
 Le recensement d'un point de sauvegarde est le moyen le moins cher de répondre à « qu'est-ce qui a
 bougé pendant que je travaillais » — douze tables d'un coup, sans écrire une ligne. À reprendre en fin
 de toute session qui touche à la base.
+
+---
+
+## Session 68f — Ce que « latent » voulait dire, et le jour où il a cessé (13/09/2026)
+
+Suite immédiate de 68e : la publication de la 3ᵉ MED a rendu atteignable un défaut que la
+documentation portait depuis des semaines comme « sans effet aujourd'hui ».
+
+### Le défaut
+
+`RotationArranger` exclut une cellule verrouillée — publiée, ou épinglée par un humain — de la colonne
+qu'il répartit. C'est **juste** : elle n'est pas à lui. Mais il l'excluait aussi de la **capacité**
+contre laquelle il calcule l'équilibre, et ce sont deux questions différentes qui partageaient une
+réponse.
+
+Conséquence : les cohortes libres s'étalaient sur les services **comme si ces services étaient vides**.
+Un service tenant déjà une cohorte publiée recevait donc sa part proportionnelle complète de cohortes
+libres **par-dessus**, et le résultat annonçait un `Assigned` parfaitement ordinaire.
+
+Mesuré sur la fixture : deux cohortes de dix épinglées dans un service de vingt le laissaient porter
+**trois** cohortes — trente étudiants pour une capacité de vingt.
+
+### La correction
+
+Chaque service est offert à la file avec ce qu'il lui **reste** pour cette colonne. C'est l'arithmétique
+que la file faisait déjà — « combien de cohortes moyennes entières ce service peut-il encore tenir » —
+appliquée au bon nombre.
+
+⚠ **Borné à zéro, et le cas dégénéré retombe sur le pool intact.** Le dépassement est l'état normal de
+cette faculté : un reste négatif tirerait la part de tous les autres services dans l'autre sens, et un
+pool entièrement à zéro rendrait la file arbitraire au lieu de refuser — une promotion simplement
+pleine doit quand même être planifiée.
+
+⚠ **Sous `SingleService`, la charge retenue est le maximum sur les colonnes du séjour** : la cohorte ne
+bouge pas, donc un service plein sur une colonne du séjour est plein pour tout le séjour.
+
+### Ce que cela dit de la méthode
+
+Une garde documentée « sans effet aujourd'hui » est une **affirmation datée**, pas une propriété. Les
+230 tests de planification sont restés verts après la correction — c'est voulu, elle ne change rien
+quand rien n'est publié — et c'est précisément pourquoi rien ne l'avait attrapée : la suite entière
+tournait dans le monde où l'excuse était vraie.

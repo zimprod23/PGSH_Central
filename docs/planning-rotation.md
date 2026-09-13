@@ -164,13 +164,27 @@ every période, one call — is a real button that does not.
 - **`SingleService` decides once for the run**, over everyone the run touches and from its first
   phase, so a group still stands in one service for the whole run and two partitions doing the stage
   in different windows still land differently.
-- ⚠ **A published cell is excluded from its column's balance rather than counted against it.** The
-  free cohorts spread over every service, including one an already-published cohort is sitting in.
-  ⚠⚠ **This stopped being harmless on 13/09/2026.** It was written when the base held 0 grid-linked
-  périodes; the 3ᵉ MED of 2026-2027 is now planned and published — 1 000 cellules, 7 464 périodes — so
-  re-arranging a column that already holds published cells will now spread the free cohortes *onto
-  services those cells occupy*, and the balance it reports will be wrong by exactly what it ignored.
-  **Publication is real. This is now a live defect, not a latent one.**
+- ✅ **A locked cell is excluded from the column the arranger places, and *counted against* the
+  capacity it places into** (13/09/2026). The two are different questions and used to share one
+  answer: a published or pinned cell is not the run's to place — correct — but it very much occupies
+  the service it sits in, and the free cohortes were being spread as though those services were empty.
+  A service already holding a published cohorte therefore took its full proportional share of free
+  ones **on top**, and the result reported a perfectly ordinary `Assigned`.
+
+  Each service is now offered to the queue with what it has **left** for that column — the same
+  arithmetic the queue already did (« how many whole average cohortes can this service still hold »),
+  applied to the right number. Measured on the fixture: two cohortes of ten pinned into a service of
+  twenty used to leave it holding **three** cohortes — thirty students against a capacity of twenty.
+
+  ⚠ **Latent until the day it was not.** It was written when the base held 0 grid-linked périodes;
+  the 3ᵉ MED of 2026-2027 was planned and published on 13/09/2026 (1 000 cellules, 7 464 périodes),
+  which made every re-arrange of that promotion reach it. A « harmless today » is a dated claim, and
+  this one expired.
+
+  ⚠ **Clamped at zero, and the degenerate case falls back to the untouched pool.** Over-capacity is
+  this faculty's normal state: a negative remainder would pull every other service's share off balance
+  the other way, and an all-zero pool would make the queue arbitrary rather than refusing — a
+  promotion that is merely full must still be planned. → `ArrangerPublishedLoadTests`
 - **A cohorte weighs its members minus its délocalisés** (`CohortsQuery`, 2026-09-06). A student
   serving the stage outside the faculty needs no place in the rotation, and weighting the queue by him
   spreads a cohorte over services to hold people who are not there. Same arithmetic as
