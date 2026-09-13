@@ -289,6 +289,27 @@ planifié par un fichier, puis dé-planifié ? » est une question à laquelle l
 une ligne qui s'efface en se défaisant répond « il ne s'est rien passé ». Même raison qu'un
 `RegistrationHold` levé qui survit à sa levée.
 
+## 9bis. Un import survit à son annulation, mais pas à ses sujets
+
+`AffectationImport` est gardé après une annulation **exprès** — voir §9. ⚠ Ce raisonnement suppose un
+étudiant sur qui poser la question. Quand **toutes** les inscriptions qu'un import nomme ont été
+supprimées, la ligne ne documente plus rien : elle s'accumule, et elle s'accumulera d'elle-même chaque
+fois que la scolarité supprime un étudiant.
+
+| | Route |
+|---|---|
+| ① | `GET  affectations/imports/orphaned?levelId=…[&academicYearId=…]` — ceux dont plus aucun sujet n'existe |
+| ② | `POST affectations/imports/purge?confirmedCount=…[&levelId=…]` — les retirer |
+
+⚠ **Le prédicat est « toutes », jamais « au moins une ».** Un import qui nomme encore **une** inscription
+survivante est gardé entier : il documente un acte réel sur un étudiant réel, et le ranger pour faire
+de la place aux autres perdrait précisément ce que le registre existe pour garder.
+
+⚠ **C'est la seule suppression que le registre métier ne garde pas**, et c'est pourquoi elle passe par
+un acte — nombre confirmé, entrée au journal (`AFFECTATION_IMPORTS_PURGED`), constat disant combien et
+quels fichiers — plutôt que par du SQL. Une ligne retirée à la main ne laisse rien derrière elle qui
+dise qu'elle a existé ; celle-ci laisse l'entrée d'audit.
+
 ## 10. Ce qui n'existe pas encore
 
 - **Écrire la grille.** Décidé le 13/09/2026 : périodes seules. Écrire aussi les `StageSlot` et les

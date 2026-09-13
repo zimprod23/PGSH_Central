@@ -5281,3 +5281,37 @@ Le serveur était éprouvé de bout en bout (§58, deux fois) et l'écran compil
 construit. **Rien de tout cela n'ouvre une fenêtre.** Un écran n'est vérifié qu'en le pilotant, et
 c'est le sixième défaut de la journée que seul le pilotage pouvait montrer — après la ligne blanche,
 le paramètre de routage (deux fois), la balance des cellules publiées et le créneau déplaçable.
+
+---
+
+## Session 68j — « Un import survit à son annulation, mais pas à ses sujets » (13/09/2026)
+
+Le ménage demandé par l'utilisateur, fait comme une règle du domaine plutôt que comme un `DELETE`.
+
+### Le problème posé
+
+Les essais de la journée ont laissé trois lignes `AffectationImport` qui référencent des étudiants
+depuis supprimés, et **rien n'exposait leur suppression** — par construction : la phase 33 garde un
+import annulé, parce que « cet étudiant a-t-il été planifié par un fichier, puis dé-planifié ? » est une
+question du dossier, et qu'une ligne qui s'efface en se défaisant y répond « il ne s'est rien passé ».
+
+### Pourquoi ce n'est pas une entorse à cette règle, mais son complément
+
+⚠ Ce raisonnement **suppose un étudiant sur qui poser la question**. Quand toutes les inscriptions d'un
+import ont disparu, la question n'a plus de sujet. La règle devient donc : *un import survit à son
+annulation, mais pas à ses sujets.*
+
+Et ce n'est pas une commodité de test : le cas se produira tout seul chaque fois que la scolarité
+supprime un étudiant.
+
+### Les deux décisions qui comptent
+
+⚠ **« Toutes », jamais « au moins une ».** Un import nommant encore une inscription survivante est gardé
+entier. C'est le prédicat le plus strict qui rende la ligne dénuée de sens, et le test de contrôle
+existe pour ça — un import à moitié orphelin doit survivre à la purge.
+
+⚠ **Par un acte, pas par du SQL.** J'aurais pu demander une requête à la main ; c'était plus court et
+c'était faux. `docs/operations.md` dit de ne pas écrire dans la base pour se dépanner, et une ligne
+retirée à la main ne laisse **rien** derrière elle qui dise qu'elle a existé. L'acte porte un nombre
+confirmé, une entrée `AFFECTATION_IMPORTS_PURGED`, et un constat disant combien d'imports et quels
+fichiers — c'est-à-dire qu'il remplace la trace qu'il supprime.

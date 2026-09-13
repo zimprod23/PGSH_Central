@@ -18,6 +18,16 @@ public static class AffectationImportReversalErrors
     /// Something happened since the import, so walking it back would not restore a previous state — it
     /// would impose an old one over somebody's work. All or nothing, like the import itself.
     /// </summary>
+    /// <summary>
+    /// ⚠ The purge deletes rows nobody named one by one, so it carries the operator's count like every
+    /// other bulk act — a student deleted between the list and the purge changes what goes without
+    /// changing anything he saw.
+    /// </summary>
+    public static Error PurgeCountMismatch(int confirmed, int actual) => Error.Conflict(
+        "AffectationImportReversal.PurgeCountMismatch",
+        $"La liste a changé depuis l'affichage : {actual} import(s) seraient supprimés, "
+        + $"{confirmed} confirmé(s). Rechargez la liste avant de purger.");
+
     /// <summary>⚠ Same reason as the import's: an absent confirmation is not a confirmation of zero.</summary>
     public static readonly Error ConfirmationRequired = Error.Validation(
         "AffectationImportReversal.ConfirmationRequired",

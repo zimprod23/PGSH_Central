@@ -252,6 +252,20 @@ public static class TestHarness
             db, new AffectationImportReversalPlanner(db), authorizer ?? db.AdminAuthorizer(), trail), trail);
     }
 
+    internal static GetOrphanedAffectationImportsQueryHandler OrphanedImportsHandler(
+        this ApplicationDbContext db, ExecutionAuthorizer? authorizer = null) =>
+        new(db, new AcademicYearResolver(db), authorizer ?? db.AdminAuthorizer());
+
+    /// <summary>⚠ The trail comes back with it: this act's whole claim is that it says what it removed,
+    /// and it is the one deletion the business register does not keep.</summary>
+    internal static (PurgeOrphanedAffectationImportsCommandHandler Handler, RecordingAuditTrail Trail)
+        PurgeImportsHandler(this ApplicationDbContext db, ExecutionAuthorizer? authorizer = null)
+    {
+        var trail = new RecordingAuditTrail();
+        return (new PurgeOrphanedAffectationImportsCommandHandler(
+            db, new AcademicYearResolver(db), authorizer ?? db.AdminAuthorizer(), trail), trail);
+    }
+
     internal static PreviewAffectationImportReversalQueryHandler ReverseImportPreview(
         this ApplicationDbContext db, ExecutionAuthorizer? authorizer = null) =>
         new(new AffectationImportReversalPlanner(db), authorizer ?? db.AdminAuthorizer());

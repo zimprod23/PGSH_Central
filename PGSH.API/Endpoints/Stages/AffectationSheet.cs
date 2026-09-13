@@ -139,6 +139,36 @@ public sealed class AffectationSheet : IEndpoint
         .WithTags(Tags.Stages)
         .RequireAuthorization();
 
+        // ⚠ Le ménage, et c'est la seule suppression que le registre métier ne garde pas : un import
+        // dont **toutes** les inscriptions ont disparu ne documente plus rien. Il passe quand même par
+        // un acte — nombre confirmé et entrée au journal — plutôt que par du SQL, parce qu'une ligne
+        // retirée à la main ne laisse rien derrière elle qui dise qu'elle a existé.
+        app.MapGet("affectations/imports/orphaned", async (
+            int? levelId, int? academicYearId, ISender sender, CancellationToken ct) =>
+        {
+            var result = await sender.Send(
+                new GetOrphanedAffectationImportsQuery(levelId, academicYearId), ct);
+            return result.Match(Results.Ok, CustomResults.Problem);
+        })
+        .WithName("GetOrphanedAffectationImports")
+        .WithTags(Tags.Stages)
+        .RequireAuthorization();
+
+        app.MapPost("affectations/imports/purge", async (
+            int? confirmedCount, int? levelId, int? academicYearId, ISender sender, CancellationToken ct) =>
+        {
+            if (confirmedCount is not { } confirmed)
+                return CustomResults.Problem(
+                    Result.Failure<int>(AffectationImportReversalErrors.ConfirmationRequired));
+
+            var result = await sender.Send(
+                new PurgeOrphanedAffectationImportsCommand(confirmed, levelId, academicYearId), ct);
+            return result.Match(Results.Ok, CustomResults.Problem);
+        })
+        .WithName("PurgeOrphanedAffectationImports")
+        .WithTags(Tags.Stages)
+        .RequireAuthorization();
+
         // confirmedCount is what the preview showed as « affectations supprimées » — the half nothing
         // puts back. Sent back rather than re-derived, so an affectation deleted or evaluated between
         // the two calls refuses instead of being acted on under a confirmation nobody gave for it.

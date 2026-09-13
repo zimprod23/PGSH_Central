@@ -1603,4 +1603,22 @@ public class SqlTranslationTests
         GetAffectationImportsQueryHandler.ImportsQuery(db, TestHarness.CurrentYearId, TestHarness.LevelId)
             .ToQueryString().Should().Contain("AffectationImports");
     }
+
+    /// <summary>
+    /// ⚠ « aucune entrée ne nomme une inscription survivante » est un <c>NOT EXISTS</c> imbriqué dans
+    /// un <c>EXISTS</c> — la forme qui se traduit — et non une collection repliée dans une projection,
+    /// qui ne se traduit pas. La garde d'une suppression ne vaut que si elle compile.
+    /// </summary>
+    [Fact]
+    public void The_orphaned_import_predicate_compiles()
+    {
+        using var db = TestHarness.NewNpgsqlContext();
+
+        string sql = GetOrphanedAffectationImportsQueryHandler
+            .OrphanedQuery(db, TestHarness.CurrentYearId, TestHarness.LevelId)
+            .ToQueryString();
+
+        sql.Should().Contain("AffectationImports");
+        sql.Should().Contain("EXISTS");
+    }
 }
