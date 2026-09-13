@@ -69,6 +69,22 @@ internal sealed class UpdateStageSlotCommandHandler(
         if (slot is null)
             return Result.Failure(StageErrors.SlotNotFound(request.SlotId));
 
+        // ⚠ **Asked first, and it had no guard at all until 13/09/2026.** `DeleteStageSlotCommandHandler`
+        // directly below refuses a published column; moving one was unguarded — and moving is the worse
+        // of the two, because deleting fails loudly while moving succeeds and desynchronises in
+        // silence: the créneau takes its new dates, the périodes published from it keep their old
+        // ones, and neither screen says which is true.
+        //
+        // Latent while the base published nothing. The 3ᵉ MED of 2026-2027 was published on
+        // 13/09/2026 — 1 000 cellules, 7 464 périodes — so every column of it was one drag away from
+        // this. Refused rather than cascaded: moving a published column *and its périodes* is one
+        // operation and it does not exist yet (Phase 17.1).
+        //
+        // First, because it is the most fundamental refusal — the others ask whether the new window is
+        // free, and there is no point asking that about a move that may not happen.
+        if (await dbContext.SlotHasPublishedCellAsync(slot.Id, cancellationToken))
+            return Result.Failure(StageErrors.SlotPublishedCannotMove);
+
         // Moving a period must respect the same rule as creating one — it is the same collision,
         // just reached by editing dates instead of adding a row.
         var overlap = await overlapGuard.EnsureNoOverlapAsync(
@@ -185,9 +201,16 @@ internal sealed class SetCohortSlotAssignmentCommandHandler(
                 return Result.Failure<int>(StageErrors.ServiceNotAllowed(request.ServiceId, stageId));
         }
 
-        bool isPublished = await dbContext.InternshipAssignments
-            .Where(a => a.CurrentCohortId == request.CohortId)
-            .AnyAsync(a => a.ServicePeriods.Any(p => p.CohortSlotAssignmentId != null), cancellationToken);
+        // ⚠ **Cohorte-wide, and deliberately so — this is not `IsCellPublishedAsync`'s job.** It reads
+        // like the imprecise version of « est-ce que *cette* cellule est publiée », and it was filed as
+        // that; it is not. Publication is **once per cohorte** — `SchedulePublisher.PublishCohortAsync`
+        // refuses outright when any assignment already carries a published période — so once a cohorte
+        // is published, no later publication will ever read its cells again. Narrowing this to the cell
+        // would let an edit *appear* to work and produce nothing, which is the « un seul état pour deux
+        // situations » defect this codebase exists to hunt, arrived at from the helpful direction.
+        //
+        // The refusal names the remedy, and the remedy is real: unpublish, edit, republish.
+        bool isPublished = await dbContext.IsCohortSchedulePublishedAsync(request.CohortId, cancellationToken);
 
         if (isPublished)
             return Result.Failure<int>(StageErrors.ScheduleAlreadyPublished);
@@ -257,7 +280,21 @@ internal sealed class ClearCohortSlotAssignmentCommandHandler(
             return Result.Success();
         }
 
-        bool isPublished = await dbContext.IsCellPublishedAsync(existing.Id, cancellationToken);
+        // ⚠ **Asked of the cohorte, not of the cell — corrected 13/09/2026, and the asymmetry was the
+        // defect.** This handler asked « est-ce que *cette* cellule est publiée » while its twin
+        // `SetCohortSlotAssignment` asks « est-ce que cette *cohorte* est publiée ». On a published
+        // cohorte you could therefore **clear an unpublished cell and not put it back**: a hole nobody
+        // can fill without unpublishing the whole cohorte, which destroys and rebuilds everything else
+        // with it.
+        //
+        // Resolved towards the stricter of the two because that is the one the publication model makes
+        // true: publication is once per cohorte, so a cell of a published cohorte is not editable in
+        // either direction — and « destroy what cannot be restored » is exactly what a guard is for.
+        //
+        // ⚠ The *bulk* `ClearSlotAssignmentsCommandHandler` stays per-cell on purpose: it sweeps a whole
+        // column across a promotion, keeps the published cells, and **reports both numbers**. That is a
+        // different act, and it says what it kept.
+        bool isPublished = await dbContext.IsCohortSchedulePublishedAsync(request.CohortId, cancellationToken);
 
         if (isPublished)
             return Result.Failure(StageErrors.ScheduleAlreadyPublished);

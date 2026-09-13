@@ -223,6 +223,20 @@ public static class TestHarness
             db, db.AffectationSheetPlanner(), authorizer ?? db.AdminAuthorizer(), trail), trail);
     }
 
+    /// <summary>
+    /// The three grid-cell acts with their real guards. ⚠ Real, not stubbed: what these tests assert is
+    /// precisely the interplay between the publication guard and the overlap/conflict ones, and a
+    /// stubbed guard would make the ordering untestable.
+    /// </summary>
+    internal static UpdateStageSlotCommandHandler UpdateSlotHandler(this ApplicationDbContext db) =>
+        new(db, new SlotOverlapGuard(db), new GroupScheduleConflictGuard(db), new RecordingAuditTrail());
+
+    internal static SetCohortSlotAssignmentCommandHandler SetCellHandler(this ApplicationDbContext db) =>
+        new(db, new GroupScheduleConflictGuard(db), new RecordingAuditTrail());
+
+    internal static ClearCohortSlotAssignmentCommandHandler ClearCellHandler(this ApplicationDbContext db) =>
+        new(db, new RecordingAuditTrail());
+
     internal static AffectationSheetPlanner AffectationSheetPlanner(this ApplicationDbContext db) =>
         new(db, new AcademicYearResolver(db));
 

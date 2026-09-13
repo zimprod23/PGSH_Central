@@ -506,6 +506,37 @@ them or `DeleteStageSlot` would drop a column out from under a running stage.
     `PerPeriod` and the base held 0 grid-linked periods. ⚠ **The second half of that excuse expired on
     13/09/2026** — the 3ᵉ MED is published. The stages published there are `PerPeriod`, so the bug is
     still not reachable *today*; it becomes reachable the moment a `SingleService` stage is published.
+
+### Which act may touch a published cell, and which question it asks
+
+Two questions, and they are not interchangeable. Getting them the wrong way round is how this area
+produced three defects in one day.
+
+| Act | Question | Why |
+|---|---|---|
+| `RotationArranger` — may I overwrite this cell? | **this cell** (`PublishedAmongAsync`) | it places cell by cell, and a cohorte published in P1 still needs P6 arranged |
+| `ClearSlotAssignments` (whole column) | **this cell** | it sweeps a column across a promotion, keeps the published cells and **reports how many it kept** |
+| `DeleteStageSlot` | **this column** (`SlotHasPublishedCellAsync`) | the column goes as a whole |
+| ✅ `UpdateStageSlot` — moving a column | **this column** | *added 13/09/2026 — it had none at all* |
+| ✅ `SetCohortSlotAssignment` | **this cohorte** (`IsCohortSchedulePublishedAsync`) | publication is once per cohorte |
+| ✅ `ClearCohortSlotAssignment` | **this cohorte** | *was « this cell » until 13/09/2026 — the asymmetry was the bug* |
+
+⚠ **Moving a published column had no guard whatsoever**, while deleting one did. Moving is the worse
+of the two: deleting fails loudly, moving succeeds and desynchronises in silence — the créneau takes
+its new dates, the périodes published from it keep their old ones, and no screen says which is true.
+Refused until « déplacer une colonne publiée *et ses périodes* » exists, which is Phase 17.1 and one
+operation rather than two.
+
+⚠ **« Set » and « clear » asked different questions of the same cell**, so on a published cohorte you
+could clear an unpublished cell and then not put it back — a hole nobody could fill without
+unpublishing the whole cohorte and destroying everything else with it. Resolved towards the
+**stricter** of the two, and that direction is not arbitrary: **publication is once per cohorte**
+(`SchedulePublisher.PublishCohortAsync` refuses outright when any assignment already carries a
+published période), so no later publication will read a published cohorte's cells again. Narrowing
+`Set` to the cell instead — which is what the defect was originally filed as — would have let an edit
+*appear* to work and produce nothing.
+
+→ `PublishedGridGuardTests`
 - The migration back-fills one row per existing grid-linked period — correct because nothing can have
   been published in `SingleService` mode before the mode existed.
 

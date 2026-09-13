@@ -41,6 +41,28 @@ internal static class PublishedCells
         this IApplicationDbContext dbContext, int cellId, CancellationToken ct) =>
         dbContext.ServicePeriodSlotCoverage.AnyAsync(c => c.CohortSlotAssignmentId == cellId, ct);
 
+    /// <summary>
+    /// « Cette <b>cohorte</b> est-elle publiée ? » — a different question from
+    /// <see cref="IsCellPublishedAsync"/>, and the right one wherever an edit would be pointless
+    /// rather than merely unsafe.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ <b>Publication is once per cohorte.</b> <c>SchedulePublisher.PublishCohortAsync</c> refuses
+    /// outright when any assignment already carries a published période, so no later publication reads
+    /// a published cohorte's cells again. Editing one of its cells therefore changes a row nothing
+    /// will ever act on — which is why « set » and « clear » both ask this, and not « is *this* cell
+    /// published ». Asking the narrower question there would let an edit look like it worked.
+    ///
+    /// <para>⚠ The narrow question remains right for the acts that genuinely work cell by cell: the
+    /// arranger choosing what it may overwrite, and the bulk column clear, which keeps the published
+    /// cells and reports how many it kept.</para>
+    /// </remarks>
+    public static Task<bool> IsCohortSchedulePublishedAsync(
+        this IApplicationDbContext dbContext, int cohortId, CancellationToken ct) =>
+        dbContext.InternshipAssignments
+            .Where(a => a.CurrentCohortId == cohortId)
+            .AnyAsync(a => a.ServicePeriods.Any(p => p.CohortSlotAssignmentId != null), ct);
+
     public static Task<bool> SlotHasPublishedCellAsync(
         this IApplicationDbContext dbContext, int slotId, CancellationToken ct) =>
         dbContext.ServicePeriodSlotCoverage

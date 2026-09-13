@@ -5197,3 +5197,47 @@ Une garde documentée « sans effet aujourd'hui » est une **affirmation datée*
 230 tests de planification sont restés verts après la correction — c'est voulu, elle ne change rien
 quand rien n'est publié — et c'est précisément pourquoi rien ne l'avait attrapée : la suite entière
 tournait dans le monde où l'excuse était vraie.
+
+---
+
+## Session 68g — Trois actes, deux questions, et une note de file d'attente qui avait tort (13/09/2026)
+
+Suite de 68f : la seconde moitié de ce que la publication de la 3ᵉ MED a rendu atteignable.
+
+### Ce que la file d'attente disait, et pourquoi c'était faux à moitié
+
+L'item 0bv disait deux choses. La première était juste : **`UpdateStageSlotCommandHandler` n'a aucune
+garde de publication**, alors que `DeleteStageSlotCommandHandler`, juste en dessous, en a une. Et
+déplacer est *pire* que supprimer : supprimer échoue bruyamment, déplacer réussit et désynchronise en
+silence — le créneau prend ses nouvelles dates, les périodes publiées depuis lui gardent les anciennes,
+et aucun écran ne dit laquelle est vraie.
+
+La seconde était **fausse**, et il a fallu lire `SchedulePublisher` pour le voir. Elle disait que
+`SetCohortSlotAssignment` devrait demander « est-ce que *cette cellule* est publiée » au lieu de
+« est-ce que cette *cohorte* est publiée ». Or **la publication est une fois par cohorte** :
+`PublishCohortAsync` refuse d'emblée si une affectation porte déjà une période publiée. Donc une fois
+la cohorte publiée, aucune publication ultérieure ne relira ses cellules — et rétrécir la garde à la
+cellule aurait laissé une modification *avoir l'air* de marcher sans rien produire. C'est exactement le
+défaut « un seul état pour deux situations », atteint par le côté serviable.
+
+### Le vrai défaut de cette paire : l'asymétrie
+
+`Set` demandait « cette cohorte » ; `Clear` demandait « cette cellule ». Sur une cohorte publiée on
+pouvait donc **vider une cellule non publiée sans pouvoir la remettre** — un trou que personne ne
+comble sans dépublier toute la cohorte, ce qui détruit et reconstruit tout le reste avec.
+
+Résolu vers le **plus strict**, et la direction n'est pas arbitraire : c'est celle que le modèle de
+publication rend vraie. Les deux passent désormais par `IsCohortSchedulePublishedAsync`, une seule
+question nommée une fois.
+
+⚠ **Le vidage en masse d'une colonne reste par cellule**, délibérément : il balaie une colonne sur toute
+une promotion, garde les cellules publiées et **annonce combien il en a gardées**. C'est un autre acte,
+et il dit ce qu'il a laissé.
+
+### Un test qui passait pour la mauvaise raison
+
+⚠ Le premier jet de « une colonne publiée ne se déplace pas » déplaçait le créneau **en avant**, où il
+chevauchait la colonne suivante. Garde supprimée, le test échouait quand même — sur
+`Schedule.SlotOverlap`, un refus sans rapport. Mesuré en cassant la garde, pas deviné. Le déplacement
+se fait maintenant **en arrière**, vers une fenêtre qui ne heurte rien, si bien que le seul reproche
+possible est celui qu'on teste.

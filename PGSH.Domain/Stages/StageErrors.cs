@@ -511,6 +511,19 @@ public static class StageErrors
         "Schedule.NotPublished",
         "This cohort's schedule has not been published yet. Nothing to unpublish.");
 
+    /// <summary>
+    /// ⚠ <b>Moving a published column is worse than deleting one, and it had no guard at all.</b>
+    /// Deleting fails loudly; moving succeeds and desynchronises silently — the créneau takes its new
+    /// dates and the périodes published from it keep their old ones, so the grid says one thing and
+    /// the students' rotations say another, with nothing on either screen to say which is true.
+    /// Refused until « déplacer une colonne publiée *et ses périodes* » exists, which is Phase 17.1
+    /// and one operation, not two.
+    /// </summary>
+    public static readonly Error SlotPublishedCannotMove = Error.Conflict(
+        "Schedule.SlotPublishedCannotMove",
+        "Ce créneau a des cohortes publiées : en changer les dates laisserait leurs périodes aux "
+        + "anciennes, et la grille cesserait de dire ce que font les étudiants. Dépubliez-les d'abord.");
+
     public static readonly Error SlotPublished = Error.Conflict(
         "Schedule.SlotPublished",
         "This period cannot be deleted because one or more of its cohorts have already been published. Unpublish them first.");
