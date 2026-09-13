@@ -142,6 +142,14 @@ de `st.periods` y répond « vide » sur un stage qui a bien sa période.
 
 ✅ **Nettoyage fait et vérifié** → item **0bq**.
 
+**L'échelle, mesurée après coup, et ma crainte était fausse.** Le plus gros canevas que cette faculté
+puisse produire — 6ᵉ MED, 701 étudiants × 6 stages = **4 206 lignes** — se télécharge en **685 ms** et
+s'aperçoit en **545 ms**, sans erreur, avec le rapport borné comme prévu (500 lignes nommées,
+`RowsTruncated`, un poste par stage). Les requêtes sont à plat et paramétrées par tableau
+(`= ANY(@p)` : aucun plafond de paramètres à craindre). ⚠ **C'est l'écriture qui reste non mesurée à
+cette échelle**, et elle ne le sera pas sur la base vivante : au-delà de 200 affectations l'aperçu
+prévient désormais que les entrées de dossier s'écrivent après la transaction, une par une.
+
 ## Session 68 — 2026-09-13 · Téléverser les affectations d'une promotion
 
 **Demandé par l'utilisateur**, en regard du canevas de découpage : un fichier qui porte les affectations

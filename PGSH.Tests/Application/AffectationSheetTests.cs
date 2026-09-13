@@ -581,6 +581,32 @@ public class AffectationSheetTests
         report.Rows.Should().ContainSingle().Which.OutsideCnpn.Should().BeTrue();
     }
 
+    /// <summary>
+    /// ⚠ <b>Conditional, and the control is the point.</b> A note that fired on every upload would be
+    /// noise, and noise is dismissed — which puts the real ones out of sight. What it warns about is
+    /// the only thing the figures cannot show: the transaction is quick and the dossier entries are
+    /// written after it, one at a time.
+    /// </summary>
+    [Fact]
+    public async Task A_large_act_says_it_will_take_a_while_and_a_small_one_does_not()
+    {
+        await using var db = TestHarness.NewContext("sheet-large-act");
+        var s = await SeedAsync(db, students: 250);
+
+        var many = s.Students.Select((r, i) => Row(r, sheetRow: i + 2)).ToArray();
+        var few = many.Take(5).ToArray();
+
+        var large = await PreviewAsync(db, many);
+        var small = await PreviewAsync(db, few);
+
+        large.Affectations.Should().Be(250);
+        large.Notes.Should().Contain(n => n.Contains("acte long"));
+
+        small.Affectations.Should().Be(5);
+        small.Notes.Should().NotContain(n => n.Contains("acte long"),
+            "a warning that fires whatever the data says is noise");
+    }
+
     [Fact]
     public async Task A_caller_who_is_not_scolarite_is_refused()
     {

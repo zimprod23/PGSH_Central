@@ -67,6 +67,14 @@ internal sealed class AffectationSheetPlanner(
     /// </summary>
     private const int MaximumReportedRows = 500;
 
+    /// <summary>
+    /// Above this many affectations, the act is worth warning about. A roster is twenty to thirty; a
+    /// promotion is several hundred, and that is the shape that takes minutes to finish writing its
+    /// dossier entries. ⚠ Measured on the live base 13/09/2026: the <i>read</i> half scales fine — the
+    /// 6ᵉ MED canvas is 4 206 lignes and previews in 545 ms — so the threshold is about the write.
+    /// </summary>
+    private const int LargeActThreshold = 200;
+
     public async Task<Result<AffectationSheetPlan>> PlanAsync(
         int levelId,
         int? academicYearId,
@@ -613,6 +621,18 @@ internal sealed class AffectationSheetPlanner(
         if (cohortsToCreate > 0)
             notes.Add($"{cohortsToCreate} cohorte(s) seront créées parce que le fichier les nomme et "
                     + "qu'elles n'existent pas encore.");
+
+        // ⚠ Dit avant le clic, parce que c'est la seule chose que les chiffres ne montrent pas : la
+        // transaction est rapide, et les entrées de dossier s'écrivent *après* elle, une par une. Sur
+        // une promotion entière l'acte a donc l'air de traîner longtemps après avoir réussi — et un
+        // opérateur qui ferme l'onglet à ce moment-là n'annule pas l'écriture (elle est validée) mais
+        // interrompt les entrées de dossier qui restent. Conditionnel : sur un roster de vingt, il n'y
+        // a rien à signaler et une phrase qui s'afficherait toujours ne serait plus lue.
+        if (work >= LargeActThreshold)
+            notes.Add($"{work} affectations, c'est un acte long : l'écriture elle-même est rapide, mais "
+                    + "les entrées de dossier s'écrivent ensuite une par une et peuvent prendre "
+                    + "plusieurs minutes. Laissez l'onglet ouvert jusqu'au bout — les fermer ne défait "
+                    + "pas ce qui est écrit, mais laisse des dossiers sans trace de l'acte.");
 
         if (notPlanned > 0)
             notes.Add($"{notPlanned} ligne(s) sont restées en blanc : ces stages ne sont pas planifiés "

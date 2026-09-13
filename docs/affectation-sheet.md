@@ -1,4 +1,4 @@
-# Le canevas des affectations
+﻿# Le canevas des affectations
 
 > Téléverser un fichier qui dit, ligne par ligne, **quel étudiant sert quel stage, dans quel service,
 > entre quelles dates** — et laisser PGSH en tirer les cohortes, les affectations, les périodes et les
@@ -191,6 +191,31 @@ Les périodes sont créées **non commencées** : une rotation déclarée est un
 l'administration qui la démarre. Un tableur ne peut pas livrer un stage déjà « terminé » — donc
 évaluable — sans que personne y ait mis les pieds. La seule exception est la délocalisation, qui est
 servie avant d'être enregistrée et passe par `Delocalize`, avec un motif.
+
+## 8bis. Ce que cela coûte, mesuré
+
+Sur la base vivante, le 13/09/2026 :
+
+| | |
+|---|---|
+| Canevas de la 4ᵉ Pharmacie — 232 lignes | téléchargement **2,1 s**, 15,5 Ko |
+| Canevas de la 6ᵉ MED — **4 206 lignes** (701 étudiants × 6 stages) | téléchargement **685 ms**, 85 Ko |
+| Aperçu de ces 4 206 lignes | **545 ms** |
+| Application de 2 affectations (dont 1 cohorte créée) | 6,6 s |
+
+**La moitié lecture tient l'échelle réelle**, et sans surprise : les huit requêtes sont à plat et
+paramétrées par tableau (`= ANY(@p)`, donc aucun risque de plafond de paramètres), et le travail par
+ligne ensuite est une poignée de recherches dans des dictionnaires. Le rapport est borné par
+construction — 500 lignes nommées, `RowsTruncated`, un poste par stage — donc un fichier dix fois plus
+gros ne fait pas dix fois plus de réponse.
+
+⚠ **La moitié écriture n'a pas été mesurée à cette échelle et ne le sera pas sur la base vivante.** Ce
+qui est connu : la transaction est rapide, et les entrées de dossier s'écrivent **après** elle, une par
+une (`AffectationImportedDomainEvent` → une ligne `History` chacune). C'est le même N+1 que la
+déliberation et le rouleau de réinscription, et il est accepté ici pour la même raison — mais au-delà
+de **200 affectations** l'aperçu le **dit** désormais, parce qu'un acte qui a réussi et qui a l'air de
+traîner est exactement ce qu'on interrompt. Fermer l'onglet ne défait pas ce qui est écrit — c'est
+validé — mais laisse les dossiers restants sans trace de l'acte.
 
 ## 9. Ce qui n'existe pas encore
 
