@@ -4568,3 +4568,66 @@ Sur une ligne : le service **externe** (« Stage hors CHU — Kénitra ») et un
 Il n'y en a pas pour le pas 4 et le pas 7 autrement que le point de sauvegarde. Ce qui **est**
 rattrapable : renvoyer le fichier corrigé remplace ce que ces lignes décrivent (et `Unchanged` saute ce
 qui est déjà juste). Ce qui ne l'est pas : une affectation créée là où il n'en fallait aucune.
+
+---
+
+## §58 — Défaire un téléversement d'affectations (session 68)
+
+⚠ **Migration à appliquer** : `AffectationImportJournal` (trois tables neuves, purement additive). Sans
+elle l'API interroge des tables qui n'existent pas et le téléversement répond **500**. Redémarrer
+l'AppHost l'applique.
+
+⚠ **Un import appliqué avant la migration n'a laissé aucun registre** : il n'y a rien à y défaire. Ce
+qui se teste ici est un import fait **après**.
+
+Rien n'a été cliqué : 1 946 tests verts, aucun écran piloté, aucune exécution sur la base vivante.
+
+### 1. La présence n'est plus détruite en silence
+
+Le défaut que cette session a trouvé. Prendre un étudiant dont un stage est **commencé** et porte au
+moins une journée de présence saisie. Le nommer dans un canevas avec un **autre** service. Aperçu.
+
+- Sa ligne doit ressortir **`AlreadyAttended`**, `canApply` = **false**, et le fichier entier refusé.
+- ⚠ Avant le correctif, le fichier passait et les journées disparaissaient sans un mot. Si la ligne
+  passe, le correctif n'est pas en service.
+
+### 2. L'import se retrouve dans la liste
+
+`GET /api/affectations/imports?levelId=<promotion>` après un téléversement.
+
+- Une ligne, avec le **nom du fichier**, la date, qui l'a appliqué, le nombre d'affectations et le
+  nombre de périodes remplacées, `canBeReversed` = **true**.
+
+### 3. L'aperçu de l'annulation dit ce qu'elle coûte
+
+`GET /api/affectations/imports/{id}/reversal`.
+
+- `affectationsToRemove` = ce que l'import avait **créé** (supprimé entier).
+- `periodsToRestore` = ce qu'il avait **remplacé** (réécrit).
+- `publishedPeriodsToRestore` > 0 seulement si l'import avait écrasé une répartition publiée.
+
+### 4. L'annulation remet tout, cellule comprise
+
+Le pas qui compte. Sur un étudiant dont l'import a **remplacé** une rotation publiée :
+
+`POST /api/affectations/imports/{id}/reversal?confirmedCount=<le nombre de l'aperçu>`
+
+- Ouvrir son dossier → le stage est revenu au **service d'avant**, aux **dates d'avant**, avec son
+  statut d'avant (commencé / terminé, pas « planifié »).
+- ⚠ Ouvrir la **grille de planning** → la cellule et la période se correspondent de nouveau. C'est
+  l'assertion qui vaut toute la phase : sans elle l'étudiant serait au bon endroit et le plan resterait
+  faux pour toujours.
+
+### 5. Les contrôles
+
+- Annuler **deux fois** → refus `Affectations.ImportAlreadyReversed`.
+- Relancer l'aperçu, faire saisir une évaluation sur une des affectations depuis un autre onglet,
+  annuler → refus **409** `AffectationImportReversal.HasChanged`, **rien** d'écrit.
+- Annuler avec un `confirmedCount` périmé → refus `AffectationImportReversal.CountMismatch`.
+- L'import annulé **reste** dans la liste, marqué `Reversed`, avec sa date.
+
+### Rollback
+
+L'annulation est elle-même le retour en arrière de l'import. Ce qu'elle ne défait pas : elle-même — un
+import annulé ne se ré-applique pas, il se re-téléverse. Le point de sauvegarde reste la garantie
+au-dessus de tout cela.

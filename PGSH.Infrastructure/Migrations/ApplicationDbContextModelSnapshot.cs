@@ -645,6 +645,87 @@ namespace PGSH.Infrastructure.Migrations
                     b.ToTable("RegistrationHolds", "public");
                 });
 
+            modelBuilder.Entity("PGSH.Domain.Stages.AffectationImport", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("AcademicYearId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("AffectationCount")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("AppliedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("AppliedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("FileName")
+                        .HasMaxLength(260)
+                        .HasColumnType("character varying(260)");
+
+                    b.Property<int>("LevelId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("ReplacedPeriodCount")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("ReversedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ReversedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AcademicYearId", "LevelId", "AppliedAtUtc")
+                        .HasDatabaseName("IX_AffectationImport_Year_Level_Applied");
+
+                    b.ToTable("AffectationImports", "public");
+                });
+
+            modelBuilder.Entity("PGSH.Domain.Stages.AffectationImportEntry", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AffectationImportId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("InternshipAssignmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Outcome")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("RegistrationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("StageId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("WrittenPeriodCount")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AffectationImportId");
+
+                    b.HasIndex("InternshipAssignmentId")
+                        .HasDatabaseName("IX_AffectationImportEntry_Assignment");
+
+                    b.ToTable("AffectationImportEntries", "public");
+                });
+
             modelBuilder.Entity("PGSH.Domain.Stages.AttendanceRecord", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1034,6 +1115,53 @@ namespace PGSH.Infrastructure.Migrations
                         .HasDatabaseName("IX_PeriodPause_ServicePeriodId");
 
                     b.ToTable("PeriodPause", "public");
+                });
+
+            modelBuilder.Entity("PGSH.Domain.Stages.ReplacedPeriod", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AffectationImportEntryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int?>("CohortSlotAssignmentId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("DelocalizationReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateOnly>("EndDate")
+                        .HasColumnType("date");
+
+                    b.Property<bool>("IsComplete")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsDelocalized")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsInterrupted")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsPaused")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsStarted")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("ServiceId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateOnly>("StartDate")
+                        .HasColumnType("date");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AffectationImportEntryId");
+
+                    b.ToTable("ReplacedPeriods", "public");
                 });
 
             modelBuilder.Entity("PGSH.Domain.Stages.ServiceEvaluation", b =>
@@ -1803,6 +1931,28 @@ namespace PGSH.Infrastructure.Migrations
                     b.Navigation("Registration");
                 });
 
+            modelBuilder.Entity("PGSH.Domain.Stages.AffectationImport", b =>
+                {
+                    b.HasOne("PGSH.Domain.Registrations.AcademicYear", "AcademicYear")
+                        .WithMany()
+                        .HasForeignKey("AcademicYearId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("AcademicYear");
+                });
+
+            modelBuilder.Entity("PGSH.Domain.Stages.AffectationImportEntry", b =>
+                {
+                    b.HasOne("PGSH.Domain.Stages.AffectationImport", "AffectationImport")
+                        .WithMany("Entries")
+                        .HasForeignKey("AffectationImportId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("AffectationImport");
+                });
+
             modelBuilder.Entity("PGSH.Domain.Stages.AttendanceRecord", b =>
                 {
                     b.HasOne("PGSH.Domain.Stages.ServicePeriod", "ServicePeriod")
@@ -2010,6 +2160,17 @@ namespace PGSH.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("ServicePeriod");
+                });
+
+            modelBuilder.Entity("PGSH.Domain.Stages.ReplacedPeriod", b =>
+                {
+                    b.HasOne("PGSH.Domain.Stages.AffectationImportEntry", "AffectationImportEntry")
+                        .WithMany("ReplacedPeriods")
+                        .HasForeignKey("AffectationImportEntryId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("AffectationImportEntry");
                 });
 
             modelBuilder.Entity("PGSH.Domain.Stages.ServiceEvaluation", b =>
@@ -2249,6 +2410,16 @@ namespace PGSH.Infrastructure.Migrations
                     b.Navigation("Holds");
 
                     b.Navigation("InternshipAssignments");
+                });
+
+            modelBuilder.Entity("PGSH.Domain.Stages.AffectationImport", b =>
+                {
+                    b.Navigation("Entries");
+                });
+
+            modelBuilder.Entity("PGSH.Domain.Stages.AffectationImportEntry", b =>
+                {
+                    b.Navigation("ReplacedPeriods");
                 });
 
             modelBuilder.Entity("PGSH.Domain.Stages.CnpnVersion", b =>

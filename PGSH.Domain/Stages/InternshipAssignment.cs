@@ -391,6 +391,15 @@ public sealed class InternshipAssignment : Entity
         if (ServicePeriods.Any(p => p.Evaluation is not null))
             return AppResult.Failure<int>(StageErrors.DeclaredRotationOverMark);
 
+        // ⚠ The second thing nothing puts back, and it was missing until 13/09/2026. AttendanceRecord
+        // cascades from ServicePeriod, so dropping a rotation that has begun silently deletes the days
+        // somebody stood in a service and a secretary keyed in one by one. A mark at least announces
+        // itself on every screen; attendance is invisible until the day it is needed. Refused for the
+        // same reason and in the same words: this act may rewrite a plan, never a record of what
+        // happened.
+        if (ServicePeriods.Any(p => p.Attendance.Count > 0))
+            return AppResult.Failure<int>(StageErrors.DeclaredRotationOverAttendance);
+
         int dropped = ServicePeriods.Count;
 
         foreach (var existing in ServicePeriods.ToList())
@@ -413,6 +422,66 @@ public sealed class InternshipAssignment : Entity
         RecomputeStatusFromPeriods();
         Raise(new AffectationImportedDomainEvent(Id, RegistrationId, stageId, periods.Count, dropped));
         return AppResult.Success(dropped);
+    }
+
+    /// <summary>
+    /// Puts back the rotation an import replaced, exactly as it stood. The inverse of
+    /// <see cref="DeclareRotation"/>, and deliberately written as its mirror.
+    /// </summary>
+    /// <remarks>
+    /// <para>⚠ <b>It restores the flags and the cell, not merely the service and the dates.</b> A
+    /// période that was published carries <c>CohortSlotAssignmentId</c>; putting it back without that
+    /// link would leave the promotion's plan and its execution records permanently out of agreement —
+    /// the grid showing a cell nothing was published from — and no screen would say why. Same for
+    /// <c>IsStarted</c> / <c>IsComplete</c>: a rotation that was under way must not come back as a
+    /// plan.</para>
+    ///
+    /// <para>⚠ <b>Refused over a mark or over attendance</b>, like its inverse — but for a different
+    /// reason. Here they cannot be the import's doing: it refused to touch them on the way in. They
+    /// are something that arrived <i>since</i>, which means the affectation is no longer the one the
+    /// import wrote, and walking it back would destroy work nobody recorded here.</para>
+    ///
+    /// <para>⚠ <b>The délocalisation child is rebuilt, not re-pointed.</b> A replaced période that was
+    /// itself délocalisé carries the only trace of a stage nobody here supervised — its motif — so the
+    /// restore writes it back rather than leaving a délocalisé période with no <c>Delocalization</c>
+    /// behind it, which every reader would show as a blank.</para>
+    /// </remarks>
+    public Result<int> RestoreRotation(int stageId, IReadOnlyList<RestoredPeriod> periods)
+    {
+        if (ServicePeriods.Any(p => p.Evaluation is not null))
+            return AppResult.Failure<int>(StageErrors.RestoredRotationOverMark);
+
+        if (ServicePeriods.Any(p => p.Attendance.Count > 0))
+            return AppResult.Failure<int>(StageErrors.RestoredRotationOverAttendance);
+
+        int removed = ServicePeriods.Count;
+
+        foreach (var existing in ServicePeriods.ToList())
+            ServicePeriods.Remove(existing);
+
+        // No pre-set Id — same store-generated-key gotcha as everywhere else on a tracked aggregate.
+        foreach (var period in periods)
+            ServicePeriods.Add(new ServicePeriod
+            {
+                InternshipAssignmentId = Id,
+                ServiceId              = period.ServiceId,
+                CohortSlotAssignmentId = period.CohortSlotAssignmentId,
+                StartDate              = period.StartDate,
+                EndDate                = period.EndDate,
+                IsStarted              = period.IsStarted,
+                IsComplete             = period.IsComplete,
+                IsInterrupted          = period.IsInterrupted,
+                IsPaused               = period.IsPaused,
+                IsDelocalized          = period.IsDelocalized,
+                Delocalization         = period.IsDelocalized
+                    ? new Delocalization { Reason = period.DelocalizationReason ?? string.Empty }
+                    : null,
+            });
+
+        RecomputeFinalScore();
+        RecomputeStatusFromPeriods();
+        Raise(new AffectationImportRolledBackDomainEvent(Id, RegistrationId, stageId, periods.Count, removed));
+        return AppResult.Success(removed);
     }
 
     // ─── Délocalisation ──────────────────────────────────────────────────────

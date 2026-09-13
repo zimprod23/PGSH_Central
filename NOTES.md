@@ -5003,3 +5003,50 @@ locale non nullable plutôt que la comparaison telle quelle.
 contrôles qui doivent continuer à répondre). Morsure vérifiée en remettant la liaison non nullable :
 les deux cas de l'axe échouent. ⚠ Ni un test de handler ni un test de validateur ne peut voir ce
 défaut — les deux construisent l'objet de requête et sautent la liaison.
+
+---
+
+## Session 68c — L'annulation, et le trou qu'il a fallu boucher pour qu'elle soit honnête (13/09/2026)
+
+**Ce qui a été construit** : `PHASES.md` §33, règles dans `docs/affectation-sheet.md` §9.
+
+### Le raisonnement de conception, parce que c'est lui qui a décidé du reste
+
+La première idée était une colonne marqueur — un `ImportBatchId` nullable sur `ServicePeriod`. Écartée :
+elle sait dire « cette ligne vient d'un tableur » et ne sait pas répondre à la question réellement
+posée, qui est « défais ce que j'ai fait jeudi ». Celle-là a une identité, une portée, un auteur, un
+moment et un état. Et surtout, une colonne marqueur ne retient que ce que l'acte a **écrit** — or ce
+qu'il a écrit est encore là. **Ce qui a disparu, c'est ce qu'il a remplacé**, et c'est cela qu'une
+annulation doit savoir. D'où un agrégat, et `ReplacedPeriod` comme photographie de ce qui n'existe plus.
+
+### Le défaut trouvé en construisant, et il valait le détour
+
+`AttendanceRecord` cascade depuis `ServicePeriod`. `DeclareRotation` ne gardait que la note. Donc
+réécrire une rotation **commencée** supprimait les journées de présence qu'une secrétaire a saisies une
+par une — sans un mot, et invisiblement : une note s'annonce sur tous les écrans, une présence
+n'apparaît que le jour où on la cherche.
+
+⚠ **Ce n'est pas une garde de plus, c'est la prémisse de l'annulation.** Comme l'import ne détruit
+désormais jamais rien d'autre qu'un service, une fenêtre, quelques drapeaux, une cellule et un motif,
+**tout** ce qu'il détruit tient dans le registre — donc l'annulation est *totale*, pas approximative.
+Relâcher l'un des deux refus rendrait le registre menteur. Et une annulation qui remet en silence moins
+qu'elle n'a enlevé est **pire que pas d'annulation**, parce que quelqu'un s'y fie.
+
+### Deux pièges attrapés en chemin
+
+**① « Est-ce encore ce que j'ai écrit ? » ne se recompte pas.** La première version comptait les
+périodes de l'affectation au moment de l'annulation et les comparait à… elles-mêmes. La garde passait
+donc sur une affectation que quelqu'un avait replanifiée, et l'annulation aurait écrasé un état plus
+récent. Le nombre écrit par l'import est désormais **stocké** sur l'entrée
+(`AffectationImportEntry.WrittenPeriodCount`), et le second fait est gratuit : l'import écrit toujours
+hors grille, donc une période portant une cellule ne peut être arrivée que depuis.
+
+**② Une garde d'agrégat testée à travers son handler ne prouve rien.** Le planificateur refuse les
+mêmes cas, donc casser la garde du domaine laissait **tous** les tests de handler verts — mesuré, pas
+supposé. La garde de l'agrégat est celle qu'aucun futur appelant ne peut contourner ; elle a maintenant
+ses propres tests, avec leur contrôle.
+
+### Ce qui reste vrai et non vérifié
+
+⚠ **Rien n'a été exécuté sur la base vivante** cette fois, et la migration n'est pas appliquée. Un
+import appliqué **avant** elle ne laisse aucun registre — donc rien à y défaire. `SMOKE-TEST.md` §58.

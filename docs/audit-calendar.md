@@ -296,3 +296,17 @@ in nothing else** — so both implement `ICalendarClosure` rather than growing a
   Counted once where they overlap (the usual one-day correction), and counted **before** the write.
   - `DatesMoved` gates it. Ticking « Date confirmée » on a span already right moves no day count, and
     reporting slots there teaches the user to dismiss the one report that matters.
+
+## Un code de plus, et son inverse (13/09/2026)
+
+`AFFECTATION_IMPORT_REVERSED` (entité `AffectationImport`). Le constat porte
+`affectationsRemoved`, `rotationsRestored`, `periodsRestored` et `alreadyGone`.
+
+⚠ **C'est `affectationsRemoved` qui fait exister l'entrée**, pour la même raison que `periodsDropped`
+sur l'aller : annuler un import qui n'avait rien remplacé et annuler celui qui a réécrit une promotion
+publiée sont le même code et deux événements sans rapport.
+
+⚠ **Et l'acte annulé n'est pas effacé du registre métier non plus** : `AffectationImport` reste, marqué
+`Reversed`, avec sa date et ses entrées. Le registre d'audit dit **qui** a annulé ; le registre d'import
+dit **quoi**, et les deux sont nécessaires — une ligne qui disparaît en se défaisant répond « il ne
+s'est rien passé » à la question du dossier.

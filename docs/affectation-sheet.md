@@ -217,19 +217,87 @@ de **200 affectations** l'aperçu le **dit** désormais, parce qu'un acte qui a 
 traîner est exactement ce qu'on interrompt. Fermer l'onglet ne défait pas ce qui est écrit — c'est
 validé — mais laisse les dossiers restants sans trace de l'acte.
 
-## 9. Ce qui n'existe pas encore
+## 8ter. ⚠ Ce que l'acte ne détruit jamais — et pourquoi cela décide de tout
 
-- **Une annulation en masse.** Le fichier corrigé remplace ce qu'il décrit, ce qui couvre la faute de
-  frappe ; il ne peut pas retirer une affectation qui n'aurait jamais dû exister. Un « défaire cet
-  import » demanderait de marquer le lot (une migration) — même forme que l'item 0aw pour la
-  délocalisation.
+Deux choses, et ce sont les **mêmes deux** partout dans ce document :
+
+| | Refus | Où |
+|---|---|---|
+| Une **note** | `AlreadyMarked` | le planificateur, puis `DeclareRotation` |
+| Une **journée de présence** | `AlreadyAttended` | le planificateur, puis `DeclareRotation` |
+
+La présence manquait jusqu'au 13/09/2026, et c'était un vrai trou : `AttendanceRecord` cascade depuis
+`ServicePeriod`, donc réécrire une rotation commencée supprimait **en silence** les journées qu'une
+secrétaire a saisies une par une. Une note s'annonce sur tous les écrans ; une présence est invisible
+jusqu'au jour où on en a besoin.
+
+⚠ **Ces deux refus ne sont pas de la prudence, ce sont les prémisses de l'annulation.** Comme l'import
+ne détruit jamais rien d'autre qu'un service, une fenêtre, quelques drapeaux et — le cas échéant — une
+cellule de grille et un motif, **tout** ce qu'il détruit tient dans ce que le registre d'import garde.
+L'annulation est donc **totale**, pas approximative. Relâcher l'un des deux refus rendrait ce document
+menteur : une annulation qui remet en silence moins qu'elle n'a enlevé est pire que pas d'annulation du
+tout, parce que quelqu'un s'y fie.
+
+## 9. Annuler un import
+
+Trois routes, la même forme que l'aller :
+
+| | Route |
+|---|---|
+| ① | `GET  affectations/imports?levelId=…[&academicYearId=…]` — ce qui a été appliqué, du plus récent au plus ancien |
+| ② | `GET  affectations/imports/{id}/reversal` — l'aperçu de l'annulation |
+| ③ | `POST affectations/imports/{id}/reversal?confirmedCount=…` — l'annulation |
+
+### Ce que cela défait
+
+| Ce que l'import avait fait | Ce que l'annulation fait |
+|---|---|
+| `Created` — il n'y avait pas d'affectation | elle est **supprimée**, avec ses périodes, son adhésion et ses entrées de dossier |
+| `Rebuilt` / `Delocalized` — il en a remplacé une | les périodes d'avant sont **réécrites telles qu'elles étaient** : service, fenêtre, `IsStarted`, `IsComplete`, la **cellule de grille**, et le motif si elle était délocalisée |
+
+⚠ **La cellule fait partie de la restauration, et c'est le point.** Remettre une période publiée sans
+son `CohortSlotAssignmentId` rendrait l'étudiant au bon service aux bonnes dates et laisserait le plan
+et les enregistrements d'exécution durablement désaccordés — la grille montrant une cellule dont rien
+n'a été publié — sans qu'aucun écran ne dise pourquoi.
+
+### Ce qu'elle refuse
+
+`EvaluatedSince` · `AttendedSince` · `ChangedSince` — et **un seul refuse toute l'annulation**, comme à
+l'aller. Les trois disent la même phrase autrement : quelque chose est arrivé **depuis**, donc défaire
+l'import ne restaurerait pas un état antérieur, cela **imposerait un état ancien** par-dessus le
+travail de quelqu'un. Les refus de l'aller sont ce qui rend la question décidable : comme l'import a
+refusé de toucher aux notes et aux présences, tout ce qu'on en trouve maintenant est nouveau.
+
+⚠ **`ChangedSince` se lit sur deux faits, pas sur une comparaison de dates** : l'import écrit toujours
+hors grille, donc une période portant une cellule ne peut être arrivée que depuis ; et le nombre de
+périodes doit être celui que l'import a écrit — chiffre **enregistré** sur l'entrée, car compter celles
+qui sont là aujourd'hui revient à les comparer à elles-mêmes.
+
+`AlreadyGone` — l'affectation n'existe plus — est un **saut**, pas un refus : il n'y a rien à défaire
+sur cette ligne, et ce n'est l'erreur de personne.
+
+### Le nombre confirmé
+
+`confirmedCount` porte la **moitié destructrice** : les affectations que l'import avait créées et que
+l'annulation supprime entières. Remettre une rotation se refait en renvoyant le fichier ; une
+affectation supprimée, rien ne la remet.
+
+### ⚠ Le registre survit à son annulation
+
+Un import annulé reste, marqué `Reversed`, avec sa date et ses entrées. « Cet étudiant a-t-il été
+planifié par un fichier, puis dé-planifié ? » est une question à laquelle le dossier doit répondre, et
+une ligne qui s'efface en se défaisant répond « il ne s'est rien passé ». Même raison qu'un
+`RegistrationHold` levé qui survit à sa levée.
+
+## 10. Ce qui n'existe pas encore
+
 - **Écrire la grille.** Décidé le 13/09/2026 : périodes seules. Écrire aussi les `StageSlot` et les
   `CohortSlotAssignment` ferait du canevas un arrangeur — plus puissant, et il faudrait réconcilier les
   fenêtres par (stage, année, période) sous `SlotOverlapGuard`, qui est **niveau-et-année**.
 - **Créer un étudiant.** Le rouleau de réinscription le fait ; celui-ci ne le fera pas. Une identité
   créée par un fichier de planning serait invisible de toute promotion.
 
-## 10. Le code
+## 11. Le code
 
 | | |
 |---|---|
@@ -243,4 +311,8 @@ validé — mais laisse les dossiers restants sans trace de l'acte.
 | L'agrégat | `PGSH.Domain/Stages/InternshipAssignment.DeclareRotation`, `DeclaredPeriod`, `AffectationImportedDomainEvent` |
 | Le .xlsx | `PGSH.Infrastructure/Stages/ClosedXmlAffectationSheetParser.cs` |
 | Les routes | `PGSH.API/Endpoints/Stages/AffectationSheet.cs` |
-| Tests | `PGSH.Tests/Application/AffectationSheetTests.cs` (23), `PGSH.Tests/Integration/AffectationSheetEndpointTests.cs` (9), `SqlTranslationTests` (6 cas) |
+| L'annulation | `…/Sheet/Reversal/` — contrats, refus, planificateur, aperçu, acte, liste |
+| Le registre de l'acte | `PGSH.Domain/Stages/AffectationImport.cs` (+ `AffectationImportEntry`, `ReplacedPeriod`), `RestoredPeriod.cs` |
+| L'agrégat | `InternshipAssignment.DeclareRotation` / `.RestoreRotation` — l'un l'inverse de l'autre |
+| Le schéma | migration `AffectationImportJournal` — trois tables, purement additive |
+| Tests | `AffectationSheetTests` (25), `AffectationImportReversalTests` (13), `AffectationSheetEndpointTests` (9), `SqlTranslationTests` (10 cas) |

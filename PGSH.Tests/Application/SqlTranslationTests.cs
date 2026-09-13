@@ -40,6 +40,7 @@ using Xunit;
 using PGSH.Application.Students.Selection;
 using PGSH.Application.Students.Search;
 using PGSH.Application.Stages.InternshipAssignments.Sheet;
+using PGSH.Application.Stages.InternshipAssignments.Sheet.Reversal;
 
 namespace PGSH.Tests.Application;
 
@@ -1539,5 +1540,67 @@ public class SqlTranslationTests
 
         GetAffectationSheetTemplateQueryHandler.PeriodsQuery(db, [Guid.NewGuid()], [TestHarness.StageId])
             .ToQueryString().Should().Contain("Delocalization");
+    }
+
+    // ─── L'annulation d'un import ─────────────────────────────────────────────
+    //
+    // ⚠ Même exigence que pour l'import, et une raison de plus : cet acte-ci **supprime des
+    // affectations**. Une requête qui ne compile pas y coûte un 500 au milieu d'une annulation que
+    // quelqu'un vient de confirmer, sur une promotion dont le plan est déjà à moitié défait dans sa
+    // tête.
+
+    [Fact]
+    public void The_reversal_reads_its_import_and_its_entries_in_sql()
+    {
+        using var db = TestHarness.NewNpgsqlContext();
+        var id = Guid.NewGuid();
+
+        AffectationImportReversalPlanner.ImportQuery(db, id)
+            .ToQueryString().Should().Contain("AffectationImports");
+
+        AffectationImportReversalPlanner.EntriesQuery(db, id)
+            .ToQueryString().Should().Contain("AffectationImportEntries");
+    }
+
+    /// <summary>
+    /// ⚠ <b>La requête de forme risquée.</b> Les périodes remplacées sont une collection sous l'entrée ;
+    /// repliées dans une projection elles donnent « Unable to translate a collection subquery in a
+    /// projection ». Elles sont donc lues par un <c>SelectMany</c> de premier niveau — la forme que le
+    /// fournisseur accepte — et rassemblées en mémoire sur la clé de l'entrée.
+    /// </summary>
+    [Fact]
+    public void The_reversal_reads_replaced_periods_through_a_top_level_selectmany()
+    {
+        using var db = TestHarness.NewNpgsqlContext();
+
+        AffectationImportReversalPlanner.ReplacedPeriodsQuery(db, Guid.NewGuid())
+            .ToQueryString().Should().Contain("ReplacedPeriods");
+    }
+
+    /// <summary>
+    /// ⚠ <c>HasAttendance</c> est un <c>Any()</c> <i>dans</i> la projection : c'est un <c>EXISTS</c>
+    /// corrélé, que le fournisseur traduit — à la différence d'une collection repliée, qu'il refuse.
+    /// C'est la garde qui rend l'annulation totale ; si elle ne compile pas, elle ne garde rien.
+    /// </summary>
+    [Fact]
+    public void The_reversal_asks_what_arrived_since_in_sql()
+    {
+        using var db = TestHarness.NewNpgsqlContext();
+        Guid[] ids = [Guid.NewGuid()];
+
+        string sql = AffectationImportReversalPlanner.LivePeriodsQuery(db, ids).ToQueryString();
+        sql.Should().Contain("EXISTS");
+
+        AffectationImportReversalPlanner.LiveAffectationIdsQuery(db, ids)
+            .ToQueryString().Should().Contain("InternshipAssignments");
+    }
+
+    [Fact]
+    public void The_import_list_compiles()
+    {
+        using var db = TestHarness.NewNpgsqlContext();
+
+        GetAffectationImportsQueryHandler.ImportsQuery(db, TestHarness.CurrentYearId, TestHarness.LevelId)
+            .ToQueryString().Should().Contain("AffectationImports");
     }
 }

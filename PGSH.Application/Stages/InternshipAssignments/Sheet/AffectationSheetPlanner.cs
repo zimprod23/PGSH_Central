@@ -24,14 +24,23 @@ internal sealed record PlannedPeriod(
 /// <b>tracked</b>; the planner's own reads are all detached, so the plan carries the key rather than
 /// the entity.
 /// </param>
+/// <param name="Replaced">
+/// The périodes this item destroys, exactly as they stand. ⚠ <b>Carried through the plan rather than
+/// re-read by the apply</b>, for the reason the whole planner exists: what the aperçu counted and what
+/// the write destroys have to be the same rows, and a second read is a second answer. It is also what
+/// <c>AffectationImport</c> records so the act can be walked back.
+/// </param>
 internal sealed record AffectationWorkItem(
     Guid RegistrationId,
     int StageId,
     int AcademicGroupId,
     Guid? ExistingAssignmentId,
     IReadOnlyList<PlannedPeriod> Periods,
-    int PeriodsDropped,
-    bool IsDelocalization);
+    IReadOnlyList<ExistingPeriod> Replaced,
+    bool IsDelocalization)
+{
+    public int PeriodsDropped => Replaced.Count;
+}
 
 internal sealed record AffectationSheetPlan(
     int AcademicYearId,
@@ -437,6 +446,15 @@ internal sealed class AffectationSheetPlanner(
                 continue;
             }
 
+            // ⚠ Asked here as well as in the aggregate, and both are wanted. The aggregate's refusal is
+            // the one that cannot be got round; this one is the one that says so on the right line,
+            // before anything is written, next to the student's name.
+            if (current.Any(p => p.HasAttendance))
+            {
+                Refuse(members, AffectationSheetRowStatus.AlreadyAttended);
+                continue;
+            }
+
             var status = delocalized ? AffectationSheetRowStatus.WillDelocalize
                        : assignment is null ? AffectationSheetRowStatus.WillCreate
                        : AffectationSheetRowStatus.WillReplace;
@@ -447,7 +465,7 @@ internal sealed class AffectationSheetPlanner(
                 first.AcademicGroupId,
                 assignment?.AssignmentId,
                 periods,
-                current.Count,
+                current,
                 delocalized)));
         }
 
@@ -685,6 +703,9 @@ internal sealed class AffectationSheetPlanner(
             "La date de fin est antérieure à la date de début.",
         AffectationSheetRowStatus.AlreadyMarked =>
             "Ce stage porte déjà une note et le fichier en décrit un autre : une note ne se remplace pas ici.",
+        AffectationSheetRowStatus.AlreadyAttended =>
+            "Ce stage porte des journées de présence : les réécrire les supprimerait. "
+            + "Le fichier replanifie un stage qui n'a pas commencé, il ne réécrit pas ce qui a eu lieu.",
         AffectationSheetRowStatus.DelocalizationWithoutReason =>
             "Une délocalisation se déclare des deux côtés : un service externe et un motif. Il en manque un.",
         AffectationSheetRowStatus.MalformedDelocalization =>
@@ -810,9 +831,15 @@ internal sealed class AffectationSheetPlanner(
                 p.ServiceId,
                 p.StartDate,
                 p.EndDate,
+                p.IsStarted,
+                p.IsComplete,
+                p.IsInterrupted,
+                p.IsPaused,
                 p.IsDelocalized,
-                p.CohortSlotAssignmentId != null,
-                p.Evaluation != null));
+                p.CohortSlotAssignmentId,
+                p.Evaluation != null,
+                p.Attendance.Any(),
+                p.Delocalization != null ? p.Delocalization.Reason : null));
 
     internal static IQueryable<SheetCohort> CohortsQuery(
         IApplicationDbContext dbContext,
@@ -926,13 +953,28 @@ internal sealed record SheetIdentifier(string Appogee, string? Cne);
 
 internal sealed record ExistingAffectation(Guid AssignmentId, Guid RegistrationId, int StageId);
 
+/// <param name="HasAttendance">
+/// ⚠ Read as <c>Any()</c> inside the projection rather than as a count: it is a correlated
+/// <c>EXISTS</c>, which the provider translates — a collection <em>folded</em> into a projection is the
+/// shape it refuses. Pinned by <c>SqlTranslationTests</c>.
+/// </param>
 internal sealed record ExistingPeriod(
     Guid AssignmentId,
     int ServiceId,
     DateOnly StartDate,
     DateOnly EndDate,
+    bool IsStarted,
+    bool IsComplete,
+    bool IsInterrupted,
+    bool IsPaused,
     bool IsDelocalized,
-    bool FromGrid,
-    bool HasEvaluation);
+    int? CohortSlotAssignmentId,
+    bool HasEvaluation,
+    bool HasAttendance,
+    string? DelocalizationReason)
+{
+    /// <summary>Whether the planning grid produced it — the question ~25 call sites actually ask.</summary>
+    public bool FromGrid => CohortSlotAssignmentId is not null;
+}
 
 internal sealed record RequiredStage(int CnpnVersionId, int StageId);

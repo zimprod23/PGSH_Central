@@ -816,6 +816,8 @@ schema first ».
 | `InternshipStatus` | `Planned`, `Ongoing`, `Completed`, `Evaluated`, `Validated`, `Rejected` | InternshipAssignment |
 | `StageAssignmentResult` | `NonÉvalué`, `Validé`, `NonValidé` | InternshipAssignment |
 | `AttendanceStatus` | `Present`, `Absent`, `JustifiedAbsent`, `Late` | AttendanceRecord |
+| `AffectationImportStatus` | `Applied`, `Reversed` | AffectationImport |
+| `AffectationImportOutcome` | `Created`, `Rebuilt`, `Delocalized` | AffectationImportEntry |
 | `HistoryType` | `Inscription`, `ValidationStage`, `NonValidation`, `Fraud`, `Revalidation`, `GroupTransfer`, `CohortTransfer`, `Delocalization`, `DelocalizationCancelled`, `AffectationImported`, `StatusChange` | History |
 
 ⚠ **`AcademicGroups.LevelId` is nullable and that is load-bearing.** The level-less « Non réparti »
@@ -926,3 +928,25 @@ un placement nominatif posé à la main est détruit au prochain « auto-répart
 et sans compte. `AcademicGroup` n'a pas davantage de champ disant **pourquoi** un roster existe : la
 seule preuve que le groupe 102 de 2024-2025 est le groupe militaire est le motif de ses cellules.
 Deux colonnes manquantes, l'une portante et l'autre documentaire.
+
+## `AffectationImports` / `AffectationImportEntries` / `ReplacedPeriods` (13/09/2026)
+
+Le registre d'une application du canevas des affectations, gardé pour qu'elle puisse être défaite.
+Migration `AffectationImportJournal` — **trois tables neuves, purement additive**, rien d'existant n'est
+touché.
+
+| Relation | `OnDelete` | Pourquoi |
+|---|---|---|
+| `AffectationImport` → `AcademicYear` | **Restrict** | un import appartient à l'année qu'il a visée ; supprimer l'année sous lui laisserait la trace d'un acte sur une promotion disparue |
+| `AffectationImportEntry` → `AffectationImport` | **Cascade** | une entrée n'a pas de sens sans son import |
+| `ReplacedPeriod` → `AffectationImportEntry` | **Cascade** | idem |
+
+⚠ **`AffectationImportEntry.InternshipAssignmentId` n'est délibérément *pas* une clé étrangère.**
+Défaire une entrée `Created` supprime l'affectation ; une FK emporterait la trace avec elle (ce que la
+table existe justement pour garder) ou refuserait la suppression. Elle est **indexée**, parce que
+l'annulation cherche par là.
+
+⚠ **`ReplacedPeriods` ne porte de FK ni sur `ServiceId` ni sur `CohortSlotAssignmentId`**, et c'est la
+raison d'être de la table : c'est la **photographie** d'une période qui n'existe plus, gardée pour être
+réécrite. Une FK empêcherait de prendre la photo — ou la supprimerait — dès que le service ou la
+cellule bougent, c'est-à-dire précisément quand l'annulation compte.

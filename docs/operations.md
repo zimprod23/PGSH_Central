@@ -256,3 +256,23 @@ d'`Histories` qui monte est un avancement, pas un blocage — même forme que la
 rouleau de réinscription.
 
 Détail complet dans [`affectation-sheet.md`](affectation-sheet.md).
+
+## Annuler un téléversement d'affectations (13/09/2026)
+
+Le manque signalé dans la section précédente est comblé : `POST affectations/imports/{id}/reversal`,
+précédé de son aperçu. **Le point de sauvegarde reste la bonne habitude** — l'annulation supprime des
+affectations — mais il n'est plus le *seul* retour en arrière.
+
+Ce qu'il faut savoir avant de s'en servir :
+
+- elle est **totale** là où elle s'applique : les périodes remplacées reviennent avec leurs drapeaux et
+  leur cellule de grille, pas seulement avec leur service et leurs dates ;
+- elle est **tout ou rien** : une affectation évaluée, pointée ou replanifiée depuis l'import refuse
+  toute l'annulation, parce que la défaire imposerait un état ancien par-dessus un travail plus récent ;
+- `confirmedCount` porte les affectations **supprimées** — celles que l'import avait créées. Remettre
+  une rotation se refait en renvoyant le fichier ; une affectation supprimée, rien ne la remet ;
+- un import déjà annulé refuse, et **reste au registre**.
+
+⚠ **La migration `AffectationImportJournal` doit être appliquée** avant que l'import puisse être défait.
+Elle est purement additive (trois tables neuves) et ne touche rien d'existant — mais un import appliqué
+**avant** elle n'aura laissé aucun registre, donc rien à défaire.

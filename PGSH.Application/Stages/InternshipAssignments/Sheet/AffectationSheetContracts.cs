@@ -138,6 +138,23 @@ public enum AffectationSheetRowStatus
     AlreadyMarked,
 
     /// <summary>
+    /// The affectation's périodes carry attendance, and the sheet describes something different.
+    ///
+    /// <para>⚠ <b>The second thing this act may never destroy, and it was missing until
+    /// 13/09/2026.</b> <c>AttendanceRecord</c> cascades from <c>ServicePeriod</c>, so rebuilding a
+    /// rotation that has begun deleted the days a secretary keyed in one by one — silently, because a
+    /// mark announces itself on every screen and attendance is invisible until the day it is needed.
+    /// Same bargain as <see cref="AlreadyMarked"/>: this act rewrites a plan, never a record of what
+    /// happened.</para>
+    ///
+    /// <para>⚠ <b>It is also what makes the undo total.</b> Since an import destroys nothing carrying
+    /// attendance or a mark, everything it does destroy is a service, a window and a few flags — which
+    /// is exactly what <c>ReplacedPeriod</c> records, so « annuler l'import » puts back all of it and
+    /// not merely most of it.</para>
+    /// </summary>
+    AlreadyAttended,
+
+    /// <summary>
     /// The line names an external service, or fills the motif, and the other half is missing.
     /// <c>Delocalization.Reason</c> is the only trace the faculty holds of a stage nobody here
     /// supervised, so it is required rather than defaulted.

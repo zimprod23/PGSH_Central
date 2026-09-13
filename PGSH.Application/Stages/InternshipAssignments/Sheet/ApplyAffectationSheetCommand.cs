@@ -60,12 +60,18 @@ namespace PGSH.Application.Stages.InternshipAssignments.Sheet;
 /// creations: a période evaluated between the aperçu and the apply changes what is destroyed without
 /// changing what is written, and destruction is the half that is final.
 /// </param>
+/// <param name="FileName">
+/// The uploaded file's own name, kept on the <c>AffectationImport</c> so an operator can recognise
+/// which upload to walk back. ⚠ Only the name: storing the workbook would put a promotion's names and
+/// identifiers in a second place, under no retention rule, for a convenience nobody asked for.
+/// </param>
 public sealed record ApplyAffectationSheetCommand(
     IReadOnlyList<AffectationSheetRow> Rows,
     int LevelId,
     int ConfirmedCount,
     int ConfirmedDroppedPeriods,
-    int? AcademicYearId = null) : ICommand<AffectationSheetReport>, IAuditableCommand
+    int? AcademicYearId = null,
+    string? FileName = null) : ICommand<AffectationSheetReport>, IAuditableCommand
 {
     public string  AuditAction     => "AFFECTATION_SHEET_APPLIED";
     public string  AuditEntityType => "Level";
@@ -139,7 +145,15 @@ internal sealed class ApplyAffectationSheetCommandHandler(
         var cohorts = await EnsureCohortsAsync(plan, ct);
         var assignments = await LoadTrackedAssignmentsAsync(plan, ct);
 
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var now = DateTime.UtcNow;
+        var today = DateOnly.FromDateTime(now);
+
+        // ⚠ Recorded as the act runs, not reconstructed afterwards: what it destroyed exists only
+        // until it is destroyed, and this is the record that makes « annuler cet import » possible.
+        var journal = AffectationImport.Record(
+            plan.AcademicYearId, plan.LevelId, request.FileName, now,
+            await authorizer.CurrentUserIdAsync(ct));
+
         int created = 0, rebuilt = 0, delocalized = 0, periodsWritten = 0, periodsDropped = 0;
 
         foreach (var item in plan.Work)
@@ -168,6 +182,9 @@ internal sealed class ApplyAffectationSheetCommandHandler(
 
                 delocalized++;
                 periodsWritten++;
+                periodsDropped += item.PeriodsDropped;
+                journal.Wrote(item.RegistrationId, item.StageId, assignment.Id,
+                    AffectationImportOutcome.Delocalized, writtenPeriods: 1, Replaced(item));
             }
             else
             {
@@ -181,11 +198,17 @@ internal sealed class ApplyAffectationSheetCommandHandler(
                 periodsDropped += result.Value;
                 periodsWritten += item.Periods.Count;
                 if (isNew) created++; else rebuilt++;
+
+                journal.Wrote(item.RegistrationId, item.StageId, assignment.Id,
+                    isNew ? AffectationImportOutcome.Created : AffectationImportOutcome.Rebuilt,
+                    item.Periods.Count, Replaced(item));
             }
 
             if (isNew)
                 dbContext.InternshipAssignments.Add(assignment);
         }
+
+        dbContext.AffectationImports.Add(journal);
 
         // ⚠ Before the save, and it is the act's own statement of what it did. « Canevas appliqué » on
         // a virgin promotion and on a published one are the same code and unrelated events; the code
@@ -197,11 +220,36 @@ internal sealed class ApplyAffectationSheetCommandHandler(
             ("periodsWritten", periodsWritten),
             ("periodsDropped", periodsDropped),
             ("cohortsCreated", plan.CohortsToCreate.Count),
-            ("unchanged", plan.Report.Unchanged));
+            ("unchanged", plan.Report.Unchanged),
+            ("importId", journal.Id));
 
         await dbContext.SaveChangesAsync(ct);
         return plan.Report;
     }
+
+    /// <summary>
+    /// What this item is about to destroy, in the shape the import record keeps it.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ No évaluation and no attendance travel here, and none needs to: the planner refuses a line
+    /// whose périodes carry either (<c>AlreadyMarked</c>, <c>AlreadyAttended</c>). That is what makes
+    /// the undo total rather than approximate — everything destroyed is a service, a window, a few
+    /// flags and, where it applies, a grid cell and a motif.
+    /// </remarks>
+    private static List<ReplacedPeriod> Replaced(AffectationWorkItem item) =>
+        [.. item.Replaced.Select(p => new ReplacedPeriod
+        {
+            ServiceId              = p.ServiceId,
+            StartDate              = p.StartDate,
+            EndDate                = p.EndDate,
+            IsStarted              = p.IsStarted,
+            IsComplete             = p.IsComplete,
+            IsInterrupted          = p.IsInterrupted,
+            IsPaused               = p.IsPaused,
+            IsDelocalized          = p.IsDelocalized,
+            CohortSlotAssignmentId = p.CohortSlotAssignmentId,
+            DelocalizationReason   = p.DelocalizationReason,
+        })];
 
     /// <summary>
     /// The cohorte of every (roster, stage) the file needs, creating the missing ones.

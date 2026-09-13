@@ -279,6 +279,53 @@ public class AffectationSheetTests
         untouched.FinalScore.Should().Be(14m);
     }
 
+    /// <summary>
+    /// ⚠ <b>The second thing this act may never destroy, and it was missing until 13/09/2026.</b>
+    /// <c>AttendanceRecord</c> cascades from <c>ServicePeriod</c>, so rebuilding a rotation that had
+    /// begun deleted the days a secretary keyed in one by one — silently, because a mark announces
+    /// itself on every screen and attendance is invisible until the day it is needed.
+    ///
+    /// <para>It is also what makes « annuler l'import » total rather than approximate: since the
+    /// import destroys nothing carrying attendance or a mark, everything it destroys is a service, a
+    /// window and a few flags — exactly what the import record keeps.</para>
+    /// </summary>
+    [Fact]
+    public async Task A_rotation_with_attendance_on_it_is_never_rewritten()
+    {
+        await using var db = TestHarness.NewContext("sheet-attendance");
+        var s = await SeedAsync(db, students: 1);
+
+        var cohort = db.SeedCohortFor(s.Stage, s.Group, cohortId: 500);
+        var assignment = db.SeedAssignment(s.Students[0], cohort);
+        var period = db.SeedPeriod(assignment, db.Services.Local.First(x => x.Id == CardioId),
+            Start, End, started: true);
+
+        db.AttendanceRecords.Add(new AttendanceRecord
+        {
+            Id = Guid.NewGuid(),
+            ServicePeriodId = period.Id,
+            Date = Start.AddDays(1),
+            Status = AttendanceStatus.Present,
+        });
+        await db.SaveChangesAsync();
+
+        var row = Row(s.Students[0], service: "Pneumologie");
+        var report = await PreviewAsync(db, row);
+
+        report.Rows.Should().ContainSingle()
+            .Which.Status.Should().Be(AffectationSheetRowStatus.AlreadyAttended);
+        report.CanApply.Should().BeFalse();
+
+        var (handler, _) = db.AffectationSheetHandler();
+        var applied = await handler.Handle(
+            new ApplyAffectationSheetCommand([row], TestHarness.LevelId, 0, 0), default);
+
+        applied.IsFailure.Should().BeTrue();
+        (await db.AttendanceRecords.CountAsync()).Should()
+            .Be(1, "the days somebody stood in a service are not this act's to delete");
+        (await db.ServicePeriods.SingleAsync()).ServiceId.Should().Be(CardioId);
+    }
+
     [Fact]
     public async Task One_bad_line_refuses_the_whole_file()
     {

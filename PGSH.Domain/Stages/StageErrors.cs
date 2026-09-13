@@ -642,6 +642,36 @@ public static class StageErrors
         "Ce stage porte déjà une évaluation : la réécrire supprimerait la note enregistrée. "
         + "Corrigez ou supprimez l'évaluation d'abord.");
 
+    // ⚠ La seconde chose que rien ne remet, et elle manquait jusqu'au 13/09/2026. `AttendanceRecord`
+    // cascade depuis `ServicePeriod` : réécrire une rotation commencée supprimait donc en silence les
+    // journées de présence qu'une secrétaire a saisies une par une. Une note s'annonce sur tous les
+    // écrans ; une présence est invisible jusqu'au jour où on en a besoin.
+    public static readonly Error DeclaredRotationOverAttendance = Error.Conflict(
+        "Affectations.DeclaredRotationOverAttendance",
+        "Ce stage porte des journées de présence : les réécrire les supprimerait. "
+        + "Le fichier peut replanifier un stage qui n'a pas commencé, pas réécrire ce qui a eu lieu.");
+
+    // ⚠ Les mêmes deux refus sur le chemin inverse, mais pour une autre raison : ici, ni la note ni la
+    // présence ne peuvent venir de l'import — il a refusé d'y toucher à l'aller. Elles sont arrivées
+    // *depuis*, donc l'affectation n'est plus celle que l'import a écrite, et la défaire détruirait un
+    // travail que ce registre ne sait pas remettre.
+    public static readonly Error RestoredRotationOverMark = Error.Conflict(
+        "Affectations.RestoredRotationOverMark",
+        "Ce stage a été évalué depuis l'import : annuler l'import supprimerait la note. "
+        + "Corrigez l'affectation à la main, ou supprimez l'évaluation d'abord.");
+
+    public static readonly Error RestoredRotationOverAttendance = Error.Conflict(
+        "Affectations.RestoredRotationOverAttendance",
+        "Des journées de présence ont été saisies depuis l'import : annuler l'import les supprimerait.");
+
+    public static Error AffectationImportNotFound(Guid id) => Error.NotFound(
+        "Affectations.ImportNotFound",
+        $"Aucun import d'affectations {id}.");
+
+    public static Error AffectationImportAlreadyReversed(Guid id) => Error.Conflict(
+        "Affectations.ImportAlreadyReversed",
+        "Cet import a déjà été annulé.");
+
     // ⚠ Pas « ne fait rien » : une déclaration vide voudrait dire « ce stage n'a pas de périodes »,
     // ce qui n'est pas un plan mais une affectation amputée — et elle serait indiscernable d'un
     // fichier dont les lignes se sont perdues en chemin.

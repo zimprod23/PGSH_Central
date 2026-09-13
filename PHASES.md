@@ -3493,3 +3493,42 @@ il faut un rapport d'erreurs généreux » — ce sont ses mots, et c'est la for
 - **Rien n'a été cliqué.** `SMOKE-TEST.md` §56.
 
 Règles complètes : [`docs/affectation-sheet.md`](docs/affectation-sheet.md).
+
+---
+
+## ✅ Phase 33 — Défaire un téléversement d'affectations
+
+Le manque que la phase 32 avait nommé (file d'attente, item 0bp) : renvoyer le fichier corrigé couvrait
+la faute de frappe, mais rien ne retirait une affectation qui n'aurait jamais dû exister, et le point de
+sauvegarde était le seul retour en arrière.
+
+**Ce qui a été construit**
+
+- `AffectationImport` — un **agrégat**, pas une colonne marqueur sur `ServicePeriod`. La question posée
+  trois mois plus tard n'est pas « quelles lignes viennent d'un tableur », c'est « défais ce que j'ai
+  fait jeudi » : cela a une identité, une portée, un auteur, un moment, un état — et cela doit savoir ce
+  que l'acte a **détruit**, pas seulement ce qu'il a écrit.
+- `InternshipAssignment.RestoreRotation`, l'inverse exact de `DeclareRotation` : elle remet les
+  drapeaux de cycle de vie **et la cellule de grille**, sans quoi le plan et l'exécution resteraient
+  désaccordés sans que rien ne le dise.
+- Trois routes — lister, aperçu, annuler — avec un `confirmedCount` qui porte la moitié destructrice
+  (les affectations supprimées), et le même marché tout-ou-rien que l'aller.
+- Migration `AffectationImportJournal` : trois tables, purement additive.
+
+**Le défaut trouvé en chemin, et il décide de tout le reste**
+
+`AttendanceRecord` cascade depuis `ServicePeriod`, et `DeclareRotation` ne gardait que la note : réécrire
+une rotation commencée supprimait **en silence** les journées de présence. Nouveau refus
+`AlreadyAttended`, du planificateur jusqu'à l'agrégat.
+
+⚠ Ce n'est pas une garde de plus à côté des autres : c'est la **prémisse** de l'annulation. Comme
+l'import ne détruit jamais qu'un service, une fenêtre, quelques drapeaux, une cellule et un motif, tout
+ce qu'il détruit tient dans le registre — donc l'annulation est **totale**. Une annulation qui remet en
+silence moins qu'elle n'a enlevé est pire que pas d'annulation, parce que quelqu'un s'y fie.
+
+**Tests** : 18 neufs (1 946 verts). ⚠ Les gardes de l'agrégat sont testées **directement** : le
+planificateur refuse les mêmes cas, donc un test passant par le handler reste vert que l'agrégat garde
+quoi que ce soit ou non — vérifié en cassant la garde du domaine, tous les tests de handler sont restés
+verts. La garde de l'agrégat est celle qu'on ne peut pas contourner ; elle a son propre test.
+
+⚠ **Rien n'a été cliqué et la migration n'est pas appliquée** — `SMOKE-TEST.md` §58.

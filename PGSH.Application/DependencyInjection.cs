@@ -89,6 +89,7 @@ public static class DependencyInjection
         services.AddScoped<ReinscriptionPlanner>();
         services.AddScoped<ReinscriptionSheetPlanner>();
         services.AddScoped<PGSH.Application.Stages.InternshipAssignments.Sheet.AffectationSheetPlanner>();
+        services.AddScoped<PGSH.Application.Stages.InternshipAssignments.Sheet.Reversal.AffectationImportReversalPlanner>();
         services.AddScoped<InscriptionPlanner>();
         services.AddScoped<InscriptionApplier>();
         services.AddScoped<RotationCycleContext>();

@@ -2,6 +2,7 @@ using MediatR;
 using PGSH.API.Extensions;
 using PGSH.API.Infrastructure;
 using PGSH.Application.Stages.InternshipAssignments.Sheet;
+using PGSH.Application.Stages.InternshipAssignments.Sheet.Reversal;
 using PGSH.SharedKernel;
 
 namespace PGSH.API.Endpoints.Stages;
@@ -85,12 +86,54 @@ public sealed class AffectationSheet : IEndpoint
                 return CustomResults.Problem(rows);
 
             var result = await sender.Send(new ApplyAffectationSheetCommand(
-                rows.Value, levelId, confirmedCount, confirmedDroppedPeriods, academicYearId), ct);
+                rows.Value, levelId, confirmedCount, confirmedDroppedPeriods, academicYearId,
+                file.FileName), ct);
 
             return result.Match(Results.Ok, CustomResults.Problem);
         })
         .DisableAntiforgery()
         .WithName("ApplyAffectationSheet")
+        .WithTags(Tags.Stages)
+        .RequireAuthorization();
+
+        // ─── Walking one back ─────────────────────────────────────────────────
+        //
+        // Three routes again, and the same shape: list what was applied, preview the undo, apply it
+        // with the number the preview showed. The undo is a first-class act, not a button on the
+        // import — it has its own refusals, its own report and its own entry in the register.
+
+        app.MapGet("affectations/imports", async (
+            [AsParameters] GetAffectationImportsQuery query,
+            ISender sender,
+            CancellationToken ct) =>
+        {
+            var result = await sender.Send(query, ct);
+            return result.Match(Results.Ok, CustomResults.Problem);
+        })
+        .WithName("GetAffectationImports")
+        .WithTags(Tags.Stages)
+        .RequireAuthorization();
+
+        app.MapGet("affectations/imports/{id:guid}/reversal", async (
+            Guid id, ISender sender, CancellationToken ct) =>
+        {
+            var result = await sender.Send(new PreviewAffectationImportReversalQuery(id), ct);
+            return result.Match(Results.Ok, CustomResults.Problem);
+        })
+        .WithName("PreviewAffectationImportReversal")
+        .WithTags(Tags.Stages)
+        .RequireAuthorization();
+
+        // confirmedCount is what the preview showed as « affectations supprimées » — the half nothing
+        // puts back. Sent back rather than re-derived, so an affectation deleted or evaluated between
+        // the two calls refuses instead of being acted on under a confirmation nobody gave for it.
+        app.MapPost("affectations/imports/{id:guid}/reversal", async (
+            Guid id, int confirmedCount, ISender sender, CancellationToken ct) =>
+        {
+            var result = await sender.Send(new ReverseAffectationImportCommand(id, confirmedCount), ct);
+            return result.Match(Results.Ok, CustomResults.Problem);
+        })
+        .WithName("ReverseAffectationImport")
         .WithTags(Tags.Stages)
         .RequireAuthorization();
     }

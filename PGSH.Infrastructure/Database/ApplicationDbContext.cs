@@ -71,6 +71,8 @@ public sealed class ApplicationDbContext : DbContext, IApplicationDbContext
     public DbSet<CohortMembership> CohortMembership { get; set; }
     public DbSet<ServiceEvaluation> ServiceEvaluation { get; set; }
     public DbSet<ServicePeriod> ServicePeriods { get; set; }
+    public DbSet<AffectationImport> AffectationImports { get; set; }
+    public DbSet<AffectationImportEntry> AffectationImportEntries { get; set; }
     public DbSet<ServicePeriodSlotCoverage> ServicePeriodSlotCoverage { get; set; }
     public DbSet<Holiday> Holidays { get; set; }
     public DbSet<PromotionPause> PromotionPauses { get; set; }

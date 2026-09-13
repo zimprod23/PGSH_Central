@@ -25,6 +25,7 @@ using PGSH.Application.AcademicGroups.BulkAssignment;
 using PGSH.Application.AcademicGroups.GroupChange;
 using PGSH.Application.Students.Selection;
 using PGSH.Application.Stages.InternshipAssignments.Sheet;
+using PGSH.Application.Stages.InternshipAssignments.Sheet.Reversal;
 
 namespace PGSH.Tests;
 
@@ -224,6 +225,22 @@ public static class TestHarness
 
     internal static AffectationSheetPlanner AffectationSheetPlanner(this ApplicationDbContext db) =>
         new(db, new AcademicYearResolver(db));
+
+    /// <summary>
+    /// The undo, with the same trail handed back for the same reason: its whole claim is that it says
+    /// how much it removed and how much it put back.
+    /// </summary>
+    internal static (ReverseAffectationImportCommandHandler Handler, RecordingAuditTrail Trail)
+        ReverseImportHandler(this ApplicationDbContext db, ExecutionAuthorizer? authorizer = null)
+    {
+        var trail = new RecordingAuditTrail();
+        return (new ReverseAffectationImportCommandHandler(
+            db, new AffectationImportReversalPlanner(db), authorizer ?? db.AdminAuthorizer(), trail), trail);
+    }
+
+    internal static PreviewAffectationImportReversalQueryHandler ReverseImportPreview(
+        this ApplicationDbContext db, ExecutionAuthorizer? authorizer = null) =>
+        new(new AffectationImportReversalPlanner(db), authorizer ?? db.AdminAuthorizer());
 
     internal static PreviewAffectationSheetQueryHandler AffectationSheetPreview(
         this ApplicationDbContext db, ExecutionAuthorizer? authorizer = null) =>

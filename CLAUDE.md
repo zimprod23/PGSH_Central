@@ -92,6 +92,23 @@ area, so they are worth carrying in your head on **every** change:
   the moment it was published. Anything derived per (stage, année) and then applied to a group has to
   be re-asked at the level it is actually true at, and a bulk act resolves it **after** it knows who
   it is acting on, never once before the loop. → [`docs/delocalization.md`](docs/delocalization.md)
+- **Un acte en masse réversible enregistre ce qu'il a *détruit*, pas ce qu'il a écrit.** Ce qu'il a
+  écrit est encore là ; ce qu'il a remplacé n'existe plus nulle part la seconde d'après. C'est ce qui
+  sépare une vraie annulation d'un « on retire nos lignes » qui laisse l'étudiant plus mal qu'avant
+  l'acte. → `AffectationImport` / `ReplacedPeriod`, [`docs/affectation-sheet.md`](docs/affectation-sheet.md)
+  - ⚠ **Et l'annulation n'est totale que parce que l'acte refuse de détruire ce qu'il ne saurait
+    remettre.** Deux choses ici : une **note** et une **journée de présence**. `AttendanceRecord`
+    cascade depuis `ServicePeriod`, donc tout acte qui supprime une période supprime les présences avec
+    elle, **en silence** — une note s'annonce sur tous les écrans, une présence est invisible jusqu'au
+    jour où on en a besoin. Relâcher l'un des deux refus rend le registre menteur, et une annulation qui
+    remet moins qu'elle n'a enlevé est pire que pas d'annulation, parce que quelqu'un s'y fie.
+  - ⚠ **« Est-ce encore ce que j'ai écrit ? » se décide sur un chiffre enregistré, jamais recompté.**
+    Compter aujourd'hui les périodes d'une affectation et les comparer à ce qu'on trouve revient à les
+    comparer à elles-mêmes : la garde passe alors sur une affectation que quelqu'un a replanifiée, et
+    l'annulation écrase un état plus récent. Le nombre écrit par l'acte est stocké avec lui.
+  - ⚠ **Un acte annulé se garde, il ne s'efface pas.** « Cet étudiant a-t-il été planifié puis
+    dé-planifié ? » est une question du dossier, et une ligne qui disparaît en se défaisant répond
+    « il ne s'est rien passé ».
 - **Confirm what cannot be undone.** A bulk act that writes onto rows nobody named carries the count
   the operator was shown and refuses on a mismatch — a boolean cannot do it, because a row created
   between the preview and the apply is the whole risk.
