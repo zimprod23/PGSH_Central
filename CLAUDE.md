@@ -325,8 +325,11 @@ Scalar UI at `/scalar/v1`, Swagger UI at `/swagger`. Both are configured with Ke
       `StudentAffectationService` → `RotationArranger` (+ `GroupScheduleConflictGuard`,
       `ServiceOccupancyCalculator`) → `SchedulePublisher`. All twelve compile; the sweep found no
       second defect. ⚠ **`SchedulePublisher` had never executed against PostgreSQL at all** — the
-      Med6 rehearsal ran `publish: false` and the base holds 0 grid-linked périodes, so the first real
-      publication would have been its first run. Every query on that class is named, the per-cohort
+      Med6 rehearsal ran `publish: false` and the base held 0 grid-linked périodes, so the first real
+      publication would have been its first run. ✅ **It has now run, on 13/09/2026**: the faculty
+      planned and published the 3ᵉ MED of 2026-2027 — 933 students, 100 rosters in 10 partitions,
+      8 stages, 80 créneaux, 1 000 cellules, **7 464 périodes liées à la grille**. The sentence above
+      is kept because it is why that class is swept; it is no longer a description of the base. Every query on that class is named, the per-cohort
       publish included: it shares nothing with the stage-wide one but the class, so sweeping only the
       path the macro plan takes would have left the human's own button uncovered.
     - **The CNPN area is swept too** (2026-09-01): the stamper's four reads, the effectivity

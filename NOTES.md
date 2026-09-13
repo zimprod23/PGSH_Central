@@ -5109,3 +5109,49 @@ remontée venait du processus antérieur au rechargement.
 tout endpoint dont il ne pouvait pas lire le `MethodInfo`. C'est exactement la faute qui avait laissé
 passer la seconde occurrence — « je n'ai pas pu vérifier ceci » lu comme un résultat propre. Il les
 **signale** désormais, et la liste doit rester vide.
+
+---
+
+## Session 68e — La base n'est plus vierge de planification (13/09/2026)
+
+Constaté en fin de session, en comparant le recensement d'un nouveau point de sauvegarde à celui pris
+le matin même. **Ce n'est pas mon fait** : l'utilisateur a planifié et publié pendant que je
+travaillais, et tout est sur la 3ᵉ MED — la promotion qu'il m'avait dit de ne pas toucher et que je
+n'ai pas touchée (mon empreinte était sur la 4ᵉ Pharmacie, et elle est retirée et vérifiée).
+
+| | Matin (10:10) | Soir (14:58) |
+|---|---|---|
+| `StageSlots` | **0** | **80** |
+| `CohortSlotAssignments` | **0** | **1 000** |
+| `Cohorts` | 13 793 | 14 593 |
+| `AcademicGroups` | 3 707 | 3 807 |
+| `ServicePeriods` | 105 626 | **113 090** |
+| `Students` / `Registrations` / `ServiceEvaluations` / `RegistrationHolds` / `Holidays` | inchangés | inchangés |
+
+**3ᵉ MED 2026-2027** : 933 étudiants, 100 rosters en 10 partitions (A→J, 10 rosters chacune), 8 stages
+× 100 cohortes, 80 créneaux, 1 000 cellules, **7 464 périodes publiées**.
+
+### Pourquoi cela compte au-delà du chiffre
+
+⚠ **`SchedulePublisher` a enfin tourné pour de vrai.** `CLAUDE.md` disait « n'a jamais été exécuté
+contre PostgreSQL » — c'était vrai et ça ne l'est plus. La première exécution réelle a produit 7 464
+périodes sans incident signalé.
+
+⚠ **Deux défauts documentés comme « latents parce que rien n'est publié » ne le sont plus tout à
+fait.** Le plus sérieux : *une cellule publiée est exclue de la balance de sa colonne au lieu d'être
+comptée contre elle* (`docs/planning-rotation.md`). Tant que la base ne publiait rien, c'était sans
+effet ; désormais, re-répartir une colonne qui porte déjà des cellules publiées étalera les cohortes
+libres **sur les services que ces cellules occupent**, et la charge annoncée sera fausse d'exactement
+ce qu'elle a ignoré. **C'est devenu un défaut vivant.** → item 0bu.
+
+⚠ **Et le canevas des affectations vise maintenant une promotion publiée.** Téléverser un canevas sur
+la 3ᵉ MED remplacerait des périodes issues de la grille par des périodes hors grille : c'est
+exactement ce que `PublishedPeriodsToDrop` compte et ce que la note de l'aperçu annonce, et depuis la
+phase 33 l'annulation les remet **avec leur cellule**. La fonction est prête pour ce cas ; il faut
+seulement savoir qu'il est désormais réel.
+
+### Méthode
+
+Le recensement d'un point de sauvegarde est le moyen le moins cher de répondre à « qu'est-ce qui a
+bougé pendant que je travaillais » — douze tables d'un coup, sans écrire une ligne. À reprendre en fin
+de toute session qui touche à la base.

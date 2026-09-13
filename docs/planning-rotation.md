@@ -166,7 +166,11 @@ every période, one call — is a real button that does not.
   in different windows still land differently.
 - ⚠ **A published cell is excluded from its column's balance rather than counted against it.** The
   free cohorts spread over every service, including one an already-published cohort is sitting in.
-  Harmless today (0 grid-linked periods in the whole base) and worth closing when publication is real.
+  ⚠⚠ **This stopped being harmless on 13/09/2026.** It was written when the base held 0 grid-linked
+  périodes; the 3ᵉ MED of 2026-2027 is now planned and published — 1 000 cellules, 7 464 périodes — so
+  re-arranging a column that already holds published cells will now spread the free cohortes *onto
+  services those cells occupy*, and the balance it reports will be wrong by exactly what it ignored.
+  **Publication is real. This is now a live defect, not a latent one.**
 - **A cohorte weighs its members minus its délocalisés** (`CohortsQuery`, 2026-09-06). A student
   serving the stage outside the faculty needs no place in the rotation, and weighting the queue by him
   spreads a cohorte over services to hold people who are not there. Same arithmetic as
@@ -485,7 +489,9 @@ them or `DeleteStageSlot` would drop a column out from under a running stage.
     would have had its trailing columns deleted out from under it while the lead cell alone read as
     locked. `GetRotationCycleQuery` had it right from the start — the read was correct and the write
     guard was not, which is the dangerous way round. Latent only because every 6ᵉ année stage is
-    `PerPeriod` and the base holds 0 grid-linked periods.
+    `PerPeriod` and the base held 0 grid-linked periods. ⚠ **The second half of that excuse expired on
+    13/09/2026** — the 3ᵉ MED is published. The stages published there are `PerPeriod`, so the bug is
+    still not reachable *today*; it becomes reachable the moment a `SingleService` stage is published.
 - The migration back-fills one row per existing grid-linked period — correct because nothing can have
   been published in `SingleService` mode before the mode existed.
 
