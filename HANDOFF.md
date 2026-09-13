@@ -25,6 +25,7 @@
 > | ~~**0bq**~~ | ✅ **Fait le 13/09/2026 — le pied du test est retiré et le retour à l'état initial est vérifié.** Deux étudiants, leurs inscriptions, affectations, adhésions, périodes et entrées de dossier (par cascade), la cohorte 19934, le roster 5094 et le service externe 153. **Contrôles après suppression** : affectations du stage 21 **710 → 708** (le chiffre d'avant le test), inscrits de la 4ᵉ Pharmacie **234 → 232**, services **152 → 151**, rosters de la promotion **1 → 0**, canevas de nouveau à **15 565 octets** (sa taille d'origine), et **0** résultat en cherchant « Zztest », « ZZTESTCNV1 » ou « ZZ-TEST » sur les trois écrans. | ⚠ **Restent, volontairement** : les lignes `AuditLog` (immuables par construction) et le point de sauvegarde `20260913-101039-avant-test-canevas-affectations-session`. ⚠ La 3ᵉ MED n'a jamais été approchée et **aucune** des 232 inscriptions réelles de la 4ᵉ Pharmacie n'a reçu d'écriture.
 > | ~~**0bu**~~ | ✅ **Corrigé le 13/09/2026.** Une cellule verrouillée est toujours exclue de la colonne que l'arrangeur répartit — elle n'est pas à lui — mais elle est désormais **comptée contre la capacité** dans laquelle il répartit. Chaque service est offert à la file avec ce qu'il lui **reste** pour cette colonne. Mesuré sur la fixture : deux cohortes de dix épinglées dans un service de vingt le laissaient porter **trois** cohortes (trente étudiants pour vingt places). Morsure vérifiée. | ⚠ **Borné à zéro, pool intact en dernier recours** : le dépassement est l'état normal ici, un reste négatif fausserait la part des autres services et un pool tout à zéro rendrait la file arbitraire — une promotion pleine se planifie quand même. ⚠ **Reste ouverte, la seconde moitié** : la garde `SingleService` / `PublishedCells` n'est latente que parce que les stages publiés de la 3ᵉ MED sont `PerPeriod` ; elle devient atteignable dès qu'un stage `SingleService` est publié. → item **0bv**. |
 > | ~~**0bv**~~ | ✅ **Traité le 13/09/2026, et la note avait tort à moitié.** ① Juste : `UpdateStageSlotCommandHandler` n'avait **aucune** garde de publication là où le `Delete` d'en dessous en a une — et déplacer est pire que supprimer, qui échoue bruyamment, tandis que déplacer réussit et désynchronise en silence. Refusé (`Schedule.SlotPublishedCannotMove`) jusqu'à la phase 17.1. ② **Faux** : la note voulait que `SetCohortSlotAssignment` demande « cette *cellule* » au lieu de « cette *cohorte* ». La publication est **une fois par cohorte** (`PublishCohortAsync` refuse si une affectation porte déjà une période publiée), donc rétrécir aurait laissé une modification *avoir l'air* de marcher sans rien produire. | ⚠ **Le vrai défaut de la paire était l'asymétrie** : `Set` demandait « cette cohorte », `Clear` « cette cellule », donc on pouvait **vider une cellule sans pouvoir la remettre**. Aligné sur le plus strict, via `IsCohortSchedulePublishedAsync`. ⚠ Le vidage **en masse** d'une colonne reste par cellule, délibérément : il garde les publiées et dit combien. ⚠ **Reste ouvert** : déplacer une colonne publiée *avec* ses périodes — phase 17.1, item A2. |
+> | **0bw** | **Dérouler `SMOKE-TEST.md` §59 — l'écran « Affectations par fichier ».** Livré côté client (dépôt `PGSH_Frontend`, commit `f50954d`) : `tsc`, `eslint` et `npm run build` propres, **aucun clic**. ⚠ La session SSO avait expiré au moment de le piloter, et saisir un mot de passe n'est pas un geste que l'assistant fait — c'est la seule raison pour laquelle §59 n'est pas déjà coché. | ⚠ **Le faire sur une promotion non planifiée** (4ᵉ Pharmacie), pas sur la 3ᵉ MED, qui est publiée : un canevas y remplacerait des périodes issues de la grille. Les deux pas qui valent l'exercice : **§59.5** — la case de confirmation et le bandeau de sauvegarde n'apparaissent **que** quand quelque chose est réellement détruit — et **§59.6**, où l'annulation annonce combien de périodes retrouveront leur cellule de grille. |
 > | **0bs** | **Vider la liste `KnownOffenders` de `NoRequiredQueryStringValueTypesTests`** — 24 routes antérieures qui exigent un type valeur depuis la query string. Chacune lève dans le routage avant son propre validateur : 400 nu, phrase générique à l'écran, et le processus en pause sous débogueur. Les corriger = rendre le paramètre nullable et écrire **une phrase de refus** par route. | ⚠ **C'est un cliquet, pas une dette qui traîne** : rien ne peut s'ajouter à la liste (le test échoue), et un second test vérifie qu'une entrée corrigée en est retirée. ⚠ **Ne pas les faire en un seul passage mécanique** : vingt refus écrits à la chaîne donnent vingt phrases génériques, ce qui vaut à peine mieux que le 400 nu. Les plus exposées d'abord — `inscription*`, `reinscription*` et `groups/partitions` sont des écrans avec des sélecteurs qu'un humain peut laisser vides. |
 > | ~~**0bt**~~ | ✅ **Fait le 13/09/2026 — pied du test §58 retiré, retour à l'état initial vérifié.** Deux étudiants (cascade : inscriptions, affectations, adhésions, périodes, dossiers), la cohorte 19935, le créneau 779 **et sa cellule**, le roster 5095. Contrôles : affectations du stage 21 **710 → 708**, inscrits 4ᵉ Pharmacie **234 → 232**, rosters de la promotion **1 → 0**, 0 résultat sur « Zzundo », cohorte de test absente de la liste du stage. | ⚠ **Reste, et c'est voulu** : l'enregistrement `AffectationImport` (`Reversed`, 2 affectations, `undo.xlsx`) référençant des étudiants supprimés. Un acte se garde — mais sur des données de test c'est de la litière, et **rien n'expose de suppression**. À trancher : faut-il élaguer les imports dont plus aucune inscription n'existe ? C'est la seule chose que ce nettoyage n'a pas pu retirer. |
 > | **0br** | **Redémarrer l'AppHost (migration `AffectationImportJournal`), puis dérouler `SMOKE-TEST.md` §58 — l'annulation d'un import.** Trois tables neuves, **purement additive**, rien d'existant n'est touché. | ⚠ **Sans la migration, le téléversement d'affectations répond 500** : il écrit désormais son registre dans le même acte. ⚠ **Un import appliqué avant la migration ne laisse aucun registre** — il n'y a rien à y défaire, et c'est le cas du test du 13/09 (déjà nettoyé à la main). Le pas qui vaut toute la phase est §58.4 : après annulation d'une répartition publiée que l'import avait écrasée, la **cellule de la grille et la période se correspondent de nouveau**. `PHASES.md` §33, `docs/affectation-sheet.md` §9. |
@@ -159,6 +160,33 @@ prévient désormais que les entrées de dossier s'écrivent après la transacti
 
 
 
+
+
+## Session 68h — 2026-09-13 · L'écran, enfin
+
+Le canevas des affectations et son annulation n'existaient que dans Scalar. Ils ont maintenant une
+page : **Admin → Formation → Affectations par fichier** (dépôt `PGSH_Frontend`, `f50954d`).
+
+Trois gestes pour l'aller, la liste des téléversements et leur annulation en dessous — parce que
+« qu'est-ce que j'ai envoyé, et comment le défaire » est la question qu'on se pose immédiatement après
+avoir appliqué.
+
+Ce que le `CLAUDE.md` du client a imposé, et qui n'était pas dans le premier jet :
+
+- **§1i** — le panneau des téléversements lit `currentData`, pas `data` : il **nomme** son sujet, donc
+  pendant un changement de promotion `data` afficherait les imports de la précédente sous le nom de la
+  nouvelle. Une phrase fausse, pas une donnée en retard.
+- **§1/§1a** — un contrôle désactivé dit *pourquoi* ; la portée manquante est un état normal.
+- **§1b** — la liste dit ce qu'elle ne montre pas (« 25 sur N »).
+- **§1e** — rien ne toaste un rejet qu'`errorMiddleware` affiche déjà ; seul le téléchargement parle,
+  et seulement sous `isReportedByErrorMiddleware`.
+
+⚠ **La case de confirmation et le bandeau de sauvegarde ne s'affichent que lorsqu'il y a réellement
+quelque chose à détruire.** Une confirmation qui s'affiche à chaque fois n'est plus lue, ce qui la
+retire du seul cas où elle comptait — la règle d'`ExportNotes`, appliquée à un garde-fou.
+
+⚠ **Rien n'a été cliqué** : la session SSO avait expiré au moment de piloter l'écran, et saisir un mot
+de passe n'est pas un geste que l'assistant fait. → item **0bw**, `SMOKE-TEST.md` §59.
 
 ## Session 68g — 2026-09-13 · Trois actes, deux questions, et une note qui avait tort à moitié
 

@@ -4631,3 +4631,87 @@ Le pas qui compte. Sur un étudiant dont l'import a **remplacé** une rotation p
 L'annulation est elle-même le retour en arrière de l'import. Ce qu'elle ne défait pas : elle-même — un
 import annulé ne se ré-applique pas, il se re-téléverse. Le point de sauvegarde reste la garantie
 au-dessus de tout cela.
+
+---
+
+## §59 — L'écran « Affectations par fichier » (session 68)
+
+⚠ **Redémarrer le front** (`npm run dev` reprend seul) et **l'AppHost** si l'API date d'avant la
+migration `AffectationImportJournal`. La page vit dans **Admin → Formation → Affectations par
+fichier**.
+
+Rien de cet écran n'a été piloté : `tsc`, `eslint` et `npm run build` sont propres, les 1 961 tests
+serveur passent, **aucun clic**. La session SSO avait expiré au moment de le faire et saisir un mot de
+passe n'est pas quelque chose que l'assistant fait.
+
+⚠ **Faire ce §59 sur une promotion qui n'est pas planifiée** — la 4ᵉ Pharmacie, par exemple. La 3ᵉ MED
+est **publiée** (1 000 cellules, 7 464 périodes) : un canevas y remplacerait des périodes issues de la
+grille, ce que l'écran annonce mais qu'il n'y a aucune raison de faire pour un essai.
+
+### 1. L'écran s'ouvre et ne promet rien avant qu'on choisisse
+
+- Sans promotion choisie : les deux boutons sont **désactivés**, et leur infobulle dit « Choisissez
+  d'abord la promotion. » ⚠ Un bouton éteint sans raison se lit comme cassé ; c'est le seul défaut
+  qu'on cherche ici.
+- Le bandeau de sauvegarde **n'est pas** affiché : il n'apparaît que lorsqu'il y a réellement quelque
+  chose à détruire.
+
+### 2. Le canevas sort
+
+Choisir la promotion → **Télécharger le canevas**.
+
+- Le fichier s'ouvre, onze colonnes, le cartouche nomme la promotion et l'année.
+- ⚠ Le **nom du fichier** vient du serveur (`Content-Disposition`), donc il porte la promotion et
+  l'année. Un nom générique voudrait dire que le garde `response.ok` du `responseHandler` a sauté.
+
+### 3. Le canevas non modifié ne planifie rien
+
+Le renvoyer tel quel → **Téléverser et simuler**.
+
+- « non planifiée(s) » = le nombre de lignes, « créées » = 0, **aucune erreur**, et le bouton
+  **Appliquer** est actif (il n'y a rien à écrire, et c'est un état valide).
+- La case de confirmation **n'apparaît pas** : rien n'est détruit.
+
+### 4. Planifier un stage pour un groupe
+
+Remplir service + dates sur les lignes d'un stage d'un groupe, laisser le reste blanc, simuler.
+
+- Les compteurs : `créée(s)`, `période(s) écrites`, `cohorte(s) créées` si le roster n'a jamais fait ce
+  stage.
+- La note **hors grille** est affichée en toutes lettres.
+- Appliquer → le toast annonce les nombres, et **Appliqué** remplace le bouton.
+- ⚠ Ouvrir la **grille de planning** : elle ne bouge pas. C'est le comportement voulu.
+
+### 5. Le contrôle qui compte : la confirmation n'apparaît que quand elle sert
+
+Reprendre le même fichier en changeant le service d'une ligne déjà appliquée, simuler.
+
+- `réécrite(s)` ≥ 1, `supprimée(s)` ≥ 1, et **la case de confirmation apparaît**, avec le nombre.
+- Le **bandeau de point de sauvegarde** apparaît aussi.
+- Tant que la case n'est pas cochée, **Appliquer** est désactivé.
+
+### 6. L'annulation
+
+Sous le formulaire, **Téléversements précédents**.
+
+- La ligne porte le **nom du fichier**, la date, qui l'a appliqué, les deux compteurs, l'état
+  **Appliqué**, et un bouton **Annuler**.
+- Cliquer **Annuler** → la fenêtre montre ce que cela coûte : combien d'affectations supprimées,
+  combien de rotations rétablies, et — si l'import avait écrasé une répartition publiée — combien de
+  périodes **retrouveront leur cellule**.
+- Confirmer → toast, et la ligne repasse à **Annulé** avec sa date. ⚠ **Elle reste dans la liste** :
+  c'est voulu.
+- Rouvrir : le bouton **Annuler** a disparu de cette ligne (`canBeReversed` est faux).
+
+### 7. Les contrôles négatifs
+
+- Changer de promotion dans le sélecteur pendant que la liste charge : le panneau ne doit **jamais**
+  afficher les téléversements de la promotion précédente sous le nom de la nouvelle (`currentData`).
+- Téléverser un fichier qui n'est pas un classeur → **un seul** message, celui du serveur. Deux
+  messages voudraient dire qu'un `notify.error` a été réintroduit à côté d'`errorMiddleware`.
+- Une ligne à moitié remplie (service sans dates) → le fichier entier est refusé, et la ligne fautive
+  est **en tête** de la liste.
+
+### Rollback
+
+L'annulation, §59.6. Et le point de sauvegarde que le bandeau propose au moment où il compte.
