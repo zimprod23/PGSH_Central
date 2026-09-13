@@ -79,15 +79,25 @@ public class NoRequiredQueryStringValueTypesTests : IClassFixture<ApiFactory>
     public void No_route_requires_a_value_type_from_the_query_string()
     {
         var offenders = new List<string>();
+        var uninspectable = new List<string>();
 
         foreach (var endpoint in _factory.Services
                      .GetRequiredService<EndpointDataSource>().Endpoints
                      .OfType<RouteEndpoint>())
         {
-            var method = endpoint.Metadata.GetMetadata<MethodInfo>();
-            if (method is null) continue;
-
             string route = endpoint.RoutePattern.RawText ?? "";
+
+            var method = endpoint.Metadata.GetMetadata<MethodInfo>();
+            if (method is null)
+            {
+                // ⚠ Reported, never skipped. « Je n'ai pas pu vérifier ceci » is not a clean result —
+                // the hand sweep this test replaces printed exactly that about the two types that were
+                // still broken, and it was read as noise. If this ever fires, the test is blind to a
+                // route and must be taught to see it.
+                uninspectable.Add(route);
+                continue;
+            }
+
             var fromRoute = endpoint.RoutePattern.Parameters
                 .Select(p => p.Name)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -105,6 +115,9 @@ public class NoRequiredQueryStringValueTypesTests : IClassFixture<ApiFactory>
                 }
             }
         }
+
+        string.Join(Environment.NewLine, uninspectable.Distinct().OrderBy(r => r))
+            .Should().BeEmpty("this test cannot see these routes, so it is not proving anything about them");
 
         // Joined into one string so a failure names *every* offender at once. A collection assertion
         // shows the first and hides the rest, which is how a sweep gets declared closed while half of

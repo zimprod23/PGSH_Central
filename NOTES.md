@@ -5096,3 +5096,16 @@ est un client cassé ». **Révisé.** L'argument ne tient pas : un client cass�
 lisible plutôt qu'une exception dans le routage qui met le processus en pause. Un nombre confirmé
 absent n'est d'ailleurs pas « zéro » — c'est une requête qui n'est jamais passée par un aperçu, et la
 traiter comme zéro laisserait un fichier s'appliquer sans que personne ait rien vu.
+
+### Post-scriptum (13/09/2026) — vérifié sur le processus qui tourne
+
+L'exception a été re-signalée **après** le correctif. Vérification faite plutôt que supposée : sur
+l'API relancée, `stages/axis-windows?columns=10` répond **400 « Indiquez la date à laquelle l'axe
+commence. »**, `services/111/occupants` **400 « Indiquez la période à regarder… »**, et
+`affectations/sheet/template` **400 « Indiquez la promotion… »** — aucune exception levée. La trace
+remontée venait du processus antérieur au rechargement.
+
+⚠ **Et un angle mort du test lui-même a été fermé au passage** : il faisait `continue` en silence sur
+tout endpoint dont il ne pouvait pas lire le `MethodInfo`. C'est exactement la faute qui avait laissé
+passer la seconde occurrence — « je n'ai pas pu vérifier ceci » lu comme un résultat propre. Il les
+**signale** désormais, et la liste doit rester vide.
