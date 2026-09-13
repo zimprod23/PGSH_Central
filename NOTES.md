@@ -5050,3 +5050,49 @@ ses propres tests, avec leur contrôle.
 
 ⚠ **Rien n'a été exécuté sur la base vivante** cette fois, et la migration n'est pas appliquée. Un
 import appliqué **avant** elle ne laisse aucun registre — donc rien à y défaire. `SMOKE-TEST.md` §58.
+
+---
+
+## Session 68d — La même faute, deux fois, et pourquoi le balayage à la main ne suffit pas (13/09/2026)
+
+`BadHttpRequestException` a remis la pile à l'arrêt **après** que le correctif de la session 68b eut été
+livré, documenté et poussé. La deuxième fois venait de `services/{id}/occupants`, dont
+`OccupantsRequest` exige `StartDate` et `EndDate`.
+
+### Pourquoi le premier balayage l'avait manqué, et c'est instructif
+
+Le script cherchait les déclarations des types liés par `[AsParameters]` **dans `PGSH.Application`**
+seulement. Il a donc imprimé, noir sur blanc :
+
+```
+?? ImportOptions        declaration not found
+?? OccupantsRequest     declaration not found
+```
+
+⚠ **J'ai lu ces deux lignes comme du bruit alors qu'elles étaient la réponse.** Les deux types sont
+déclarés *à l'intérieur* des classes d'endpoint, et ce sont précisément les deux qui restaient fautifs.
+Une sortie qui dit « je n'ai pas pu vérifier ceci » n'est pas une sortie propre.
+
+Second manque, du même balayage : il ne comptait que les types primitifs. **Un `enum` est un type
+valeur** — un `scope` omis lève exactement comme un `DateOnly` omis, il ne devient pas silencieusement
+le membre zéro. `ImportOptions` en portait deux.
+
+### Ce qui remplace le balayage
+
+`NoRequiredQueryStringValueTypesTests` : réflexion sur **tous** les endpoints réellement mappés
+(`EndpointDataSource`), donc ni projet oublié, ni type déclaré ailleurs, ni famille de types
+sous-comptée. Les 24 routes déjà fautives sont une **liste explicite qui rétrécit** — un cliquet, pas
+une amnistie : rien ne peut s'y ajouter, et un second test vérifie qu'une entrée corrigée en est
+**retirée**, faute de quoi la liste deviendrait un mensonge que le prochain lecteur croirait.
+
+⚠ **Les six routes de cette session ont été corrigées, pas mises sur la liste.** Elles sont à moi ; les
+autres sont antérieures et demandent chacune une phrase de refus écrite à la main — vingt d'un coup,
+c'est ainsi qu'on obtient vingt phrases génériques et inutiles. → item 0bs.
+
+### Et une décision révisée
+
+La session 68b disait : « le `confirmedCount` d'un acte POST reste obligatoire, un appelant qui l'omet
+est un client cassé ». **Révisé.** L'argument ne tient pas : un client cassé mérite aussi un refus
+lisible plutôt qu'une exception dans le routage qui met le processus en pause. Un nombre confirmé
+absent n'est d'ailleurs pas « zéro » — c'est une requête qui n'est jamais passée par un aperçu, et la
+traiter comme zéro laisserait un fichier s'appliquer sans que personne ait rien vu.

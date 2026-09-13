@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
 using PGSH.Application.Extensions;
@@ -115,4 +115,17 @@ internal sealed class GetServiceOccupantsQueryHandler(IApplicationDbContext dbCo
 
         return Result.Success(response);
     }
+}
+
+/// <summary>
+/// ⚠ Refusals for a window the caller must state. They live here rather than in the endpoint because a
+/// refusal is a business answer wherever it is decided, and <c>CustomResults</c> maps an
+/// <c>ErrorType</c>, not a layer.
+/// </summary>
+public static class ServiceOccupancyErrors
+{
+    public static readonly Error WindowRequired = Error.Validation(
+        "ServiceOccupancy.WindowRequired",
+        "Indiquez la période à regarder : une occupation se lit sur une fenêtre, "
+        + "pas sur un service en général.");
 }

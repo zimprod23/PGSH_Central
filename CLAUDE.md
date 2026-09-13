@@ -691,6 +691,17 @@ Let the store generate the key (see the comments at `InternshipAssignment.cs` `D
   - ⚠ **Only a request through the real pipeline can see any of this.** A handler test constructs the
     query object, and a validator test constructs it too — both skip model binding entirely.
     → `PGSH.Tests/Integration/RequiredQueryParameterEndpointTests.cs`
+  - ⚠ **An `enum` is a value type too.** An omitted `scope` throws exactly like an omitted `DateOnly`;
+    it does not quietly become the zero member. Missed on the first hand sweep, and it is half of why
+    the second one also took the stack down.
+  - ⚠ **Do not sweep this by hand — it is a test.**
+    `PGSH.Tests/Integration/NoRequiredQueryStringValueTypesTests.cs` reflects over every mapped
+    endpoint and fails on any required query-string value type. It was written because the hand sweep
+    was run twice and was wrong once: it scanned a single project for the declarations, so the types
+    declared *inside* endpoint classes (`OccupantsRequest`, `ImportOptions`) were reported as « not
+    found » and read as noise rather than as the answer. The pre-existing offenders are an explicit
+    **shrinking** list in that file — nothing may be added to it, and an entry that is fixed must be
+    removed (a second test enforces that, so the list cannot become a lie). → HANDOFF item 0bs
 - **Error mapping** — always use `result.Match(Results.Ok/Created/NoContent, CustomResults.Problem)`. Never return `Results.Ok` unconditionally on a command that can fail.
 - **DomainException subclasses** — `GlobalExceptionHandler` catches all `DomainException` subclasses automatically via the base class. Add new exception types by inheriting `DomainException` — no handler changes needed.
 

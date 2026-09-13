@@ -1,4 +1,4 @@
-using PGSH.SharedKernel;
+﻿using PGSH.SharedKernel;
 
 namespace PGSH.Application.Stages.InternshipAssignments.Sheet.Reversal;
 
@@ -18,6 +18,11 @@ public static class AffectationImportReversalErrors
     /// Something happened since the import, so walking it back would not restore a previous state — it
     /// would impose an old one over somebody's work. All or nothing, like the import itself.
     /// </summary>
+    /// <summary>⚠ Same reason as the import's: an absent confirmation is not a confirmation of zero.</summary>
+    public static readonly Error ConfirmationRequired = Error.Validation(
+        "AffectationImportReversal.ConfirmationRequired",
+        "Le nombre confirmé vient de l'aperçu de l'annulation : relancez-le et renvoyez-le.");
+
     public static Error HasChanged(int count) => Error.Conflict(
         "AffectationImportReversal.HasChanged",
         $"{count} affectation(s) ont changé depuis l'import — évaluées, pointées ou replanifiées. "

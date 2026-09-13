@@ -186,4 +186,59 @@ public class RequiredQueryParameterEndpointTests : IClassFixture<ApiFactory>, IA
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
     }
+
+    // ─── The two the first sweep missed ───────────────────────────────────────
+    //
+    // ⚠ The first pass scanned PGSH.Application for the declarations of every [AsParameters] type and
+    // reported two it could not find — because they are declared *inside* the endpoint classes. I read
+    // that as noise instead of as the answer, and the second one took the running stack down again the
+    // same afternoon. Both are here now, and so is the parameter type the sweep also under-counted: an
+    // **enum** is a value type, so an omitted one throws exactly like a DateOnly.
+
+    [Fact]
+    public async Task The_service_occupants_read_without_a_window_is_refused_with_a_sentence()
+    {
+        using var client = _factory.CreateApiClient();
+
+        var response = await client.GetAsync("/api/services/1/occupants");
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        var (title, _, _) = await ProblemAsync(response);
+        title.Should().Be("ServiceOccupancy.WindowRequired");
+    }
+
+    [Fact]
+    public async Task The_service_occupants_read_with_a_window_does_not_refuse_on_the_window()
+    {
+        using var client = _factory.CreateApiClient();
+
+        var response = await client.GetAsync(
+            "/api/services/1/occupants?startDate=2025-10-01&endDate=2025-10-31");
+
+        // The service does not exist in this fixture, so 404 or 200 are both fine — what must not
+        // happen is a 400 about the window, which is what the control is for.
+        response.StatusCode.Should().NotBe(HttpStatusCode.BadRequest);
+    }
+
+    /// <summary>An enum is a value type: an omitted <c>scope</c> threw in routing like any other.</summary>
+    [Fact]
+    public async Task The_evaluation_import_without_a_scope_is_refused_with_a_sentence()
+    {
+        using var client = _factory.CreateApiClient();
+
+        using var content = new MultipartFormDataContent();
+        var file = new ByteArrayContent("not a workbook"u8.ToArray());
+        file.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        content.Add(file, "file", "notes.xlsx");
+
+        var response = await client.PostAsync(
+            $"/api/stages/{StageId}/evaluations/import/preview?mode=Numeric", content);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest,
+            "an omitted enum used to throw inside routing instead of being refused");
+    }
+
+    private const int StageId = 1;
 }

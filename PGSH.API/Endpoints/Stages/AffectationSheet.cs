@@ -26,14 +26,18 @@ public sealed class AffectationSheet : IEndpoint
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
         app.MapGet("affectations/sheet/template", async (
-            int levelId,
+            int? levelId,
             int? stageId,
             int? academicYearId,
             ISender sender,
             CancellationToken ct) =>
         {
+            if (levelId is not { } promotion)
+                return CustomResults.Problem(
+                    Result.Failure<int>(AffectationSheetErrors.PromotionRequired));
+
             var result = await sender.Send(
-                new GetAffectationSheetTemplateQuery(levelId, stageId, academicYearId), ct);
+                new GetAffectationSheetTemplateQuery(promotion, stageId, academicYearId), ct);
 
             return result.Match(
                 file => Results.File(
@@ -48,18 +52,22 @@ public sealed class AffectationSheet : IEndpoint
 
         app.MapPost("affectations/sheet/preview", async (
             IFormFile file,
-            int levelId,
+            int? levelId,
             int? academicYearId,
             IAffectationSheetParser parser,
             ISender sender,
             CancellationToken ct) =>
         {
+            if (levelId is not { } promotion)
+                return CustomResults.Problem(
+                    Result.Failure<int>(AffectationSheetErrors.PromotionRequired));
+
             var rows = ReadRows(file, parser);
             if (rows.IsFailure)
                 return CustomResults.Problem(rows);
 
             var result = await sender.Send(
-                new PreviewAffectationSheetQuery(rows.Value, levelId, academicYearId), ct);
+                new PreviewAffectationSheetQuery(rows.Value, promotion, academicYearId), ct);
 
             return result.Match(Results.Ok, CustomResults.Problem);
         })
@@ -73,21 +81,28 @@ public sealed class AffectationSheet : IEndpoint
         // refuses instead of being written over by a confirmation nobody gave for it.
         app.MapPost("affectations/sheet", async (
             IFormFile file,
-            int levelId,
-            int confirmedCount,
-            int confirmedDroppedPeriods,
+            int? levelId,
+            int? confirmedCount,
+            int? confirmedDroppedPeriods,
             int? academicYearId,
             IAffectationSheetParser parser,
             ISender sender,
             CancellationToken ct) =>
         {
+            if (levelId is not { } promotion)
+                return CustomResults.Problem(
+                    Result.Failure<int>(AffectationSheetErrors.PromotionRequired));
+
+            if (confirmedCount is not { } confirmed || confirmedDroppedPeriods is not { } dropped)
+                return CustomResults.Problem(
+                    Result.Failure<int>(AffectationSheetErrors.ConfirmationRequired));
+
             var rows = ReadRows(file, parser);
             if (rows.IsFailure)
                 return CustomResults.Problem(rows);
 
             var result = await sender.Send(new ApplyAffectationSheetCommand(
-                rows.Value, levelId, confirmedCount, confirmedDroppedPeriods, academicYearId,
-                file.FileName), ct);
+                rows.Value, promotion, confirmed, dropped, academicYearId, file.FileName), ct);
 
             return result.Match(Results.Ok, CustomResults.Problem);
         })
@@ -128,9 +143,13 @@ public sealed class AffectationSheet : IEndpoint
         // puts back. Sent back rather than re-derived, so an affectation deleted or evaluated between
         // the two calls refuses instead of being acted on under a confirmation nobody gave for it.
         app.MapPost("affectations/imports/{id:guid}/reversal", async (
-            Guid id, int confirmedCount, ISender sender, CancellationToken ct) =>
+            Guid id, int? confirmedCount, ISender sender, CancellationToken ct) =>
         {
-            var result = await sender.Send(new ReverseAffectationImportCommand(id, confirmedCount), ct);
+            if (confirmedCount is not { } confirmed)
+                return CustomResults.Problem(
+                    Result.Failure<int>(AffectationImportReversalErrors.ConfirmationRequired));
+
+            var result = await sender.Send(new ReverseAffectationImportCommand(id, confirmed), ct);
             return result.Match(Results.Ok, CustomResults.Problem);
         })
         .WithName("ReverseAffectationImport")

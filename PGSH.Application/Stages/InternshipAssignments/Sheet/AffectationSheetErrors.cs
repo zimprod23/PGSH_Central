@@ -1,4 +1,4 @@
-using PGSH.SharedKernel;
+﻿using PGSH.SharedKernel;
 
 namespace PGSH.Application.Stages.InternshipAssignments.Sheet;
 
@@ -52,6 +52,24 @@ public static class AffectationSheetErrors
         "AffectationSheet.HasErrors",
         $"{count} ligne(s) du fichier ne peuvent pas être appliquées. "
         + "Corrigez-les — l'aperçu les nomme une par une — puis téléversez de nouveau.");
+
+    /// <summary>
+    /// ⚠ Refused here rather than by the model binder. A required value type bound from the query
+    /// string throws inside routing, before any validator runs, and the caller gets a bare 400 the
+    /// client cannot explain — see <c>NoRequiredQueryStringValueTypesTests</c>.
+    /// </summary>
+    public static readonly Error PromotionRequired = Error.Validation(
+        "AffectationSheet.PromotionRequired",
+        "Indiquez la promotion que ce canevas concerne.");
+
+    /// <summary>
+    /// ⚠ The confirmed numbers are the operator's, so an absent one is not « zéro » — it is a request
+    /// that never went through an aperçu, and treating it as zero would let a file apply nothing
+    /// silently or destroy something nobody was shown.
+    /// </summary>
+    public static readonly Error ConfirmationRequired = Error.Validation(
+        "AffectationSheet.ConfirmationRequired",
+        "Les deux nombres confirmés viennent de l'aperçu : relancez-le et renvoyez-les.");
 
     public static Error LevelNotFound(int levelId) => Error.NotFound(
         "AffectationSheet.LevelNotFound",

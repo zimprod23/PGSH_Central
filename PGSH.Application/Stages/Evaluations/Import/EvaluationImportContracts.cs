@@ -1,3 +1,4 @@
+﻿using PGSH.SharedKernel;
 using PGSH.Domain.Stages;
 
 namespace PGSH.Application.Stages.Evaluations.Import;
@@ -107,4 +108,17 @@ public interface IEvaluationSheetParser
 
     /// <summary>Builds the pre-filled workbook a user downloads before entering marks.</summary>
     byte[] BuildTemplate(EvaluationImportTemplate template);
+}
+
+/// <summary>⚠ See <c>ImportOptions</c>: an enum is a value type, so an omitted one used to throw in
+/// routing before any validator could say which was missing.</summary>
+public static class EvaluationImportErrors
+{
+    public static readonly Error ScopeRequired = Error.Validation(
+        "EvaluationImport.ScopeRequired",
+        "Indiquez ce que le fichier couvre : tout le stage, ou une seule période.");
+
+    public static readonly Error ModeRequired = Error.Validation(
+        "EvaluationImport.ModeRequired",
+        "Indiquez le mode d'évaluation attendu dans le fichier.");
 }

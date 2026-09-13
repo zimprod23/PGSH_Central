@@ -1,4 +1,4 @@
-using MediatR;
+﻿using MediatR;
 using PGSH.API.Extensions;
 using PGSH.API.Infrastructure;
 using PGSH.Application.Stages.Evaluations.Import;
@@ -53,8 +53,12 @@ public sealed class ImportEvaluations : IEndpoint
             if (rows.IsFailure)
                 return CustomResults.Problem(rows);
 
+            var stated = Required(options);
+            if (stated.IsFailure)
+                return CustomResults.Problem(stated);
+
             var result = await sender.Send(new PreviewEvaluationImportQuery(
-                stageId, options.Scope, options.PeriodNumber, options.Mode, rows.Value,
+                stageId, stated.Value.Scope, options.PeriodNumber, stated.Value.Mode, rows.Value,
                 options.AcademicYearId), ct);
 
             return result.Match(Results.Ok, CustomResults.Problem);
@@ -75,8 +79,12 @@ public sealed class ImportEvaluations : IEndpoint
             if (rows.IsFailure)
                 return CustomResults.Problem(rows);
 
+            var stated = Required(options);
+            if (stated.IsFailure)
+                return CustomResults.Problem(stated);
+
             var result = await sender.Send(new ImportEvaluationsCommand(
-                stageId, options.Scope, options.PeriodNumber, options.Mode, rows.Value,
+                stageId, stated.Value.Scope, options.PeriodNumber, stated.Value.Mode, rows.Value,
                 options.AcademicYearId), ct);
 
             return result.Match(Results.Ok, CustomResults.Problem);
@@ -86,8 +94,22 @@ public sealed class ImportEvaluations : IEndpoint
         .RequireAuthorization();
     }
 
+    /// <remarks>
+    /// ⚠ <b>Nullable, and refused in the route rather than by the model binder</b> — see
+    /// <c>OccupantsRequest</c>. An enum is a value type too, so an omitted <c>scope</c> threw inside
+    /// routing before any validator ran.
+    /// </remarks>
     public sealed record ImportOptions(
-        EvaluationImportScope Scope, EvaluationMode Mode, int? PeriodNumber, int? AcademicYearId);
+        EvaluationImportScope? Scope, EvaluationMode? Mode, int? PeriodNumber, int? AcademicYearId);
+
+    /// <summary>The two the caller must state, or the refusal that says which is missing.</summary>
+    private static Result<(EvaluationImportScope Scope, EvaluationMode Mode)> Required(
+        ImportOptions options) =>
+        options.Scope is not { } scope
+            ? Result.Failure<(EvaluationImportScope, EvaluationMode)>(EvaluationImportErrors.ScopeRequired)
+            : options.Mode is not { } mode
+                ? Result.Failure<(EvaluationImportScope, EvaluationMode)>(EvaluationImportErrors.ModeRequired)
+                : Result.Success((scope, mode));
 
     /// <summary>
     /// A workbook we cannot open is a bad request, not a 500 — the user picked the wrong file, and
