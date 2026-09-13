@@ -3,6 +3,7 @@ using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
 using PGSH.Application.Extensions;
 using PGSH.SharedKernel;
+using PGSH.Application.Students.Search;
 
 namespace PGSH.Application.Stages.InternshipAssignments.GetMany;
 
@@ -35,15 +36,7 @@ internal sealed class GetInternshipAssignmentsQueryHandler(IApplicationDbContext
                 p.CohortSlotAssignment != null
                 && p.CohortSlotAssignment.StageSlot.PeriodNumber == request.PeriodNumber.Value));
 
-        if (!string.IsNullOrWhiteSpace(request.Search))
-        {
-            string term = request.Search.Trim().ToLower();
-            query = query.Where(a =>
-                (a.Registration.Student.FirstName != null && a.Registration.Student.FirstName.ToLower().Contains(term)) ||
-                (a.Registration.Student.LastName  != null && a.Registration.Student.LastName.ToLower().Contains(term))  ||
-                a.Registration.Student.Appogee.ToLower().Contains(term) ||
-                (a.Registration.Student.CNE ?? "").ToLower().Contains(term));
-        }
+        query = query.WhereStudentMatches(request.Search, a => a.Registration.Student);
 
         var response = await query
             .OrderBy(a => a.Registration.Student.LastName)

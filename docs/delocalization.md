@@ -299,3 +299,23 @@ stage abroad twice.
 Scolarité, on every route. There is no in-app chef for an external service to scope the act to, so the
 check is on **who you are** — `EnsureIsAdministrative`. Left open to any authenticated user, a student
 could post their own `registrationId` with a passing verdict and validate their own stage.
+
+## A third way in: the canevas des affectations (13/09/2026)
+
+A délocalisation can also arrive as a **line of an uploaded spreadsheet** — a row naming an external
+service with a motif. It goes through the same `InternshipAssignment.Delocalize`, so it makes the same
+record: one ad-hoc période, already started and complete, with the motif on it.
+
+⚠ **The two halves are both required and neither is inferred.** A row naming an external service with
+no motif is refused (`DelocalizationWithoutReason`), and so is a motif on an in-faculty service. The
+motif is the only trace the faculty holds of a stage nobody here supervised, so it is never defaulted.
+
+⚠ **And a délocalisation holds on exactly one line.** `Delocalize` replaces the whole rotation with one
+external période, so a second line would be written and immediately discarded by the first — silently.
+Two lines, or a délocalisation mixed with in-faculty périodes in the same stage, is
+`MalformedDelocalization`.
+
+The window is the one the file states, per row — which is the right level, and the reason
+`ApplyBulkDelocalizationCommand` resolves its own window per student rather than once before the loop.
+
+Full rules in [`affectation-sheet.md`](affectation-sheet.md).

@@ -440,3 +440,23 @@ Couvert par `PromotionFitTests` (dont la calibration), `PromotionAxisTests`,
 `PromotionFitEndpointTests` et six cas de `SqlTranslationTests` — `PromotionsQuery` filtre sur
 `Year > 0` et non sur `Level.IsPromotion`, qui est une propriété calculée et donc refusée par le
 fournisseur dans un `Where`.
+
+## Deux lectures de « combien y en a-t-il », et le canevas les sépare (13/09/2026)
+
+Rappel qui devient visible dès qu'une rotation n'est pas née de la grille :
+
+- **`OccupancyTimeline`**, la page du service et le rapport de charge lisent les **périodes** — donc
+  ils comptent tout le monde, y compris les délocalisés d'ailleurs, les stages importés d'Access et
+  ce qu'un canevas d'affectations a écrit ;
+- **`ServiceOccupancyCalculator`**, la grille de planning et la balance de l'arrangeur lisent les
+  **cellules** (`CohortSlotAssignments`) — donc ils ne comptent que ce qui a été *planifié ici*.
+
+⚠ **Ce n'est pas une incohérence, ce sont deux questions.** « Qui sera là ? » et « qu'avons-nous
+planifié ? » ont le droit de donner deux nombres, et ils le font déjà aujourd'hui pour les
+délocalisations. Ce qui serait un défaut est de ne pas le dire : tout acte qui écrit des périodes sans
+cellules porte la phrase dans son rapport — voir [`affectation-sheet.md`](affectation-sheet.md).
+
+⚠ **Et la capacité reste informative** (tranché le 12/09/2026) : le canevas ne vérifie aucun quota et
+n'ajoute aucun refus de capacité. Un fichier qui met quatre-vingts étudiants dans un service de vingt
+s'applique. La seule garde qui subsiste est `Service.AllowsOverCapacity = false`, et elle mord à la
+**publication** — donc pas ici, puisque rien n'est publié.

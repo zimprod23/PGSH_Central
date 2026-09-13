@@ -5,6 +5,7 @@ using PGSH.Application.Extensions;
 using PGSH.Domain.Registrations;
 using PGSH.Domain.Students;
 using PGSH.SharedKernel;
+using PGSH.Application.Students.Search;
 
 namespace PGSH.Application.Students.GetMany;
 
@@ -60,19 +61,10 @@ internal sealed class GetStudentsQueryHandler(IApplicationDbContext context)
                 (status == null || r.Status == status.Value) &&
                 (yearId == null || r.AcademicYearId == yearId.Value)));
 
-        if (!string.IsNullOrWhiteSpace(request.SearchTerm))
-        {
-            // Trimmed and lowered on both sides: a pasted CNE carries stray spaces, and Appogee was
-            // previously matched case-sensitively so "ap12" never found "AP12".
-            string term = request.SearchTerm.Trim().ToLower();
-            query = query.Where(s =>
-                s.FirstName.ToLower().Contains(term) ||
-                s.LastName.ToLower().Contains(term)  ||
-                s.Email.ToLower().Contains(term)     ||
-                (s.CNE ?? "").ToLower().Contains(term) ||
-                s.Appogee.ToLower().Contains(term)   ||
-                (s.CIN != null && s.CIN.ToLower().Contains(term)));
-        }
+        // ⚠ Un terme est une conjonction de mots, pas une chaîne : « Mohamed Alami » ne trouvait
+        // personne, parce qu'aucune colonne ne porte le prénom et le nom à la fois. La règle, les
+        // colonnes et la casse vivent dans StudentSearch — sept écrans la réécrivaient.
+        query = query.WhereStudentMatches(request.SearchTerm, s => s);
 
         var response = await query
             .OrderBy(s => s.LastName)

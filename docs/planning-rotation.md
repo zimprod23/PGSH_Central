@@ -657,3 +657,21 @@ ses `StageSlot` ; l'enregistrer, c'est les relire.
   part avec lui) ou dépasser le quota de la promotion.
 - **Pourquoi basse priorité, et l'utilisateur l'a dit** : c'est un confort par-dessus un chemin qui
   marche déjà — poser l'axe, répartir, épingler — pas un manque.
+
+## Une rotation qui ne vient pas de la grille (13/09/2026)
+
+Depuis le canevas des affectations, une rotation peut être **déclarée** au lieu d'être produite par la
+grille : `InternshipAssignment.DeclareRotation`, des périodes sans `CohortSlotAssignmentId`.
+
+⚠ **Cela ne touche pas l'axe.** Aucun `StageSlot`, aucune `CohortSlotAssignment`, donc *T* = Σ*k*ₛ, la
+balance par colonne et l'arrangeur ne voient rien de ce qui est écrit là — et la charge que la grille
+affiche non plus, puisque `ServiceOccupancyCalculator` lit les cellules. La grille répond à « qu'a-t-on
+planifié » ; elle ne répond pas à « qui est là ».
+
+⚠ **Et une répartition publiée peut être écrasée par un fichier.** Les cellules restent où elles sont,
+mais les périodes qu'elles avaient produites sont remplacées par des périodes hors grille — le plan et
+les enregistrements d'exécution cessent alors de s'accorder, et **republier ne rétablit rien** :
+`SchedulePublisher` saute toute affectation qui porte déjà une période. C'est pourquoi l'aperçu compte
+`PublishedPeriodsToDrop` à part et le dit en toutes lettres.
+
+Voir [`affectation-sheet.md`](affectation-sheet.md).

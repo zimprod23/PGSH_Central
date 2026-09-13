@@ -22,7 +22,7 @@ planning a change to it, not after a review finds the same defect again.
 |---|---|---|
 | a requirement set, a CNPN stamp, `Curriculum`, the Stages catalogue figures | [`docs/cnpn.md`](docs/cnpn.md) | what a student owes is a fact about a **registration**, not about the student — and the read order is always `r.CnpnVersionId ?? r.Student.CnpnVersionId` |
 | the rotation cycle, the macro plan, `RotationArranger`, `SchedulePublisher`, the planning grid, a stage's allowed services | [`docs/planning-rotation.md`](docs/planning-rotation.md) | the axis is `T = Σkₛ`, the balance is per **column**, an unscoped auto-arrange is a fill that silently decides the year — and the axis is laid on the **promotion's** calendar, exam weeks included |
-| `AcademicGroup`, partition labels, pauses, unpublishing, clearing or deleting part of a plan | [`docs/planning-rosters.md`](docs/planning-rosters.md) | a roster is keyed **(year, level, number)**, and an affectation does not hang off the roster pointer — so « vider le groupe » leaves every one of them where it was |
+| `AcademicGroup`, partition labels, pauses, unpublishing, clearing or deleting part of a plan, **how a promotion is cut** | [`docs/planning-rosters.md`](docs/planning-rosters.md) | a roster is keyed **(year, level, number)**, an affectation does not hang off the roster pointer — so « vider le groupe » leaves every one of them where it was — and **who lands in which roster is drawn, not sorted** |
 | `Registration.Status`, a bulk canvas or roll, `RegistrationHold` | [`docs/year-closing.md`](docs/year-closing.md) | PGSH cannot know who passed — the faculty declares it, silence means opposite things on the two documents, and a refused row loses the faculty's statement |
 | what a student owes, who may enter a final year, re-opening a failed stage | [`docs/progression.md`](docs/progression.md) | « entrer » means *begin*, not *be registered in* — reading it the other way refused a quarter of a promotion the faculty had named |
 | creating, correcting or deleting an `AcademicYear`, or moving the current-year flag | [`docs/academic-year.md`](docs/academic-year.md) | `IX_AcademicYear_IsCurrent` is unique and filtered, so demote and promote are **two statements in that order** |
@@ -30,6 +30,7 @@ planning a change to it, not after a review finds the same defect again.
 | a stage served outside the faculty, `Service.IsExternal`, the mass délocalisation, the dates it is recorded under, how many students *stand* in a service | [`docs/delocalization.md`](docs/delocalization.md) | a délocalisé stays in his cohorte and must stop occupying the service he left — counted per membership, sending sixty students away relieved the grid by **nothing** — and the window is the **cohorte's** passage, never the stage's whole axis |
 | an export sheet, column, or a second export | [`docs/exports.md`](docs/exports.md) | an export is the one read deliberately exempt from pagination, and a column blank on every row reads as a column the export forgot |
 | a bulk act on the live base, a transaction, rebuilding from `Medecine.mdb` | [`docs/operations.md`](docs/operations.md) | the base **is** the faculty's data; the rebuild is not « migrate then import », and it fails silently |
+| téléverser des affectations, le canevas des affectations, `DeclareRotation`, une période « hors grille » | [`docs/affectation-sheet.md`](docs/affectation-sheet.md) | c'est l'acte le plus destructeur de l'application — un seul refus refuse le fichier entier, **deux** nombres sont confirmés séparément (ce qui s'écrit et ce qui se détruit), et ce qu'il écrit **n'est pas dans la grille** |
 | an audited act or act code, anything measured in worked days, a « suspension d'examens » | [`docs/audit-calendar.md`](docs/audit-calendar.md) | a refused act must write nothing, an empty holiday calendar quietly means "minus weekends" — and there are **two** calendars, the faculty's and each promotion's, so a reader that knows its (année, niveau) must ask for that one |
 
 ### The other documents at the repo root
@@ -126,6 +127,27 @@ area, so they are worth carrying in your head on **every** change:
   nothing on any of them saying to pick a year. A refusal is `Conflict` (the request meets the state),
   `Validation` (the request is malformed), `NotFound` or `Forbidden`; `Problem` is for an unreachable
   archive or a `pg_dump` out of disk. → `PGSH.Tests/Integration/ErrorStatusMappingEndpointTests.cs`
+  - ⚠ **…with exactly one exception above 500, and it is deliberate: `503`.** A dependency being
+    down is not a fault of the request, and `errorMiddleware` shows a 503's `detail` rather than the
+    fixed sentence — a 500 may carry anything internal, a 503 is written to be read. Nothing else
+    may claim it.
+- **A database that cannot be reached must not look like a bug** — `DatabaseOutage` +
+  `GlobalExceptionHandler` (`PGSH.API/Infrastructure/`). Every non-`DomainException` used to land in
+  `_ => 500, "Server failure"`, so on 13/09/2026 — WSL upgraded itself, the Docker distro stopped,
+  PostgreSQL with it — **every screen** answered 500 with a stack trace from `SyncUserMiddleware`,
+  and an infrastructure outage read exactly like a defect. It is now **503** plus a sentence saying
+  the request wrote nothing and that the thing to act on is the database server.
+  - ⚠ **The classification is deliberately narrow, because the opposite mistake hides real bugs.**
+    Only a `DbException` in the chain may declare an outage, and only when it is `IsTransient` or
+    carries a socket/IO/timeout failure under it. A `PostgresException` the server actually answered
+    with — a violated constraint, a missing column — stays a **500**: filed as « service
+    indisponible » it would become an operations incident nobody ever fixes. A bare `IOException`
+    (an export that cannot write its file) is not an outage either. → `PGSH.Tests/Api/DatabaseOutageTests.cs`
+  - **A probe and the work it guards do not share a timeout.** `BackupOptions.TimeoutSeconds` (600)
+    is a `pg_dump`; `ProbeTimeoutSeconds` (10) is `docker version`, which answers in a second or
+    never. Sharing one number left the backup screen waiting ten minutes on a dying engine instead
+    of saying so, and `ProcessRunner.Execution.TimedOut` is what lets « it refused » and « it never
+    answered » be two different sentences. → `PGSH.Tests/Api/BackupProbeTimeoutTests.cs`
 - **A multi-step write is one transaction, or it is a half-written state somebody will read as
   deliberate.** ASP.NET cancels the token whenever the tab closes or the connection drops, so "the
   request stopped between two statements" is the ordinary case, not the exotic one. The roster cut
@@ -140,6 +162,20 @@ area, so they are worth carrying in your head on **every** change:
     rather than mutating it. The context re-staged a photograph taken on the way in, which is how the
     two mechanisms used to be incompatible; it now puts nothing back on its own. The context helper
     remains correct for an act that writes no journal entry. → `IAuditTrail`, `AtomicUnitOfWorkTests`
+- **Une période hors grille n'est pas une période absente.** `ServiceOccupancyCalculator` lit les
+  **cellules** (`CohortSlotAssignments`), pas les périodes, si bien qu'une rotation écrite autrement que
+  par une publication — une délocalisation, un stage importé, le canevas des affectations — est visible
+  dans le dossier, sur la page du service et dans l'export, et **invisible dans la grille et dans la
+  charge que la grille affiche**. Ce n'est pas un défaut : c'est la grille qui répond à « qu'a-t-on
+  planifié », pas à « qui est là ». Ce qui serait un défaut est de ne pas le **dire** — tout acte qui
+  écrit des périodes sans cellules porte la phrase dans son rapport. ⚠ Et « dépublier » ne les reprend
+  pas : `RemovePublishedPeriods` est l'inverse de publier et ne touche que ce que publier a fait.
+  → [`docs/affectation-sheet.md`](docs/affectation-sheet.md)
+- **Confirmer un acte destructeur, c'est confirmer ce qu'il *détruit*, séparément de ce qu'il écrit.**
+  Les deux nombres bougent pour des raisons différentes — une période évaluée entre l'aperçu et
+  l'application change ce qui est détruit sans rien changer à ce qui est écrit — et c'est la destruction
+  qui est définitive. `ApplyAffectationSheetCommand` porte `ConfirmedCount` **et**
+  `ConfirmedDroppedPeriods` ; un seul nombre aurait laissé passer exactement le cas qui compte.
 - **The base is live.** Take a `pg_dump -Fc` before every bulk act, and never write to the base to
   verify something. → [`docs/operations.md`](docs/operations.md)
 
@@ -418,6 +454,15 @@ behaviour; each caller states its own.**
     round is **up** because the remainder is a real student. Note the partition count cancels out —
     cutting a promotion into more groups cannot relieve an overloaded stage.
     → [`docs/services.md`](docs/services.md)
+- **Who goes in which roster is *drawn*, not sorted** — `RosterDraw` (`Application/AcademicGroups/Manage/`).
+  The cut read its candidates by family name and dealt them in that order, so rosters formed in slices of
+  the alphabet: siblings and namesakes landed together, and a student's alphabetical rank decided his
+  périodes, his services and his chefs for the whole year. Nobody chose that; it was the query's read order
+  become a répartition rule. ⚠ **The draw moves *who*, never *how many*** — sizes and counts stay
+  `RosterCut`'s, which is pure and stays pure — and the draw number travels to the register through
+  `IAuditTrail.RecordOutcome(("drawSeed", …))`, because « pourquoi cet étudiant dans ce groupe ? » has no
+  answer otherwise. The candidates are read in a **total** order (name, then id) so that number still
+  designates something.
 - **Naming a group of students is `StudentSelectionResolver`** (`Application/Students/Selection/`),
   never a per-act parse. Roster ids ∪ registration ids ∪ a pasted list of CNE/Apogée lines, with a
   row for every line that names nobody and `NotFound` kept distinct from `WrongYear`. Shared by the
@@ -545,11 +590,35 @@ so it reads as a broken button rather than as a rule.
     `StageDetailPage.extractErrorCode` — which read only `errors[0].code` — always returned null and
     both of its branches were dead code. Read `title` first.
 
-### Search handlers — one shape
-Always `request.SearchTerm.Trim().ToLower()` and compare against `Field.ToLower().Contains(term)` for **every**
-field in the predicate. A single field left un-lowered is a silent bug (`Appogee` was case-sensitive for months,
-so `"ap2200a"` never found `AP2200A`). On the frontend, pair every server-querying search with
-`useDebouncedValue(…, 350)`, an `isFetching` indicator, and `skip` below 2 characters.
+### Search handlers — one shape, and it is a shared helper now
+**Searching for a person goes through `StudentSearch.WhereStudentMatches` / `EmployeeSearch.WhereEmployeeMatches`,
+never through a predicate written on the spot.** Each call site names only the path to the person
+(`r => r.Student`, `p => p.InternshipAssignment.Registration.Student`, `s => s`); the columns, the casing, the
+tokenisation and the accents live in one place.
+
+- ⚠ **A term is a conjunction of *words*, not a string.** All seven student searches compared the whole
+  term to each column, so « Mohamed Alami » — the full name, the first thing anyone types — matched
+  **nobody**: the first name does not contain it, the last name does not contain it, and no column carries
+  both. `SearchTerms.Split` cuts the term into at most five distinct lowered words and each one must land
+  somewhere on the **same** person. The rule strictly widens the old one (a column containing the whole
+  string contains each of its words), so nothing that used to be found stops being found — the tests pair
+  every new case with that control.
+- ⚠ **The column list is identical on every screen, and that is the point.** The list searched six columns,
+  a roster five, a service's occupants three: a student found by his Apogée from the list was *not* found
+  from the service he stands in, which reads as an absent student rather than as a narrower search.
+- **An accent is an extra spelling, never a replacement.** The term is also searched with its diacritics
+  stripped, and only when that differs — folding the term alone would lose « BENAÏSSA » for someone who
+  types it correctly. Folding the *column* needs PostgreSQL's `unaccent` (an extension plus a generated
+  column), so a term typed without an accent still misses a stored one; that half is not built.
+- ⚠ **The predicate is *recomposed*, not invoked.** One rule written on `Student` is applied to
+  registrations, périodes and cells by substituting the path for its parameter —
+  `ExpressionComposition.Through`. The naive way is `Invoke`, which **EF refuses**: it would have turned
+  seven screens into 500s with the whole suite green. Pinned by `SqlTranslationTests`.
+- Every field is still lowered on both sides and guarded against null (`Appogee` was case-sensitive for
+  months, so `"ap2200a"` never found `AP2200A`; the CNE is absent on 46 % of the base, and the in-memory
+  provider throws where PostgreSQL just answers « not true »).
+- On the frontend, pair every server-querying search with `useDebouncedValue(…, 350)`, an `isFetching`
+  indicator, and `skip` below 2 characters.
 
 ### Store-generated keys — never pre-set them on children of a tracked parent
 Assigning `Id = Guid.NewGuid()` to an entity added to an **already-tracked** aggregate makes EF classify it
@@ -587,6 +656,24 @@ Let the store generate the key (see the comments at `InternshipAssignment.cs` `D
   ```
 - **Enum fields in requests** — always use the actual enum type (not `int`). `JsonStringEnumConverter` is globally registered so `"Medical"` deserializes correctly. Never cast `(ServiceType)request.ServiceType`.
 - **Routes** — no leading slash. Correct: `"hospitals/{id:int}"`. Wrong: `"/hospitals/{id:int}"`.
+- ⚠ **A non-nullable value type bound from the query string cannot be omitted — and it throws *before*
+  your validator runs.** ASP.NET raises `BadHttpRequestException` inside `EndpointMiddleware`, so
+  `ValidationPipelineBehavior` never executes: the query's own rules are dead code for that request, the
+  caller gets a bare **400** with no `detail` and no `errors[]`, and the client's `errorMiddleware`
+  shows its generic sentence — the screen reads as broken rather than as « renseignez une date ». It
+  also pauses the process for anyone running under a debugger. Observed on the live application
+  13/09/2026: *« Required parameter "DateOnly StartDate" was not provided from query string »*, from
+  the rotation-cycle screen with the date field cleared. **A parameter a screen can leave blank is
+  bound nullable (`int?`, `DateOnly?`) and refused by a validator, in words**; the handler then reads
+  it into a non-nullable local. A POST act's `confirmedCount` stays required — a caller that omits that
+  is a broken client, not a user with an empty field.
+  - ⚠ **And `.WithMessage` attaches to the validator immediately before it**, so
+    `NotNull().GreaterThan(0).WithMessage(…)` leaves the *null* case on FluentValidation's default
+    text — « 'Level Id' ne doit pas avoir la valeur null », which names a property and no remedy. Two
+    rules, two messages.
+  - ⚠ **Only a request through the real pipeline can see any of this.** A handler test constructs the
+    query object, and a validator test constructs it too — both skip model binding entirely.
+    → `PGSH.Tests/Integration/RequiredQueryParameterEndpointTests.cs`
 - **Error mapping** — always use `result.Match(Results.Ok/Created/NoContent, CustomResults.Problem)`. Never return `Results.Ok` unconditionally on a command that can fail.
 - **DomainException subclasses** — `GlobalExceptionHandler` catches all `DomainException` subclasses automatically via the base class. Add new exception types by inheriting `DomainException` — no handler changes needed.
 

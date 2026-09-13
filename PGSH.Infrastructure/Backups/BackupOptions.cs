@@ -30,6 +30,19 @@ public sealed class BackupOptions
     /// </summary>
     public int TimeoutSeconds { get; set; } = 600;
 
+    /// <summary>
+    /// How long the <b>probe</b> may take — « is there a Docker engine, and which container is ours ».
+    /// </summary>
+    /// <remarks>
+    /// ⚠ <b>Deux durées sans rapport portaient un seul nombre.</b> Un <c>docker version</c> répond en
+    /// une seconde ou ne répondra pas ; un <c>pg_dump</c> de la base vivante prend des minutes. Avec
+    /// les 600 s du dump appliquées aussi à la sonde, un moteur Docker en train de mourir — ce qui est
+    /// arrivé le 13/09/2026, WSL se mettant à jour de lui-même — laissait l'écran des sauvegardes en
+    /// attente <b>dix minutes</b>, alors que la phrase qui explique la situation existait déjà et
+    /// n'attendait que de pouvoir être dite. Une sonde qui n'a pas répondu <i>est</i> une réponse.
+    /// </remarks>
+    public int ProbeTimeoutSeconds { get; set; } = 10;
+
     public ScheduleOptions Schedule { get; set; } = new();
 
     /// <summary>

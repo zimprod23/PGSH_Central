@@ -4364,3 +4364,207 @@ Aucune écriture nulle part : la page est une **lecture** de bout en bout.
 **Ce que cette passe ne peut pas montrer.** Que la répartition tiendra compte du chiffre : elle ne le
 fera pas. `RotationArranger` pondère par la capacité et ne lit jamais l'occupation vivante — la page
 prévient, elle ne place pas mieux. La suite reste : lire le nombre, corriger le catalogue, répartir.
+
+## 63 · Un nom complet qui trouve, un découpage qui ne suit plus l'alphabet (7 min) — session 66
+
+⚠ **Étape 0 — redémarrer l'AppHost.** Les deux comportements vivent dans `PGSH.Application`, donc le
+processus de l'API doit être postérieur à cette session. Le contrôle qui distingue « ancien
+processus » de « défaut » : taper **un seul mot** (`alami`) dans *Étudiants* — s'il rend des lignes et
+que le nom complet n'en rend aucune, c'est l'ancien processus, pas un bug. Si le mot seul ne rend rien
+non plus, c'est la base ou la saisie.
+
+### La recherche — une lecture, aucune écriture
+
+1. *Admin → Étudiants*. Prendre un étudiant au hasard dans la liste et **recopier son nom complet**
+   tel qu'affiché (« Prénom Nom »).
+   - Attendu : une ligne, la sienne. C'est l'acte demandé le 12/09/2026.
+   - Puis **inverser les deux mots** (« Nom Prénom ») : le même résultat. L'ordre ne compte pas.
+   - Puis coller la forme des listes de la faculté, **avec la virgule** (« NOM, Prénom ») : toujours
+     la même ligne.
+2. **Le témoin d'élargissement** — le plus important de la passe. Taper **son nom de famille seul**.
+   - Attendu : *tous* les homonymes, comme avant. ⚠ Si un mot seul rend **moins** de monde qu'avant,
+     la règle s'est inversée quelque part : elle ne doit jamais rétrécir ce qui se trouvait.
+   - Taper son **Apogée** seul, puis « Apogée + nom » : la même ligne dans les deux cas.
+3. **Un mot qui ne nomme personne** : « Prénom d'un étudiant » + « Nom d'un autre ».
+   - Attendu : **aucun résultat**. C'est une conjonction, pas une disjonction — sinon la recherche ne
+     distinguerait plus personne.
+4. **Les mêmes colonnes partout.** Prendre un étudiant dont on connaît l'**Apogée**, puis le chercher
+   par cet Apogée depuis quatre écrans : *Étudiants*, *Groupes → (un groupe) → sa liste*,
+   *Infrastructure → (un service) → Occupants*, et *Professeur → Mes services* (côté chef).
+   - Attendu : trouvé **partout**. Avant, les occupants d'un service ne cherchaient que nom, prénom
+     et CNE : le même étudiant y était introuvable par son Apogée, ce qui se lit comme une absence du
+     service.
+5. **L'export doit dire la même chose que l'écran.** Sur *Étudiants*, filtrer par un nom complet puis
+   télécharger l'export : le fichier contient exactement les lignes affichées.
+6. **Les professeurs** : *Admin → Personnel*, nom complet d'un professeur → sa ligne. Même règle, même
+   raison.
+
+### Le découpage — ⚠ ceci **écrit**
+
+⚠ **`pg_dump -Fc` avant**, comme tout acte de masse. Et choisir une promotion **non planifiée** : un
+découpage ne se défait qu'en vidant les groupes, et vider est refusé dès qu'il existe des
+affectations. La 7ᵉ MED (1 347 inscriptions, aucun stage au catalogue) est le terrain le moins coûteux.
+
+7. *Groupes → Arrangement automatique*. Vérifier d'abord la phrase sous le titre :
+   **« composition tirée au sort »**. Si elle n'y est pas, le client est antérieur à la session.
+8. Découper la promotion **par nombre** (par exemple 20 groupes), puis ouvrir **les trois premiers
+   groupes** et lire leurs listes.
+   - Attendu : chaque liste est **mélangée** — des noms de tout l'alphabet dans chaque groupe.
+   - ⚠ **Ce qu'il fallait voir avant** : Groupe 1 = le début de l'alphabet, Groupe 2 = la suite. Si
+     c'est encore le cas, c'est l'ancien processus (étape 0).
+   - Attendu aussi : la **forme** de la coupe n'a pas changé — 20 groupes demandés, 20 groupes créés,
+     tous à un étudiant près l'un de l'autre. Le panneau de résultat l'affiche (« n × taille »).
+9. **Le registre.** *Admin → Journal* → filtrer sur `GROUPS_AUTO_ARRANGED`, ouvrir la dernière ligne.
+   - Attendu : ses métadonnées portent **`drawSeed`**, à côté de `levelId` / `askedBy` / `groupCount`.
+   - ⚠ C'est ce qui rend l'acte explicable trois mois plus tard. Sans ce nombre, « pourquoi cet
+     étudiant dans le groupe 41 ? » n'a plus aucune réponse.
+10. **Re-découper doit donner autre chose.** Vider les groupes de cette promotion, re-découper à
+    l'identique, relire les trois premiers groupes.
+    - Attendu : une composition **différente** de celle de l'étape 8, et un `drawSeed` différent au
+      registre. Deux actes ne sont pas le même tirage.
+
+**Ce que cette passe ne montre pas.** Qu'un terme sans accent retrouve un nom accentué : il ne le fait
+pas (item `0bl`). L'inverse marche — taper « Zoubaïr » retrouve `ZOUBAIR`.
+
+## 64 · Une panne se dit, un défaut se voit (3 min) — session 67
+
+⚠ **Cette passe coupe la base volontairement.** Elle ne modifie **rien** : arrêter puis redémarrer le
+conteneur ne touche pas le volume `pgsh-postgres-data`, et PostgreSQL rejoue son journal au
+redémarrage (c'est exactement ce qui s'est passé le 13/09). La faire de préférence hors campagne, et
+jamais pendant qu'un acte de masse tourne.
+
+1. **Arrêter la base**, l'AppHost restant allumé : `docker stop <le conteneur postgres-…>`
+   (`docker ps` le nomme).
+2. **Ouvrir n'importe quel écran** — *Étudiants* suffit.
+   - Attendu : un bandeau/toast **« Service indisponible »** portant la phrase du serveur — « La base
+     de données ne répond pas : la demande n'a rien enregistré… ».
+   - ⚠ **Ce qu'il fallait voir avant** : « Erreur 500 · Une erreur serveur est survenue », c'est-à-dire
+     exactement ce qu'affiche un bug. Si c'est encore le cas, le processus de l'API est antérieur à
+     la session 67.
+   - Dans l'onglet réseau : le code est **503**, et le corps porte un `detail`.
+3. **Redémarrer la base** : `docker start <le conteneur>`, attendre cinq secondes, recharger l'écran.
+   - Attendu : la liste revient d'elle-même. Aucune donnée perdue — le journal des dernières
+     secondes est rejoué au démarrage.
+4. **Le témoin, et c'est celui qui compte** : provoquer un vrai refus métier — par exemple
+   « Supprimer un service » qui est encore autorisé par un stage.
+   - Attendu : **409** et la phrase du refus, comme avant. Rien de ce travail ne doit avoir déplacé
+     un refus vers « service indisponible » : une panne qui avale les défauts est pire que le défaut
+     de départ.
+5. **La sonde des sauvegardes**, tant que la base est arrêtée (étape 1) : ouvrir *Système →
+   Sauvegardes*.
+   - Attendu : la page répond **tout de suite** — le moteur Docker, lui, tourne toujours, donc la
+     sonde passe. Si Docker lui-même est arrêté, la page doit dire « Docker ne répond pas (le moteur
+     est-il démarré ?) » **en quelques secondes**, jamais après dix minutes de chargement.
+
+---
+
+## §57 — Un champ vide se lit comme un refus, pas comme un écran cassé (session 68)
+
+Aucune migration. Après redémarrage :
+
+1. **Cycle de rotation** → vider la date de début → générer l'axe. Doit afficher **« Indiquez la date à
+   laquelle l'axe commence. »**, et non la phrase générique d'erreur serveur. ⚠ Avant le correctif la
+   requête levait dans le routage : 400 nu, message générique à l'écran, et le processus en pause sous
+   débogueur.
+2. Même écran, remettre la date → l'axe se génère. C'est le contrôle : sans lui, une route qui refuse
+   tout satisferait le pas 1.
+3. `GET /api/groups/partitioning` et `GET /api/groups/placements` **sans** `levelId` → 400 portant une
+   phrase qui nomme la promotion, pas « 'Level Id' ne doit pas avoir la valeur null ».
+
+---
+
+## §56 — Téléverser les affectations d'une promotion (session 58)
+
+⚠ **La section la plus destructrice de ce fichier.** Elle détruit des périodes, et l'acte **n'a pas
+d'annulation en masse**. `pg_dump -Fc` avant, sans exception — c'est le seul retour en arrière pour une
+affectation qui n'aurait jamais dû exister.
+
+⚠ **Redémarrer l'AppHost d'abord.** Les routes `/api/affectations/sheet*` n'existent pas dans un
+processus antérieur à cette session : le contrôle qui distingue « route absente » de « non
+authentifié » est que le téléchargement du canevas répond **404** sur l'ancien processus et **401**
+sans jeton. Aucune migration n'est nécessaire (`HistoryType` est un enum stocké en `varchar`).
+
+Rien n'a été cliqué : back livré, 1 918 tests verts, aucun écran piloté.
+
+### 1. Le canevas sort, et il sort pré-rempli
+
+`GET /api/affectations/sheet/template?levelId=<3ᵉ MED>` — depuis Scalar, ou la barre d'adresse avec un
+jeton.
+
+- Le fichier s'ouvre, la feuille s'appelle **Affectations**, le cartouche nomme **la promotion et
+  l'année**.
+- Onze colonnes, dans cet ordre : Apogée · CNE · Nom · Prénom · Groupe · Stage · Service · Hôpital ·
+  Début · Fin · Motif hors faculté.
+- Sous le cartouche, **cinq notes**. Celle qui compte : une ligne blanche veut dire « pas encore
+  planifié » ; une ligne à moitié remplie fait refuser le fichier.
+- ⚠ **La colonne CNE est vide sur une partie des lignes, et c'est correct** — 46 % du rôle n'en portait
+  pas. Si elle est vide **partout**, c'est un défaut.
+- ⚠ **Une ligne par (étudiant, stage du niveau)**, pas une par étudiant. Sur une promotion de 800 avec
+  onze stages, attendez-vous à ~8 800 lignes.
+
+### 2. Le canevas non modifié ne planifie rien — et ne refuse pas
+
+Téléverser le fichier tel quel sur `POST /api/affectations/sheet/preview?levelId=…`.
+
+- `errorCount` = **0**, `canApply` = **true**, `affectations` = **0**.
+- `notPlanned` = le nombre de lignes blanches, et une note le dit.
+- ⚠ Si `errorCount` est non nul ici, la règle du saut est cassée et le canevas est inutilisable pour
+  planifier un stage à la fois.
+
+### 3. Le contrôle : une ligne à moitié remplie refuse
+
+Remplir **le service seul** sur une ligne, laisser les dates vides, téléverser l'aperçu.
+
+- Cette ligne doit ressortir **`MissingDates`**, `canApply` = **false**.
+- ⚠ Sans ce contrôle, le pas 2 passerait aussi sur un fichier qui refuse tout, et ne prouverait rien.
+
+### 4. Planifier un stage pour un groupe
+
+Sur les lignes d'**un** stage et d'**un** groupe : service, début, fin. Laisser tout le reste blanc.
+Aperçu.
+
+- `willCreate` = le nombre d'étudiants du groupe, `affectations` idem, `periodsToWrite` idem.
+- `cohortsToCreate` = **1** si le roster n'a jamais fait ce stage.
+- `periodsToDrop` = **0**, `publishedPeriodsToDrop` = **0**.
+- La note « hors grille » est présente.
+
+Appliquer avec les **deux** nombres de l'aperçu. Puis :
+
+- ouvrir le dossier d'un de ces étudiants → le stage est là, **Planifié**, avec le service et les dates ;
+- ouvrir la page du service → ils y sont ;
+- ⚠ ouvrir la **grille de planning** → **rien n'a changé**, et la charge affichée non plus. **C'est le
+  comportement attendu**, pas un défaut : la grille lit les cellules. Si la grille bouge, c'est
+  l'inverse de ce qui a été construit.
+
+### 5. Le contrôle qui compte : le nombre confirmé
+
+Relancer l'aperçu. Dans un **autre onglet**, ajouter un étudiant au roster. Appliquer avec l'ancien
+nombre.
+
+- Doit **refuser** en **409**, nommer les deux nombres, et n'écrire **rien**.
+- Même chose sur le second nombre : faire saisir une évaluation entre les deux, appliquer avec l'ancien
+  `confirmedDroppedPeriods` → refus `AffectationSheet.DroppedMismatch`.
+
+### 6. Une note ne se remplace pas
+
+Prendre un étudiant dont un stage porte une note. Mettre un **autre** service sur sa ligne. Aperçu.
+
+- Sa ligne ressort **`AlreadyMarked`**, `canApply` = **false**, et le **fichier entier** est refusé.
+- Appliquer quand même → **409 `AffectationSheet.HasErrors`**, et la note est toujours là.
+- ⚠ Le même fichier **sans** modifier sa ligne doit passer : elle ressort `Unchanged`. C'est ce qui rend
+  une promotion en cours d'évaluation encore re-téléversable.
+
+### 7. Une délocalisation depuis le fichier
+
+Sur une ligne : le service **externe** (« Stage hors CHU — Kénitra ») et un **motif**.
+
+- Aperçu : `willDelocalize` = 1.
+- Appliquer → dossier de l'étudiant : le stage est **Terminé**, la période porte le motif.
+- ⚠ Le service externe **sans** motif doit refuser (`DelocalizationWithoutReason`), et un motif sur un
+  service interne aussi.
+
+### Rollback
+
+Il n'y en a pas pour le pas 4 et le pas 7 autrement que le point de sauvegarde. Ce qui **est**
+rattrapable : renvoyer le fichier corrigé remplace ce que ces lignes décrivent (et `Unchanged` saute ce
+qui est déjà juste). Ce qui ne l'est pas : une affectation créée là où il n'en fallait aucune.

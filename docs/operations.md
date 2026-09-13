@@ -1,4 +1,4 @@
-# Operations — the live base, safe points, transactions, and rebuilding
+﻿# Operations — the live base, safe points, transactions, and rebuilding
 
 > Read before any bulk act against the live base, before wrapping a handler in a transaction, and before rebuilding from `Medecine.mdb`.
 >
@@ -234,3 +234,25 @@ change tracker, et seule la piste sait quelle version de l'entrée est la bonne.
 
 ⚠ **La sauvegarde reste la règle** : `pg_dump -Fc` avant tout acte de masse. L'atomicité protège d'une
 destruction *à moitié faite*, jamais d'une destruction complète qu'on regrette.
+
+## Le canevas des affectations (13/09/2026)
+
+C'est un acte en masse sur la base vivante, donc la règle ordinaire s'applique sans changement :
+**`pg_dump -Fc` avant**, et c'est l'utilisateur qui clique.
+
+Ce qui le distingue des autres actes en masse :
+
+- il **détruit** des périodes, et le nombre détruit est confirmé **séparément** de ce qui est écrit ;
+- un seul refus, n'importe où dans le fichier, refuse le **fichier entier** — il n'y a pas
+  d'application partielle à rattraper ;
+- **il n'a pas d'annulation en masse.** Renvoyer le fichier corrigé remplace ce qu'il décrit, ce qui
+  couvre la faute de frappe ; rien ne retire une affectation qui n'aurait jamais dû exister. Le point
+  de sauvegarde est donc le seul retour en arrière pour ce cas-là, et c'est une raison de plus de le
+  prendre.
+
+⚠ **Sur une promotion entière, la transaction est rapide et l'acte a l'air de traîner ensuite** : les
+événements se publient après le commit, un par un, chacun écrivant une ligne d'historique. Le compte
+d'`Histories` qui monte est un avancement, pas un blocage — même forme que la déliberation et le
+rouleau de réinscription.
+
+Détail complet dans [`affectation-sheet.md`](affectation-sheet.md).

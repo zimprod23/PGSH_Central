@@ -353,6 +353,68 @@ public sealed class InternshipAssignment : Entity
         return AppResult.Success();
     }
 
+    /// <summary>
+    /// Replaces this affectation's whole rotation with the one a person declared — the canevas des
+    /// affectations. Returns how many périodes were destroyed to make room.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Why this is an act of the aggregate and not a loop in the importer.</b> Dropping
+    /// périodes moves three things at once: the stage note computed from marks that no longer exist,
+    /// the lifecycle status derived from périodes that no longer exist, and — for a student on loan —
+    /// the temporary membership that ends when the stage does. An importer writing rows directly
+    /// would have to remember all three, and <see cref="RemovePublishedPeriods"/> already exists
+    /// because forgetting them left assignments reading <c>Validated</c> with a note and nothing
+    /// underneath.</para>
+    ///
+    /// <para>⚠ <b>Unlike <see cref="RemovePublishedPeriods"/> this takes the ad-hoc périodes too</b>,
+    /// and that is the whole difference between the two. Unpublishing is the inverse of publishing, so
+    /// it touches only what publishing made; this is a human overruling the record, so what it
+    /// replaces is everything the record says about this stage. It is also why it is refused over a
+    /// mark rather than silently skipping one.</para>
+    ///
+    /// <para>⚠ <b>The one thing it refuses is a mark</b> — the same bargain
+    /// <see cref="Delocalize"/> makes, for the same reason: a mark is the single thing here that
+    /// nothing puts back, and no bulk act may be able to erase one. The importer refuses the row
+    /// earlier and more helpfully; this is the guard that holds when a mark is entered between the
+    /// aperçu and the apply.</para>
+    ///
+    /// <para>The périodes are created <b>not started</b>: a declared rotation is a plan like any
+    /// other, and the admin starts it. ⚠ They carry no <c>CohortSlotAssignmentId</c> — nothing in the
+    /// grid produced them — so <see cref="RemovePublishedPeriods"/> will not take them back, and the
+    /// planning grid's occupancy, which reads cells, does not count them.</para>
+    /// </remarks>
+    public Result<int> DeclareRotation(int stageId, IReadOnlyList<DeclaredPeriod> periods)
+    {
+        if (periods.Count == 0)
+            return AppResult.Failure<int>(StageErrors.DeclaredRotationEmpty);
+
+        if (ServicePeriods.Any(p => p.Evaluation is not null))
+            return AppResult.Failure<int>(StageErrors.DeclaredRotationOverMark);
+
+        int dropped = ServicePeriods.Count;
+
+        foreach (var existing in ServicePeriods.ToList())
+            ServicePeriods.Remove(existing);
+
+        // Do NOT pre-set the Id: on an already-tracked assignment a non-sentinel store-generated key
+        // makes EF classify the child Modified (UPDATE a non-existent row) instead of Added. Same
+        // gotcha as Delocalize and TransferToCohort.
+        foreach (var period in periods)
+            ServicePeriods.Add(new ServicePeriod
+            {
+                InternshipAssignmentId = Id,
+                ServiceId              = period.ServiceId,
+                CohortSlotAssignmentId = null,
+                StartDate              = period.StartDate,
+                EndDate                = period.EndDate,
+            });
+
+        RecomputeFinalScore();
+        RecomputeStatusFromPeriods();
+        Raise(new AffectationImportedDomainEvent(Id, RegistrationId, stageId, periods.Count, dropped));
+        return AppResult.Success(dropped);
+    }
+
     // ─── Délocalisation ──────────────────────────────────────────────────────
 
     /// <summary>

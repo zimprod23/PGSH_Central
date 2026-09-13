@@ -4732,3 +4732,274 @@ où il n'y a rien à remettre.
 - *Faire porter au `DbContext` une liste de rappels* était le premier réflexe. Il est **pooled**
   (`AddNpgsqlDbContext`), donc un champ mutable qu'aucun `ResetState` ne vide se serait promené d'une
   requête à la suivante — un rappel périmé remettant l'entrée d'une requête précédente.
+
+## Deux ordres de lecture devenus des règles (12/09/2026, session 66)
+
+Deux demandes de la faculté, le même jour, et le même genre de défaut derrière les deux : une
+propriété que personne n'a choisie, installée par la façon dont une requête était écrite.
+
+### ① Le découpage suivait l'alphabet
+
+« Quand on répartit les étudiants en groupes, je crois que vous les triez par nom de famille ; nous
+voulons que ce soit aléatoire. » C'était exact. `AutoArrangeGroupsCommandHandler` lisait ses candidats
+`OrderBy(r => r.Student.LastName)` puis les déposait par tranches (`Skip`/`Take` sur les tailles que
+`RosterCut` calcule), donc le Groupe 1 était le début de l'alphabet et le dernier sa fin.
+
+⚠ **Ce n'était pas un détail d'affichage : un roster décide une année.** Le roster décide la
+partition, la partition décide les créneaux, les créneaux décident les services et les chefs. Le rang
+alphabétique d'un étudiant décidait donc tout cela, et les porteurs d'un même nom — qui se suivent par
+construction — partaient systématiquement ensemble.
+
+**Ce qui a été écrit, et ce qui a été laissé tel quel.** `RosterDraw` tire (Fisher–Yates) et ne touche
+ni le nombre de rosters ni leur taille : c'est resté `RosterCut`, pure, et notamment l'ordre de ses
+tailles, qui est ce qui égalise les colonnes depuis le 11/09 (session 62). Les deux classes se lisent
+ensemble — l'une la forme de la coupe, l'autre l'ordre dans lequel on y dépose les gens. Et
+`PartitionAllocator` n'a pas bougé : la place d'un *groupe* dans le tableau est **choisie**
+(`Contiguous`), et la rendre aléatoire rendrait la répartition imprimée illisible. Le hasard porte sur
+la composition d'un groupe, jamais sur l'ordre des groupes.
+
+⚠ **Un mélange muet aurait été pire que le tri.** « Pourquoi cet étudiant dans le groupe 41 ? » a une
+réponse tant que l'ordre est déductible, et n'en a plus aucune une fois qu'il est tiré. Le numéro du
+tirage part donc au registre (`RecordOutcome(("drawSeed", …))`, avant le premier `SaveChanges` de
+l'acte, sinon le constat coûte un DELETE puis un INSERT), et les candidats sont lus dans un ordre
+**total** — nom, puis identifiant — parce qu'un numéro posé sur un ordre partiel ne désigne rien : le
+nom ne départage pas les homonymes, et c'est le plan d'exécution qui tranchait.
+
+### ② « Je tape le nom complet et rien ne sort »
+
+Mesurable sans base : les sept recherches d'étudiant comparaient le terme **entier** à chaque colonne.
+« Mohamed Alami » n'est ni dans `FirstName`, ni dans `LastName`, et aucune colonne ne porte les deux —
+donc la saisie la plus naturelle qui existe rendait **zéro résultat**, sur tous les écrans à la fois
+(liste, groupe, évaluation, occupants d'un service, signalements, export, et la même chose côté
+professeurs).
+
+**Un terme est une conjonction de mots.** `SearchTerms.Split` le découpe (espaces, virgules,
+points-virgules ; ⚠ **ni le tiret ni l'apostrophe**, « EL-AMRANI » et « D'ALAMI » sont des noms), et
+chaque mot doit se retrouver sur la **même** personne.
+
+⚠ **La règle élargit strictement l'ancienne**, et c'est ce qui rendait le changement sûr : si la
+chaîne entière figure dans une colonne, chacun de ses mots y figure aussi. Aucune saisie qui marchait
+ne cesse de marcher — chaque cas nouveau est appairé à ce témoin dans `FullNameSearchTests`, et
+`StudentSearchTests` (antérieur, non touché) garde les cas d'avant : la casse, l'Apogée, l'e-mail, un
+terme collé avec ses espaces, un fragment pris au milieu d'un nom.
+
+**Trois choses que le balayage a trouvées en chemin.**
+
+- **Les colonnes n'étaient pas les mêmes d'un écran à l'autre** : six sur la liste, cinq sur un
+  roster, trois sur les occupants d'un service, quatre sur la liste de travail d'un chef. Un étudiant
+  trouvé par son Apogée depuis la liste ne l'était donc pas depuis le service où il se tient, ce qui
+  se lit comme un étudiant **absent du service** et non comme une recherche plus étroite. Une seule
+  liste désormais : nom, prénom, CNE, Apogée, CIN, e-mail.
+- **La composition d'expressions était le vrai risque technique.** La règle est écrite une fois sur
+  `Student` ; les écrans interrogent des inscriptions, des périodes, des cellules. La façon naïve de
+  l'appliquer est d'appeler le prédicat dans une autre expression, et EF **refuse** l'`Invoke` : sept
+  écrans seraient devenus des 500 d'un coup, avec la suite entière verte — la famille exacte du défaut
+  du 26/08. `ExpressionComposition.Through` substitue le chemin au paramètre, et
+  `SqlTranslationTests` compile les quatre formes réellement employées (racine `Student`, navigation
+  simple, navigation à trois sauts, et un type anonyme issu d'un `SelectMany`).
+- **L'accent ne peut être replié que d'un seul côté sans base.** Le terme est aussi cherché sans ses
+  diacritiques, **en plus** de sa forme tapée : replier le seul terme ferait perdre « BENAÏSSA » à qui
+  le tape correctement. L'inverse — une colonne accentuée retrouvée par un terme qui ne l'est pas —
+  demande `unaccent` côté PostgreSQL (extension + colonne générée), et n'est pas fait. C'est l'item
+  `0bl`.
+
+## La base n'est pas tombée toute seule, et ce n'était pas la suppression (13/09/2026)
+
+**Le symptôme.** Une sauvegarde supprimée depuis l'écran, puis une seconde qui « tourne » sans fin ;
+l'onglet fermé ; et toute l'application en 500 avec une trace de pile partant de
+`SyncUserMiddleware`. Lu de l'écran, cela dit : « supprimer une sauvegarde a détruit la base ».
+
+**Ce que les journaux disent, à la minute près.** Rien de tout cela n'est venu de PGSH.
+
+| heure (locale) | ce qui s'est passé |
+|---|---|
+| 00:42:24 | `com.docker.backend` : `terminating main distribution` — la distribution WSL `docker-desktop` s'arrête, Postgres avec elle |
+| 00:42:26 | `wsl.exe --unmount docker_data.vhdx` échoue (`Wsl/0x80040155`) |
+| 00:42:30 | le moteur tente de redémarrer : `wsl-bootstrap failed, restarting` |
+| 00:42:41 | **`wsl.exe --version` échoue : « WSL is finishing an upgrade... »** → moteur `stopping → stopped` |
+
+⚠ **C'est WSL qui s'est mis à jour de lui-même.** Docker Desktop n'a pas pu redémarrer tant que la
+mise à jour n'était pas finie, et il est resté « unable to start » — d'où une base injoignable
+pendant vingt minutes, sans qu'aucun acte de l'application y soit pour quelque chose. Le processus
+`wslinstaller.exe` était encore là au moment du diagnostic ; `wsl --version` répond depuis
+**2.7.14.0**.
+
+**Ce qui a été perdu : rien.** Au redémarrage, Postgres a fait ce pour quoi le WAL existe —
+« database system was not properly shut down; automatic recovery in progress », `redo starts at
+0/6F0AF390`, `redo done`, puis « ready to accept connections ». L'« invalid record length » de la
+dernière ligne est la fin normale du journal, pas une avarie. Le volume `pgsh-postgres-data` est
+nommé et le conteneur est `ContainerLifetime.Persistent` : ni l'un ni l'autre ne dépendent du
+processus qui est mort.
+
+**Les quatre points de sauvegarde sont intacts**, chacun avec son manifeste (06, 07, 08 et 10/09) —
+donc la suppression interrompue n'a pas laissé de demi-point. ⚠ Le plus récent date du **10/09** :
+c'est la base de repli réelle, pas celle que l'on croit avoir.
+
+**Ce que l'incident révèle de notre code**, et qui reste à corriger — items `0bm` et `0bn` :
+
+- ⚠ **Une panne d'infrastructure se lit comme un défaut applicatif.** `GlobalExceptionHandler` range
+  toute exception non-`DomainException` dans `_ => 500, « Server failure »`, donc une base injoignable
+  produit exactement ce qu'un bug produirait. C'est la même faute que les treize `Error.Problem`
+  triés en session 61, un étage plus bas : **un code d'état qui recouvre deux situations sans
+  rapport**. Un 503 et une phrase disent à l'opérateur qu'il n'y a rien à réparer côté données.
+- ⚠ **La sonde Docker porte le délai du `pg_dump`** : `RunDockerAsync` applique les 600 s de
+  `BackupOptions.TimeoutSeconds` au `docker version` de la sonde comme au dump lui-même. La phrase
+  « Docker ne répond pas (le moteur est-il démarré ?) » existe déjà et est la bonne ; ce qui manque
+  est qu'elle arrive en une seconde.
+
+**Ce que le diagnostic a coûté, et la leçon de méthode.** La première hypothèse plausible était que
+la suppression touchait quelque chose de vital — un dossier monté dans le volume, par exemple.
+`DeleteAsync` ne fait que deux `File.Delete` dans un dossier qui est, par défaut, **hors du dépôt et
+hors du volume** (`%LOCALAPPDATA%/PGSH/backups`) ; ce choix, documenté au moment où il a été fait, est
+ce qui a permis d'écarter la piste en une lecture. Une décision prise « au cas où » a servi.
+
+### Ce qui a été corrigé le lendemain (13/09/2026, session 67)
+
+**Le 503 n'est pas un 500 plus poli.** Il dit « l'application est là, ce dont elle dépend ne l'est
+pas » : il n'y a rien à corriger dans la demande ni dans les données, et la phrase qui l'accompagne
+est la seule chose qui envoie l'opérateur au bon endroit. D'où trois décisions qui se tiennent :
+
+1. **La phrase voyage dans `detail`**, comme tout refus non-validation.
+2. **Le client fait du 503 la seule exception au masquage des ≥ 500.** Le masquage existe pour une
+   bonne raison — un 500 peut porter n'importe quel interne — mais un 503 est écrit *exprès* pour
+   être lu. Sans cette exception, la correction n'aurait rien changé à l'écran : « Une erreur serveur
+   est survenue » à la place de « Une erreur serveur est survenue ».
+3. **La classification est étroite.** ⚠ C'est le point qui demandait le plus d'attention : le risque
+   du correctif est l'exact inverse du défaut. Ranger un vrai défaut sous « service indisponible »
+   le rend invisible — un incident d'exploitation que personne ne corrige, au lieu d'un bug qu'on
+   voit. La règle est donc : il faut une `DbException` **dans la chaîne** (rien en dehors de la
+   couche données ne peut déclarer la panne — un export qui n'écrit pas son fichier lève un
+   `IOException` et ce n'est pas la base), et il faut qu'elle soit `IsTransient` ou qu'elle porte un
+   échec socket/IO/délai. Une `PostgresException` ordinaire, c'est-à-dire un serveur qui a répondu
+   qu'il refusait, reste un **500**.
+
+⚠ **Et la chaîne se parcourt entièrement**, `AggregateException` comprise : EF enveloppe
+(`DbUpdateException` n'est pas une `DbException`), et ne regarder que le niveau du dessus est la
+façon de manquer la seule exception qui parlait.
+
+**Pour les sauvegardes, deux durées au lieu d'une.** Une sonde qui n'a pas répondu *est* une réponse.
+`ProbeTimeoutSeconds` (10 s) sépare `docker version` du `pg_dump` (600 s), et
+`ProcessRunner.Execution.TimedOut` porte le fait plutôt que de le laisser relire dans le texte de
+stderr — « le programme a refusé » et « le programme n'a pas répondu » sont deux phrases, et un
+appelant qui reconnaît la seconde en cherchant « délai dépassé » dans une chaîne la manquera le jour
+où la chaîne changera.
+
+**Ce que les tests ne peuvent pas voir**, dit plutôt que supposé : qu'une vraie coupure PostgreSQL
+lève bien l'exception qu'on classe (il faudrait une base débranchable — Testcontainers, toujours pas
+construit), et que le chemin de la sonde passe bien le délai de la sonde (il faudrait un `docker`
+pilotable depuis le test). Ce qui est couvert : la classification des deux côtés, le document de
+problème rendu, le réglage par défaut, les deux phrases, et le drapeau posé par un vrai processus qui
+dépasse son délai.
+
+---
+
+## Session 58 — Téléverser une répartition au lieu de la générer (13/09/2026)
+
+Demande de l'utilisateur, formulée juste après l'explication du canevas de découpage : téléverser des
+affectations entières avec leurs périodes, en laissant le système générer lui-même les périodes, les
+cohortes et les délocalisations, avec « un rapport d'erreurs généreux ». Quatre décisions de conception
+lui ont été posées avant d'écrire une ligne ; les quatre recommandations ont été retenues (table dans
+`PHASES.md` §32).
+
+### Ce qui a été compris en chemin, et qui ne se devine pas
+
+**① La grille ne compte pas les périodes — elle compte les cellules.** `ServiceOccupancyCalculator` lit
+`CohortSlotAssignments`. Donc toute rotation écrite autrement que par une publication — une
+délocalisation, un stage importé d'Access, et maintenant un canevas — est **visible** dans le dossier,
+sur la page du service, dans l'export et dans la liste du chef, et **invisible** dans la grille et dans
+la charge que la grille affiche. Ce n'est pas un défaut : la grille répond à « qu'a-t-on planifié ».
+Ce qui serait un défaut est de ne pas le dire, d'où la note en toutes lettres dans le rapport. C'est la
+règle « dire ce que le blanc veut dire » appliquée à une grille qui a l'air vide.
+
+**② Écraser une répartition publiée est un acte différent d'en remplir une vide, et un seul nombre ne
+peut pas distinguer les deux.** `PeriodsToDrop` compte ce qui disparaît ; `PublishedPeriodsToDrop` dit
+combien venaient de la grille. La seconde perte est plus lourde : les cellules restent, le plan et
+l'exécution cessent de s'accorder, et **republier ne rétablit rien** parce que `SchedulePublisher` saute
+toute affectation qui porte déjà une période.
+
+**③ Un acte destructeur a besoin de *deux* nombres confirmés, pas d'un.** Ils bougent pour des raisons
+différentes : une période évaluée entre l'aperçu et l'application change ce qui est **détruit** sans
+rien changer à ce qui est **écrit**. Un seul nombre aurait laissé passer exactement le cas qui compte.
+
+**④ Le marché « tout ou rien » est l'inverse de celui de la délocalisation de masse, et c'est
+délibéré.** Là-bas, un étudiant écarté reste où il était — un état que quelqu'un a voulu. Ici l'acte
+*construit* les enregistrements d'exécution d'une année : appliquer 800 lignes et en refuser 12 laisse
+une promotion à moitié planifiée, et à moitié planifiée se lit exactement comme planifiée.
+
+**⑤ Une ligne blanche et une ligne à moitié remplie ne veulent pas dire la même chose** — et c'est ce
+qui rend le canevas utilisable. Le document sort avec une ligne par (étudiant, stage du niveau), donc
+planifier un stage veut dire téléverser un fichier dont tout le reste est vide : refuser ces lignes
+obligerait à en supprimer plusieurs centaines avant chaque envoi, et un fichier pénible à renvoyer cesse
+d'être renvoyé. Un service sans dates, en revanche, est quelqu'un qui a commencé et s'est arrêté.
+
+**⑥ `Unchanged` doit être testé *avant* la note.** Un fichier identique décrit, correctement, la
+rotation même pour laquelle ces notes ont été données. Dans l'autre ordre, une promotion dont les
+évaluations arrivent cesserait d'être re-téléversable — le jour exact où on en a besoin.
+
+**⑦ Un rattrapage rend l'appariement ambigu, et c'est un état réel.** Un stage échoué se rouvre par une
+**seconde** `InternshipAssignment` sur le même stage. « La plus récente » réécrirait un rattrapage sur
+la foi d'un ordre de lignes que personne n'a choisi : c'est refusé, nommé (`AmbiguousAffectation`).
+
+### Le défaut que seul le pipeline HTTP a vu
+
+`AffectationSheetPlanner` n'était **pas enregistré dans le conteneur**. Les 23 tests de handler étaient
+verts — ils construisent le planificateur à la main — et chaque requête réelle répondait **500** avant
+d'atteindre quoi que ce soit. C'est exactement la moitié de l'endpoint qui n'est pas le handler, et
+c'est pour cela que `PGSH.Tests/Integration/` existe. Corrigé dans
+`PGSH.Application/DependencyInjection.cs`.
+
+### Mesuré / non mesuré
+
+⚠ **Rien n'a été mesuré sur la base vivante** cette session : la lecture de production reste refusée par
+l'outillage. Aucun chiffre de ce document n'est une mesure nouvelle ; ceux qui sont cités (46 % sans
+CNE, ~2 200 sans estampe CNPN, les cellules contre les périodes) sont repris de sessions antérieures et
+signalés comme tels.
+
+## Session 68b — Un paramètre obligatoire qui lève avant son propre validateur (13/09/2026)
+
+Remontée par l'utilisateur depuis l'application qui tourne, pendant le test du canevas :
+
+```
+Microsoft.AspNetCore.Http.BadHttpRequestException
+Required parameter "DateOnly StartDate" was not provided from query string.
+   à Microsoft.AspNetCore.Routing.EndpointMiddleware.Invoke(HttpContext)
+```
+
+**Ce que c'était.** `GET stages/axis-windows` lie `GenerateAxisWindowsQuery` par `[AsParameters]`, et
+ses membres `Columns` et `StartDate` étaient des types valeur **non nullables sans défaut**. Un tel
+paramètre ne peut pas être omis : ASP.NET lève dans le **routage**, donc `ValidationPipelineBehavior`
+ne tourne jamais. Conséquences, toutes vraies à la fois :
+
+- `GenerateAxisWindowsQueryValidator` **existait déjà** et ses règles étaient du code mort pour cette
+  requête-là ;
+- l'appelant reçoit un **400 nu** — ni `detail`, ni `errors[]` — donc `errorMiddleware` affiche sa
+  phrase générique et l'écran se lit comme cassé, pas comme « renseignez une date » ;
+- sous débogueur, le processus **s'arrête**. C'est ce qui a rendu toute la pile muette pendant le test,
+  API et tableau de bord Aspire compris — le même symptôme que le 26/08/2026 (`NOTES`, RTK sans
+  timeout) : une API en pause est indiscernable d'une année vide.
+
+**Ce qui a été corrigé.** Balayage des 26 types liés par `[AsParameters]` : **4** membres en cause sur
+**3** routes — `stages/axis-windows` (`Columns`, `StartDate`), `groups/partitioning` (`LevelId`),
+`groups/placements` (`LevelId`). Tous les trois sont des GET dont la valeur vient d'un champ qu'un
+écran peut vider. Ils sont désormais liés en nullable et refusés par un validateur, avec une phrase ;
+le handler les relit dans une variable locale non nullable.
+
+⚠ **La règle n'est pas « tout rendre optionnel ».** Le `confirmedCount` d'un acte POST reste
+obligatoire : un appelant qui l'omet est un client cassé, pas un humain avec un champ vide, et 400 est
+toute la bonne réponse.
+
+⚠ **Deux règles, deux messages.** `.WithMessage` s'attache au validateur qui le précède immédiatement,
+donc `NotNull().GreaterThan(0).WithMessage(…)` laissait le cas *null* sur le texte par défaut de
+FluentValidation — « 'Level Id' ne doit pas avoir la valeur null », qui nomme une propriété et aucun
+remède. Attrapé par le test, pas par la relecture.
+
+⚠ **Et un piège de fond découvert en passant** : `AcademicGroup.LevelId` est nullable parce que
+« Non réparti » n'a pas de promotion. Rendre `GetPromotionPartitioningQuery.LevelId` nullable faisait
+donc de `g.LevelId == request.LevelId` une comparaison qui, sur un null, aurait silencieusement
+sélectionné **ce** roster-là — le seul que cette lecture exclut par construction. D'où la variable
+locale non nullable plutôt que la comparaison telle quelle.
+
+**Couvert par** `PGSH.Tests/Integration/RequiredQueryParameterEndpointTests.cs` (8 cas : 4 refus, 4
+contrôles qui doivent continuer à répondre). Morsure vérifiée en remettant la liaison non nullable :
+les deux cas de l'axe échouent. ⚠ Ni un test de handler ni un test de validateur ne peut voir ce
+défaut — les deux construisent l'objet de requête et sautent la liaison.

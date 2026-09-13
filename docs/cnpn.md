@@ -1,4 +1,4 @@
-# The CNPN — which text governs a student, and when
+﻿# The CNPN — which text governs a student, and when
 
 > Read before touching anything that resolves, stamps, or reads a requirement set: registration creation, the réinscription, group cutting, cohort provisioning, or the Stages catalogue figures.
 >
@@ -293,3 +293,18 @@ revalidation window opened under the wrong text is indistinguishable from one so
   placements (immersion / nursing / part-time clinical / full-time / family medicine) and credits
   (10 per semester S5–S8, 20 for S9–S10, 30 for S11–S12). PGSH models year-levels and a free
   coefficient. Recording 1650.25's requirements is an approximation until that gap is closed.
+
+## Le canevas des affectations : signalé, jamais refusé (13/09/2026)
+
+Le téléversement d'affectations lit le texte gouvernant comme tout le monde —
+`r.CnpnVersionId ?? r.Student.CnpnVersionId` — et compare le stage de la ligne au jeu d'exigences de ce
+texte pour ce niveau.
+
+⚠ **Un écart est porté ligne par ligne (`OutsideCnpn`) et compté, jamais refusé.** Le découpage
+automatique, lui, refuse — et il a raison, parce qu'il *décide* : un plan qui omet silencieusement une
+partition est pire qu'un plan qui dit pourquoi. Mais ce canevas **est** la dérogation humaine, et les
+jeux d'exigences de l'arrêté 1650.25 ne sont pas tous saisis : une garde ici refuserait des fichiers sur
+la foi de données que personne n'a encore tapées.
+
+⚠ **Et un texte absent n'est pas un texte qui n'exige rien.** ~2 200 inscrits ne portent aucune estampe ;
+lire cela comme un jeu vide signalerait chacune de leurs lignes. Aucune estampe ⇒ aucun contrôle.

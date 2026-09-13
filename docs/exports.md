@@ -1,4 +1,4 @@
-# Exports — a document that leaves the system
+﻿# Exports — a document that leaves the system
 
 > Read before adding a sheet, a column, or a second export.
 >
@@ -33,6 +33,13 @@ the same split as the three `ClosedXml*SheetParser`s, in the other direction.
   scope is defined **once** (`StageAssignmentExportQueries.Scoped`) and the other two reach it through
   `IN (subquery)`: two copies of a year filter is how a périodes sheet ends up describing a different
   population from the stages sheet beside it.
+- ⚠ **The search is the list's, not the export's own** — `StudentSearch.WhereStudentMatches`
+  (12/09/2026). A file downloaded from a filtered screen has to hold what that screen showed, and two
+  spellings of « what the term means » are two chances to disagree: before the shared helper the
+  export matched the whole term against five columns while the list used six, so « Mohamed Alami »
+  came back as an empty file *and* an empty list, and an Apogée narrowed them differently. One call,
+  one rule. Same reasoning as « nothing is recomputed » below, applied to the *scope* rather than to
+  the figures.
 - **Nothing is recomputed.** `StageScoring` gives the mark and the verdict, `ServicePeriodLifecycle`
   the state, `WorkingDayCalendar` the durations, `ServiceChefDirectory` the chef. An export that averaged differently from the fiche de
   validation would be a document contradicting the system it came from.
@@ -268,3 +275,22 @@ it belongs to is a detail nobody reads.
   class average. It is the mean *across* stages that this project does not have and must not invent.
   « Taux de validation » is measured over the whole population, not over the evaluated part: a stage
   with one mark entered is not 100 % validated.
+
+## Un export qui revient : le canevas des affectations (13/09/2026)
+
+`GetAffectationSheetTemplateQuery` passe par le même `ExportWorkbook` / `IExportWorkbookWriter` que les
+autres documents, et pour la raison habituelle : le fichier que quelqu'un télécharge pour **lire** et
+celui qu'il téléverse pour **écrire** doivent être le même document, sinon le second est un formulaire
+que personne n'a jamais vu.
+
+⚠ **Il sort pré-rempli, jamais vide** — une ligne par (étudiant, stage du niveau), les périodes déjà
+servies remplies. Un canevas vierge voudrait dire retaper les identifiants à la main, et un code mal
+tapé est une ligne qui n'appartient à personne — ou pire, à quelqu'un d'autre. C'est aussi ce qui rend
+l'aller-retour lisible : ce qui revient est un **écart** par rapport à ce qui est parti.
+
+⚠ **Ses `Notes` portent une charge qu'aucune colonne ne peut porter** : ce qu'une ligne blanche veut
+dire (« pas encore planifié », sautée) et ce qu'une ligne à moitié remplie veut dire (un refus). C'est
+exactement l'usage pour lequel `ExportSheet.Notes` existe — une colonne vide sur toutes les lignes est
+indiscernable d'une colonne que l'export a oubliée.
+
+Voir [`affectation-sheet.md`](affectation-sheet.md).

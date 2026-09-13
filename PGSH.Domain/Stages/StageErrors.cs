@@ -633,6 +633,22 @@ public static class StageErrors
         "AssignmentPeriods.Interrupted",
         $"Service period '{periodId}' was interrupted by a mid-stage transfer; it is terminal history and cannot be started, closed or evaluated.");
 
+    // === Canevas des affectations ===
+    // ⚠ Le même refus que la délocalisation, et pour la même raison : une note est la seule chose
+    // ici que rien ne remet. L'import refuse la ligne plus tôt et plus utilement ; ceci est la garde
+    // qui tient quand la note est saisie entre l'aperçu et l'application.
+    public static readonly Error DeclaredRotationOverMark = Error.Conflict(
+        "Affectations.DeclaredRotationOverMark",
+        "Ce stage porte déjà une évaluation : la réécrire supprimerait la note enregistrée. "
+        + "Corrigez ou supprimez l'évaluation d'abord.");
+
+    // ⚠ Pas « ne fait rien » : une déclaration vide voudrait dire « ce stage n'a pas de périodes »,
+    // ce qui n'est pas un plan mais une affectation amputée — et elle serait indiscernable d'un
+    // fichier dont les lignes se sont perdues en chemin.
+    public static readonly Error DeclaredRotationEmpty = Error.Validation(
+        "Affectations.DeclaredRotationEmpty",
+        "Une affectation déclarée porte au moins une période.");
+
     // === Delocalization ===
     // ⚠ Replaces Delocalizations.StageAlreadyUnderway, which refused as soon as a period had begun.
     // A student who leaves for an external hospital mid-rotation is the ordinary case, not the

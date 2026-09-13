@@ -1,3 +1,4 @@
+﻿using FluentValidation;
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
@@ -22,8 +23,32 @@ namespace PGSH.Application.AcademicGroups.Partitioning;
 /// <para>The promotion is (année, niveau) and the level is required, so « Non réparti » — which carries
 /// no level — is excluded by construction, as everywhere else partitions are concerned.</para>
 /// </summary>
-public sealed record GetPromotionPartitioningQuery(int LevelId, int? AcademicYearId = null)
+/// <remarks>
+/// ⚠ <b><see cref="LevelId"/> is nullable at the boundary and required by the validator, not by the
+/// model binder.</b> A non-nullable value type bound from the query string cannot be omitted: ASP.NET
+/// throws <c>BadHttpRequestException</c> inside routing, <i>before</i>
+/// <c>ValidationPipelineBehavior</c> runs, so the caller gets a bare 400 with no <c>detail</c> and no
+/// <c>errors[]</c> — the client shows its generic sentence and the screen reads as broken rather than
+/// as « choisissez une promotion ». Same shape as the rotation-cycle axis, which is where it was
+/// actually observed on 13/09/2026.
+/// </remarks>
+public sealed record GetPromotionPartitioningQuery(int? LevelId, int? AcademicYearId = null)
     : IQuery<PromotionPartitioningResponse>;
+
+internal sealed class GetPromotionPartitioningQueryValidator
+    : AbstractValidator<GetPromotionPartitioningQuery>
+{
+    private const string Required =
+        "Choisissez la promotion dont vous voulez voir le découpage.";
+
+    // ⚠ Two rules, two messages: `.WithMessage` attaches to the validator immediately before it, so
+    // one message chained onto both leaves the null case on FluentValidation's default text.
+    public GetPromotionPartitioningQueryValidator()
+    {
+        RuleFor(x => x.LevelId).NotNull().WithMessage(Required);
+        RuleFor(x => x.LevelId).GreaterThan(0).When(x => x.LevelId is not null).WithMessage(Required);
+    }
+}
 
 /// <param name="UnlabelledGroupNumbers">
 /// Collapsed the way the répartition prints a cell (<c>"3, 12, 21"</c>, <c>"41-60"</c>) — an admin has
@@ -45,6 +70,12 @@ internal sealed class GetPromotionPartitioningQueryHandler(
     public async Task<Result<PromotionPartitioningResponse>> Handle(
         GetPromotionPartitioningQuery request, CancellationToken cancellationToken)
     {
+        // Guaranteed by GetPromotionPartitioningQueryValidator. ⚠ Read into a non-nullable local
+        // rather than compared as it stands: « Non réparti » carries a null LevelId, so a null here
+        // would quietly select *that* roster instead of refusing — the one group this promotion read
+        // excludes by construction.
+        int levelId = request.LevelId!.Value;
+
         var year = await yearResolver.ResolveAsync(request.AcademicYearId, cancellationToken);
         if (year.IsFailure)
             return Result.Failure<PromotionPartitioningResponse>(year.Error);
@@ -54,7 +85,7 @@ internal sealed class GetPromotionPartitioningQueryHandler(
         // page of it would be the defect this query replaces.
         var rosters = await dbContext.AcademicGroups
             .AsNoTracking()
-            .Where(g => g.AcademicYearId == year.Value && g.LevelId == request.LevelId)
+            .Where(g => g.AcademicYearId == year.Value && g.LevelId == levelId)
             .Select(g => new { g.GroupNumber, g.RotationGroup })
             .ToListAsync(cancellationToken);
 

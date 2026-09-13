@@ -10,6 +10,10 @@
 > | ~~**0bg**~~ | ✅ **Tranché le 12/09/2026 : le dépassement est accepté.** Décision de l'utilisateur — « il y a trop d'étudiants et trop de services, nous sommes obligés de dépasser la capacité dans la plupart des cas ; le système doit être souple et nous laisser tout au plus *voir* ». Le constat reste vrai (Dermatologie de la 3ᵉ MED : 4 services × 20 = 80 par colonne contre 94 demandées, soit ~14 de trop à *chaque* colonne, et les deux services portent 27-30 sur les dix périodes) mais ce n'est **pas un défaut à corriger** : c'est le fonctionnement de la faculté. | ⚠ **Ce que cela veut dire pour le code** : aucune garde de capacité nouvelle, aucun blocage, aucun écran qui exige une correction avant d'agir. La capacité se **lit** — « Faisabilité des promotions » (phase 29) et « Charge des services ». La seule exception reste `Service.AllowsOverCapacity = false`, la déclaration d'un service que son chiffre à lui n'est pas négociable — `true` sur toutes les lignes aujourd'hui, donc rien n'est bloqué en pratique. |
 > | ~~**0bh**~~ | ✅ **Même décision, même date, et pour toutes les promotions** — 4ᵉ MED Pédiatrie −231, 5ᵉ MED Gynécologie −173, etc. Les chiffres sont mesurés et consultables à l'écran ; ils ne conditionnent aucune publication. | ⚠ **Ne pas rouvrir, ne pas re-mesurer.** La lecture existe (`/services/promotion-fit`), la décision est prise. Ce qui reste vrai et mérite d'être dit une fois : un stage qui n'autorise **aucun** service est une autre affaire — l'arrangeur le refuse par `Schedule.NoAllowedServices`, ce n'est pas un dépassement mais une liste vide, et le panneau les distingue déjà (les deux stages de la 2ᵉ MED, 1 027 étudiants). |
 > | ~~**0bi**~~ | ✅ **Fait le 12/09/2026 (session 64) — `GET /services/promotion-fit`, écran *Admin → Infrastructure → Faisabilité des promotions*.** L'arithmétique est pure (`PromotionAxis`, `Domain/Stages/`) et **calibrée** : elle retrouve le −14 de Dermatologie et le +6 de Santé Publique. Le pool de services est celui de l'arrangeur clause pour clause, les quatre « impossible » sont nommés séparément, et « aussi autorisé par » est calculé sur toute l'année même sous filtre. | ⚠ **Reste à voir à l'écran** : redémarrer l'AppHost puis dérouler `SMOKE-TEST.md` **§62** — la route n'existe pas dans un processus antérieur. ⚠ Et la page **ne résout rien** de `0bg` / `0bh` : elle prévient, elle ne place pas mieux. `BuildServiceQueue` pondère toujours par la capacité seule et ne lit jamais l'occupation vivante. |
+> | ~~**0bm**~~ | ✅ **Fait le 13/09/2026 (session 67).** `DatabaseOutage` + `GlobalExceptionHandler` : une base injoignable répond **503** avec une phrase qui dit que rien n'a été enregistré et que c'est le serveur de base de données qu'il faut regarder. ⚠ Le tri est **étroit** — seule une `DbException` peut déclarer la panne, et seulement si elle est transitoire ou porte un échec réseau : un serveur qui a répondu « je refuse » reste un 500, sinon un vrai défaut deviendrait un incident d'exploitation que personne ne corrige. Le client montre le `detail` d'un 503 (seule exception au masquage des ≥ 500). | ⚠ **Ce que les tests ne peuvent pas voir** : qu'une vraie coupure PostgreSQL produise bien cette exception-là. La classification est couverte des deux côtés (`PGSH.Tests/Api/DatabaseOutageTests.cs`), le pipeline complet demanderait une base qu'on puisse débrancher — Testcontainers, toujours pas construit. |
+> | ~~**0bn**~~ | ✅ **Fait le 13/09/2026 (session 67).** `BackupOptions.ProbeTimeoutSeconds` (10 s) sépare la sonde du `pg_dump` (600 s), et `ProcessRunner.Execution.TimedOut` porte le fait plutôt que de le laisser relire dans stderr : « Docker n'a pas répondu en 10 s » et « Docker ne répond pas : <ce qu'il a dit> » sont deux phrases, pour deux gestes différents. | ⚠ **Le câblage lui-même n'est pas couvert** : vérifier que le chemin de la sonde passe bien le délai de la sonde demanderait un `docker` pilotable depuis le test. Ce qui est couvert : le réglage par défaut, les deux phrases, et le drapeau posé par un vrai processus qui dépasse son délai. |
+> | **0bk** | **Redémarrer l'AppHost, puis dérouler `SMOKE-TEST.md` §63.** Deux demandes de la faculté du 12/09/2026 sont livrées — la composition des groupes est **tirée au sort**, et la recherche d'une personne accepte un **nom complet**. | ⚠ **Le processus de l'API est antérieur à cette session** : jusqu'au redémarrage, « Mohamed Alami » continue de ne rien rendre et un découpage continue de suivre l'alphabet. Le contrôle qui distingue « ancien processus » de « défaut » est dans §63, étape 0. |
+> | **0bl** | **Replier les accents du côté de la *colonne*, pas seulement du terme.** Aujourd'hui « Zoubaïr » retrouve `ZOUBAIR` (le terme est cherché dans ses deux orthographes), mais « Zoubair » ne retrouve **pas** `ZOUBAÏR`. | Il faut PostgreSQL : `CREATE EXTENSION unaccent`, une colonne générée ou un index d'expression, et un `HasDbFunction` — donc une migration, et un comportement que ni SQLite ni le fournisseur en mémoire ne reproduisent. ⚠ **Et il faut d'abord mesurer** : la mesure « combien de noms portent un accent dans la base » n'a pas pu être prise cette session (lecture de la base de production refusée par l'outillage). Si la réponse est « quelques dizaines », ce n'est pas une extension qu'il faut mais une correction de saisie. |
 > | **0bj** | **Remplacer un service par un autre sur toute une colonne, en un acte.** Demandé le 11/09/2026, en même temps que la garde de suppression (session 63). Aujourd'hui la seule voie est **cellule par cellule** : `PUT stages/{id}/slots/{slotId}/cohorts/{cohortId}` avec le nouveau `serviceId` — ce qui **épingle** la cellule (`CellSource.Pinned`), donc la correction survit à la répartition suivante, ce qui est le bon comportement mais dix clics pour dix périodes. L'acte à écrire est scopé **(stage, année, numéros de période optionnels)**, remplace `X` par `Y`, et se plie aux règles déjà écrites : `Y` non `IsExternal`, `Y` dans les services autorisés du stage s'il en a, `Y` admissible pour le niveau (`Service.Admits`). ⚠ Il tombe sur des cellules que personne n'a nommées : aperçu + `ConfirmedCount`, refus sur écart, comme la délocalisation de masse. ⚠ Et il doit **laisser** les cellules publiées et **dire combien** il en a laissées — un `Replaced = 0` a deux causes opposées (rien à remplacer / tout est publié). | ⚠ **Ne couvre pas la moitié qui compte le plus.** Une `ServicePeriod` déjà publiée n'a **aucun** chemin de changement de service dans le dépôt : la seule voie est dépublier → recorriger → republier, et dépublier **cascade** les évaluations, les présences, les pauses et les délocalisations (refusé sans `Force`, avec le décompte). La délocalisation n'est pas une issue : elle est réservée aux services `IsExternal`. Décider si un « déplacer une rotation vers un autre service » doit exister est une question de domaine, pas d'écran — et elle touche le dossier de l'étudiant. |
 
 > | **0aw** | **Donner à la délocalisation de masse une annulation de masse.** `CancelDelocalizationCommand` est **par étudiant** et c'est le seul chemin de retour : défaire ce qu'un clic a fait sur un roster entier demande autant de clics qu'il y a d'étudiants. Mêmes pièces que l'acte : `StudentTargets`, aperçu + `ConfirmedCount`, rapport refus en tête — et le refus qui compte est déjà écrit, `Delocalizations.AlreadyMarked` (la note est la seule trace du stage, l'annuler la supprimerait). | ⚠ **Rencontré pour de vrai le 08/09/2026** : remettre à zéro la 4ᵉ MED après un test bute dessus, parce qu'une période de délocalisation naît **`IsStarted && IsComplete`** — donc `AffectationToll.IsUnderway` est vrai, « Réinitialiser les cohortes » refuse, « Dépublier » laisse délibérément les périodes **ad hoc** en place, et il ne reste que l'annulation une par une. ⚠ **C'est la règle maison appliquée à moitié** : « tout import de masse a besoin d'une échappatoire par ligne **et** d'un retour en arrière à côté » — le retour existe, mais pas à l'échelle de l'acte. ⚠ Ne pas en faire un acte destructeur de plus sans son propre `ConfirmedCount` : il tombe sur des étudiants dont personne n'a tapé le nom, exactement comme l'aller. |
@@ -18,6 +22,9 @@
 > | **0bd** | **Finir le balayage « un acte auditable atteint-il un `SaveChanges` ? ».** Le 10/09/2026 le balayage n'a retenu que les handlers qui n'appellent **jamais** `SaveChanges` — deux, tous deux défectueux. Restent ceux dont le `SaveChanges` est **conditionnel** : `UnpublishStageScheduleCommandHandler` gardait le sien sous `if (removed > 0)`, donc un balayage qui ne défait rien parce que tout a commencé n'écrivait rien — corrigé au passage, mais la même forme peut vivre ailleurs parmi les ~60 actes audités. ⚠ **Une troisième occurrence trouvée et corrigée le 11/09/2026**, sur un acte qui n'était pas audité du tout : « Publier » (voir la session ci-dessous). Le publisher n'enregistre que s'il a des périodes à poser, donc l'entrée d'un « Publier » rejoué sur un stage déjà publié serait morte avec la requête — le handler termine par un `SaveChanges` **inconditionnel**. Restent les ~60 autres actes audités. | ⚠ **Le défaut est invisible par construction** : la ligne est mise en attente par `AuditLogPipelineBehavior` et validée par un `SaveChanges` que le handler appelle **pour une autre raison**. Rien ne relie les deux, rien ne se compile en erreur, et un acte réussi qui n'écrit rien est indiscernable d'un acte refusé qui n'écrit rien — même cause exactement. ⚠ **Deux fois déjà** : `ExecuteAtomicallyAsync` vidant le tracker (05/09, `STAGE_SERVICE_ORDER_SET`) et `ExecuteDelete` sans sauvegarde (10/09). ⚠ Un test par acte est le seul filet ; le sweep par réflexion ne peut pas lire l'intérieur d'une méthode.
 > | ~~0be~~ | ✅ **Fermé le 11/09/2026 — les 18 sites sont triés.** `Problem` ne veut plus dire qu'une **panne**, et il est désormais *nommé* dans `CustomResults.GetStatusCode` plutôt que d'arriver au bras `_` par accident : restent les trois `BackupErrors` et `PgDumpBackupArchive`, qui sont des 5xx et que `BackupEndpointTests` a raison de tenir. Les **13** autres étaient des refus métier et passent à `Conflict` (la demande rencontre l'état) ou `Validation` (la demande est mal formée), à leur source. | ⚠ **Le pire n'était pas celui mesuré à l'écran.** `AcademicYearResolver` → `StageErrors.NoCurrentAcademicYear` est le repli de **tout** handler qui omet l'année : une base sans année courante — très exactement ce qu'une désignation interrompue laissait derrière elle, voir la session ci-dessous — faisait répondre **500 à tous les écrans**, la seule phrase qui disait quoi faire étant jetée par `errorMiddleware` au-dessus de 500. Pinné par `ErrorStatusMappingEndpointTests`, avec ses deux témoins et la morsure vérifiée. |
 > | **0ay** | **Un jour férié qui compte comme un jour ouvré — un drapeau sur `Holiday`, et la contrainte de planification enfin dite en toutes lettres.** Règle donnée par l'utilisateur le 10/09/2026 : **la seule** contrainte de planification est qu'une période ne **commence** ni ne **finisse** un week-end ou un jour férié. Un férié peut donc être **traversé** sans allonger la fenêtre. Ajouter le drapeau (`Holiday.CountsAsWorkingDay`, `false` par défaut pour que rien de posé ne bouge), puis **scinder le prédicat unique de `WorkingDayCalendar`** : `IsWorkingDay` répond aujourd'hui à **deux** questions à trois endroits — `Count` (ce jour compte-t-il dans la durée), `NextWorkingDay` (une fenêtre peut-elle **commencer** là) et `Lay` (les deux à la fois : il avance la durée *et* son dernier jour devient le `End`). Donc deux prédicats — « compte dans la durée » et « peut borner une fenêtre ». Week-end : ni l'un ni l'autre. Férié sans drapeau : ni l'un ni l'autre (inchangé). Férié drapeau : **compte**, mais ne borne pas. | ⚠ **`Lay` doit tenir sa promesse** — « `End` est toujours un jour bornable ». Poser N jours peut faire tomber le Nᵉ sur un férié drapeau : la fenêtre doit alors s'étendre jusqu'au jour bornable suivant **sans le compter**, sinon le compte et la date de fin se contredisent. Le décider, l'écrire, le couvrir. ⚠ **`WorkingDaysLost` doit tomber à 0** pour un férié drapeau (`HolidayResponse`, `GetHolidayCoverageQuery`, `PromotionPauseImpactReader`), sinon l'écran de couverture réclame des jours que personne n'a perdus. ⚠ **`PromotionPause` est de l'autre côté de `ICalendarClosure`**, et une semaine d'examens ne compte **jamais** comme ouvrée : décider si le drapeau reste sur `Holiday` seul ou monte sur l'interface avec les pauses répondant `false` — et l'écrire sur l'interface, pas seulement dans la migration. ⚠ **« Dire ce que le blanc veut dire »** : l'écran doit distinguer « férié, chômé » de « férié, travaillé », sinon un seul nombre porte deux états qui appellent des actes opposés. ⚠ **Ordre : avant l'item 0ap.** Un axe posé avant que le drapeau existe est posé sur l'ancienne arithmétique, et le reposer est justement ce que 0ap dit être devenu gratuit. |
+> | ~~**0bq**~~ | ✅ **Fait le 13/09/2026 — le pied du test est retiré et le retour à l'état initial est vérifié.** Deux étudiants, leurs inscriptions, affectations, adhésions, périodes et entrées de dossier (par cascade), la cohorte 19934, le roster 5094 et le service externe 153. **Contrôles après suppression** : affectations du stage 21 **710 → 708** (le chiffre d'avant le test), inscrits de la 4ᵉ Pharmacie **234 → 232**, services **152 → 151**, rosters de la promotion **1 → 0**, canevas de nouveau à **15 565 octets** (sa taille d'origine), et **0** résultat en cherchant « Zztest », « ZZTESTCNV1 » ou « ZZ-TEST » sur les trois écrans. | ⚠ **Restent, volontairement** : les lignes `AuditLog` (immuables par construction) et le point de sauvegarde `20260913-101039-avant-test-canevas-affectations-session`. ⚠ La 3ᵉ MED n'a jamais été approchée et **aucune** des 232 inscriptions réelles de la 4ᵉ Pharmacie n'a reçu d'écriture.
+> | **0bo** | **Redémarrer l'AppHost, puis dérouler `SMOKE-TEST.md` §56 — le canevas des affectations.** Livré cette session, **rien n'a été cliqué**. Aucune migration à appliquer (`HistoryType` est un enum stocké en `varchar`) ; le contrôle qui distingue « route absente » de « non authentifié » est que `GET /api/affectations/sheet/template` répond **404** sur l'ancien processus et **401** sans jeton. | ⚠ **C'est la section la plus destructrice de `SMOKE-TEST.md`** : elle détruit des périodes et l'acte **n'a pas d'annulation en masse** (item 0bp). `pg_dump -Fc` avant, sans exception. Les trois pas qui comptent : **§56.2** (un canevas non modifié ne planifie rien et **ne refuse pas** — sans quoi il est inutilisable pour planifier un stage à la fois), **§56.5** (relancer l'aperçu, ajouter un étudiant au roster depuis un autre onglet, appliquer avec l'ancien nombre → doit refuser en **409** en nommant les deux nombres, et n'écrire **rien**), et **§56.4** (après application, la **grille de planning ne bouge pas** — c'est le comportement voulu, les périodes sont hors grille ; si la grille bouge, c'est l'inverse de ce qui a été construit). `docs/affectation-sheet.md`, `PHASES.md` §32. |
+> | **0bp** | **Donner au canevas des affectations une annulation de masse.** Renvoyer le fichier corrigé remplace ce qu'il décrit — cela couvre la faute de frappe — mais **rien ne retire une affectation qui n'aurait jamais dû exister**, et il n'y a pas d'acte « défaire cet import ». Mêmes pièces que l'acte : aperçu, `ConfirmedCount`, rapport de refus en tête. | ⚠ **Cela demande de marquer le lot, donc une migration** : les périodes écrites sont ad-hoc et rien ne les distingue d'une délocalisation, d'un stage importé d'Access ou d'un rattrapage — `RemovePublishedPeriods` ne les reprend délibérément pas, parce que dépublier est l'inverse de publier. ⚠ **Le refus qui compte est déjà écrit** : une période qui porte une note ne se supprime pas (`Affectations.DeclaredRotationOverMark`). ⚠ Même forme que l'item **0aw** pour la délocalisation de masse, et pour la même raison : défaire au clavier ce qu'un clic a fait sur une promotion demande autant de clics qu'il y a d'étudiants. Aujourd'hui le seul retour en arrière est le point de sauvegarde, et `docs/operations.md` le dit. |
 > | **0ba** | **Un canevas de découpage : une ligne par étudiant, une colonne « Groupe », et on le renvoie.** Demandé le 10/09/2026. Télécharger un `.xlsx` listant toutes les inscriptions d'une (année, niveau) avec la colonne à remplir, puis l'importer : les groupes manquants sont créés et chacun est rattaché là où la feuille le dit. **Les deux moitiés du patron existent déjà** — `GetDeliberationTemplateQuery` / `GetInscriptionTemplateQuery` / `GetEvaluationImportTemplateQuery` pour la descente, `ApplyReinscriptionSheetCommand` pour la remontée ; ClosedXML est déjà référencé par `PGSH.Infrastructure`. | ⚠ **Ce n'est pas `ApplyBulkRosterAssignmentCommand`** : celui-là vise **un** roster avec une liste nommée, ici la feuille nomme **tous** les rosters à la fois. Ce qui se réutilise est son vocabulaire — `BulkRosterAssignmentRowStatus` (`WillJoin` / `WillMove` / `AlreadyThere` / `Underway` / `WrongPromotion` / `CursusEnded` / `NotFound` / `WrongYear`) — et ses **deux verbes décidés par étudiant**, jamais un seul. ⚠ **Aperçu obligatoire et `ConfirmedCount`** : l'acte tombe sur des lignes que personne n'a tapées une par une. Et **l'annulation à côté**, qui est la règle de l'item 0aw. ⚠ **Apparier sur `Appogee` *et* CNE** : le CNE est **facultatif** (46 % du rôle n'en portait pas avant le 01/09/2026), donc le canevas porte les deux colonnes et l'appariement indexe les deux. ⚠ **Un groupe nommé dans la feuille et qui n'existe pas** : le créer est ce qui rend la fonction utile, mais cela veut dire qu'un tableur peut faire naître des rosters — l'aperçu compte donc « groupes à créer » **séparément**, et la confirmation porte ce nombre-là aussi. ⚠ **Deux textes CNPN dans un même groupe est un refus par ligne, nommé** : « un groupe tourne ensemble sur un jeu de stages », c'est ce que le découpage automatique s'interdit par construction, et une feuille ne doit pas pouvoir le contourner en silence. |
 > | **0ap** | ⚠ **Poser les axes après le découpage, avant de répartir.** ✅ **L'ordre est vérifié dans le code (11/09/2026)** : `PreviewRotationCycleQuery` lit les partitions sur `AcademicGroups.RotationGroup`, donc sans roster l'axe refuse par `NoPartitions`. Découper et partitionner d'abord — ni l'un ni l'autre ne dépend d'une date. **Mesuré dans la base le 10/09/2026** : 2026-2027 porte **0 roster, 0 cohorte, 0 cellule et 0 créneau**. ⚠ **Les 71 créneaux que cet item annonçait n'existent plus** — l'axe de la 5ᵉ MED et celui de la 5ᵉ Pharmacie ont disparu avec la remise à blanc. Rien n'est publié nulle part, donc `ApplyRotationCycleCommand` ne refusera sur aucune promotion : c'est exactement le moment où les nouvelles durées peuvent entrer dans la grille. | ⚠ **Une durée n'entre dans l'axe que par *k*ₛ**, jamais par une colonne plus large : les colonnes d'un axe ont toutes la même largeur, c'est ce qui rend le croisement possible. ✅ **Le texte de la 3ᵉ MED est arrêté** (vérifié le 10/09/2026 : CNPN 1650.25 exige les **8** stages, Santé Publique et Simulation Médicale compris) — donc *T* = 2+2+1+1+1+1+1+1 = **10 colonnes de 15 jours**. ⚠ **Deux choses doivent précéder la pose de l'axe, et une seule est du code** : l'item **0ay** (un férié traversé n'allonge pas la colonne — 8 fériés tombent dans l'année scolaire 2026-2027 et allongent aujourd'hui toute colonne qui les croise), et **les semaines d'examens** : `PromotionPauses` est à **0** pour 2026-2027, or déclarer une pause après coup **ne déplace aucun créneau**. [`docs/planning-rotation.md`](docs/planning-rotation.md). |
 > | **0ar** | **Repartir de zéro sur 2026-2027 : découper chaque promotion, poser son axe, répartir, publier.** Les **6 839** inscriptions de l'année sont toutes détachées (0 roster), donc `AutoArrangeGroupsCommand` les ramassera intégralement — c'est la condition qu'il exige et elle est remplie partout. Promotions à servir : 3ᵉ MED 933, 4ᵉ MED 925, 5ᵉ MED 842, 6ᵉ MED 701, 7ᵉ MED 1 347, 5ᵉ Pharma 212, 6ᵉ Pharma 314, plus les petites années. | ⚠ **La 7ᵉ MED a 0 stage au catalogue** — rien ne peut l'y placer, et ses 510 stages dus sont tous revalidables (item A7). ⚠ **L'historique importé est intact** : 13 793 cohortes, 98 555 affectations, 105 626 périodes sur les six années passées — la remise à zéro n'a touché que 2026-2027, ce qui est le comportement attendu et vérifié le 07/09/2026. Point de sauvegarde avant chaque « Générer le plan ». |
@@ -87,6 +94,177 @@
 > 400 avec un objectif au libellé vide. `StagesPage.handleSave` **filtre** ces objectifs avant
 > l'envoi, donc la requête ne part pas. Le contrôle réel est passif (aucun bandeau) et la
 > démonstration est côté serveur.
+
+
+
+## Session 68b — 2026-09-13 · Le test réel, et deux défauts qu'il a trouvés
+
+Test du canevas des affectations contre la base vivante, sur la **4ᵉ année Pharmacie** (232 inscrits,
+un seul stage). La 3ᵉ MED n'a pas été approchée. Point de sauvegarde pris avant toute écriture.
+
+**Ce qui a été vérifié à l'écran ou par l'API** : le canevas sort pré-rempli (232 lignes, 15,5 Ko), il
+revient et s'apparie (232 étudiants trouvés, 0 non couvert), le service ambigu se refuse en nommant la
+colonne « Hôpital » (« Pharmacie » existe dans six hôpitaux), la ligne à moitié remplie se refuse, les
+**deux** nombres confirmés refusent en 409 sans rien écrire, l'application écrit 2 affectations + 2
+périodes + 1 cohorte, le statut est `Planned`, le dossier porte `AffectationImported` avec
+`dropped: 0`, et la cohorte créée porte le libellé de son roster.
+
+**Défaut 1 — trouvé par la donnée réelle.** Le canevas non modifié revenait avec **232 erreurs**, toutes
+`NoRoster` : la 4ᵉ Pharmacie n'a **aucun groupe** en 2026-2027, et la question « est-il dans un
+groupe ? » était posée avant « cette ligne dit-elle quelque chose ? ». Une promotion non découpée est
+l'état ordinaire, pas un cas limite. **Une ligne qui ne demande rien ne peut pas être fautive, quel que
+soit celui qu'elle nomme** : le contrôle du blanc passe désormais avant tout refus lié à l'étudiant.
+Aucun test unitaire ne pouvait le voir — toutes les fixtures mettaient leurs étudiants dans un roster.
+
+**Défaut 2 — remonté par l'utilisateur pendant le test.** `BadHttpRequestException: Required parameter
+"DateOnly StartDate" was not provided from query string`. Un type valeur non nullable lié depuis la
+query string lève dans le **routage**, donc son propre validateur ne tourne jamais. Balayage des 26
+types `[AsParameters]` : 4 membres sur 3 routes. Corrigés. C'est aussi ce qui a rendu la pile muette —
+une API en pause sous débogueur est indiscernable d'une panne. Détail dans `NOTES.md`.
+
+**Repris après redémarrage, le même jour.** Les deux correctifs sont vérifiés contre la base vivante :
+
+- le canevas non modifié de la 4ᵉ Pharmacie revient désormais **0 erreur, `canApply: true`**, 232
+  lignes `NotPlanned` — et les 2 lignes des étudiants de test, ressorties **pré-remplies**, se lisent
+  `Unchanged`. Réappliqué tel quel : **710 → 710**, l'aller-retour est idempotent sur donnée réelle ;
+- les quatre paramètres obligatoires refusent avec leur phrase (« Indiquez la date à laquelle l'axe
+  commence. », etc.), les contrôles répondent toujours, et plus rien ne lève dans le routage.
+
+**La délocalisation a enfin été éprouvée**, ce qu'aucune session n'avait pu faire : la base ne porte
+**aucun** service `IsExternal` (item 0am). Un service externe a été créé pour le test, puis supprimé.
+Service externe sans motif → `DelocalizationWithoutReason` ; avec motif → une période unique, déjà
+commencée et terminée, statut `Completed`, et le dossier porte `Delocalization` avec le motif — pas
+`AffectationImported`, parce que la ligne passe par `Delocalize`, le même agrégat que l'acte unitaire.
+
+⚠ **Une fausse alerte, notée pour qu'elle ne se reprenne pas** : `GET /students/{id}/parcours` ne
+porte **pas** de tableau `periods` — c'est un résumé (`periodsTotal`, `periodsComplete`). Une lecture
+de `st.periods` y répond « vide » sur un stage qui a bien sa période.
+
+✅ **Nettoyage fait et vérifié** → item **0bq**.
+
+## Session 68 — 2026-09-13 · Téléverser les affectations d'une promotion
+
+**Demandé par l'utilisateur**, en regard du canevas de découpage : un fichier qui porte les affectations
+entières avec leurs périodes, dont le système tire lui-même les périodes, les cohortes et les
+délocalisations — « c'est un peu dangereux », avec un rapport d'erreurs généreux. Quatre décisions lui
+ont été posées avant d'écrire une ligne ; les quatre recommandations ont été retenues.
+
+**Livré** — `PHASES.md` §32, règles complètes dans `docs/affectation-sheet.md`.
+
+- Trois routes : `GET affectations/sheet/template` (le canevas pré-rempli), `POST …/preview` (l'aperçu,
+  n'écrit rien), `POST affectations/sheet` (l'application, tout ou rien, dans une transaction).
+- `InternshipAssignment.DeclareRotation` — l'agrégat qui remplace une rotation par celle qu'un humain a
+  déclarée, refuse sur une note, et recalcule note et statut derrière lui.
+  `HistoryType.AffectationImported` pour le dossier, `AFFECTATION_SHEET_APPLIED` pour le registre, avec
+  ce qui a réellement été détruit dans le constat.
+- **38 tests neufs, 1 918 verts** : 23 de handler, 9 par le vrai pipeline HTTP (dont l'aller-retour
+  complet téléchargement → édition du classeur → téléversement), 6 cas de traduction SQL. Morsure
+  vérifiée sur les trois gardes qui comptent — la note, et les deux nombres confirmés.
+
+**Le défaut que seul le pipeline HTTP a vu.** `AffectationSheetPlanner` n'était pas enregistré dans le
+conteneur : les 23 tests de handler étaient verts — ils le construisent à la main — et chaque requête
+réelle répondait **500**. C'est la moitié de l'endpoint qui n'est pas le handler, et c'est exactement ce
+pour quoi `PGSH.Tests/Integration/` existe.
+
+**Ce qui n'est volontairement pas fait** : l'annulation en masse (item **0bp**, demande une migration
+pour marquer le lot) et l'écriture de la grille (décidé hors périmètre : cela ferait du canevas un
+arrangeur, avec les fenêtres à réconcilier sous `SlotOverlapGuard`, qui est niveau-**et**-année).
+
+⚠ **Rien n'a été cliqué** → item **0bo**, `SMOKE-TEST.md` §56. ⚠ **Rien n'a été mesuré sur la base
+vivante** (lecture de production refusée par l'outillage) : aucun chiffre neuf n'a été écrit.
+
+## Session 67 — 2026-09-13 · Une panne qui se lisait comme un défaut
+
+Une panne d'infrastructure — WSL s'est mis à jour de lui-même, la distribution `docker-desktop` s'est
+arrêtée, PostgreSQL avec elle — et **rien dans l'application ne savait le dire**. Les deux items
+ouverts par l'incident (`0bm`, `0bn`) sont faits.
+
+**① Une base injoignable répond 503, avec une phrase.** `GlobalExceptionHandler` rangeait toute
+exception non-`DomainException` dans `_ => 500, « Server failure »` : chaque écran a donc répondu 500
+avec une trace de pile partant de `SyncUserMiddleware`, c'est-à-dire exactement ce qu'un bug aurait
+produit. C'est la même faute que les treize `Error.Problem` triés en session 61, un étage plus bas —
+**un code d'état qui recouvre deux situations sans rapport**.
+
+- ⚠ **Le tri est étroit, parce que l'erreur inverse est pire.** Seule une `DbException` trouvée dans
+  la chaîne peut déclarer la panne, et seulement si elle est `IsTransient` ou porte un échec
+  socket/IO/délai. Un serveur qui a *répondu* « je refuse » — contrainte violée, colonne absente —
+  reste un **500** : classé « service indisponible », un vrai défaut devient un incident
+  d'exploitation que personne ne corrige jamais. Un `IOException` seul (un export qui n'écrit pas)
+  n'est pas une panne de base non plus. Les deux moitiés sont testées.
+- **La phrase voyage dans `detail`**, et le client fait du 503 **la seule exception** au masquage des
+  ≥ 500 : un 500 peut porter n'importe quel interne, un 503 est écrit pour être lu.
+- Le `type` du document de problème était figé sur le paragraphe du 500 ; il suit maintenant le code
+  rendu.
+
+**② La sonde Docker ne porte plus le délai du `pg_dump`.** `ProbeTimeoutSeconds` (10 s) contre
+`TimeoutSeconds` (600 s), et `ProcessRunner.Execution.TimedOut` porte le fait au lieu de le laisser
+relire dans stderr. « Docker n'a pas répondu en 10 s (démarrage ? arrêt ?) » et « Docker ne répond
+pas (le moteur est-il démarré ?) : <ce qu'il a dit> » sont deux gestes différents pour l'opérateur.
+
+**+12 tests** (`PGSH.Tests/Api/`, nouveau dossier — la couche API avait jusqu'ici ses tests dans
+`Integration/` seulement, et ceci n'a besoin d'aucun hôte). **1 880 verts.** Morsure vérifiée sur les
+deux : branche 503 neutralisée → le test du 503 tombe ; drapeau `TimedOut` retiré → le test sur un
+vrai processus tombe.
+
+⚠ **Ce que rien ici ne prouve** : qu'une vraie coupure PostgreSQL lève bien l'exception qu'on
+classe. Il faudrait une base qu'on puisse débrancher — Testcontainers, toujours pas construit.
+
+## Session 66 — 2026-09-12 · Deux ordres de lecture devenus des règles
+
+Deux demandes de la faculté, hors file d'attente, et le même genre de défaut derrière les deux : une
+propriété que personne n'a choisie, installée par la façon dont une requête était écrite.
+
+**① « Le découpage trie par nom de famille, nous voulons que ce soit aléatoire. »** C'était exact.
+`AutoArrangeGroupsCommandHandler` lisait ses candidats `OrderBy(r => r.Student.LastName)` et les
+déposait dans cet ordre, donc les rosters se formaient par tranches de l'alphabet — et un roster
+décide une année entière : la partition, les créneaux, les services, les chefs. Les porteurs d'un
+même nom, qui se suivent par construction, partaient ensemble.
+
+- `RosterDraw` tire (Fisher–Yates) et **ne touche ni le nombre de rosters ni leur taille** : cela
+  reste `RosterCut`, pure, dont l'ordre des tailles est ce qui égalise les colonnes depuis la
+  session 62. Les deux se lisent ensemble.
+- ⚠ **Un mélange muet aurait été pire que le tri** : « pourquoi cet étudiant dans le groupe 41 ? »
+  n'aurait plus jamais eu de réponse. Le numéro du tirage part au registre (`drawSeed`, par
+  `RecordOutcome`, avant le premier `SaveChanges`), et les candidats sont lus dans un ordre **total**
+  (nom, **puis identifiant**) — un numéro posé sur un ordre partiel ne désigne rien, et le nom ne
+  départage pas les homonymes.
+- `PartitionAllocator` n'a **pas** bougé : la place d'un *groupe* dans le tableau est choisie
+  (`Contiguous`), et la tirer au sort rendrait la répartition imprimée illisible.
+- Dit à l'écran — « composition tirée au sort », sous *Groupes → Arrangement automatique*.
+
+**② « Je tape le nom complet et rien ne sort. »** Les sept recherches d'étudiant comparaient le terme
+**entier** à chaque colonne : « Mohamed Alami » n'est ni dans le prénom ni dans le nom, et aucune
+colonne ne porte les deux — donc la saisie la plus naturelle qui existe rendait zéro résultat, sur
+tous les écrans à la fois. Un terme est désormais une **conjonction de mots** (`SearchTerms.Split`,
+cinq au plus, ⚠ ni le tiret ni l'apostrophe ne coupent un nom), et chaque mot doit se retrouver sur
+la **même** personne.
+
+- ⚠ **La règle élargit strictement l'ancienne** — une colonne qui contient la chaîne contient chacun
+  de ses mots — donc aucune saisie qui marchait ne cesse de marcher. Chaque cas nouveau est appairé à
+  ce témoin.
+- **Les colonnes n'étaient pas les mêmes d'un écran à l'autre** (six, cinq, quatre, trois) : un
+  étudiant trouvé par son Apogée depuis la liste ne l'était pas depuis le service où il se tient, ce
+  qui se lit comme une absence du service. Une seule liste désormais, et un seul appel —
+  `StudentSearch.WhereStudentMatches(term, r => r.Student)` — sur les sept écrans, l'export inclus.
+  Les professeurs ont le même (`EmployeeSearch`), le défaut y étant identique.
+- ⚠ **Le vrai risque technique était la composition d'expressions.** Une règle écrite sur `Student`
+  et appliquée à des inscriptions, des périodes et des cellules : la façon naïve est un `Invoke`, que
+  **EF refuse** — sept écrans en 500 d'un coup, avec la suite verte, exactement la famille du défaut
+  du 26/08. `ExpressionComposition.Through` substitue le chemin au paramètre et
+  `SqlTranslationTests` compile les quatre formes employées.
+- L'accent est cherché comme une orthographe **de plus** (« Zoubaïr » retrouve `ZOUBAIR`). L'inverse
+  demande `unaccent` côté base — nouvel item `0bl`.
+
+**+19 tests** (`FullNameSearchTests`, `RosterDrawTests`, 2 cas de traduction ; ⚠ `StudentSearchTests`
+reste tel quel — c'est le témoin que rien de l'ancien comportement n'a bougé, et ses 14 cas passent
+sans modification). **1 868 verts.** Morsure
+vérifiée sur les deux : découpage rendu à l'ordre de lecture → `A_cut_no_longer_follows_the_alphabet`
+tombe ; terme rendu monolithique → 7 cas de recherche tombent, et les témoins d'élargissement tiennent.
+
+⚠ **Rien n'a été mesuré sur la base** cette session : la lecture de production a été refusée par
+l'outillage, donc les deux affirmations qui auraient demandé un chiffre — combien de noms portent un
+accent, combien d'homonymes tombaient dans le même groupe — ne sont **pas** écrites comme des mesures.
+Les défauts eux-mêmes sont lisibles dans le code et couverts par des tests.
 
 ## Session 65 — 2026-09-12 · Six suppressions qui se suivaient sans se tenir
 

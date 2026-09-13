@@ -816,7 +816,7 @@ schema first ».
 | `InternshipStatus` | `Planned`, `Ongoing`, `Completed`, `Evaluated`, `Validated`, `Rejected` | InternshipAssignment |
 | `StageAssignmentResult` | `NonÉvalué`, `Validé`, `NonValidé` | InternshipAssignment |
 | `AttendanceStatus` | `Present`, `Absent`, `JustifiedAbsent`, `Late` | AttendanceRecord |
-| `HistoryType` | `Inscription`, `ValidationStage`, `NonValidation`, `Fraud`, `Revalidation`, `GroupTransfer`, `CohortTransfer`, `Delocalization`, `DelocalizationCancelled`, `StatusChange` | History |
+| `HistoryType` | `Inscription`, `ValidationStage`, `NonValidation`, `Fraud`, `Revalidation`, `GroupTransfer`, `CohortTransfer`, `Delocalization`, `DelocalizationCancelled`, `AffectationImported`, `StatusChange` | History |
 
 ⚠ **`AcademicGroups.LevelId` is nullable and that is load-bearing.** The level-less « Non réparti »
 roster holds every unassigned registration of every promotion — 4 725 of them in 2025-2026 — so a

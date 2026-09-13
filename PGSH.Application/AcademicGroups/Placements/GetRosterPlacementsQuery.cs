@@ -1,4 +1,4 @@
-using PGSH.Application.Abstractions.Messaging;
+﻿using PGSH.Application.Abstractions.Messaging;
 using PGSH.Domain.Stages;
 using PGSH.SharedKernel;
 
@@ -30,8 +30,17 @@ namespace PGSH.Application.AcademicGroups.Placements;
 /// <param name="StageId">Narrows the placement question to one stage — « qui fait <i>ce</i> stage en S1 ? ».</param>
 /// <param name="ServiceId">The service the roster must be placed in. Mutually exclusive with <paramref name="HospitalId"/>.</param>
 /// <param name="HospitalId">The hospital the roster must be placed in. Mutually exclusive with <paramref name="ServiceId"/>.</param>
+/// <remarks>
+/// ⚠ <b><see cref="LevelId"/> is nullable at the boundary and required by the validator, not by the
+/// model binder.</b> A non-nullable value type bound from the query string cannot be omitted: ASP.NET
+/// throws <c>BadHttpRequestException</c> inside routing, <i>before</i>
+/// <c>ValidationPipelineBehavior</c> runs, so the caller gets a bare 400 with no <c>detail</c> and no
+/// <c>errors[]</c> — the client shows its generic sentence and the screen reads as broken rather than
+/// as « choisissez une promotion ». Same shape as the rotation-cycle axis, which is where it was
+/// actually observed on 13/09/2026.
+/// </remarks>
 public sealed record GetRosterPlacementsQuery(
-    int LevelId,
+    int? LevelId,
     int? AcademicYearId = null,
     int? StageId = null,
     int? ServiceId = null,

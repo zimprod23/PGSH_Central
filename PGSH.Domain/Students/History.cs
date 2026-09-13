@@ -31,5 +31,17 @@ public enum HistoryType
     /// </summary>
     DelocalizationCancelled,
 
+    /// <summary>
+    /// The student's rotation on one stage was written from an uploaded canevas rather than produced
+    /// by the planning grid.
+    ///
+    /// <para>⚠ Its own type, and not <see cref="ValidationStage"/> or a metadata flag, because the
+    /// dossier is the only place that can say <b>where these dates come from</b>. A rotation the grid
+    /// published and one a spreadsheet declared look identical afterwards — same périodes, same
+    /// services — and they are not the same fact: the second was decided by a person, outside the
+    /// répartition, and « pourquoi cet étudiant à ces dates ? » has no other answer.</para>
+    /// </summary>
+    AffectationImported,
+
     StatusChange,
 }

@@ -3378,3 +3378,118 @@ réinitialise se serait promené d'une requête à la suivante.
   propriété exacte dont le mécanisme dépend.
 - **`0bd` reste ouvert** : le balayage « un acte auditable atteint-il un `SaveChanges` ? » n'a couvert
   que les handlers qui n'en appelaient jamais.
+
+## ✅ Phase 31 — Trouver une personne, et tirer une composition au sort
+
+**Livré le 12/09/2026**, sur deux demandes de la faculté (`HANDOFF.md` **0bk** pour la vérification à
+l'écran, **0bl** pour la moitié qui reste). Les deux défauts sont de la même famille : une propriété
+que personne n'a choisie, installée par la façon dont une requête était écrite.
+
+### 31.1 — Un terme de recherche est une conjonction de mots
+Les sept recherches d'étudiant comparaient le terme **entier** à chaque colonne, donc « Mohamed
+Alami » — le nom complet, la première chose que l'on tape — ne rendait **personne** : aucune colonne
+ne porte le prénom et le nom à la fois. `SearchTerms.Split` découpe (espaces, virgules,
+points-virgules ; ⚠ ni le tiret ni l'apostrophe, qui appartiennent aux noms), cinq mots au plus, et
+chaque mot doit se retrouver sur la **même** personne.
+
+⚠ **La règle élargit strictement l'ancienne** : une colonne qui contient la chaîne contient chacun de
+ses mots. C'est ce qui rendait le changement sûr, et chaque cas nouveau est appairé à ce témoin dans
+`FullNameSearchTests` ; `StudentSearchTests`, antérieur et intact, tient les cas d'avant.
+
+### 31.2 — Et les colonnes sont les mêmes sur tous les écrans
+Six sur la liste, cinq sur un roster, quatre sur la liste de travail d'un chef, trois sur les occupants
+d'un service : un étudiant trouvé par son Apogée depuis la liste ne l'était **pas** depuis le service
+où il se tient, ce qui se lit comme une absence du service. `StudentSearch.WhereStudentMatches` est
+désormais le seul chemin — nom, prénom, CNE, Apogée, CIN, e-mail — sur les sept écrans et sur
+l'export, et `EmployeeSearch` fait la même chose pour les professeurs.
+
+⚠ **Le risque technique était la composition d'expressions** : une règle écrite sur `Student`,
+appliquée à des inscriptions, des périodes et des cellules. La façon naïve est un `Invoke`, que **EF
+refuse** — sept écrans en 500 d'un coup avec la suite verte. `ExpressionComposition.Through` substitue
+le chemin au paramètre ; `SqlTranslationTests` compile les quatre formes employées.
+
+### 31.3 — La composition des groupes est tirée au sort
+`AutoArrangeGroupsCommandHandler` lisait ses candidats par nom de famille et les déposait dans cet
+ordre : les rosters se formaient par tranches de l'alphabet, et un roster décide une année entière —
+la partition, les créneaux, les services, les chefs. `RosterDraw` tire (Fisher–Yates) et **ne touche
+ni le nombre de rosters ni leur taille** : cela reste `RosterCut`, dont l'ordre des tailles est ce qui
+égalise les colonnes depuis la phase 27.
+
+⚠ **Un mélange muet aurait été un recul par rapport au tri qu'il remplace** : le tri était explicable.
+Le numéro du tirage part au registre (`GROUPS_AUTO_ARRANGED` → `drawSeed`, avant le premier
+`SaveChanges`), et les candidats sont lus dans un ordre **total** — nom, puis identifiant — sans quoi
+ce numéro ne désignerait rien.
+
+### 31.4 — Une panne n'est pas un défaut (13/09/2026)
+Ajouté après l'incident du 13/09 : WSL s'est mis à jour de lui-même, la distribution Docker s'est
+arrêtée et PostgreSQL avec elle. `GlobalExceptionHandler` rangeait toute exception non-`DomainException`
+dans `_ => 500, « Server failure »`, donc **chaque écran** a répondu comme l'aurait fait un bug.
+
+- Une base injoignable répond **503** avec une phrase : la demande n'a rien enregistré, et ce qu'il
+  faut regarder est le serveur de base de données. Le client fait du 503 la **seule** exception au
+  masquage des ≥ 500.
+- ⚠ **Le tri est étroit** : seule une `DbException` de la chaîne peut déclarer la panne, et seulement
+  si elle est transitoire ou porte un échec réseau. Un serveur qui a répondu « je refuse » reste un
+  500 — l'erreur inverse rendrait un vrai défaut invisible.
+- La sonde Docker des sauvegardes cesse de porter le délai du `pg_dump` (10 s contre 600 s), et un
+  délai dépassé est un fait porté (`ProcessRunner.Execution.TimedOut`), pas une chaîne à relire.
+
+### Ce qui reste
+- **Une vraie coupure n'est pas reproductible ici** : que PostgreSQL débranché lève bien l'exception
+  qu'on classe demanderait Testcontainers, toujours pas construit. La classification, elle, est
+  couverte des deux côtés.
+- **L'accent ne se replie que du côté du terme** : « Zoubaïr » retrouve `ZOUBAIR`, l'inverse non.
+  Il faut `unaccent` côté PostgreSQL — extension, colonne générée, migration — et d'abord **une
+  mesure** de combien de noms portent un accent dans la base. Item `0bl`.
+- **`PartitionAllocator` n'a pas bougé**, délibérément : la place d'un *groupe* dans le tableau est
+  choisie (`Contiguous`), et la tirer au sort rendrait la répartition imprimée illisible.
+- **Rien n'a été mesuré sur la base vivante** cette session (lecture de production refusée par
+  l'outillage) : les deux défauts sont lisibles dans le code et couverts par des tests, et aucune
+  affirmation chiffrée n'a été écrite sans mesure.
+
+---
+
+## ✅ Phase 32 — Téléverser les affectations d'une promotion
+
+Demandée par l'utilisateur le 13/09/2026, en regard du canevas de découpage (file d'attente, item 0ba) :
+l'un dit **qui est dans quel groupe**, celui-ci dit **où va chacun et quand**. « C'est un peu dangereux,
+il faut un rapport d'erreurs généreux » — ce sont ses mots, et c'est la forme que l'acte a prise.
+
+**Livré**
+
+- `GET affectations/sheet/template` — le canevas **pré-rempli** : une ligne par (étudiant, stage du
+  niveau), les périodes déjà servies remplies, le reste en blanc. Passe par `ExportWorkbook` /
+  `IExportWorkbookWriter`, comme les autres documents.
+- `POST affectations/sheet/preview` — l'aperçu. N'écrit rien, et **c'est le même planificateur** que
+  l'application : un aperçu calculé d'un côté et une écriture faite de l'autre sont deux règles que rien
+  n'empêche de diverger, et ici la seconde détruirait des périodes.
+- `POST affectations/sheet` — l'application. **Tout ou nothing**, dans une transaction, sous
+  `IAuditTrail.RunAtomicallyAsync`. Crée les cohortes manquantes, les affectations, leurs périodes, et
+  les délocalisations que le fichier déclare.
+- `InternshipAssignment.DeclareRotation` — l'agrégat qui remplace une rotation entière par celle qu'un
+  humain a déclarée, refuse sur une note, et recalcule note et statut derrière lui.
+  `AffectationImportedDomainEvent` → `HistoryType.AffectationImported`.
+- 38 tests neufs : 23 de handler, 9 par le vrai pipeline HTTP (dont l'aller-retour complet
+  téléchargement → édition dans le classeur → téléversement), 6 cas de traduction SQL. Morsure vérifiée
+  sur les trois gardes qui comptent (la note, les deux nombres).
+
+**Les quatre décisions, prises par l'utilisateur le 13/09/2026**
+
+| Question | Décision |
+|---|---|
+| Une affectation qui existe déjà | **Remplacer**, mais jamais par-dessus une note (`AlreadyMarked`). |
+| Écrire aussi la grille ? | **Non** — périodes seules, hors grille. |
+| Portée d'un fichier | **Une promotion, tous ses stages** — (année, niveau). |
+| Comment se déclare une délocalisation | Un **motif** + un service `IsExternal` ; les deux, ou refus. |
+
+**Ce qui n'est pas fait, et pourquoi**
+
+- **Pas d'annulation en masse.** Le fichier corrigé remplace ce qu'il décrit — cela couvre la faute de
+  frappe — mais rien ne retire une affectation qui n'aurait jamais dû exister. Il faudrait marquer le
+  lot, donc une migration. Même forme que l'item 0aw pour la délocalisation. → file d'attente.
+- **Pas d'écriture de la grille.** Écrire les `StageSlot` et les `CohortSlotAssignment` ferait du
+  canevas un arrangeur : il faudrait réconcilier les fenêtres par (stage, année, période) sous
+  `SlotOverlapGuard`, qui est niveau-**et**-année. Décidé hors périmètre.
+- **Rien n'a été cliqué.** `SMOKE-TEST.md` §56.
+
+Règles complètes : [`docs/affectation-sheet.md`](docs/affectation-sheet.md).

@@ -1,4 +1,4 @@
-using FluentValidation;
+﻿using FluentValidation;
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
@@ -48,9 +48,26 @@ public enum AxisColumnUnit
 /// day. Null is accepted only because « quelles fenêtres feraient dix colonnes d'un mois » is a
 /// legitimate question with no promotion behind it.
 /// </param>
+/// <param name="Columns">
+/// How many columns the axis holds. ⚠ <b>Nullable at the boundary, required by the validator</b> — see
+/// <see cref="StartDate"/>.
+/// </param>
+/// <param name="StartDate">
+/// Where the axis begins.
+///
+/// <para>⚠ <b>Nullable here, and refused by the validator rather than by the model binder.</b> A
+/// non-nullable <c>DateOnly</c> bound from the query string cannot be omitted: ASP.NET throws
+/// <c>BadHttpRequestException</c> inside routing, <i>before</i> <c>ValidationPipelineBehavior</c> ever
+/// runs. The caller then gets a bare 400 carrying no <c>detail</c> and no <c>errors[]</c>, so the
+/// client shows its generic sentence and the screen reads as broken rather than as « renseignez une
+/// date » — and the developer gets a first-chance exception that pauses the process. Reported from the
+/// running application on 13/09/2026, from the rotation-cycle screen with the date field cleared.</para>
+///
+/// <para>The rule itself has not moved: a validator states it, in words, like every other refusal.</para>
+/// </param>
 public sealed record GenerateAxisWindowsQuery(
-    int Columns,
-    DateOnly StartDate,
+    int? Columns,
+    DateOnly? StartDate,
     AxisColumnUnit Unit = AxisColumnUnit.Months,
     int Length = 1,
     int? LevelId = null,
@@ -90,7 +107,17 @@ internal sealed class GenerateAxisWindowsQueryValidator : AbstractValidator<Gene
 {
     public GenerateAxisWindowsQueryValidator()
     {
-        RuleFor(x => x.Columns).InclusiveBetween(1, 60);
+        RuleFor(x => x.StartDate).NotNull()
+            .WithMessage("Indiquez la date à laquelle l'axe commence.");
+
+        RuleFor(x => x.Columns).NotNull()
+            .WithMessage("Indiquez le nombre de colonnes de l'axe.");
+
+        // ⚠ On the property itself, not on `.Value`: FluentValidation builds the field name from the
+        // expression, so `x.Columns!.Value` printed « 'Columns Value' must be between 1 and 60 » — a
+        // property name no screen shows and a language nothing else here speaks.
+        RuleFor(x => x.Columns).InclusiveBetween(1, 60).When(x => x.Columns is not null)
+            .WithMessage("Un axe fait de 1 à 60 colonnes.");
         RuleFor(x => x.Unit).IsInEnum();
 
         RuleFor(x => x.Length).InclusiveBetween(1, 12)
@@ -112,6 +139,9 @@ internal sealed class GenerateAxisWindowsQueryHandler(
     public async Task<Result<GeneratedAxisResponse>> Handle(
         GenerateAxisWindowsQuery request, CancellationToken cancellationToken)
     {
+        // Guaranteed by GenerateAxisWindowsQueryValidator, which the pipeline runs before this.
+        (DateOnly startDate, int wanted) = (request.StartDate!.Value, request.Columns!.Value);
+
         var year = await yearResolver.ResolveAsync(request.AcademicYearId, cancellationToken);
         if (year.IsFailure)
             return Result.Failure<GeneratedAxisResponse>(year.Error);
@@ -122,14 +152,14 @@ internal sealed class GenerateAxisWindowsQueryHandler(
         var calendar = await workingDays.ForPromotionAsync(year.Value, request.LevelId, cancellationToken);
 
         var windows = request.Unit == AxisColumnUnit.WorkingDays
-            ? calendar.LaySeries(request.StartDate, request.Columns, request.Length)
+            ? calendar.LaySeries(startDate, wanted, request.Length)
                 .Select(w => (w.Start, w.End))
                 .ToList()
-            : Calendrical(request.StartDate, request.Columns, request.Unit, request.Length);
+            : Calendrical(startDate, wanted, request.Unit, request.Length);
 
-        if (windows.Count < request.Columns)
+        if (windows.Count < wanted)
             return Result.Failure<GeneratedAxisResponse>(RotationCycleErrors.AxisDoesNotFit(
-                request.Columns, windows.Count));
+                wanted, windows.Count));
 
         var columns = windows
             .Select((w, i) => Column(i + 1, w.Start, w.End, calendar))

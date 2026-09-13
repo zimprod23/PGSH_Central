@@ -5,6 +5,7 @@ using PGSH.Application.AcademicYears;
 using PGSH.Application.Extensions;
 using PGSH.Domain.Registrations;
 using PGSH.SharedKernel;
+using PGSH.Application.Students.Search;
 
 namespace PGSH.Application.Students.Registrations.Holds;
 
@@ -54,18 +55,7 @@ internal sealed class GetRegistrationHoldsQueryHandler(
 
         var query = ScopedQuery(dbContext, year.Value, request.Reason, request.Filter);
 
-        // ⚠ Every field lowered, not just the first. Appogee was case-sensitive for months because one
-        // side of the comparison was left alone, so « ap2200a » never found AP2200A.
-        if (!string.IsNullOrWhiteSpace(request.SearchTerm))
-        {
-            string term = request.SearchTerm.Trim().ToLower();
-
-            query = query.Where(h =>
-                h.Registration.Student.LastName.ToLower().Contains(term) ||
-                h.Registration.Student.FirstName.ToLower().Contains(term) ||
-                (h.Registration.Student.CNE != null && h.Registration.Student.CNE.ToLower().Contains(term)) ||
-                (h.Registration.Student.Appogee != null && h.Registration.Student.Appogee.ToLower().Contains(term)));
-        }
+        query = query.WhereStudentMatches(request.SearchTerm, h => h.Registration.Student);
 
         return await query
             // Oldest first: a hold that has been waiting longest is the one most likely to be holding

@@ -9,6 +9,7 @@ using PGSH.Domain.Registrations;
 using PGSH.Domain.Students;
 using PGSH.Domain.Users;
 using PGSH.SharedKernel;
+using PGSH.Application.Students.Search;
 
 namespace PGSH.Application.Students.Export;
 
@@ -220,18 +221,10 @@ internal sealed class GetStudentsExportQueryHandler(
         if (status is { } wantedStatus)
             query = query.Where(r => r.Status == wantedStatus);
 
-        if (!string.IsNullOrWhiteSpace(searchTerm))
-        {
-            // Same shape as every other search handler: trimmed, lowered on *both* sides, and
-            // applied to every field in the predicate — one field left un-lowered is a silent bug.
-            string term = searchTerm.Trim().ToLower();
-            query = query.Where(r =>
-                r.Student.FirstName.ToLower().Contains(term) ||
-                r.Student.LastName.ToLower().Contains(term) ||
-                (r.Student.CNE ?? "").ToLower().Contains(term) ||
-                r.Student.Appogee.ToLower().Contains(term) ||
-                (r.Student.CIN != null && r.Student.CIN.ToLower().Contains(term)));
-        }
+        // ⚠ La même règle que la liste, par le même appel : le fichier doit contenir ce que
+        // l'écran d'où on l'a téléchargé montrait, et deux rédactions de la recherche sont deux
+        // occasions de ne pas être d'accord. Voir StudentSearch.
+        query = query.WhereStudentMatches(searchTerm, r => r.Student);
 
         return query
             .OrderBy(r => r.Level.AcademicProgram)

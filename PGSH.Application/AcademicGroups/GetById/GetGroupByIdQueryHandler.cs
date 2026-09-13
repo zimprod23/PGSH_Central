@@ -4,6 +4,7 @@ using PGSH.Application.Abstractions.Messaging;
 using PGSH.Application.Extensions;
 using PGSH.Domain.Registrations;
 using PGSH.SharedKernel;
+using PGSH.Application.Students.Search;
 
 namespace PGSH.Application.AcademicGroups.GetById;
 
@@ -43,16 +44,7 @@ internal sealed class GetGroupByIdQueryHandler(IApplicationDbContext dbContext)
             .AsNoTracking()
             .Where(r => r.AcademicGroupId == request.Id);
 
-        if (!string.IsNullOrWhiteSpace(request.SearchTerm))
-        {
-            string term = request.SearchTerm.Trim().ToLower();
-            roster = roster.Where(r =>
-                (r.Student.FirstName ?? "").ToLower().Contains(term)
-             || (r.Student.LastName ?? "").ToLower().Contains(term)
-             || (r.Student.CNE ?? "").ToLower().Contains(term)
-             || (r.Student.Appogee ?? "").ToLower().Contains(term)
-             || (r.Student.Email ?? "").ToLower().Contains(term));
-        }
+        roster = roster.WhereStudentMatches(request.SearchTerm, r => r.Student);
 
         var students = await roster
             .OrderBy(r => r.Student.LastName)

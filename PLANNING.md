@@ -1,4 +1,4 @@
-# Planning a promotion's year
+﻿# Planning a promotion's year
 
 How the répartition annuelle is built: what identifies a roster, the arithmetic that decides the
 shape of the crossover, and the steps to produce a document like
@@ -236,6 +236,11 @@ Order matters: the rotation cycle reads the partition labels, so they must exist
   reading « −231 places » is a faculty decision that is cheaper now than at the publish button.
 - **Rosters exist** — *Académique → Groupes → Répartition automatique* distributes students who have
   no group. Groups are created per (year, promotion) and numbered from 1.
+  - ⚠ **Who lands in which roster is drawn at random** (12/09/2026), not read off the alphabet as it
+    used to be — so a re-cut of the same promotion gives a *different* composition, and there is no
+    way to reproduce a previous one from the screen. The draw number is in the register
+    (`GROUPS_AUTO_ARRANGED` → `drawSeed`). The **shape** is unchanged: same number of rosters, same
+    sizes, dealt the same way. See [`docs/planning-rosters.md`](docs/planning-rosters.md).
 - **Each stage has allowed services** — *Formation → Stages → «stage» → Services autorisés*. Without
   them the plan refuses with `Schedule.NoAllowedServices`. The 6th year's 51 were authored 2026-08-24
   and it has been planned end to end since (see §9).
@@ -597,3 +602,30 @@ un plan déjà écrit ne bouge pas. L'acte est journalisé (`STAGE_SERVICE_ORDER
 supprime et réécrit toute cellule non publiée à sa portée, sans refus et sans compte : le placement
 disparaît et la répartition a l'air normale. Publier cohorte par cohorte, pas « Publier tout », tant
 que `PHASES.md` §19.2 (le marqueur d'épinglage) n'est pas livré.
+
+---
+
+## La voie parallèle : téléverser la répartition au lieu de la générer (13/09/2026)
+
+Tout ce qui précède décrit la répartition **produite** : poser l'axe, provisionner les cohortes,
+arranger, publier. Depuis la phase 32 il existe une seconde voie, pour la faculté qui a déjà planifié
+dans un tableur : **le canevas des affectations**.
+
+```
+①  Découper la promotion en rosters        (tirage, ou canevas de découpage — item 0ba)
+②  GET  affectations/sheet/template        → le canevas, pré-rempli
+③  Le remplir dans Excel                   (service, début, fin ; motif si hors faculté)
+④  POST affectations/sheet/preview         → l'aperçu, ligne par ligne
+⑤  POST affectations/sheet                 → avec les DEUX nombres de l'aperçu
+```
+
+⚠ **① n'est pas facultatif** : une ligne dont l'étudiant n'est dans aucun roster est refusée
+(`NoRoster`), parce qu'il n'y a pas de cohorte où accrocher l'affectation.
+
+⚠ **Les deux voies ne se mélangent pas bien, et il faut le savoir avant de choisir.** Ce que le canevas
+écrit est **hors grille** : pas de cellule, donc rien dans le planning, rien dans la charge que la
+grille affiche, et « dépublier » ne le reprend pas. Écraser avec un fichier une répartition déjà
+publiée est possible, compté à part (`PublishedPeriodsToDrop`) et annoncé — mais **republier ne la
+rétablira pas**, parce que la publication saute toute affectation qui porte déjà une période.
+
+Choisissez la voie par promotion, pas par stage. Détail : [`docs/affectation-sheet.md`](docs/affectation-sheet.md).

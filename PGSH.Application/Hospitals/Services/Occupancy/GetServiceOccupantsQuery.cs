@@ -5,6 +5,7 @@ using PGSH.Application.Extensions;
 using PGSH.Domain.Hospitals;
 using PGSH.Domain.Registrations;
 using PGSH.SharedKernel;
+using PGSH.Application.Students.Search;
 
 namespace PGSH.Application.Hospitals.Services.Occupancy;
 
@@ -87,14 +88,7 @@ internal sealed class GetServiceOccupantsQueryHandler(IApplicationDbContext dbCo
         if (request.StageId is { } stageId)
             query = query.Where(x => x.StageId == stageId);
 
-        if (!string.IsNullOrWhiteSpace(request.SearchTerm))
-        {
-            string term = request.SearchTerm.Trim().ToLower();
-            query = query.Where(x =>
-                x.Student.FirstName.ToLower().Contains(term)
-                || x.Student.LastName.ToLower().Contains(term)
-                || (x.Student.CNE != null && x.Student.CNE.ToLower().Contains(term)));
-        }
+        query = query.WhereStudentMatches(request.SearchTerm, x => x.Student);
 
         var response = await query
             .OrderBy(x => x.LevelLabel)

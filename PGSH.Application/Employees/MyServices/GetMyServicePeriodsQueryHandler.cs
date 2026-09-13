@@ -6,6 +6,7 @@ using PGSH.Application.Extensions;
 using PGSH.Application.Stages.ServicePeriods;
 using PGSH.Domain.Stages;
 using PGSH.SharedKernel;
+using PGSH.Application.Students.Search;
 
 namespace PGSH.Application.Employees.MyServices;
 
@@ -94,18 +95,10 @@ internal sealed class GetMyServicePeriodsQueryHandler(
 
         // ⚠ Server-side, because the list is now a page. Searching the fetched rows only — which is
         // all a client can do — silently answers "not in this service" for a student who is simply
-        // on page 3, and the chef has no way to tell the two apart. Lower-cased on both sides for
-        // every field in the predicate: one field left un-lowered is a search that works for some
-        // students and not others.
-        if (!string.IsNullOrWhiteSpace(searchTerm))
-        {
-            string term = searchTerm.Trim().ToLower();
-            query = query.Where(p =>
-                (p.InternshipAssignment.Registration.Student.FirstName ?? "").ToLower().Contains(term) ||
-                (p.InternshipAssignment.Registration.Student.LastName ?? "").ToLower().Contains(term) ||
-                (p.InternshipAssignment.Registration.Student.CNE ?? "").ToLower().Contains(term) ||
-                p.InternshipAssignment.Registration.Student.Appogee.ToLower().Contains(term));
-        }
+        // on page 3, and the chef has no way to tell the two apart. What a term *means* — the words,
+        // the columns, the casing — is StudentSearch's, shared with the six other screens that look
+        // for a student: this one used to search four columns where the list searched six.
+        query = query.WhereStudentMatches(searchTerm, p => p.InternshipAssignment.Registration.Student);
 
         // ⚠ The year a rotation belongs to is READ, never inferred from its dates.
         //

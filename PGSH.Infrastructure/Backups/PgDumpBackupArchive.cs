@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -87,9 +87,9 @@ internal sealed class PgDumpBackupArchive(
             return new BackupArchiveProbe(false, Directory, $"dossier inaccessible ({ex.Message})");
         }
 
-        var docker = await RunDockerAsync(["version", "--format", "{{.Server.Version}}"], cancellationToken);
+        var docker = await ProbeDockerAsync(["version", "--format", "{{.Server.Version}}"], cancellationToken);
         if (!docker.Succeeded)
-            return new BackupArchiveProbe(false, Directory, "Docker ne répond pas (le moteur est-il démarré ?)");
+            return new BackupArchiveProbe(false, Directory, DockerProbeFailure(docker, ProbeTimeout));
 
         if (!string.IsNullOrWhiteSpace(_options.ContainerName))
         {
@@ -133,7 +133,9 @@ internal sealed class PgDumpBackupArchive(
     /// </summary>
     private async Task<List<string>> DiscoverContainersAsync(CancellationToken cancellationToken)
     {
-        var listed = await RunDockerAsync(
+        // La découverte fait partie de la sonde, donc elle en a le délai : « quels conteneurs
+        // tournent » est une question à laquelle un moteur vivant répond tout de suite.
+        var listed = await ProbeDockerAsync(
             ["ps", "--filter", "status=running", "--format", "{{.Names}}\t{{.Image}}"],
             cancellationToken);
 
@@ -367,14 +369,44 @@ internal sealed class PgDumpBackupArchive(
             builder.Database ?? "postgres");
     }
 
+    /// <summary>Le travail — dumper, copier, restaurer. Délai du dump.</summary>
     private Task<ProcessRunner.Execution> RunDockerAsync(
         IEnumerable<string> arguments, CancellationToken cancellationToken) =>
+        RunDockerAsync(arguments, TimeSpan.FromSeconds(_options.TimeoutSeconds), cancellationToken);
+
+    /// <summary>
+    /// La sonde — « y a-t-il un moteur, et quel conteneur est le nôtre ». ⚠ <b>Son délai n'est pas
+    /// celui du dump</b> : voir <see cref="BackupOptions.ProbeTimeoutSeconds"/>.
+    /// </summary>
+    private Task<ProcessRunner.Execution> ProbeDockerAsync(
+        IEnumerable<string> arguments, CancellationToken cancellationToken) =>
+        RunDockerAsync(arguments, ProbeTimeout, cancellationToken);
+
+    private TimeSpan ProbeTimeout => TimeSpan.FromSeconds(_options.ProbeTimeoutSeconds);
+
+    private Task<ProcessRunner.Execution> RunDockerAsync(
+        IEnumerable<string> arguments, TimeSpan timeout, CancellationToken cancellationToken) =>
         ProcessRunner.RunAsync(
             _options.DockerPath,
             arguments,
-            TimeSpan.FromSeconds(_options.TimeoutSeconds),
+            timeout,
             environment: null,
             cancellationToken);
+
+    /// <summary>
+    /// Ce que la sonde dit quand Docker ne répond pas.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ <b>Les deux cas envoient l'opérateur à des endroits différents</b> : un moteur arrêté se
+    /// démarre, un moteur qui n'a pas répondu en dix secondes est en train de démarrer ou de
+    /// s'arrêter et il faut attendre. Une seule phrase pour les deux serait un blanc recouvrant deux
+    /// états, et celui qui la lit ne pourrait pas savoir lequel il regarde.
+    /// </remarks>
+    internal static string DockerProbeFailure(ProcessRunner.Execution execution, TimeSpan timeout) =>
+        execution.TimedOut
+            ? $"Docker n'a pas répondu en {timeout.TotalSeconds:0} s "
+              + "(le moteur est-il en train de démarrer, ou de s'arrêter ?)"
+            : $"Docker ne répond pas (le moteur est-il démarré ?) : {execution.Reason}";
 
     private async Task<BackupManifest?> ReadManifestAsync(string path, CancellationToken cancellationToken)
     {

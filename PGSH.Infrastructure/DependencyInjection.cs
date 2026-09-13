@@ -4,6 +4,7 @@ using PGSH.Application.Exports;
 using PGSH.Application.Stages.Evaluations.Import;
 using PGSH.Application.Students.Registrations.Deliberation;
 using PGSH.Application.Students.Registrations.Inscription;
+using PGSH.Application.Stages.InternshipAssignments.Sheet;
 using PGSH.Application.Students.Registrations.ReinscriptionSheet;
 using PGSH.Application.Backups;
 using PGSH.Infrastructure.Authentication;
@@ -11,6 +12,7 @@ using PGSH.Infrastructure.Backups;
 using PGSH.Infrastructure.Evaluations;
 using PGSH.Infrastructure.Exports;
 using PGSH.Infrastructure.Registrations;
+using PGSH.Infrastructure.Stages;
 using PGSH.Infrastructure.Authorization;
 using PGSH.Infrastructure.Database;
 using PGSH.Infrastructure.Time;
@@ -42,6 +44,7 @@ public static class DependencyInjection
         services.AddSingleton<IDeliberationSheetParser, ClosedXmlDeliberationSheetParser>();
         services.AddSingleton<IInscriptionSheetParser, ClosedXmlInscriptionSheetParser>();
         services.AddSingleton<IReinscriptionSheetParser, ClosedXmlReinscriptionSheetParser>();
+        services.AddSingleton<IAffectationSheetParser, ClosedXmlAffectationSheetParser>();
         services.AddSingleton<IExportWorkbookWriter, ClosedXmlExportWorkbookWriter>();
         return services;
     }

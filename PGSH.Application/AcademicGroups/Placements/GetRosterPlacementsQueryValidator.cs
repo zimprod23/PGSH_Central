@@ -1,4 +1,4 @@
-using FluentValidation;
+﻿using FluentValidation;
 
 namespace PGSH.Application.AcademicGroups.Placements;
 
@@ -11,8 +11,18 @@ public sealed class GetRosterPlacementsQueryValidator : AbstractValidator<GetRos
 {
     public GetRosterPlacementsQueryValidator()
     {
+        // ⚠ Two rules, two messages. `.WithMessage` attaches to the validator immediately before it,
+        // so chaining one message onto NotNull().GreaterThan(0) leaves the null case falling back to
+        // FluentValidation's default — « 'Level Id' ne doit pas avoir la valeur null », which names a
+        // property and no remedy.
+        RuleFor(x => x.LevelId)
+            .NotNull()
+            .WithMessage("La promotion est obligatoire : un numéro de groupe sans sa promotion "
+                       + "n'identifie rien.");
+
         RuleFor(x => x.LevelId)
             .GreaterThan(0)
+            .When(x => x.LevelId is not null)
             .WithMessage("La promotion est obligatoire : un numéro de groupe sans sa promotion "
                        + "n'identifie rien.");
 

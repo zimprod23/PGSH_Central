@@ -385,6 +385,46 @@ anything saying what was lost.
 runs, so thirteen rosters numbered 48-60 print « 48-60 » and the same thirteen scattered through the
 promotion print as a spray of singletons.
 
+## ✅ Qui va dans quel groupe est **tiré au sort** (12/09/2026)
+
+Demandé par la faculté : « quand on découpe les étudiants en groupes, je crois que vous les triez par
+nom de famille ; nous voulons que ce soit aléatoire ». C'était exact, et ce n'était pas un choix.
+
+`AutoArrangeGroupsCommandHandler` lisait ses candidats `OrderBy(r => r.Student.LastName)` et les
+déposait dans cet ordre, donc les rosters se formaient par **tranches de l'alphabet** : une promotion
+coupée en 100 groupes donnait Groupe 1 = les dix premiers noms de la liste, Groupe 2 = les dix suivants,
+et ainsi de suite. ⚠ **Le rang alphabétique d'un étudiant décidait donc son année entière** — son roster
+décide sa partition, sa partition décide ses créneaux, ses créneaux décident ses services et ses chefs.
+Et les porteurs d'un même nom se suivaient par construction, donc ils partaient dans le même groupe.
+(Propriété du code, lisible sans mesure : c'est le `OrderBy` suivi d'un `Skip`/`Take` par roster.)
+
+**Le tirage vit dans `RosterDraw`** (`Application/AcademicGroups/Manage/`), à côté de `RosterCut` et
+séparé de lui pour une raison :
+
+- ⚠ **`RosterCut` dit la *forme* de la coupe, `RosterDraw` dit l'*ordre* dans lequel on y dépose les
+  gens.** Le tirage ne change ni le nombre de rosters ni leur taille — ni, par conséquent, l'équilibre
+  des colonnes que **②ter** ci-dessous a gagné. C'est vérifié sur le handler (`RosterDrawTests`), parce
+  que c'est exactement le genre de propriété qu'un mélange emporte sans le dire.
+- ⚠ **Un tirage est une permutation.** Perdre ou dupliquer une inscription se lirait comme une
+  promotion d'une autre taille, sans que rien ne le signale : Fisher–Yates, la liste d'entrée n'est pas
+  touchée, et le test le pose comme la propriété première.
+- ⚠ **Reproductible, donc explicable.** Un acte qui mélange sans rien dire rend « pourquoi cet étudiant
+  dans le groupe 41 ? » définitivement sans réponse. Le numéro du tirage est déposé au registre par le
+  handler — `IAuditTrail.RecordOutcome(("drawSeed", …))`, **avant** son premier `SaveChanges`, donc
+  avant que l'entrée ne soit validée — et les candidats sont lus dans un ordre **total** (nom, puis
+  identifiant) pour que ce numéro désigne encore quelque chose. Ce n'est pas une promesse de rejouer la
+  coupe : les candidats d'un jour ne sont pas ceux du lendemain.
+- **Les signalements passent avant le tirage, pas après** : une inscription gelée reste écartée
+  nommément, avec l'évidence sur laquelle le drapeau a été levé (`RosterCutByCountTests`).
+- **Et c'est dit à l'écran** — « composition tirée au sort », sous *Groupes → Arrangement automatique*.
+  Une propriété de l'acte que l'opérateur ne peut pas deviner et qu'il ne peut pas vérifier à l'œil sur
+  100 rosters.
+
+⚠ **Ce que cela ne touche pas** : `PartitionAllocator`, qui distribue les *rosters* entre partitions.
+Là l'ordre est **choisi** (`Contiguous`, et la faculté ne s'en sert pas autrement) — les blocs de
+numéros sont ce que la répartition imprime, et les rendre aléatoires rendrait le tableau illisible.
+Le hasard porte sur la composition d'un groupe, jamais sur la place d'un groupe dans le tableau.
+
 ## ✅ Deux façons de nommer une découpe, et une seule forme correcte (11/09/2026)
 
 `RosterCut` (`Application/AcademicGroups/Manage/`) — arithmétique pure, sans magasin ni horloge, donc
@@ -636,3 +676,19 @@ nothing to repair.
     `SetCohortSlotAssignmentCommandHandler` refuses on « the cohorte holds a grid-linked période ».
     What the cell flag does add is the pre-flight refusal on **clearing** a published cell, which
     `ClearCohortSlotAssignmentCommandHandler` was already refusing server-side.
+
+## Deux canevas, dans cet ordre (13/09/2026)
+
+Le découpage vient **avant** les affectations, et le code le dit plutôt que de le supposer : une ligne
+du canevas des affectations dont l'étudiant n'est dans aucun roster est refusée (`NoRoster`), parce
+qu'il n'y a pas de cohorte où accrocher l'affectation.
+
+- **« qui est dans quel groupe »** → le canevas de découpage (file d'attente, item 0ba) ;
+- **« où va chacun et quand »** → le canevas des affectations,
+  [`affectation-sheet.md`](affectation-sheet.md).
+
+⚠ Le second **crée les cohortes** dont il a besoin — une par (roster, stage) — et les compte à part sur
+l'aperçu, pour la même raison que le premier compte « groupes à créer » à part : un tableur qui fait
+naître des lignes que personne n'a autorisées mérite sa propre ligne sur la confirmation. La cohorte
+créée porte le libellé de son roster, exactement comme `CohortProvisioner` l'écrit — une cohorte née
+d'un fichier ne doit pas être reconnaissable dans les listes.

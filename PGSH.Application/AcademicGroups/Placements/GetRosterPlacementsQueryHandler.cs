@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
 using PGSH.Application.AcademicYears;
@@ -18,6 +18,9 @@ internal sealed class GetRosterPlacementsQueryHandler(
     public async Task<Result<RosterPlacementsResponse>> Handle(
         GetRosterPlacementsQuery request, CancellationToken cancellationToken)
     {
+        // Guaranteed by GetRosterPlacementsQueryValidator, which the pipeline runs before this.
+        int levelId = request.LevelId!.Value;
+
         // Rosters are year-constituted and cells hang off them, so the year is not optional here. An
         // omitted one is the current one, never all of them: unscoped, a promotion returns every year
         // it ever ran and « ce groupe va au HMIMV » would be true of a roster dissolved in 2019.
@@ -34,17 +37,17 @@ internal sealed class GetRosterPlacementsQueryHandler(
         // check, and that is the weaker behaviour, not the pattern to copy.
         var level = await dbContext.Levels
             .AsNoTracking()
-            .Where(l => l.Id == request.LevelId)
+            .Where(l => l.Id == levelId)
             .Select(l => new { l.Id })
             .FirstOrDefaultAsync(cancellationToken);
 
         if (level is null)
-            return Result.Failure<RosterPlacementsResponse>(LevelErrors.NotFound(request.LevelId));
+            return Result.Failure<RosterPlacementsResponse>(LevelErrors.NotFound(levelId));
 
         var target = new PlacementTarget(request.ServiceId, request.HospitalId);
 
         var matching = MatchingRostersQuery(
-            dbContext, academicYearId, request.LevelId,
+            dbContext, academicYearId, levelId,
             request.StageId, request.ServiceId, request.HospitalId, request.Match);
 
         var page = await matching.ToPaginatedResponseAsync(
@@ -77,11 +80,11 @@ internal sealed class GetRosterPlacementsQueryHandler(
             .ToList();
 
         var summary = await BuildSummaryAsync(
-            academicYearId, request.LevelId, page.TotalCount, cancellationToken);
+            academicYearId, levelId, page.TotalCount, cancellationToken);
 
         return new RosterPlacementsResponse(
             academicYearId,
-            request.LevelId,
+            levelId,
             new PaginatedResponse<RosterPlacementResponse>(
                 rosters, page.PageNumber, page.PageSize, page.TotalCount),
             summary);

@@ -21,7 +21,14 @@ namespace PGSH.Infrastructure.Backups;
 /// </remarks>
 internal static class ProcessRunner
 {
-    public sealed record Execution(int ExitCode, string StandardOutput, string StandardError)
+    /// <param name="TimedOut">
+    /// ⚠ <b>Porté à part, jamais relu dans le texte de stderr.</b> « le programme a refusé » et « le
+    /// programme n'a pas répondu » appellent deux phrases différentes à l'écran, et un appelant qui
+    /// doit reconnaître la seconde en cherchant « délai dépassé » dans une chaîne la manquera le jour
+    /// où cette chaîne changera.
+    /// </param>
+    public sealed record Execution(
+        int ExitCode, string StandardOutput, string StandardError, bool TimedOut = false)
     {
         public bool Succeeded => ExitCode == 0;
 
@@ -91,7 +98,8 @@ internal static class ProcessRunner
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             TryKill(process);
-            return new Execution(-1, stdout.ToString(), $"délai dépassé après {timeout.TotalSeconds:0} s");
+            return new Execution(
+                -1, stdout.ToString(), $"délai dépassé après {timeout.TotalSeconds:0} s", TimedOut: true);
         }
         catch (OperationCanceledException)
         {

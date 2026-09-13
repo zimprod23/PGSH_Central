@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Employees.MyServices;
 using PGSH.Application.AcademicGroups;
@@ -38,6 +38,8 @@ using PGSH.Domain.Registrations;
 using PGSH.Infrastructure.Database;
 using Xunit;
 using PGSH.Application.Students.Selection;
+using PGSH.Application.Students.Search;
+using PGSH.Application.Stages.InternshipAssignments.Sheet;
 
 namespace PGSH.Tests.Application;
 
@@ -1365,5 +1367,177 @@ public class SqlTranslationTests
             .AxisQuery(db, stageId: 7, academicYearId: 2).ToQueryString();
         axis.Should().Contain("StageSlots");
         axis.Should().Contain("AcademicYearId");
+    }
+
+    /// <summary>
+    /// La recherche d'étudiant partagée, sur chacune des formes de requête qui l'appliquent.
+    /// </summary>
+    /// <remarks>
+    /// <para>⚠ <b>C'est une expression recousue, pas une expression écrite sur place.</b> La règle
+    /// est écrite une fois sur <c>Student</c>, puis le chemin vers l'étudiant est <i>substitué</i> à
+    /// son paramètre — voir <c>ExpressionComposition</c>. La façon naïve de faire la même chose est
+    /// d'appeler le prédicat dans une autre expression, et EF <b>refuse</b> l'<c>Invoke</c> qui en
+    /// résulte : sept écrans seraient devenus des 500 d'un coup, avec toute la suite verte. C'est
+    /// exactement le trou que ce fichier existe pour couvrir.</para>
+    ///
+    /// <para>Les trois premières formes sont celles des handlers, mot pour mot. La quatrième est la
+    /// forme des occupants d'un service — un <c>SelectMany</c> qui projette un type anonyme portant
+    /// l'étudiant — reproduite ici parce que la requête du handler n'est pas nommée : elle dit que la
+    /// composition tient sur un paramètre qui n'est pas une entité, ce que les trois autres ne
+    /// disent pas.</para>
+    /// </remarks>
+    [Fact]
+    public void The_shared_student_search_compiles_to_sql_on_every_shape_that_applies_it()
+    {
+        using var db = TestHarness.NewNpgsqlContext();
+
+        string students = db.Students
+            .WhereStudentMatches("mohamed alami", s => s)
+            .ToQueryString();
+
+        students.Should().Contain("lower", "les deux côtés de la comparaison sont abaissés");
+        students.Should().Contain("LIKE", "un Contains traduit, donc rien n'est évalué côté client");
+        students.Should().Contain("COALESCE", "les colonnes facultatives sont protégées du null");
+
+        db.Registrations
+            .WhereStudentMatches("mohamed alami", r => r.Student)
+            .ToQueryString()
+            .Should().Contain("Registrations");
+
+        db.ServicePeriods
+            .WhereStudentMatches("mohamed alami", p => p.InternshipAssignment.Registration.Student)
+            .ToQueryString()
+            .Should().Contain("ServicePeriods");
+
+        db.CohortSlotAssignments
+            .SelectMany(a => a.Cohort.Assignments.Select(x => new { x.Registration.Student, a.Cohort.StageId }))
+            .WhereStudentMatches("mohamed alami", x => x.Student)
+            .ToQueryString()
+            .Should().Contain("CohortSlotAssignments");
+    }
+
+    /// <summary>
+    /// ⚠ <b>Un accent ajoute une orthographe, donc un étage de plus au même prédicat</b> — et c'est
+    /// toujours du SQL. Le repli se fait sur le <i>terme</i>, en mémoire ; rien n'appelle une
+    /// fonction .NET dans le <c>Where</c>, ce qui est la façon dont cette famille casse.
+    /// </summary>
+    [Fact]
+    public void An_accented_term_still_compiles_to_sql()
+    {
+        using var db = TestHarness.NewNpgsqlContext();
+
+        db.Students
+            .WhereStudentMatches("zoubaïr", s => s)
+            .ToQueryString()
+            .Should().Contain("zoubair", "l'orthographe sans accent voyage comme une constante SQL");
+    }
+
+    // ─── Le canevas des affectations ──────────────────────────────────────────
+    //
+    // ⚠ Balayé en entier dès le premier jour, et pas après coup. Cet acte écrit les enregistrements
+    // d'exécution d'une promotion entière : une requête qui ne compile pas ne coûte pas un écran vide,
+    // elle coûte un 500 au milieu d'un téléversement que quelqu'un vient de confirmer. Ses lectures ont
+    // exactement la forme qui a tué le macro-plan — des périodes rattachées à une affectation — et
+    // c'est pourquoi elles sont plates et jointes en mémoire plutôt que repliées dans la projection.
+
+    [Fact]
+    public void The_sheet_reads_the_promotion_in_one_query()
+    {
+        using var db = TestHarness.NewNpgsqlContext();
+
+        AffectationSheetPlanner.RegistrationsQuery(db, TestHarness.CurrentYearId, TestHarness.LevelId)
+            .ToQueryString()
+            .Should().Contain("Registrations");
+    }
+
+    /// <summary>
+    /// ⚠ <b>La règle des signalements passe par son expression, dans un <c>Where</c></b> — le seul
+    /// endroit où une collection s'agrège sans rencontrer la forme que Npgsql refuse. C'est un
+    /// <c>EXISTS</c>, et la <c>HashSet.Contains</c> sur les raisons bloquantes voyage avec lui.
+    /// </summary>
+    [Fact]
+    public void The_sheet_asks_who_is_frozen_through_the_hold_policy()
+    {
+        using var db = TestHarness.NewNpgsqlContext();
+
+        AffectationSheetPlanner.HeldRegistrationIdsQuery(db, TestHarness.CurrentYearId, TestHarness.LevelId)
+            .ToQueryString()
+            .Should().Contain("EXISTS");
+    }
+
+    /// <summary>
+    /// ⚠ <b>La requête qui aurait pu répéter la faute du macro-plan.</b> Les périodes d'une affectation
+    /// sont une collection ; repliées dans la projection des affectations, elles donnent « Unable to
+    /// translate a collection subquery in a projection ». Elles sont donc lues à plat, par leur propre
+    /// requête de premier niveau, et rassemblées en mémoire sur la clé de l'affectation.
+    /// </summary>
+    [Fact]
+    public void The_sheet_reads_existing_periods_flat_rather_than_folded()
+    {
+        using var db = TestHarness.NewNpgsqlContext();
+        Guid[] registrations = [Guid.NewGuid()];
+        int[] stages = [TestHarness.StageId];
+
+        AffectationSheetPlanner.ExistingAffectationsQuery(db, registrations, stages)
+            .ToQueryString()
+            .Should().Contain("InternshipAssignments");
+
+        AffectationSheetPlanner.ExistingPeriodsQuery(db, registrations, stages)
+            .ToQueryString()
+            .Should().Contain("ServicePeriods");
+    }
+
+    [Fact]
+    public void The_sheet_resolves_its_catalog_in_sql()
+    {
+        using var db = TestHarness.NewNpgsqlContext();
+
+        AffectationSheetPlanner.StagesQuery(db, TestHarness.LevelId).ToQueryString().Should().NotBeEmpty();
+        AffectationSheetPlanner.ServicesQuery(db).ToQueryString().Should().Contain("Hospital");
+        AffectationSheetPlanner.CohortsQuery(db, [1], [TestHarness.StageId])
+            .ToQueryString().Should().Contain("Cohorts");
+        AffectationSheetPlanner.RequiredStagesQuery(db, [TestHarness.NewCnpnId], TestHarness.LevelId)
+            .ToQueryString().Should().Contain("CurriculumStages");
+    }
+
+    /// <summary>
+    /// ⚠ <b><c>s.CNE != null</c> devant le <c>Contains</c> n'est pas de la ceinture et des bretelles</b> :
+    /// le CNE manque sur 46 % du rôle, donc c'est la ligne ordinaire. En SQL <c>NULL IN (…)</c> vaut
+    /// « inconnu » et non « faux », et le fournisseur en mémoire lève sur la même expression au lieu de
+    /// répondre « pas vrai ».
+    /// </summary>
+    [Fact]
+    public void The_sheet_tells_a_typo_from_the_wrong_promotion_in_sql()
+    {
+        using var db = TestHarness.NewNpgsqlContext();
+
+        string sql = AffectationSheetPlanner.IdentifiersInBaseQuery(db, ["AP2200A"], ["R130896"])
+            .ToQueryString();
+
+        // ⚠ Students is TPH under Users, so the discriminator is what says the read is scoped to
+        // students rather than to every account in the base — employees included.
+        sql.Should().Contain("\"UserType\" = 'Student'");
+        sql.Should().Contain("\"CNE\" IS NOT NULL", "a NULL CNE must not be compared to the list at all");
+    }
+
+    /// <summary>
+    /// Le canevas téléchargé lit les périodes déjà servies de la même façon — à plat — et le motif de
+    /// délocalisation à travers une navigation optionnelle, qui est un <c>LEFT JOIN</c> et non un
+    /// sous-ensemble.
+    /// </summary>
+    [Fact]
+    public void The_downloaded_canvas_compiles_too()
+    {
+        using var db = TestHarness.NewNpgsqlContext();
+
+        GetAffectationSheetTemplateQueryHandler
+            .StudentsQuery(db, TestHarness.CurrentYearId, TestHarness.LevelId)
+            .ToQueryString().Should().Contain("Registrations");
+
+        GetAffectationSheetTemplateQueryHandler.StagesQuery(db, TestHarness.LevelId, null)
+            .ToQueryString().Should().NotBeEmpty();
+
+        GetAffectationSheetTemplateQueryHandler.PeriodsQuery(db, [Guid.NewGuid()], [TestHarness.StageId])
+            .ToQueryString().Should().Contain("Delocalization");
     }
 }

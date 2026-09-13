@@ -8,7 +8,10 @@ namespace PGSH.API.Middleware
         {
             if (context.User.Identity is { IsAuthenticated: true })
             {
-                //throw new Exception("TEST: This should stop the app!");
+                // ⚠ Une exception d'ici sort par GlobalExceptionHandler, qui distingue une base
+                // injoignable (503, et une phrase) d'un défaut (500). Voir DatabaseOutage : c'est ce
+                // middleware, traversé par *chaque* requête authentifiée, qui a fait lire une panne
+                // d'infrastructure comme une panne de l'application le 13/09/2026.
                 await userContext.SyncAsync(context.RequestAborted);
             }
             await next(context);

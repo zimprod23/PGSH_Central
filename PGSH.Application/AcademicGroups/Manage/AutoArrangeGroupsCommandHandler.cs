@@ -11,6 +11,12 @@ namespace PGSH.Application.AcademicGroups.Manage;
 /// <summary>
 /// Distributes a level's unassigned students into groups of the requested size.
 ///
+/// <para><b>Qui va dans quel groupe est tiré au sort.</b> Les inscriptions étaient distribuées dans
+/// l'ordre où la requête les lisait — par nom de famille — donc les groupes se formaient par
+/// tranches de l'alphabet. Le tirage et son numéro, déposé au registre, sont dans
+/// <see cref="RosterDraw"/> ; combien de groupes et de quelle taille reste dans
+/// <see cref="RosterCut"/>, que le tirage ne touche pas.</para>
+///
 /// <para><b>Groups never mix CNPN texts.</b> A group rotates through a stage set together, so two
 /// students owing different sets cannot share one — no rotation would satisfy both. Since arrêté
 /// 1650.25 a level holds students of two texts (from 2026-2027 the third year holds those arriving
@@ -70,11 +76,22 @@ internal sealed class AutoArrangeGroupsCommandHandler(
             .Where(r => r.LevelId == request.LevelId &&
                         r.AcademicYearId == request.AcademicYearId &&
                         r.AcademicGroupId == null)
+            // Un ordre **total** — le nom seul n'en est pas un, deux étudiants peuvent le partager —
+            // parce que c'est lui que le numéro de tirage retrouve. Voir RosterDraw.
             .OrderBy(r => r.Student.LastName)
+            .ThenBy(r => r.Id)
             .ToListAsync(cancellationToken);
 
         var held = candidates.Where(RegistrationHoldPolicy.IsOnHold).ToList();
-        var registrations = candidates.Where(RegistrationHoldPolicy.IsPlannable).ToList();
+
+        // ⚠ **La composition des groupes est tirée, elle n'est pas triée.** Distribuées dans l'ordre
+        // de lecture, les inscriptions se déposaient par tranches de l'alphabet : le rang
+        // alphabétique décidait le groupe, donc les périodes, les services et les chefs de toute
+        // l'année. Le numéro du tirage part au registre juste en dessous, sans quoi la question
+        // « pourquoi cet étudiant dans ce groupe ? » n'a plus aucune réponse. Voir RosterDraw.
+        int drawSeed = RosterDraw.NewSeed();
+        var registrations = RosterDraw.Deal(
+            candidates.Where(RegistrationHoldPolicy.IsPlannable).ToList(), drawSeed);
 
         // ⚠ Held rows are counted here, so « tous les étudiants restants sont signalés » is a report
         // naming each of them rather than « aucun étudiant non affecté » — two states that call for
@@ -136,6 +153,11 @@ internal sealed class AutoArrangeGroupsCommandHandler(
 
         // Include the level label so admins can tell which level owns each group
         string levelLabel = level.Label ?? $"Niveau {request.LevelId}";
+
+        // ⚠ Déposé **avant** le premier SaveChanges de l'acte, donc avant que l'entrée du registre
+        // ne soit validée : après, le constat coûterait un DELETE suivi d'un INSERT. Et il est
+        // déposé après les refus, qui n'écrivent rien du tout. Voir IAuditTrail.RecordOutcome.
+        auditTrail.RecordOutcome(("drawSeed", drawSeed));
 
         // One run of the loop per text present at this level. Students with no stamp form their own
         // bucket rather than being folded into someone else's: an unassigned CNPN is a question for

@@ -43,6 +43,14 @@
   ne relève les événements de domaine — un événement levé là serait perdu sans bruit. La déclaration,
   elle, lève `PromotionPauseDeclaredDomainEvent` : c'est l'acte le plus large de la planification et
   rien d'autre ne l'observe.
+- **Un code de plus le 13/09/2026** : `AFFECTATION_SHEET_APPLIED` (entité `Level` — la promotion, qui
+  est la portée d'un canevas). La métadonnée porte l'année, le nombre de lignes et les **deux** nombres
+  confirmés ; le constat déposé par `IAuditTrail.RecordOutcome` porte ce qui a réellement eu lieu :
+  `affectationsCreated`, `affectationsRebuilt`, `delocalizations`, `periodsWritten`, **`periodsDropped`**,
+  `cohortsCreated`, `unchanged`. ⚠ **C'est `periodsDropped` qui fait exister l'entrée.** Le même code,
+  sur une promotion vierge et sur une promotion publiée, recouvre deux événements sans rapport — et
+  après l'écriture il ne reste rien à compter. Le dossier de chaque étudiant porte sa moitié à lui, via
+  `HistoryType.AffectationImported`. Voir [`affectation-sheet.md`](affectation-sheet.md).
 - **Deux codes de plus depuis le 06/09/2026** : `BULK_DELOCALIZATION_APPLIED` (entité `Stage`, la
   métadonnée porte le service, le motif, le nombre confirmé et la taille de chaque sélection) et
   `DELOCALIZATION_CANCELLED` (entité `Registration`). ⚠ **L'annulation est auditée parce que l'acte de
@@ -143,6 +151,14 @@
     piste tenait la remplaçante. Deux lignes pour un acte, dont une fausse. C'est la piste qui remet
     la sienne, parce qu'elle est seule à savoir laquelle est la bonne ; le contexte ne remet plus
     rien. Épinglé par `AtomicUnitOfWorkTests`.
+  - ✅ **Et un acte dont le *hasard* fait partie doit déposer ce hasard — `drawSeed`, 12/09/2026.**
+    Depuis que la composition des groupes est tirée au sort (`RosterDraw`), l'ordre dans lequel les
+    inscriptions ont été déposées n'est plus déductible du code : « pourquoi cet étudiant dans le
+    groupe 41 ? » n'aurait plus aucune réponse. `GROUPS_AUTO_ARRANGED` porte donc le numéro du tirage
+    à côté de `levelId` / `askedBy` / `groupCount`, déposé **avant** le premier `SaveChanges` de
+    l'acte — après, le constat coûterait un DELETE suivi d'un INSERT. ⚠ **Un mélange muet serait un
+    recul par rapport au tri qu'il remplace** : le tri, lui, était explicable. Voir
+    [`planning-rosters.md`](planning-rosters.md).
   - **Un acte sans effet s'enregistre quand même, avec son zéro.** Sans cela l'absence de ligne
     recouvre « personne ne l'a joué » et « quelqu'un l'a joué sur une promotion déjà vide », qui
     appellent des lectures opposées. Un acte **refusé**, lui, continue de n'écrire rien : ce n'est

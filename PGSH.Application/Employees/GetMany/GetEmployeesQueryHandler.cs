@@ -4,6 +4,7 @@ using PGSH.Application.Abstractions.Messaging;
 using PGSH.Application.Extensions;
 using PGSH.Domain.Employees;
 using PGSH.SharedKernel;
+using PGSH.Application.Employees.Search;
 
 namespace PGSH.Application.Employees.GetMany;
 
@@ -15,15 +16,9 @@ internal sealed class GetEmployeesQueryHandler(IApplicationDbContext dbContext)
     {
         var query = dbContext.Employees.AsNoTracking().AsQueryable();
 
-        if (!string.IsNullOrWhiteSpace(request.SearchTerm))
-        {
-            string term = request.SearchTerm.Trim().ToLower();
-            query = query.Where(e =>
-                (e.FirstName != null && e.FirstName.ToLower().Contains(term)) ||
-                (e.LastName  != null && e.LastName.ToLower().Contains(term))  ||
-                e.Email.ToLower().Contains(term)                               ||
-                (e.PPR != null && e.PPR.ToLower().Contains(term)));
-        }
+        // Même règle que pour les étudiants, et pour la même raison : « Alami Mohamed » ne trouvait
+        // rien. Voir EmployeeSearch.
+        query = query.WhereEmployeeMatches(request.SearchTerm, e => e);
 
         if (request.Grade.HasValue)
             query = query.Where(e => e.Grade == request.Grade.Value);

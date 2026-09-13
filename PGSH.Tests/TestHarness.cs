@@ -24,6 +24,7 @@ using PGSH.Infrastructure.Database;
 using PGSH.Application.AcademicGroups.BulkAssignment;
 using PGSH.Application.AcademicGroups.GroupChange;
 using PGSH.Application.Students.Selection;
+using PGSH.Application.Stages.InternshipAssignments.Sheet;
 
 namespace PGSH.Tests;
 
@@ -207,6 +208,26 @@ public static class TestHarness
     internal static PreviewBulkRosterAssignmentQueryHandler AssignToRosterPreview(
         this ApplicationDbContext db, ExecutionAuthorizer? authorizer = null) =>
         new(db.RosterAssignmentPlanner(), authorizer ?? db.AdminAuthorizer());
+
+    /// <summary>
+    /// The canevas des affectations with its real planner. ⚠ The audit trail is handed back with the
+    /// handler rather than built inside it: this act's whole claim is that it says <i>how much</i> it
+    /// destroyed, and a constat nobody can read is a constat nobody can test.
+    /// </summary>
+    internal static (ApplyAffectationSheetCommandHandler Handler, RecordingAuditTrail Trail)
+        AffectationSheetHandler(this ApplicationDbContext db, ExecutionAuthorizer? authorizer = null)
+    {
+        var trail = new RecordingAuditTrail();
+        return (new ApplyAffectationSheetCommandHandler(
+            db, db.AffectationSheetPlanner(), authorizer ?? db.AdminAuthorizer(), trail), trail);
+    }
+
+    internal static AffectationSheetPlanner AffectationSheetPlanner(this ApplicationDbContext db) =>
+        new(db, new AcademicYearResolver(db));
+
+    internal static PreviewAffectationSheetQueryHandler AffectationSheetPreview(
+        this ApplicationDbContext db, ExecutionAuthorizer? authorizer = null) =>
+        new(db.AffectationSheetPlanner(), authorizer ?? db.AdminAuthorizer());
 
     /// <summary>The current academic year plus the level and stage every cohort hangs off.</summary>
     public static Stage SeedCatalog(this ApplicationDbContext db, DateOnly? yearStart = null, DateOnly? yearEnd = null)
