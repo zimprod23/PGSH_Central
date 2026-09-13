@@ -5241,3 +5241,43 @@ chevauchait la colonne suivante. Garde supprimée, le test échouait quand même
 `Schedule.SlotOverlap`, un refus sans rapport. Mesuré en cassant la garde, pas deviné. Le déplacement
 se fait maintenant **en arrière**, vers une fenêtre qui ne heurte rien, si bien que le seul reproche
 possible est celui qu'on teste.
+
+---
+
+## Session 68i — L'écran piloté, et le seul morceau qui ne marche pas (13/09/2026)
+
+§59 déroulé au navigateur. **Six pas sur sept passent**, dont les deux qui justifiaient l'exercice :
+
+- la case de confirmation et le bandeau de sauvegarde **n'apparaissent pas** quand rien n'est détruit
+  (pas 3 et 4), et **apparaissent tous les deux** dès qu'une réécriture détruit des périodes (pas 5),
+  avec *Appliquer* désactivé jusqu'au coche ;
+- la liste des téléversements **se rafraîchit d'elle-même** après l'application, ce qui valide le
+  câblage des `invalidatesTags` (§1j du `CLAUDE.md` client) ;
+- un import annulé **reste listé**, en ANNULÉ, sans bouton.
+
+⚠ **Le pas 6 échoue : la fenêtre d'annulation ne s'ouvre pas.**
+
+### Ce que la recherche a établi, et ce qu'elle a éliminé
+
+Tracé dans le navigateur, pas supposé :
+
+1. `openReversal` s'exécute ; `unwrap()` **résout** avec 2 lignes ; `setReport` est appelé.
+2. Le rendu suivant calcule `opened = true`.
+3. `close()` n'est **jamais** appelé.
+4. La racine du `Modal` porte **0 enfant** et le `ModalRoot` de Mantine reçoit `opened: false`.
+
+(1)–(3) et (4) sont contradictoires pour une seule instance : ⟹ **l'instance qui traite le clic n'est
+pas celle qui rend le `Modal`**. Remontage, ou deux instances.
+
+⚠ **Une hypothèse a été testée puis infirmée, et le code a été remis en état plutôt que gardé** :
+« le `Modal` est enfant d'une `Card`, qui parcourt et clone ses enfants ». Sorti de la `Card`, il ne
+s'ouvre pas davantage. Laisser le déplacement en place avec un commentaire affirmant cette cause
+aurait mis dans le dépôt une explication fausse — ce qui coûte plus cher que le défaut lui-même, parce
+que le prochain lecteur la croit.
+
+### Ce que cela dit de la méthode
+
+Le serveur était éprouvé de bout en bout (§58, deux fois) et l'écran compile, passe le lint et se
+construit. **Rien de tout cela n'ouvre une fenêtre.** Un écran n'est vérifié qu'en le pilotant, et
+c'est le sixième défaut de la journée que seul le pilotage pouvait montrer — après la ligne blanche,
+le paramètre de routage (deux fois), la balance des cellules publiées et le créneau déplaçable.

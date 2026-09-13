@@ -4715,3 +4715,43 @@ Sous le formulaire, **Téléversements précédents**.
 ### Rollback
 
 L'annulation, §59.6. Et le point de sauvegarde que le bandeau propose au moment où il compte.
+
+---
+
+## §59bis — Résultat du pilotage de l'écran (session 68, 13/09/2026)
+
+§59 a été déroulé au navigateur sur la **4ᵉ année Pharmacie**. Tout passe **sauf le pas 6**.
+
+| Pas | Résultat |
+|---|---|
+| **1** — écran vide, contrôles désactivés | ✅ les deux boutons désactivés, infobulle « Choisissez d'abord la promotion. » affichée **sur un bouton désactivé**, aucun bandeau de sauvegarde |
+| **2** — le canevas sort | ✅ 11 colonnes, 232 lignes, cartouche + 5 notes, en-tête ligne 9 ; nom du fichier construit par le serveur (promotion, année, et le stage puisqu'il n'y en a qu'un) |
+| **3** — canevas non modifié | ✅ 232 lues, **232 non planifiée(s)**, 0 erreur, **aucune case de confirmation**, **aucun bandeau**, bouton *Appliquer* actif |
+| **4** — planifier | ✅ 2 créées, 2 périodes, 1 cohorte, note « hors grille », toast, bouton → *Appliqué*, et **la liste des téléversements s'est rafraîchie toute seule** (invalidation RTK correcte) |
+| **5** — réécriture | ✅ 2 réécrites, 2 supprimées, **la case apparaît** (« Je confirme la suppression de 2 période(s). »), **le bandeau de sauvegarde apparaît**, *Appliquer* **désactivé** tant que la case n'est pas cochée, puis actif |
+| **6** — annuler depuis l'écran | ❌ **la fenêtre ne s'ouvre pas** → item **0bx** |
+| **7** — un import annulé reste listé | ✅ ligne `undo.xlsx` en **ANNULÉ**, avec sa date, et **sans** bouton *Annuler* |
+
+⚠ **Le pas 6 est un défaut de l'écran seul.** L'annulation elle-même marche : `GET .../reversal` répond
+**200** avec le bon rapport (0 à supprimer, 2 rotations rétablies, 2 périodes), et l'acte a été éprouvé
+de bout en bout par l'API en §58. C'est la fenêtre de confirmation qui ne s'affiche pas.
+
+**Ce qui a été établi en la cherchant** (utile à qui la reprendra, pour ne pas refaire le chemin) :
+
+- `openReversal` s'exécute, `unwrap()` **résout** (2 lignes), `setReport` est appelé — tracé.
+- Le rendu suivant calcule bien `opened = true` — tracé.
+- `close()` n'est **jamais** appelé — donc ce n'est pas une fermeture parasite.
+- Et pourtant la racine du `Modal` reste à **0 enfant**, et le `ModalRoot` de Mantine reçoit
+  `opened: false`.
+- ⚠ **L'hypothèse « le `Modal` est enfant d'une `Card`, qui clone ses enfants » a été testée et
+  **infirmée** : sorti de la `Card`, il ne s'ouvre pas davantage. Le changement a été annulé plutôt
+  que laissé en place avec un commentaire affirmant une cause fausse.
+- Reste l'explication compatible avec tout cela : l'instance qui traite le clic n'est pas celle qui
+  rend le `Modal` — un remontage, ou deux instances. C'est là qu'il faut chercher.
+
+### Nettoyage
+
+Fait et vérifié : affectations du stage 21 **710 → 708**, inscrits 4ᵉ Pharmacie **234 → 232**, rosters
+**1 → 0**, 0 résultat sur « Zzsmoke ». ⚠ Restent les trois lignes `AffectationImport`
+(`smoke-create.xlsx`, `smoke-replace.xlsx`, `undo.xlsx`) : rien n'expose leur suppression, et elles
+référencent désormais des étudiants supprimés.
