@@ -114,17 +114,20 @@ internal sealed class ApplyRotationCycleCommandHandler(
 
         // One StageSlot per (stage, slot) the layout worked out. A 2-column stage on a 10-column axis
         // gets 5 slots, a 1-column stage gets 10 — all dated from the same list of windows, entered once.
-        var created = layout.Value.Slots
-            .Select(slot => new StageSlot
-            {
-                StageId = slot.StageId,
-                AcademicYearId = yearId,
-                PeriodNumber = slot.PeriodNumber,
-                Label = $"P{slot.PeriodNumber}",
-                StartDate = slot.StartDate,
-                EndDate = slot.EndDate,
-            })
-            .ToList();
+        var created = new List<StageSlot>(layout.Value.Slots.Count);
+
+        foreach (var slot in layout.Value.Slots)
+        {
+            // StageSlot.For exige l'identité complète : un axe posé sans année n'est pas un axe.
+            var made = StageSlot.For(
+                slot.StageId, yearId, slot.PeriodNumber,
+                slot.StartDate, slot.EndDate, $"P{slot.PeriodNumber}");
+
+            if (made.IsFailure)
+                return Result.Failure<RotationCycleResult>(made.Error);
+
+            created.Add(made.Value);
+        }
 
         await dbContext.StageSlots.AddRangeAsync(created, cancellationToken);
         await dbContext.SaveChangesAsync(cancellationToken);

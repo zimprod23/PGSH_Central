@@ -110,7 +110,7 @@ internal static IServiceCollection AddApiDocumentation(this IServiceCollection s
 
                 // Add the scheme to the document components
                 document.Components ??= new OpenApiComponents();
-                document.Components.SecuritySchemes.Add("keycloak", scheme);
+                document.Components.SecuritySchemes.Add(ApiDocumentationAuth.SchemeName, scheme);
 
                 // Apply the security requirement globally
                 var requirement = new OpenApiSecurityRequirement
@@ -119,7 +119,7 @@ internal static IServiceCollection AddApiDocumentation(this IServiceCollection s
                     {
                         Reference = new OpenApiReference
                         {
-                            Id = "keycloak", // MUST match the name in your SecuritySchemes.Add(...)
+                            Id = ApiDocumentationAuth.SchemeName,
                             Type = ReferenceType.SecurityScheme
                         }
                     }] = new List<string>() // Add "openid", "profile" here if you want to be specific

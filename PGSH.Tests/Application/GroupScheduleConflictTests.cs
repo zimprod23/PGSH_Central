@@ -283,8 +283,7 @@ public class GroupScheduleConflictTests
         await handler.Handle(new SetCohortSlotAssignmentCommand(med.Id, 1, 10), default);
         await handler.Handle(new SetCohortSlotAssignmentCommand(chir.Id, chirLate.Id, 20), default);
 
-        var moved = await new UpdateStageSlotCommandHandler(
-                db, new SlotOverlapGuard(db), new GroupScheduleConflictGuard(db), new RecordingAuditTrail())
+        var moved = await db.UpdateSlotHandler()
             .Handle(new UpdateStageSlotCommand(chirLate.Id, ChirurgieId, null, P1Start, P1End), default);
 
         moved.IsFailure.Should().BeTrue();
@@ -303,8 +302,7 @@ public class GroupScheduleConflictTests
         var chirLate = db.SeedSlot(chirurgie, 5, 1, new DateOnly(2026, 4, 1), new DateOnly(2026, 5, 31));
         await db.SaveChangesAsync();
 
-        var moved = await new UpdateStageSlotCommandHandler(
-                db, new SlotOverlapGuard(db), new GroupScheduleConflictGuard(db), new RecordingAuditTrail())
+        var moved = await db.UpdateSlotHandler()
             .Handle(new UpdateStageSlotCommand(chirLate.Id, ChirurgieId, null, P1Start, P1End), default);
 
         moved.IsSuccess.Should().BeTrue("an empty period places nobody");

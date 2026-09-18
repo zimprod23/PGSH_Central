@@ -75,11 +75,33 @@ Student → History (audit trail)
 | `CNE` | varchar(50) | **nullable**, UNIQUE where present — see the warning below |
 | `Appogee` | varchar(50) | **NOT NULL**, UNIQUE — see the warning below |
 | `AccessGrade` | decimal(5,2) | default 10.01 |
-| `BacSeries` | varchar | enum |
-| `AgreementType` | varchar | enum, default `None` |
+| `BacSeries` | **integer** | enum stored **by ordinal**, not by name — see the warning below |
+| `AgreementType` | **integer** | enum stored by ordinal, default `None` — see the warning below |
+
+> ⚠ **`BacSeries` is stored as an `integer`, by ordinal.** The repo's rule is
+> `.HasConversion<string>()` (29 properties follow it), but `UserConfiguration` declares it for none of
+> its enums, so **`BacSeries`, `AgreementType`, `Academy`, `Province` and `Gender` are all ordinal**
+> (`AcademicProgram` is `text`; `CivilStatus` / `NationalityStatus` are `varchar(50)`, being owned-type
+> members configured separately). Verified against the model snapshot 14/09/2026 — the table above said
+> `varchar` for `BacSeries` and was wrong, which is the sort of error that makes reordering a member
+> look free. **For all five, a member's *position* is its stored value**, here in 10 203 rows:
+> inserting or reordering a member silently reclassifies the whole base, and nothing would fail. A new
+> member goes at the **end**, where it needs no migration at all.
+>
+> ⚠ **And its zero, `BacFrançais`, is a real value — which is how it came to be a lie.**
+> `LegacyImportPlanner` never wrote the field, so every imported student reads « Bac Français », and
+> `InscriptionPlanner` wrote `SVT` for a blank canvas column. `NonRenseigne` (added 14/09/2026) is what
+> the two write paths now store; the rows written before it still hold 0, and nothing can tell those
+> apart from a series somebody chose. → `HANDOFF.md` item 0cb.
+>
+> ⚠ **Why a member and not `BacSeries?`.** The column *is* nullable in PostgreSQL — `Users` is TPH and
+> an `Employee` has no bac — so a nullable CLR property was available. It was not taken: it would not
+> have made the 10 203 existing zeros NULL either, so it buys nothing for the data that is actually
+> wrong, while making every read site null-handling. `Academy?` / `Province?` are nullable because they
+> are genuinely optional inputs; this one has a state to *name*.
 | `BacYear` | varchar(10) | |
-| `Academy` | varchar | enum, nullable |
-| `Province` | varchar | enum, nullable |
+| `Academy` | **integer** | enum stored by ordinal, nullable |
+| `Province` | **integer** | enum stored by ordinal, nullable |
 | `Ranking` | int | nullable |
 | `CnpnVersionId` | int | nullable, FK → CnpnVersions — the text governing this student, fixed at entry. **The frozen membership**: written only by `Student.AssignCnpnVersion`, never moved in bulk once confirmed |
 | `CnpnAssignmentIsInferred` | bool | nullable — true when entry was deduced from the level rather than read. An inferred stamp may be upgraded; a confirmed one may not be moved |
@@ -144,17 +166,35 @@ Consequences to hold on to:
 
 ### `AcademicGroups`
 
+A roster: the fixed set of students who move together through a year. Identified by
+**(AcademicYearId, LevelId, GroupNumber)** — the number restarts at 1 in each promotion.
+
 | Column | Type | Constraints |
 |---|---|---|
 | `Id` | int | PK (identity) |
 | `AcademicYearId` | int | FK → AcademicYears, CASCADE |
+| `LevelId` | int | FK → Levels, SET NULL, **nullable** — null on « Non réparti » and nowhere else |
 | `Label` | varchar(100) | NOT NULL |
-| `GroupNumber` | int | NOT NULL |
+| `GroupNumber` | int | NOT NULL — 0 on « Non réparti », which is outside the numbering |
+| `RotationGroup` | varchar | nullable — persistent partition label (A, B, C…) across all stages |
 | `GeographicZone` | varchar | nullable — used by auto-arrange clustering |
 | `Purpose` | varchar(300) | nullable — why this roster exists, in the faculty's own words |
 
-**Indexes:** `IX_AcademicGroup_Year_Number` (AcademicYearId, GroupNumber) UNIQUE, `IX_AcademicGroup_Year_Label` (AcademicYearId, Label) UNIQUE
+**Indexes:** `IX_AcademicGroup_Year_Level_Number` (AcademicYearId, LevelId, GroupNumber) UNIQUE
+`NULLS NOT DISTINCT`, `IX_AcademicGroup_Year_Level_Label` (AcademicYearId, LevelId, Label) UNIQUE
+`NULLS NOT DISTINCT`
 
+> ⚠ **`NULLS NOT DISTINCT` is what keeps a year to one « Non réparti ».** The bucket carries a null
+> `LevelId` by definition — it holds every promotion's unassigned registrations, 4 725 of them in
+> 2025-2026 — and under PostgreSQL's default two nulls would not collide, so a year could acquire
+> several buckets with nothing saying so.
+>
+> ⚠ **The identity is also closed in code**, since 14/09/2026: the three keys are `private set` and
+> there is no constructor. `AcademicGroup.ForPromotion(yearId, levelId, number, label)` demands all
+> three; `AcademicGroup.AsUnassignedBucket(yearId, label)` is the bucket's own door. Two factories,
+> because under one with a nullable `levelId` *forgetting* the promotion and *meaning* the bucket are
+> the same call — the shape the 4 725-student incident came from. → `CLAUDE.md`, « close the type ».
+>
 > `Purpose` is free text read by people, never by the arranger — « Volontaires Kénitra (GST),
 > formulaire du 12/09 », « étudiants militaires ». Nothing else records it: the only evidence that
 > roster 102 was the military one is the pattern of its cells, which a year later is
@@ -367,12 +407,23 @@ will happily plan past the number.
 
 ### `Cohorts`
 
+One roster doing one stage — the unit a rotation is planned against. Identified by
+**(StageId, AcademicGroupId)**.
+
 | Column | Type | Constraints |
 |---|---|---|
 | `Id` | int | PK (identity) |
 | `StageId` | int | FK → Stages, RESTRICT |
 | `AcademicGroupId` | int | FK → AcademicGroups, RESTRICT |
 | `Label` | varchar(100) | NOT NULL |
+
+**Indexes:** none on the identifying pair.
+
+> ⚠ **Nothing in the schema holds (StageId, AcademicGroupId) unique** — measured 14/09/2026.
+> `CreateCohortCommandHandler` and `CohortProvisioner` each look for the duplicate themselves, in
+> code, and a path that forgets to is caught by nothing; replaying such a path doubles the cohorte and
+> every affectation under it. `Cohort.For(stageId, academicGroupId, label)` closes the *other* half —
+> a cohorte with no stage or no roster — because a constructor sees one object, never the table.
 
 ---
 
@@ -552,8 +603,15 @@ do not sit under it. Read it through `Service.CapacityFor(levelId)`, never field
 | `Name` | varchar | |
 | `Kind` | varchar | `National`, `Religious`, `Academic` |
 | `IsConfirmed` | bool | a provisional lunar date still blocks its days, but every window laid over one is flagged |
+| `CountsAsWorkingDay` | bool | **default `false`, and `false` on every row today.** `true` = the faculty works through it: the days count toward a stage's duration and still may not *bound* a window |
 
 **Indexes:** `(StartDate, Name)` unique, `EndDate`
+
+⚠ **`CountsAsWorkingDay` is the only column in this table that changes what a window is worth without
+moving a date.** Setting it gives a day back to every `StageSlot` crossing the span, exactly as deleting
+the row would, so `UpdateHolidayResult` reports the créneaux spanning it on this change too
+(`CountingChanged`, named apart from `DatesMoved`). It has no twin on `PromotionPauses`: an exam week can
+never be worked, and `PromotionPause.CountsAsWorkingDay` is a constant `false` rather than a column.
 
 ⚠ **National dates are law; religious dates are observation.** The ten fixed Gregorian days are
 generated (`MoroccanPublicHolidays.FixedFor`); Aïd, Moharram and Mawlid follow the Hijri calendar and
@@ -570,7 +628,7 @@ ouvrables » then quietly means "minus weekends".
 | `AcademicYearId` | int (FK) | **RESTRICT** |
 | `LevelId` | int (FK) | **RESTRICT** |
 | `StartDate` / `EndDate` | date | inclusive, as `Holidays` and `StageSlot` are |
-| `Kind` | varchar(20) | `Exam`, `Holiday`, `Other` — the `PauseKind` vocabulary `PeriodPause` already uses |
+| `Kind` | varchar(20) | `Exam`, `Holiday`, `Other` — the `PauseKind` vocabulary `PeriodPause` already uses (see the warning below) |
 | `Reason` | varchar(300) | required: this window moves what every stage of a promotion is measured against |
 | `IsConfirmed` | bool | same bargain as `Holiday.IsConfirmed` — a provisional window still blocks its days |
 | `RecordedOn` | timestamptz | the clock is passed in, never read from the entity |
@@ -578,6 +636,16 @@ ouvrables » then quietly means "minus weekends".
 **Indexes:** `(AcademicYearId, LevelId, StartDate)` — **not** unique, deliberately: a promotion
 legitimately declares several windows in a year, and « they may not overlap » is not a rule an index
 can state. `PromotionPauseCalendarGuard` enforces it, the way `AcademicYearCalendarGuard` does for years.
+
+⚠ **`PeriodPause` and `ServicePeriod.IsPaused` still exist and have had *no writer* since
+18/09/2026.** The stage-scoped pause that set them was retired rather than repaired (`PHASES.md`
+§17.2), so a new row can arrive by exactly one route: an **import reversal** putting a période back
+exactly as it stood, flag included — `RestoredPeriod.IsPaused`, out of `ReplacedPeriod`. That is why
+the column is kept and why every reader (export, chef worklist, the « En pause » badge) still asks for
+it. ⚠ **Do not read « 0 rows » as « safe to drop »**: dropping it is a second act, with its own
+migration and its own smoke-test section, and it changes the shape of the reversal register — which is
+itself not yet verified against the live base (`HANDOFF.md` 0br / 0bx). Two unverified things at once
+is how the register becomes the thing nobody trusts.
 
 ⚠ **Both FKs are RESTRICT.** A window means nothing without either half of (année, niveau): cascading
 it away with the year would silently take the calendar that year's créneaux were laid against, and
@@ -832,7 +900,7 @@ target drops the null-level rows itself. See [`docs/planning-rosters.md`](docs/p
 | `Position` | `ServiceChef`, `Normal` | Employee |
 | `WorkPlace` | `Hospital`, `Fmpr` | Employee |
 | `AgreementType` | `None`, ... | Student |
-| `BacSeries` | ... | Student |
+| `BacSeries` | `BacFrançais`, `BacMission`, `MathA`, `MathB`, `Physique`, `SVT`, `Etrangaire`, `NonRenseigne` | Student — ⚠ **ordinal-stored: append only** |
 | `CivilStatus` | `Civil`, `Militaire` | User (owned) |
 | `NationalityStatus` | `Marocaine`, `Etrangaire` | User (owned) |
 

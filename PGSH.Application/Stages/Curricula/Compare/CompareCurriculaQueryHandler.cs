@@ -15,15 +15,15 @@ internal sealed class CompareCurriculaQueryHandler(IApplicationDbContext dbConte
     public async Task<Result<CurriculumComparisonResponse>> Handle(
         CompareCurriculaQuery request, CancellationToken cancellationToken)
     {
-        var from = await LoadAsync(request.LevelId, request.FromCnpnVersionId, cancellationToken);
+        var from = await LoadAsync(request.LevelId, request.FromCnpnVersionId!.Value, cancellationToken);
         if (from is null)
             return Result.Failure<CurriculumComparisonResponse>(
-                CurriculumErrors.NotFound(request.LevelId, request.FromCnpnVersionId));
+                CurriculumErrors.NotFound(request.LevelId, request.FromCnpnVersionId!.Value));
 
-        var to = await LoadAsync(request.LevelId, request.ToCnpnVersionId, cancellationToken);
+        var to = await LoadAsync(request.LevelId, request.ToCnpnVersionId!.Value, cancellationToken);
         if (to is null)
             return Result.Failure<CurriculumComparisonResponse>(
-                CurriculumErrors.NotFound(request.LevelId, request.ToCnpnVersionId));
+                CurriculumErrors.NotFound(request.LevelId, request.ToCnpnVersionId!.Value));
 
         var entries = new List<CurriculumDiffEntry>();
 
@@ -62,9 +62,9 @@ internal sealed class CompareCurriculaQueryHandler(IApplicationDbContext dbConte
         return new CurriculumComparisonResponse(
             request.LevelId,
             from.LevelLabel,
-            request.FromCnpnVersionId,
+            request.FromCnpnVersionId!.Value,
             from.VersionLabel,
-            request.ToCnpnVersionId,
+            request.ToCnpnVersionId!.Value,
             to.VersionLabel,
             ordered.Any(e => e.Change != CurriculumChange.Unchanged),
             ordered);

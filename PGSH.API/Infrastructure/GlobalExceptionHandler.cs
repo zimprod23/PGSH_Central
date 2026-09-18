@@ -59,7 +59,7 @@ internal sealed class GlobalExceptionHandler(ILogger<GlobalExceptionHandler> log
     private static (int StatusCode, string Title, string? Detail) Describe(Exception exception) =>
         exception switch
         {
-            DomainException domain => (domain.StatusCode, domain.Title, null),
+            DomainException domain => (domain.StatusCode, domain.Title, domain.Detail),
 
             _ when DatabaseOutage.IsReported(exception) => (
                 StatusCodes.Status503ServiceUnavailable,

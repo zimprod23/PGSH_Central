@@ -12,8 +12,11 @@ namespace PGSH.API.Endpoints.Registrations;
 /// used: download a canvas, upload it for a dry run, upload it again to apply.
 ///
 /// <para>The scope is <b>one promotion</b>: <c>levelId</c> is required, because nobody on this sheet
-/// holds a registration the level could be read from. <c>academicYearId</c> omitted resolves to the
-/// current year.</para>
+/// holds a registration the level could be read from. ⚠ It is nevertheless bound <b>nullable</b> and
+/// refused in words (<c>InscriptionErrors.PromotionRequiredMessage</c>) — a non-nullable value type
+/// bound from the query string throws in routing before any validator runs, so a blank promotion
+/// selector produced a bare 400 with nothing on it for the screen to show. <c>academicYearId</c>
+/// omitted resolves to the current year.</para>
 ///
 /// <para>The upload is parsed here — this is the only layer that knows what a file is — and the
 /// parsed rows are what travel into the application layer. Preview and apply both re-parse the file
@@ -24,7 +27,7 @@ public sealed class Inscription : IEndpoint
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
         app.MapGet("inscription/template", async (
-            int levelId,
+            int? levelId,
             int? academicYearId,
             ISender sender,
             CancellationToken ct) =>
@@ -44,7 +47,7 @@ public sealed class Inscription : IEndpoint
 
         app.MapPost("inscription/preview", async (
             IFormFile file,
-            int levelId,
+            int? levelId,
             int? academicYearId,
             IInscriptionSheetParser parser,
             ISender sender,
@@ -69,7 +72,7 @@ public sealed class Inscription : IEndpoint
         // nobody was shown.
         app.MapPost("inscription", async (
             IFormFile file,
-            int levelId,
+            int? levelId,
             int? academicYearId,
             int? confirmedStudentCount,
             IInscriptionSheetParser parser,

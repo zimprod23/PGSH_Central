@@ -89,6 +89,9 @@ namespace PGSH.Infrastructure.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<bool>("CountsAsWorkingDay")
+                        .HasColumnType("boolean");
+
                     b.Property<DateOnly>("EndDate")
                         .HasColumnType("date");
 

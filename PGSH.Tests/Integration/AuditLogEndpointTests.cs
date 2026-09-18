@@ -68,11 +68,7 @@ public class AuditLogEndpointTests : IClassFixture<ApiFactory>, IAsyncLifetime
         });
 
         foreach (int n in Enumerable.Range(1, 4))
-            db.AcademicGroups.Add(new AcademicGroup
-            {
-                Id = n, Label = $"Groupe {n}", GroupNumber = n,
-                AcademicYearId = YearId, LevelId = PromotionId,
-            });
+            db.SeedGroup(n, n, academicYearId: YearId, levelId: PromotionId, label: $"Groupe {n}");
     });
 
     private HttpClient Scolarite() => _factory.CreateApiClient(null, Roles.Scolarite);

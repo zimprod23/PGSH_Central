@@ -44,11 +44,11 @@ internal sealed class GetRosterPlacementsQueryHandler(
         if (level is null)
             return Result.Failure<RosterPlacementsResponse>(LevelErrors.NotFound(levelId));
 
-        var target = new PlacementTarget(request.ServiceId, request.HospitalId);
+        var target = new PlacementTarget(request.ServiceId, request.HospitalId, request.City);
 
         var matching = MatchingRostersQuery(
             dbContext, academicYearId, levelId,
-            request.StageId, request.ServiceId, request.HospitalId, request.Match);
+            request.StageId, request.ServiceId, request.HospitalId, request.City, request.Match);
 
         var page = await matching.ToPaginatedResponseAsync(
             request.EffectivePageNumber,
@@ -136,12 +136,13 @@ internal sealed class GetRosterPlacementsQueryHandler(
     /// </summary>
     private static List<RosterServicePlacementResponse> ServicesOf(IReadOnlyCollection<CellRow> cells) =>
         cells
-            .GroupBy(c => new { c.ServiceId, c.ServiceName, c.HospitalId, c.HospitalName })
+            .GroupBy(c => new { c.ServiceId, c.ServiceName, c.HospitalId, c.HospitalName, c.HospitalCity })
             .Select(g => new RosterServicePlacementResponse(
                 g.Key.ServiceId,
                 g.Key.ServiceName,
                 g.Key.HospitalId,
                 g.Key.HospitalName,
+                g.Key.HospitalCity,
                 g.Select(c => c.PeriodNumber).Order().ToList()))
             .OrderBy(s => s.PeriodNumbers.Count > 0 ? s.PeriodNumbers[0] : int.MaxValue)
             .ToList();
@@ -235,6 +236,7 @@ internal sealed class GetRosterPlacementsQueryHandler(
         int? stageId,
         int? serviceId,
         int? hospitalId,
+        string? city,
         PlacementMatch match)
     {
         var rosters = ScopedRostersQuery(dbContext, academicYearId, levelId);
@@ -263,6 +265,26 @@ internal sealed class GetRosterPlacementsQueryHandler(
                     && !g.Cohorts.Any(c =>
                         (stageId == null || c.StageId == stageId)
                         && c.SlotAssignments.Any(a => a.Service.HospitalId != hospitalId)));
+
+        // ⚠ La ville se lit par l'hôpital du service, jamais par une colonne recopiée sur le service :
+        // un service appartient à un hôpital et un hôpital porte déjà sa ville, donc un second champ
+        // serait un doublon qui peut diverger — la même objection qui a tenu `AcademicYearId` hors de
+        // `Cohort`. Comparée en minuscules des deux côtés ; les accents ne sont pas repliés, faute
+        // d'`unaccent`, exactement comme pour la recherche d'étudiants.
+        if (!string.IsNullOrWhiteSpace(city))
+        {
+            string wanted = city.Trim().ToLower();
+
+            rosters = match == PlacementMatch.Anywhere
+                ? rosters.Where(g => g.Cohorts.Any(c =>
+                    (stageId == null || c.StageId == stageId)
+                    && c.SlotAssignments.Any(a => a.Service.Hospital.City.ToLower() == wanted)))
+                : rosters.Where(g => g.Cohorts.Any(c =>
+                        (stageId == null || c.StageId == stageId) && c.SlotAssignments.Any())
+                    && !g.Cohorts.Any(c =>
+                        (stageId == null || c.StageId == stageId)
+                        && c.SlotAssignments.Any(a => a.Service.Hospital.City.ToLower() != wanted)));
+        }
 
         return rosters.OrderBy(g => g.GroupNumber).ThenBy(g => g.Id);
     }
@@ -293,7 +315,8 @@ internal sealed class GetRosterPlacementsQueryHandler(
                 a.ServiceId,
                 a.Service.Name,
                 a.Service.HospitalId,
-                a.Service.Hospital.Name));
+                a.Service.Hospital.Name,
+                a.Service.Hospital.City));
 
     internal sealed record RosterRow(
         int GroupId, string Label, int GroupNumber, string? RotationGroup, int StudentCount);
@@ -302,17 +325,19 @@ internal sealed class GetRosterPlacementsQueryHandler(
 
     internal sealed record CellRow(
         int GroupId, int StageId, int PeriodNumber,
-        int ServiceId, string ServiceName, int HospitalId, string HospitalName);
+        int ServiceId, string ServiceName, int HospitalId, string HospitalName, string HospitalCity);
 
     /// <summary>
     /// What a cell has to be in to count. A service names itself; a hospital names every service it
     /// holds. Naming neither means the caller is browsing the promotion's placements rather than
     /// searching them, and nothing is matched or refused.
     /// </summary>
-    private readonly record struct PlacementTarget(int? ServiceId, int? HospitalId)
+    private readonly record struct PlacementTarget(int? ServiceId, int? HospitalId, string? City)
     {
         public bool Hits(CellRow cell) =>
             (ServiceId is null || cell.ServiceId == ServiceId)
-            && (HospitalId is null || cell.HospitalId == HospitalId);
+            && (HospitalId is null || cell.HospitalId == HospitalId)
+            && (string.IsNullOrWhiteSpace(City)
+                || string.Equals(cell.HospitalCity, City.Trim(), StringComparison.OrdinalIgnoreCase));
     }
 }

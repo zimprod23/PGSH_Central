@@ -1,4 +1,4 @@
-using PGSH.Domain.Common.Utils;
+﻿using PGSH.Domain.Common.Utils;
 using PGSH.Domain.Registrations;
 using PGSH.Domain.Stages;
 using PGSH.SharedKernel;
@@ -23,8 +23,10 @@ namespace PGSH.Domain.Calendar;
 /// the window, the rotation-cycle preview counts a stage's worked days without it, the export reports
 /// the days actually served. Because dates are <b>derived from</b> the calendar rather than added to
 /// what is already stored, declaring the same window twice produces the same dates — the property that
-/// makes the act correctable and revocable at all. <c>InternshipAssignment.ResumePeriod</c> is the
-/// opposite: it <i>accumulates</i>, so running it twice moves the rotation twice.</para>
+/// makes the act correctable and revocable at all. The stage-scoped pause retired on 18/09/2026 was
+/// the opposite — its <c>ResumePeriod</c> <i>accumulated</i>, so running it twice moved the rotation
+/// twice — and that property is precisely why it was retired rather than repaired: it is not a bug
+/// inside the act, it is what the act <em>was</em>.</para>
 ///
 /// <para>⚠ <b>What it therefore does to a grid already laid: nothing, deliberately.</b> A window
 /// declared after the axis was authored leaves the créneaux and the périodes exactly where they are, and
@@ -124,6 +126,14 @@ public sealed class PromotionPause : Entity, ICalendarClosure
     /// </summary>
     string ICalendarClosure.Name => _reason;
 
+    /// <summary>
+    /// Always <c>false</c>, and not a column. A <see cref="Holiday"/> can be a day the faculty works
+    /// through; an exam week cannot — the promotion is sitting in an examination hall, which is the
+    /// whole content of the declaration. Making it settable would let a window be declared that
+    /// suspends nobody.
+    /// </summary>
+    public bool CountsAsWorkingDay => false;
+
     public CalendarClosureScope Scope => CalendarClosureScope.Promotion;
 
     public int DayCount => _endDate.DayNumber - _startDate.DayNumber + 1;
@@ -197,8 +207,8 @@ public sealed class PromotionPause : Entity, ICalendarClosure
     /// <remarks>
     /// ⚠ <b>Correcting a window that has already begun is allowed, and that is the case that happens.</b>
     /// An exam session declared for five days runs to six and the row has to be able to say so. Nothing
-    /// was pushed when it was declared, so nothing double-counts when it moves — which is not true of
-    /// <c>ResumePeriod</c>, and is why that one cannot be corrected at all.
+    /// was pushed when it was declared, so nothing double-counts when it moves — which was not true of
+    /// the accumulating pause retired on 18/09/2026, and is why that one could never be corrected.
     /// </remarks>
     public Result<PromotionPauseCorrection> Correct(
         AcademicYear year,

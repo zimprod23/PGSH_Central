@@ -1,5 +1,4 @@
-﻿using PGSH.Application.Abstractions.Data;
-using PGSH.Application.Abstractions.Messaging;
+﻿using PGSH.Application.Abstractions.Messaging;
 using PGSH.Application.Audit;
 using PGSH.Application.Stages.Planning;
 using PGSH.SharedKernel;
@@ -7,7 +6,6 @@ using PGSH.SharedKernel;
 namespace PGSH.Application.Stages.MacroPlan;
 
 internal sealed class GenerateMacroPlanCommandHandler(
-    IApplicationDbContext dbContext,
     IAuditTrail auditTrail,
     CohortProvisioner provisioner,
     StudentAffectationService affectation,

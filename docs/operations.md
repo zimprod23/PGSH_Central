@@ -4,6 +4,99 @@
 >
 > Split out of `CLAUDE.md` on 2026-09-06 — the text is unchanged. See [`CLAUDE.md`](../CLAUDE.md) for the always-on rules and the map of these documents.
 
+## §0 — Repartir de zéro : reconstruire l'application à partir d'une sauvegarde
+
+> **La marche à suivre quand il ne reste que le dépôt et un fichier `.dump`.** Écrite le
+> 17/09/2026, après l'avoir faite pour de vrai : Docker Desktop réinitialisé, `.vhdx` supprimé,
+> **tous** les volumes perdus.
+
+### Ce qu'il faut avoir
+
+| | Où | Si ça manque |
+|---|---|---|
+| le dépôt | git | rien à faire sans lui |
+| un point de sauvegarde (`.dump` **+** `.manifest.json`) | `%LOCALAPPDATA%\PGSH\backups` | → §1, reconstruire depuis `Medecine.mdb` ; c'est une autre procédure, bien plus longue |
+| Docker qui répond | `docker info` | démarrer Docker Desktop ; si la distro WSL ne monte pas, `wsl --shutdown` puis relancer |
+
+⚠ **Le realm Keycloak n'est pas dans la liste, et c'est voulu** : il est écrit dans
+`keycloak/pgsh-realm.json` et se reconstruit tout seul. Rien à restaurer de ce côté.
+→ [`../keycloak/README.md`](../keycloak/README.md)
+
+### Les étapes
+
+**1. Lancer l'AppHost une première fois.** Il crée le conteneur Postgres et son volume, et Keycloak
+importe le realm.
+
+⚠ **Deux ressources vont échouer, et c'est le comportement correct** — ne cherchez pas de défaut :
+
+| Ressource | Ce qu'elle dit | Pourquoi |
+|---|---|---|
+| `migrations` | « Cette base n'a jamais été migrée… restaurez un point de sauvegarde » | `Worker.RefuseToBuildAnEmptyBaseAsync` |
+| `pgsh-api` | un bandeau `L'API NE DÉMARRE PAS` sur la sortie d'erreur | `SchemaPresenceCheck` |
+
+**2. Arrêter l'AppHost. Laisser Docker tourner** — le conteneur Postgres est
+`ContainerLifetime.Persistent` et survit à l'arrêt ; c'est lui dont la restauration a besoin.
+
+**3. Choisir le point :**
+
+```powershell
+.\scripts\pgsh-restore.ps1 -List
+```
+
+**4. Restaurer :**
+
+```powershell
+.\scripts\pgsh-restore.ps1 -Id 20260915-102338-3med-safe
+```
+
+Il recopie le dump dans le conteneur, lance `pg_restore`, puis **recompte les douze effectifs du
+manifeste** et refuse en nommant les tables qui divergent.
+
+⚠ **Le code de sortie de `pg_restore` n'est un verdict dans aucun des deux sens** : `--clean
+--if-exists` signale des objets absents sur une base vide et rend non-zéro en ayant parfaitement
+restauré, et il rend 0 sur des erreurs qui ont laissé des tables vides. **C'est le recomptage qui
+tranche**, pas lui.
+
+**5. Relancer l'AppHost.** Cette fois : `migrations` ne trouve rien à appliquer et **sème les comptes
+statiques absents** ; `pgsh-api` démarre.
+
+**6. Se connecter** — `admin.pgsh@um5.ac.ma` / `123`.
+
+⚠ **La première connexion de chaque personne re-rattache son dossier**, sans rien à faire : le realm
+refait émet un `sub` neuf, la ligne restaurée porte celui du realm détruit, et `SyncAsync` retombe sur
+l'e-mail puis appelle `User.RelinkIdentity`, qui garde l'ancien sujet dans son événement.
+
+**7. Vérifier à l'écran** : l'effectif des étudiants, la grille de la promotion planifiée, la page
+Sauvegardes.
+
+**8. ⚠ Reprendre un point tout de suite :**
+
+```powershell
+.\scripts\pgsh-snapshot.ps1 -Label "après restauration"
+```
+
+La base restaurée recommence à diverger du point d'où elle vient dès la première saisie, et le
+prochain incident se mesurera à partir d'ici.
+
+### ⚠ Les quatre malentendus qui ont coûté le plus, ce jour-là
+
+- **« J'ai des sauvegardes, pourquoi ça plante ? »** — rien ne les applique. Le volume est le stockage
+  vivant ; le point est une copie qu'il faut **repousser dedans**. Il n'y a délibérément **aucun
+  bouton** qui restaure : un processus ne remplace pas la base qu'il est en train de servir.
+- **« On devrait pouvoir repartir à vide. »** — non. Trois migrations sont des migrations de
+  **données** et refusent une base vide par conception. **Restaurer, jamais « migrer puis importer ».**
+- **`dotnet restore` ≠ restauration de la base.** L'un restaure des paquets NuGet, l'autre des données.
+  Aucun rapport.
+- **Un volume n'est pas une sauvegarde.** `%LOCALAPPDATA%\PGSH\backups` a survécu *parce qu'il est en
+  dehors* du volume. Le volume Keycloak, lui, n'avait aucune copie — d'où le realm en fichier.
+
+### Ce qui n'est pas récupéré
+
+Tout ce qui est entré **après** l'horodatage du point. Le manifeste le dit (`TakenAtUtc`), et c'est le
+seul chiffre à regarder pour savoir ce qu'il faut ressaisir.
+
+---
+
 ## ⚠ The base is live — take a `pg_dump -Fc` before every bulk act
 Since the 2026-09-01 rebuild the development base *is* the faculty's data: 10 203 students, 43 605
 registrations, 105 626 périodes, 87 092 évaluations, plus the 2026-2027 réinscription applied through
@@ -22,8 +115,35 @@ not a bad bulk apply.
   The trail says what was asked for, not what it replaced.
 - ⚠ **Do not pipe `pg_dump`** — write with `-f` inside the container, then `docker cp`. A piped dump
   has already been corrupted once here.
-- **The mechanism now exists for the *taking* half** — see below. What is still manual is the
-  **restore**: `PHASES.md` §18.2.
+- **The mechanism exists for both halves now.** Taking: the Sauvegardes page and a daily timer.
+  Restoring: **`scripts/pgsh-restore.ps1`**, because the API deliberately cannot — a process does not
+  replace the database it is serving from. `PHASES.md` §18.2.
+
+## ⚠ Le 17/09/2026 : le volume est parti, et ce qui a décidé de la suite
+
+Docker Desktop réinitialisé, `.vhdx` supprimé, **tous** les volumes avec. Ce qui a été perdu et ce qui
+ne l'a pas été dit tout ce qu'il faut savoir sur où ranger une sauvegarde :
+
+| | |
+|---|---|
+| `pgsh-postgres-data` | perdu — c'est un volume, **pas** une sauvegarde |
+| `%LOCALAPPDATA%\PGSH\backups` | **intact** — hors du volume, par construction ; le plus récent avait deux jours |
+| le volume Keycloak | perdu, et **sans aucune copie** — realm, comptes et client à refaire de mémoire |
+
+- ⚠ **Une base vide ne se reconstruit pas en lançant les migrations.** Trois d'entre elles sont des
+  migrations **de données** (`Cnpn1650Med3Stages`, `Cnpn1650ImmersionStages`,
+  `Cnpn1650Med3CatalogueAlignment`) qui lisent le catalogue que l'import hérité écrit ; sur une base
+  vide elles font `RAISE EXCEPTION` — *« Aucun niveau « 3ᵉ année Médecine » : le catalogue des niveaux
+  doit exister avant les stages. »* C'est voulu, et la migration le dit : « Refusing costs an apply; a
+  wrong requirement set costs a promotion planned against stages it does not owe. » C'est aussi
+  pourquoi le palier Testcontainers passe par `EnsureCreated` et non par la chaîne de migrations.
+  **Donc : restaurer, jamais « migrer puis importer ».**
+- ⚠ **Avoir des sauvegardes n'empêche rien** : rien ne les applique au démarrage. Le volume est le
+  stockage vivant, le point de sauvegarde est une copie qu'il faut **repousser dedans**. C'est
+  exactement ce qu'on a cru l'inverse ce jour-là.
+- ✅ **Ce que l'incident a changé** : le realm Keycloak est désormais un fichier versionné
+  (`keycloak/pgsh-realm.json`, importé au démarrage), donc perdre son volume n'est plus un incident.
+  → [`../keycloak/README.md`](../keycloak/README.md)
 
 ## A safe point is a dump plus a manifest, and the manifest is the half that matters
 `Domain/Backups/` (pure) · `Application/Backups/` (the port and the handlers) ·

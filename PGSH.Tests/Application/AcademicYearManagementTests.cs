@@ -159,11 +159,8 @@ public class AcademicYearManagementTests
     {
         await using var db = Seed("year-delete-many-holdings");
         db.SeedRegistration("Karim", "Bennis", academicYearId: Future);
-        db.StageSlots.Add(new PGSH.Domain.Stages.StageSlot
-        {
-            Id = 9001, StageId = TestHarness.StageId, AcademicYearId = Future, PeriodNumber = 1,
-            StartDate = new DateOnly(2026, 11, 1), EndDate = new DateOnly(2026, 11, 30),
-        });
+        db.StageSlots.Add(TestHarness.NewSlot(
+            9001, TestHarness.StageId, Future, 1, new DateOnly(2026, 11, 1), new DateOnly(2026, 11, 30)));
         await db.SaveChangesAsync();
 
         var result = await Delete(db).Handle(new DeleteAcademicYearCommand(Future), default);
@@ -260,11 +257,8 @@ public class AcademicYearManagementTests
     public async Task Narrowing_a_year_reports_the_periodes_it_leaves_outside()
     {
         await using var db = Seed("year-narrow");
-        db.StageSlots.Add(new PGSH.Domain.Stages.StageSlot
-        {
-            Id = 9002, StageId = TestHarness.StageId, AcademicYearId = Future, PeriodNumber = 1,
-            StartDate = new DateOnly(2027, 7, 1), EndDate = new DateOnly(2027, 7, 31),
-        });
+        db.StageSlots.Add(TestHarness.NewSlot(
+            9002, TestHarness.StageId, Future, 1, new DateOnly(2027, 7, 1), new DateOnly(2027, 7, 31)));
         await db.SaveChangesAsync();
 
         var result = await Update(db).Handle(

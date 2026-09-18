@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
 using PGSH.Application.AcademicYears;
@@ -64,17 +64,30 @@ internal sealed class GetHolidayCoverageQueryHandler(
             holidays.Count(h => h.Kind == HolidayKind.Religious),
             holidays.Count(h => h.Kind == HolidayKind.Academic),
             holidays.Count(h => !h.IsConfirmed),
+            holidays.Count(h => h.CountsAsWorkingDay),
             missingReligious,
             holidays.Select(h => Map(h, calendar)).ToList());
     }
 
     /// <summary>
-    /// <c>WorkingDaysLost</c> is counted against the weekend-only calendar, not the full one: measured
-    /// against a calendar that already contains this holiday, every holiday costs zero.
+    /// <c>WorkingDaysLost</c> is what this one holiday removes: the difference between a weekend-only
+    /// calendar and that same calendar with the holiday added.
     /// </summary>
+    /// <remarks>
+    /// <para>The baseline is weekends-only, never <paramref name="calendar"/>: measured against a
+    /// calendar that already contains this holiday, every holiday costs zero.</para>
+    ///
+    /// <para>⚠ <b>A difference rather than a count, so the flag cannot be forgotten here.</b> A holiday
+    /// the faculty works through removes nothing — <c>With</c> puts it in the bounding set and not in the
+    /// counting one — and the subtraction gets that from the calendar's own rule instead of restating it
+    /// as an <c>if</c> that would drift the first time the rule changes.</para>
+    /// </remarks>
     private static HolidayResponse Map(Holiday holiday, WorkingDayCalendar calendar)
     {
         var weekendsOnly = WorkingDayCalendar.WeekendsOnly(calendar.Week);
+
+        int lost = weekendsOnly.Count(holiday.StartDate, holiday.EndDate)
+                 - weekendsOnly.With(holiday).Count(holiday.StartDate, holiday.EndDate);
 
         return new HolidayResponse(
             holiday.Id,
@@ -84,6 +97,7 @@ internal sealed class GetHolidayCoverageQueryHandler(
             holiday.Name,
             holiday.Kind,
             holiday.IsConfirmed,
-            weekendsOnly.Count(holiday.StartDate, holiday.EndDate));
+            holiday.CountsAsWorkingDay,
+            lost);
     }
 }

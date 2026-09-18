@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Authentication;
 using PGSH.Application.Abstractions.Authorization;
@@ -138,9 +138,31 @@ public class AssignmentCommandTests
         (await ReloadAsync(db, s.Assignment.Id)).Status.Should().Be(InternshipStatus.Completed);
     }
 
-    // NOTE: closing a rotation that never started is currently accepted — CompletePeriod guards
-    // interrupted/complete/paused but not unstarted, unlike PausePeriod which does. Deliberately left
-    // uncovered: a test either way would cement an asymmetry that has not been ruled on yet.
+    /// <summary>
+    /// Clôturer une rotation que personne n'a commencée est refusé.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ <b>Ce cas portait une note disant l'inverse, et la note était périmée.</b> Elle affirmait que
+    /// <c>CompletePeriod</c> gardait « interrompue / close / suspendue mais pas non-démarrée », et
+    /// laissait le cas volontairement non couvert en attendant un arbitrage. La garde
+    /// <c>!period.IsStarted</c> existe bel et bien — clôturer est ce qui rend une période évaluable,
+    /// donc sans elle un stage jamais servi pouvait être noté. Constaté le 18/09/2026 en retirant la
+    /// pause par étape, dont la note se servait comme point de comparaison.
+    /// </remarks>
+    [Fact]
+    public async Task Closing_a_rotation_that_never_started_is_refused()
+    {
+        await using var db = TestHarness.NewContext("cmd-close-unstarted");
+        var s = await SeedAsync(db);
+
+        var result = await CloseHandler(db, Roles.Scolarite).Handle(
+            new CompleteServicePeriodCommand(s.ChefPeriod.Id), default);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Be(StageErrors.PeriodNotStarted(s.ChefPeriod.Id));
+        (await ReloadAsync(db, s.Assignment.Id)).ServicePeriods
+            .Single(p => p.Id == s.ChefPeriod.Id).IsComplete.Should().BeFalse();
+    }
 
     [Fact]
     public async Task Closing_an_unknown_rotation_is_reported_as_not_found()

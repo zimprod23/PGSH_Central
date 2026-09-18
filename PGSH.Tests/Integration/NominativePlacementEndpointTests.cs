@@ -84,17 +84,12 @@ public class NominativePlacementEndpointTests : IClassFixture<ApiFactory>, IAsyn
 
         foreach (int groupId in new[] { SourceGroupId, TargetGroupId })
         {
-            db.AcademicGroups.Add(new AcademicGroup
-            {
-                Id = groupId, Label = $"Groupe {groupId}", GroupNumber = groupId,
-                AcademicYearId = year.Id, LevelId = LevelId,
-            });
+            db.SeedGroup(
+                groupId, groupId, academicYearId: year.Id, levelId: LevelId,
+                label: $"Groupe {groupId}");
 
-            db.Cohorts.Add(new Cohort
-            {
-                Id = 100 + groupId, Label = $"Cardiologie · G{groupId}",
-                StageId = StageId, AcademicGroupId = groupId,
-            });
+            db.Cohorts.Add(TestHarness.NewCohort(
+                100 + groupId, StageId, groupId, $"Cardiologie · G{groupId}"));
         }
 
         for (int i = 0; i < 2; i++)
@@ -220,11 +215,9 @@ public class NominativePlacementEndpointTests : IClassFixture<ApiFactory>, IAsyn
         // *shape* of the contract, and a refusal carries no shape at all. Give it a slot first.
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
 
-        await _factory.SeedAsync(db => db.StageSlots.Add(new StageSlot
-        {
-            Id = 1, StageId = StageId, AcademicYearId = 1, PeriodNumber = 1,
-            StartDate = new DateOnly(2026, 9, 14), EndDate = new DateOnly(2026, 10, 13),
-        }));
+        await _factory.SeedAsync(db => db.StageSlots.Add(TestHarness.NewSlot(
+            1, StageId, 1, 1,
+            new DateOnly(2026, 9, 14), new DateOnly(2026, 10, 13))));
 
         var authorised = await client.PostAsJsonAsync(
             $"/api/stages/{StageId}/allowed-services", new { serviceId = ServiceId });

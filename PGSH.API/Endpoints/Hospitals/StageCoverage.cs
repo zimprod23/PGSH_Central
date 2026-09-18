@@ -18,7 +18,7 @@ public sealed class StageCoverage : IEndpoint
         // about a hospital *and* a promotion, and a hospital's coverage of nothing in particular is
         // not a question anyone asks.
         app.MapGet("hospitals/{hospitalId:int}/stage-coverage", async (
-            int hospitalId, int levelId, ISender sender, CancellationToken ct) =>
+            int hospitalId, int? levelId, ISender sender, CancellationToken ct) =>
         {
             var result = await sender.Send(new GetHospitalStageCoverageQuery(hospitalId, levelId), ct);
             return result.Match(Results.Ok, CustomResults.Problem);

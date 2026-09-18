@@ -24,10 +24,15 @@ internal sealed class GetLevelsQueryHandler(IApplicationDbContext dbContext)
         if (request.PromotionsOnly)
             query = query.Where(l => l.Year > 0);
 
+        // ⚠ `Level.Label` est `string?`, et le prédicat le déréférençait sans garde. PostgreSQL
+        // répond « non » sur un NULL, mais le fournisseur en mémoire **lève** — donc le défaut était
+        // un test qui explose plutôt qu'un écran qui ment, ce qui est le bon sens de l'erreur mais
+        // reste une garde manquante. C'est la même précaution que `StudentSearch` prend sur chacune
+        // de ses colonnes, et pour la même raison.
         if (!string.IsNullOrWhiteSpace(request.SearchTerm))
         {
             string term = request.SearchTerm.Trim().ToLower();
-            query = query.Where(l => l.Label.ToLower().Contains(term));
+            query = query.Where(l => l.Label != null && l.Label.ToLower().Contains(term));
         }
 
         var response = await query

@@ -5,6 +5,7 @@ using PGSH.Domain.Stages;
 using PGSH.Domain.Students;
 using PGSH.Domain.Users;
 using PGSH.LegacyImport.Legacy;
+using PGSH.SharedKernel;
 
 namespace PGSH.LegacyImport.Mapping;
 
@@ -247,6 +248,19 @@ public sealed class LegacyImportPlanner
                 // Truncated like every other string: Student.BacYear is varchar(10), and one
                 // over-long ANNEE_BAC cell would abort the whole 10,203-row students batch.
                 BacYear = Truncate(legacy.BacYear, 10),
+                // ⚠ Stated rather than left to the enum's default. `BacSeries` is an `integer` whose
+                // zero is `BacFrançais`, so *not writing this field* did not leave it blank — it wrote
+                // "Bac Français" into all 10 203 imported rows, and every screen read it as a series
+                // the faculty had on file.
+                //
+                // ⚠ `ETUDIANT` **does** carry a `SERIE` column (beside `NAT_BAC`, `CENTRE`,
+                // `ANNEE_BAC`), and `AccessLegacyReader` does not select it. Reading it is not a
+                // one-liner: the legacy `TYPEBAC` catalogue holds series this enum cannot express —
+                // « Lettres », « Lettres Originelles Arabisées », « Sciences Agronomiques »,
+                // « Mathématique Technique », « Bac E/F/G » — so carrying it across means widening the
+                // enum or keeping the legacy label, which is a modelling decision, not a mapping.
+                // Until then the honest value is the one that says nothing. → item 0cb.
+                BacSeries = BacSeries.NonRenseigne,
                 AcademicProgram = programByNoOrdre.GetValueOrDefault(legacy.NoOrdre, AcademicProgram.Medecine),
                 Status = new Status(
                     string.Equals(legacy.Militaire?.Trim(), "M", StringComparison.OrdinalIgnoreCase)
@@ -385,14 +399,27 @@ public sealed class LegacyImportPlanner
 
             if (!groupIndex.TryGetValue(indexKey, out var group))
             {
-                var level = number == 0 ? null : Find(levels, key);
-                group = new AcademicGroup
+                // ⚠ Les deux formes se demandent séparément, et c'est ici que la distinction se
+                // lit le mieux : « Non réparti » n'est pas un groupe dont on aurait omis la
+                // promotion, c'est un panier. Sous une fabrique unique à niveau nullable, les deux
+                // branches seraient le même appel avec un `null` de plus.
+                Result<AcademicGroup> made;
+                if (number == 0)
                 {
-                    Label = number == 0 ? "Non réparti" : $"Groupe {number} — {level!.Label}",
-                    GroupNumber = number,
-                    AcademicYear = year,
-                    Level = level,
-                };
+                    made = AcademicGroup.AsUnassignedBucket(year, "Non réparti");
+                }
+                else
+                {
+                    var level = Find(levels, key);
+                    made = AcademicGroup.ForPromotion(
+                        year, level, number, $"Groupe {number} — {level.Label}");
+                }
+
+                if (made.IsFailure)
+                    throw new InvalidOperationException(
+                        $"Groupe {number} de {legacy.AcademicYear} — {made.Error.Code} : {made.Error.Description}");
+
+                group = made.Value;
                 groupIndex[indexKey] = group;
                 groups.Add(group);
             }
@@ -470,12 +497,15 @@ public sealed class LegacyImportPlanner
                 var cohortKey = (stage, group);
                 if (!cohortIndex.TryGetValue(cohortKey, out var cohort))
                 {
-                    cohort = new Cohort
-                    {
-                        Label = Truncate($"{stage.Name} — {group.Label}", 100),
-                        Stage = stage,
-                        AcademicGroup = group,
-                    };
+                    var madeCohort = Cohort.For(
+                        stage, group, Truncate($"{stage.Name} — {group.Label}", 100));
+
+                    if (madeCohort.IsFailure)
+                        throw new InvalidOperationException(
+                            $"Cohorte {stage.Name} / {group.Label} — {madeCohort.Error.Code} : "
+                            + madeCohort.Error.Description);
+
+                    cohort = madeCohort.Value;
                     cohortIndex[cohortKey] = cohort;
                     cohorts.Add(cohort);
                 }

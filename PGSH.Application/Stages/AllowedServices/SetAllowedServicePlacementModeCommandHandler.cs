@@ -1,13 +1,16 @@
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
+using PGSH.Application.Audit;
 using PGSH.Domain.Hospitals;
 using PGSH.Domain.Stages;
 using PGSH.SharedKernel;
 
 namespace PGSH.Application.Stages.AllowedServices;
 
-internal sealed class SetAllowedServicePlacementModeCommandHandler(IApplicationDbContext dbContext)
+internal sealed class SetAllowedServicePlacementModeCommandHandler(
+    IApplicationDbContext dbContext,
+    IAuditTrail auditTrail)
     : ICommandHandler<SetAllowedServicePlacementModeCommand>
 {
     public async Task<Result> Handle(
@@ -38,8 +41,19 @@ internal sealed class SetAllowedServicePlacementModeCommandHandler(IApplicationD
                 : ServiceErrors.NotFound(request.ServiceId));
         }
 
+        // Reposer le mode qu'un service porte déjà est un acte sans effet, pas un refus : il
+        // s'enregistre, en disant qu'il n'a rien changé.
         if (authorisation.PlacementMode == request.PlacementMode)
+        {
+            auditTrail.RecordOutcome(("changed", false), ("placementMode", request.PlacementMode.ToString()));
+            await dbContext.SaveChangesAsync(cancellationToken);
             return Result.Success();
+        }
+
+        auditTrail.RecordOutcome(
+            ("changed", true),
+            ("fromPlacementMode", authorisation.PlacementMode.ToString()),
+            ("placementMode", request.PlacementMode.ToString()));
 
         authorisation.PlacementMode = request.PlacementMode;
         await dbContext.SaveChangesAsync(cancellationToken);

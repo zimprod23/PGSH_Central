@@ -1,10 +1,11 @@
-using Application;
+﻿using Application;
 using HealthChecks.UI.Client;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.OpenApi.Models;
 using PGSH.API;
 using PGSH.API.Extensions;
+using PGSH.API.Infrastructure;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Infrastructure;
 using PGSH.Infrastructure.Database;
@@ -26,7 +27,16 @@ builder.Services.AddCors(options => {
 
 builder.AddServiceDefaults();
 
-builder.Host.UseSerilog((context, loggerConfig) => loggerConfig.ReadFrom.Configuration(context.Configuration));
+// ⚠ `WriteTo.Console()` is applied BEFORE the configuration, and it is not decoration. `UseSerilog`
+// replaces the default logger providers, and `ReadFrom.Configuration` on a file with no `Serilog`
+// section produces a logger with **no sinks at all** — which is what this project had: every
+// `ILogger` call in the API went nowhere, silently, and an operator reading the resource logs saw
+// only what Aspire itself printed. Found 17/09/2026, when a LogCritical explaining why the API
+// refused to start did not appear anywhere. A configured sink in appsettings adds to this one rather
+// than replacing it, so the console can never go quiet again by editing a JSON file.
+builder.Host.UseSerilog((context, loggerConfig) => loggerConfig
+    .WriteTo.Console()
+    .ReadFrom.Configuration(context.Configuration));
 
 //builder.Services.AddSwaggerGenWithAuth();
 
@@ -98,7 +108,7 @@ app.MapDefaultEndpoints();
 //    c.SwaggerEndpoint("/openapi/v1.json", "PGSH API v1");
 
 //    // OAuth2 PKCE
-//    c.OAuthClientId("pgsh-swagger");         // client in Keycloak
+//    c.OAuthClientId(ApiDocumentationAuth.ClientId);         // client in Keycloak
 //    c.OAuthAppName("PGSH Swagger UI");
 //    c.OAuthUsePkce();
 //    c.OAuthScopeSeparator(" ");
@@ -142,6 +152,14 @@ app.UseRequestLoggingMiddleware();
 app.MapEndpoints(apiGroup);
 
 app.MapControllers();
+
+// ⚠ Asked once, here, rather than discovered as a 500 on every screen: a database that answers and
+// holds no schema has never been built, and the remedy is a restore. An unreachable database is a
+// different state and still boots — DatabaseOutage answers it with a 503. See SchemaPresenceCheck.
+// ⚠ It returns instead of throwing: the explanation is already in the log, and a stack trace would
+// dress an ordinary infrastructure state up as a crash.
+if (!await app.EnsureSchemaExistsAsync())
+    return;
 
 await app.RunAsync();
 

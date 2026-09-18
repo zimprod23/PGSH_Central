@@ -28,8 +28,23 @@ namespace PGSH.Application.AcademicGroups.Placements;
 /// (year, level, number) and a number without its promotion identifies nothing.
 /// </param>
 /// <param name="StageId">Narrows the placement question to one stage — « qui fait <i>ce</i> stage en S1 ? ».</param>
-/// <param name="ServiceId">The service the roster must be placed in. Mutually exclusive with <paramref name="HospitalId"/>.</param>
-/// <param name="HospitalId">The hospital the roster must be placed in. Mutually exclusive with <paramref name="ServiceId"/>.</param>
+/// <param name="ServiceId">The service the roster must be placed in. Mutually exclusive with <paramref name="HospitalId"/> and <paramref name="City"/>.</param>
+/// <param name="HospitalId">The hospital the roster must be placed in. Mutually exclusive with <paramref name="ServiceId"/> and <paramref name="City"/>.</param>
+/// <param name="City">
+/// The city the roster must be placed in — the widest of the three targets, and the one a
+/// « cet étudiant ne peut pas quitter Rabat » request is actually about.
+///
+/// <para>⚠ <b>Read through <c>Service.Hospital.City</c>, never copied onto the service.</b> A service
+/// belongs to exactly one hospital and a hospital already carries its city, so a second column on
+/// <c>Service</c> would be a driftable duplicate of a fact the schema already states — the same
+/// objection that kept <c>AcademicYearId</c> off <c>Cohort</c>. Nothing to migrate, and nothing that
+/// can disagree with itself.</para>
+///
+/// <para>Matched case-insensitively. ⚠ <b>Accents are not folded</b>, for the reason
+/// <c>StudentSearch</c> gives: folding the stored column needs PostgreSQL's <c>unaccent</c>, which is
+/// an extension plus a generated column, and that half is not built. City names here are stored as
+/// the hospital list shows them, which is what a picker will offer.</para>
+/// </param>
 /// <remarks>
 /// ⚠ <b><see cref="LevelId"/> is nullable at the boundary and required by the validator, not by the
 /// model binder.</b> A non-nullable value type bound from the query string cannot be omitted: ASP.NET
@@ -45,6 +60,7 @@ public sealed record GetRosterPlacementsQuery(
     int? StageId = null,
     int? ServiceId = null,
     int? HospitalId = null,
+    string? City = null,
     PlacementMatch Match = PlacementMatch.Anywhere,
     int PageNumber = 1,
     int PageSize = GetRosterPlacementsQuery.DefaultPageSize) : IQuery<RosterPlacementsResponse>
@@ -66,7 +82,8 @@ public sealed record GetRosterPlacementsQuery(
     public int EffectivePageSize => PageSize > 0 ? PageSize : DefaultPageSize;
 
     /// <summary>Whether a placement target was named at all — <c>Matches</c> means nothing without one.</summary>
-    public bool HasTarget => ServiceId is not null || HospitalId is not null;
+    public bool HasTarget =>
+        ServiceId is not null || HospitalId is not null || !string.IsNullOrWhiteSpace(City);
 }
 
 /// <summary>
@@ -166,4 +183,10 @@ public sealed record RosterServicePlacementResponse(
     string ServiceName,
     int HospitalId,
     string HospitalName,
+    /// <summary>
+    /// La ville de l'hôpital. ⚠ Renvoyée avec la ligne plutôt que laissée à déduire côté client : un
+    /// écran qui filtre par ville doit pouvoir <b>montrer</b> laquelle, sinon le filtre agit sans que
+    /// rien à l'écran ne dise sur quoi.
+    /// </summary>
+    string HospitalCity,
     IReadOnlyList<int> PeriodNumbers);

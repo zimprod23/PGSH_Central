@@ -1,5 +1,6 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using PGSH.Application.Calendar.Pauses;
 using PGSH.Application.Abstractions.Authorization;
 using PGSH.Application.Employees.MyServices;
 using PGSH.Domain.Registrations;
@@ -70,7 +71,10 @@ public class ChefWorklistYearScopeTests
     }
 
     private static GetMyServicePeriodsQueryHandler Handler(ApplicationDbContext db) =>
-        new(db, new ExecutionAuthorizer(db, TestHarness.UserContext(ChefIdentity)));
+        new(db,
+            new ExecutionAuthorizer(db, TestHarness.UserContext(ChefIdentity)),
+            new PromotionSuspensionLookup(db),
+            TestHarness.ClockOn(new DateOnly(2026, 3, 16)));
 
     // ─── The default is the current year ──────────────────────────────────────
 

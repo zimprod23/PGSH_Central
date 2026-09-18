@@ -118,20 +118,71 @@ its `DurationChecks`, so what the screen says a stage gets is what the axis actu
 - **This is where the compensation happens, and it is the whole of it.** A window declared in
   September makes the axis generated afterwards put its *kₛ* worked days in a column that ends later on
   the wall calendar; the grid is written from those windows and the périodes are published from the
-  grid, so all three are laid against the same days. Nothing is pushed onto an assignment —
-  `InternshipAssignment.ResumePeriod` *accumulates*, which is why it can be neither corrected nor
-  revoked and this can.
+  grid, so all three are laid against the same days. Nothing is pushed onto an assignment — the
+  stage-scoped pause retired on 18/09/2026 *accumulated*, which is why it could be neither corrected
+  nor revoked and this can. That property is the reason it was retired rather than repaired: it was
+  not a defect inside the act, it was the act.
+- ⚠ **Parce que déclarer n'écrit rien, la seule preuve qu'une fenêtre existe est ce que les écrans en
+  disent** — et c'est là qu'elle a manqué. Mesuré le 18/09/2026 : une fenêtre sur la 4ᵉ MED publiée
+  coupait 10 colonnes et 1 535 rotations, et l'écran répondait « aucun impact », parce que le rapport
+  ne vivait que dans l'aperçu (un bouton à presser avant d'enregistrer, vidé à la frappe suivante) et
+  que la ligne de la liste ne portait que le **coût** en jours. Depuis : la liste porte aussi
+  `SlotsSpanning` / `PeriodsSpanning`, ouvrir une fenêtre déclarée en recalcule l'impact, et
+  « Démarrer » dit d'avance combien des rotations qu'il va lancer traversent une fenêtre
+  (`GetStagePauseCrossingsQuery`). ⚠ Et « 0 » y porte le nombre de fenêtres déclarées à côté, sans
+  quoi « rien ne traverse » et « personne n'a rien déclaré » se lisent pareil.
+- ⚠ **Et parce qu'elle n'écrit rien, la fenêtre doit se *dériver* partout où un état de rotation
+  s'affiche.** Sans cela une promotion entière reste « En cours » pendant ses examens : 472 rotations
+  le 18/09/2026. `PromotionSuspensionLookup` répond « cette promotion est-elle suspendue ce jour-là,
+  et sous quel motif », et la liste des affectations, la liste des périodes et la liste de travail du
+  chef — arrivées de transfert comprises, parce qu'elles s'affichent à côté — portent toutes
+  `SuspendedBy`, **et le dossier de l'étudiant aussi** (`GetInternshipAssignmentByIdQuery`, le chemin
+  que son portail lit). ⚠ Le chef est le cas qui compte : pointer une absence un matin d'examens est
+  une faute que rien n'aurait signalée. ⚠ Et au niveau **période** la règle a deux conditions —
+  ouverte *et* sa fenêtre contient le jour — parce que `Start()` ouvre toutes les périodes d'un coup
+  et qu'un séjour de mai porterait sinon une fenêtre de mars.
 - ⚠ **Declaring a window over a grid already laid moves nothing**, deliberately. The créneaux keep
   their dates and are now short by what the window takes; `PreviewPromotionPauseQuery` counts that per
   stage and per créneau, plus the rotations crossing it split by lifecycle state. Silently rewriting
   the dates of a published promotion is the one thing this must not do.
 - ⚠ **…and whether that shortfall can be repaired at all is a fact about the promotion, not about the
-  window — measured on the live base 2026-09-06.** Re-laying the axis is a real act *only while nothing
-  has been published from it*: `ApplyRotationCycleCommand` refuses on `PublishedCells > 0` for the
-  **whole block**, and the 3ᵉ MED holds **804**. So for a published promotion — precisely the one a
-  late window hurts — there is **no remedy today**, and the days are lost until §17.1 exists. The
-  preview therefore carries `PublishedCellsInGrid` and its warning branches on it: **a report that
-  prescribes a refused button is worse than one that prescribes nothing.**
+  window.** Re-laying the axis is a real act *only while nothing has been published from it*:
+  `ApplyRotationCycleCommand` refuses on `PublishedCells > 0` for the **whole block**, and the 3ᵉ MED
+  holds **1 000**. The preview therefore carries `PublishedCellsInGrid` and its warning branches on it:
+  **a report that prescribes a refused button is worse than one that prescribes nothing.**
+  - ⚠ **But « refusé » is not « rien à faire », and for a year the report said it was.** The published
+    branch ended « déplacer une colonne déjà publiée n'est pas encore possible » — true the day it was
+    written, and outlived the day §17.1 shipped the move. A report naming *no* remedy where one exists
+    is read as « les jours sont perdus », which is the same defect upside down. Since 17/09/2026 it
+    names the move and carries **`SlotsMovable`**: how many of the crossed columns that act would
+    actually accept, counted through `PromotionPauseQueries.UnmovableSlotsQuery` against
+    `ServicePeriodLifecycle.Movable` — **the same rule `InternshipAssignment.Reschedule` refuses on**,
+    so the screen cannot promise a move the aggregate then declines.
+  - ⚠ **And the warning says that nothing cascades.** A move shifts one column and leaves the ones
+    after it where they were; an operator who moves P7 expecting P8 to follow has been told half a
+    truth, and `PublishedPeriodShifter` will then refuse the move for breaking the run's order.
+  - ⚠ **Et « déplaçable » n'était que la moitié de la question — la moitié qui ne couvre pas le cas
+    qui compte.** Une fenêtre déclarée en cours d'année tombe sur des rotations **commencées**, que
+    `ServicePeriodLifecycle.Movable` refuse, donc sur cette promotion-là le compte des déplaçables
+    est petit ou nul et le rapport disait en substance « rien n'est rattrapable ». Depuis le
+    18/09/2026 la classe pose **deux** questions : `Movable` (« puis-je déplacer le début ? ») et
+    `Extendable` (« puis-je repousser la fin ? »). Allonger une rotation en cours ne réécrit rien de
+    ce qui a eu lieu, donc le remède existe là où le rapport n'en voyait aucun.
+    - ⚠ **Les présences interdisent le déplacement et pas l'allongement** — une journée pointée vit
+      entre le début et l'ancienne fin, et une fenêtre qui ne fait que croître la contient toujours.
+      Le refus du raccourcissement n'est donc pas une garde d'état mais le **nom de l'acte** :
+      `InternshipAssignment.ExtendTo` ne sait que repousser.
+    - ⚠ **Les deux règles sont emboîtées** (`Movable` ⊂ `Extendable`), comme `CountsTowardDuration`
+      et `CanBoundAWindow` — et c'est un théorème vérifié sur les 32 combinaisons, pas une
+      coïncidence : `IsInterrupted` a été ajouté à `Movable` pour cela, une rotation coupée par un
+      transfert ayant ses **deux** bouts pour faits.
+  - ⚠ **A third case had no branch at all: rotations crossing the window while *no column* does.**
+    Périodes written **hors grille** — the canevas des affectations, a délocalisation, a legacy import
+    — carry no cell, so neither remedy reaches them (one starts from the axis, the other from the
+    cells). Before 17/09/2026 that fell into « Reposez l'axe » — a gesture that succeeds and changes
+    nothing for them — or, on a promotion at rest, into **no warning whatsoever**. It is now named, and
+    the remedy it names is re-sending the canevas with the windows shifted.
+    → [`affectation-sheet.md`](affectation-sheet.md)
 - **`GeneratedAxisColumn.Pauses` is reported apart from `Holidays`.** A holiday is everyone's; a pause
   is this promotion's, and the promotion rotating through the same service the same morning does not
   have it. Merging them would make a column's explanation false for the neighbour reading it.
@@ -517,15 +568,49 @@ produced three defects in one day.
 | `RotationArranger` — may I overwrite this cell? | **this cell** (`PublishedAmongAsync`) | it places cell by cell, and a cohorte published in P1 still needs P6 arranged |
 | `ClearSlotAssignments` (whole column) | **this cell** | it sweeps a column across a promotion, keeps the published cells and **reports how many it kept** |
 | `DeleteStageSlot` | **this column** (`SlotHasPublishedCellAsync`) | the column goes as a whole |
-| ✅ `UpdateStageSlot` — moving a column | **this column** | *added 13/09/2026 — it had none at all* |
+| ✅ `UpdateStageSlot` — moving a column | **this column**, then *moves its périodes too* | *guard added 13/09/2026; the move itself is phase 17.1, below* |
 | ✅ `SetCohortSlotAssignment` | **this cohorte** (`IsCohortSchedulePublishedAsync`) | publication is once per cohorte |
 | ✅ `ClearCohortSlotAssignment` | **this cohorte** | *was « this cell » until 13/09/2026 — the asymmetry was the bug* |
 
 ⚠ **Moving a published column had no guard whatsoever**, while deleting one did. Moving is the worse
 of the two: deleting fails loudly, moving succeeds and desynchronises in silence — the créneau takes
 its new dates, the périodes published from it keep their old ones, and no screen says which is true.
-Refused until « déplacer une colonne publiée *et ses périodes* » exists, which is Phase 17.1 and one
-operation rather than two.
+
+### ✅ Phase 17.1 — déplacer une colonne publiée *et ses périodes* (13/09/2026)
+`PublishedPeriodShifter`. The blanket refusal was a stopgap, and an expensive one: on a promotion
+published in its entirety the only remedy on offer was « dépubliez d'abord », i.e. destroy a year's
+plan to shift one week. The two halves now move together or nothing moves.
+
+- ⚠ **A période's window is *re-derived*, never offset.** Under `SingleService` one période spans a
+  whole run, so « add the same delta » is wrong for every run whose moved column is not its only one.
+  The span is recomputed as min/max over the cells the période actually covers — the same rule
+  `CohortStayFolder` applies when publishing — so a move and a fresh publication cannot disagree about
+  where a stay begins. **Moving the middle column of a run therefore changes nothing**, which is the
+  correct answer and not one an offset would produce.
+- ⚠ **Two numbers, and they are not the same number.** `PeriodsCovered` is what the column touches;
+  `PeriodsShifted` is what actually moved. Under `SingleService` the second is routinely smaller, and
+  reporting only the first would announce thousands of rewritten rotations where none is.
+  `PeriodsCovered` is what the operator confirms — it is the measure of the blast radius.
+- ⚠ **What it refuses, and these are the right two.** A période that has begun, carries an evaluation,
+  or carries **attendance** is not moved: a mark and a day of presence are facts about dates that
+  already happened. Attendance is the silent half — a mark announces itself on every screen, a
+  présence is invisible until the day somebody needs it — so it is counted and named in the refusal
+  (`Schedule.SlotPeriodsAlreadyUnderway`) rather than left to a cascade.
+- ⚠ **And the run must still run in order** (`Schedule.SlotMoveBreaksRun`). A column dragged past its
+  neighbour leaves a stay whose columns no longer follow one another; the span would still compute,
+  and it would describe a continuous presence in one service that never happened.
+- **Confirmed, not checkboxed.** `ConfirmedPeriodCount` carries what the preview showed, and there are
+  **two** refusals rather than one — `Schedule.SlotMoveNotConfirmed` (a caller that never opened the
+  preview, which is the grid's current button) and `Schedule.SlotMoveCountMismatch` (a preview that has
+  since become false). One code for both would tell a client that had seen no aperçu that something
+  had changed since it. A mismatch refuses — a période evaluated between the preview and the apply is exactly the case a boolean lets
+  through. The preview (`GET stages/{id}/slots/{slotId}/move-preview`) runs **the same planner**, so
+  the number confirmed and the number compared come from one arithmetic; a refusal comes back as
+  `RefusalMessage` on a 200, because a read that cannot be acted on is still a read.
+- **One transaction, through `IAuditTrail.RunAtomicallyAsync`.** Stopping between the slot write and
+  the périodes is precisely the state this act exists to abolish. The register receives both counts,
+  because the code is identical for « empty column nudged » and « 7 464 périodes rewritten ».
+- → `PublishedColumnMoveTests`, `PublishedGridGuardTests`, `SqlTranslationTests`.
 
 ⚠ **« Set » and « clear » asked different questions of the same cell**, so on a published cohorte you
 could clear an unpublished cell and then not put it back — a hole nobody could fill without

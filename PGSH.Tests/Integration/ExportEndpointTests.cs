@@ -77,12 +77,9 @@ public class ExportEndpointTests : IClassFixture<ApiFactory>, IAsyncLifetime
             Coefficient = 2, DurationInDays = 44,
         });
 
-        var group = new AcademicGroup
-        {
-            Id = 1, Label = "Groupe 1", GroupNumber = 1, RotationGroup = "A",
-            AcademicYearId = YearId, LevelId = ThirdYearLevelId,
-        };
-        db.AcademicGroups.Add(group);
+        var group = db.SeedGroup(
+            1, 1, rotationGroup: "A", academicYearId: YearId, levelId: ThirdYearLevelId,
+            label: "Groupe 1");
 
         db.Users.Add(Student("Amina", "Benali", "CNE0001", "AP0001"));
         db.Users.Add(Student("Sara", "Cherkaoui", "CNE0002", "AP0002"));

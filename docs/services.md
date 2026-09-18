@@ -460,3 +460,37 @@ cellules porte la phrase dans son rapport — voir [`affectation-sheet.md`](affe
 n'ajoute aucun refus de capacité. Un fichier qui met quatre-vingts étudiants dans un service de vingt
 s'applique. La seule garde qui subsiste est `Service.AllowsOverCapacity = false`, et elle mord à la
 **publication** — donc pas ici, puisque rien n'est publié.
+
+---
+
+## La ville d'un service est celle de son hôpital (13/09/2026)
+
+Demandé comme « ajouter une ville au service, et pouvoir filtrer les placements par ville ». La
+moitié « filtre » est faite ; la moitié « colonne » **ne doit pas** l'être.
+
+⚠ **`Hospital.City` existe déjà, et un service appartient à exactement un hôpital.** Recopier la ville
+sur `Service` créerait un doublon qui peut diverger d'un fait que le schéma énonce déjà — la même
+objection qui a tenu `AcademicYearId` hors de `Cohort`, et elle est plus forte ici : il n'y a pas même
+un gain de jointure à invoquer, puisque la page des placements traverse déjà `a.Service.Hospital` pour
+en afficher le nom.
+
+Donc : **aucune migration**, et `GetRosterPlacementsQuery` prend un `City` lu par
+`Service.Hospital.City`.
+
+- **Les trois cibles s'excluent** — service, hôpital, ville. Un service appartient déjà à un hôpital
+  et un hôpital à une ville, donc deux d'entre elles ensemble sont soit redondantes soit
+  contradictoires, et contradictoires elles rendent une page vide qui se lit « personne n'y va ».
+  Refusé en toutes lettres par le validateur.
+- **`Exclusively` vaut aussi pour une ville**, et c'est la vraie demande : « cet étudiant ne peut pas
+  quitter Casablanca ». ⚠ Le même piège que pour l'hôpital — un groupe que personne n'a réparti
+  satisfait « aucune cellule ailleurs » **par vacuité**. La moitié « au moins une cellule » le tient
+  dehors.
+- **La ville revient sur chaque ligne** (`RosterServicePlacementResponse.HospitalCity`) : un écran qui
+  filtre par ville doit pouvoir montrer laquelle, sinon le filtre agit sans que rien ne dise sur quoi.
+- ⚠ **Comparaison en minuscules, accents non repliés.** Replier la colonne stockée demande `unaccent`
+  côté PostgreSQL — une extension plus une colonne générée — et cette moitié n'est pas construite, ici
+  comme pour la recherche d'étudiants. En pratique la ville vient d'un sélecteur alimenté par la liste
+  des hôpitaux, donc elle est écrite comme elle est stockée.
+- ⚠ **Côté client, rien n'est fait** : le filtre est un paramètre de requête, la page des placements ne
+  l'offre pas encore. Le dépôt frontend est séparé.
+- → `RosterPlacementTests` (« Par ville »), `SqlTranslationTests`

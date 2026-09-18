@@ -192,13 +192,21 @@ public class DestructivePlanningAuditEndpointTests : IClassFixture<ApiFactory>, 
                 endDate = "2026-03-31",
             });
 
-        response.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        // ⚠ 200 depuis la phase 17.1, plus 204 : l'acte renvoie ce qu'il a déplacé, parce que « combien
+        // de périodes publiées ont bougé » est la seule chose qui sépare une correction de dates d'une
+        // réécriture de l'année.
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
 
         var metadata = await SoleEntryAsync("STAGE_SLOT_UPDATED");
 
         metadata.GetProperty("fromStartDate").GetString().Should().Be("2026-03-02");
         metadata.GetProperty("fromEndDate").GetString().Should().Be("2026-03-27");
         metadata.GetProperty("toStartDate").GetString().Should().Be("2026-03-09");
+
+        // Le registre doit pouvoir séparer « colonne vide déplacée » de « 7 464 périodes réécrites » :
+        // le code de l'acte est le même dans les deux cas.
+        metadata.GetProperty("periodsCovered").GetInt32().Should().Be(0);
+        metadata.GetProperty("periodsShifted").GetInt32().Should().Be(0);
     }
 
     /// <summary>

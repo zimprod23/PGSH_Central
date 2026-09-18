@@ -3,6 +3,7 @@ using FluentValidation;
 using PGSH.Application.Abstractions.Authorization;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
+using PGSH.Application.Extensions;
 using PGSH.Application.Stages.Cnpn;
 using PGSH.Domain.Common.Utils;
 using PGSH.Domain.Registrations;
@@ -68,13 +69,16 @@ namespace PGSH.Application.Students.Registrations.ReinscriptionSheet;
 /// </param>
 public sealed record ApplyReinscriptionSheetCommand(
     IReadOnlyList<ReinscriptionSheetRow> Rows,
-    int FromAcademicYearId,
-    int ToAcademicYearId,
+    int? FromAcademicYearId,
+    int? ToAcademicYearId,
     int? ConfirmedGraduationCount = null) : ICommand<ReinscriptionSheetReport>, IAuditableCommand
 {
+    // ⚠ Nullable to carry an *omission* as far as the validator, not because either is optional.
+    // Validation runs before the audit behaviour, so the register below reads a command whose two
+    // years have already been refused in words if they were missing.
     public string AuditAction => "REINSCRIPTION_SHEET_APPLIED";
     public string AuditEntityType => "AcademicYear";
-    public string? AuditEntityId => ToAcademicYearId.ToString();
+    public string? AuditEntityId => ToAcademicYearId!.Value.ToString();
 
     public string? AuditMetadata => JsonSerializer.Serialize(new
     {
@@ -90,8 +94,11 @@ internal sealed class ApplyReinscriptionSheetCommandValidator
 {
     public ApplyReinscriptionSheetCommandValidator()
     {
-        RuleFor(x => x.FromAcademicYearId).GreaterThan(0);
-        RuleFor(x => x.ToAcademicYearId).GreaterThan(0);
+        RuleFor(x => x.FromAcademicYearId)
+            .IsARequiredReference(ReinscriptionSheetErrors.FromYearRequiredMessage);
+
+        RuleFor(x => x.ToAcademicYearId)
+            .IsARequiredReference(ReinscriptionSheetErrors.ToYearRequiredMessage);
     }
 }
 
@@ -109,8 +116,11 @@ internal sealed class ApplyReinscriptionSheetCommandHandler(
         if (access.IsFailure)
             return Result.Failure<ReinscriptionSheetReport>(access.Error);
 
+        // Nullable only so an omitted query-string year reaches the validator instead of
+        // throwing in routing; both have been refused in words by the time we are here.
         var plan = await planner.PlanAsync(
-            request.FromAcademicYearId, request.ToAcademicYearId, request.Rows, cancellationToken);
+            request.FromAcademicYearId!.Value, request.ToAcademicYearId!.Value, request.Rows,
+            cancellationToken);
 
         if (plan.IsFailure)
             return Result.Failure<ReinscriptionSheetReport>(plan.Error);

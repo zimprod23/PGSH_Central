@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Authorization;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
+using PGSH.Application.Audit;
 using PGSH.Domain.Stages;
 using PGSH.SharedKernel;
 
@@ -48,7 +49,8 @@ internal sealed class CloneCnpnCurriculaCommandValidator : AbstractValidator<Clo
 
 internal sealed class CloneCnpnCurriculaCommandHandler(
     IApplicationDbContext dbContext,
-    ExecutionAuthorizer authorizer)
+    ExecutionAuthorizer authorizer,
+    IAuditTrail auditTrail)
     : ICommandHandler<CloneCnpnCurriculaCommand, CnpnCloneResult>
 {
     public async Task<Result<CnpnCloneResult>> Handle(
@@ -126,8 +128,14 @@ internal sealed class CloneCnpnCurriculaCommandHandler(
             cloned++;
         }
 
-        if (cloned > 0)
-            await dbContext.SaveChangesAsync(ct);
+        auditTrail.RecordOutcome(
+            ("cloned", cloned), ("stages", stages), ("skipped", skipped), ("outside", outside));
+
+        // ⚠ Inconditionnel : un clonage qui ne trouve rien à cloner — le texte cible porte déjà ses
+        // programmes — est un acte, pas un refus, et sous `if (cloned > 0)` il n'écrivait aucune
+        // entrée. Le registre ne pouvait alors pas distinguer « personne n'a cloné ce texte » de
+        // « quelqu'un l'a cloné et tout y était déjà ».
+        await dbContext.SaveChangesAsync(ct);
 
         return new CnpnCloneResult(cloned, stages, skipped, outside);
     }

@@ -13,9 +13,11 @@ namespace PGSH.Tests.Application;
 /// </summary>
 public class ClearRotationGroupsTests
 {
-    private static ClearRotationGroupsCommandHandler ClearHandler(ApplicationDbContext db) => new(db);
+    private static ClearRotationGroupsCommandHandler ClearHandler(ApplicationDbContext db) =>
+        new(db, new RecordingAuditTrail());
 
-    private static AssignRotationGroupsCommandHandler AssignHandler(ApplicationDbContext db) => new(db);
+    private static AssignRotationGroupsCommandHandler AssignHandler(ApplicationDbContext db) =>
+        new(db, new RecordingAuditTrail());
 
     private static void SeedGroups(ApplicationDbContext db, int count, string? label = null)
     {
@@ -169,10 +171,7 @@ public class ClearRotationGroupsTests
             db.SeedGroup(groupId: i, groupNumber: i, rotationGroup: "A");
 
         for (int i = 4; i <= 6; i++)
-        {
-            var group = db.SeedGroup(groupId: i, groupNumber: i, rotationGroup: "B");
-            group.LevelId = otherLevelId;
-        }
+            db.SeedGroup(groupId: i, groupNumber: i, rotationGroup: "B", levelId: otherLevelId);
         await db.SaveChangesAsync();
 
         await ClearHandler(db).Handle(

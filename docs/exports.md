@@ -294,3 +294,44 @@ exactement l'usage pour lequel `ExportSheet.Notes` existe — une colonne vide s
 indiscernable d'une colonne que l'export a oubliée.
 
 Voir [`affectation-sheet.md`](affectation-sheet.md).
+
+---
+
+## Une colonne remplie sur *une partie* des lignes (13/09/2026)
+
+Signalé ainsi : « le numéro et le libellé du groupe n'apparaissent pas dans l'export des étudiants,
+alors que dans l'export des affectations si — c'est donc à moitié cassé ».
+
+**Les deux exports avaient raison, et ils ne lisent pas la même chose.**
+
+| Export | Chemin vers le groupe | Peut-il être vide ? |
+|---|---|---|
+| Affectations | `InternshipAssignment.Cohort.AcademicGroup` | **Non** : une affectation n'existe que si l'étudiant a été placé dans une cohorte, et une cohorte appartient à un groupe |
+| Rôle des étudiants | `Registration.AcademicGroupId` | **Oui** : c'est l'appartenance au groupe, et seules les promotions déjà découpées en portent une |
+
+⚠ **C'est le même piège que `docs/planning-rosters.md` nomme** : « une affectation ne pend pas au
+pointeur de groupe ». Deux notions de « dans quel groupe est cet étudiant », et elles ne se remplissent
+pas au même moment.
+
+**Le vrai défaut était la note, pas la colonne.** `ExportNotes.EmptyColumns` ne signalait une colonne
+que si elle était vide sur **toutes** les lignes — la bonne question tant qu'aucune promotion n'était
+découpée. Depuis que la 3ᵉ MED l'est, le rôle de 2026-2027 sort avec **933 lignes sur 6 839** portant un
+groupe : la colonne n'est plus vide, plus aucune note ne se déclenche, et le lecteur reçoit une colonne
+blanche à 86 % sans un mot. C'est exactement la lecture que la classe existe pour empêcher.
+
+`ExportNotes.ColumnFill` répond maintenant sur « incomplète » et pas seulement « vide », et la note
+sépare **quatre** états :
+
+| État | Ce que le document dit |
+|---|---|
+| aucun groupe n'existe | « la promotion n'a pas été découpée » |
+| des groupes, personne dedans | « le découpage est fait, la répartition non » |
+| **certaines lignes seulement** | « 933 ligne(s) sur 6 839 portent un groupe… » |
+| toutes les lignes | **rien** — une note qui se déclenche toujours est du bruit |
+
+⚠ **Et délibérément pas de note générique « colonne partielle ».** La moitié des colonnes d'un rôle
+sont légitimement partielles — un CIN, un CNE, une date de naissance — et une note sur chacune est du
+bruit, qui est ignoré, ce qui remet la vraie hors de vue. La question n'est posée que pour la colonne
+dont le blanc appelle **deux actes opposés**.
+
+→ `ExportTests.A_column_filled_on_some_rows_says_how_many`

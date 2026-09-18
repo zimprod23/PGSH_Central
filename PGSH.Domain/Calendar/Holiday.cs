@@ -1,4 +1,4 @@
-namespace PGSH.Domain.Calendar;
+﻿namespace PGSH.Domain.Calendar;
 
 /// <summary>
 /// Where a non-working day comes from — which is also how reliable its date is.
@@ -55,6 +55,19 @@ public sealed class Holiday : ICalendarClosure
     /// being a day out. Fixed national dates are confirmed by construction.
     /// </summary>
     public bool IsConfirmed { get; set; } = true;
+
+    /// <summary>
+    /// Whether the faculty works through this closure. <c>false</c> by default and on every row in the
+    /// base today, which is the old arithmetic unchanged: the days neither count toward a stage's
+    /// duration nor may bound a window.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ <b>Setting it true changes what every window laid over the date is worth</b>, exactly as moving
+    /// the date does — which is why <c>UpdateHolidayResult</c> reports the créneaux spanning it on this
+    /// change too, and not only when the dates move. ⚠ And it never makes the day <i>bounding</i>: a
+    /// stage may run through the Fête du Trône and still must not end on it.
+    /// </remarks>
+    public bool CountsAsWorkingDay { get; set; }
 
     /// <summary>
     /// The faculty's whole calendar — a holiday is nobody's exam week. See

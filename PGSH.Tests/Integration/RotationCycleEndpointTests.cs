@@ -74,23 +74,18 @@ public class RotationCycleEndpointTests : IClassFixture<ApiFactory>, IAsyncLifet
         {
             foreach (int period in new[] { 1, 2 })
             {
-                db.StageSlots.Add(new StageSlot
-                {
-                    Id = slotId++, StageId = stageId, AcademicYearId = YearId,
-                    PeriodNumber = period, Label = $"P{period}",
-                    StartDate = new DateOnly(2025, 10, 1).AddMonths(period - 1),
-                    EndDate = new DateOnly(2025, 10, 31).AddMonths(period - 1),
-                });
+                db.StageSlots.Add(TestHarness.NewSlot(
+                    slotId++, stageId, YearId, period,
+                    new DateOnly(2025, 10, 1).AddMonths(period - 1),
+                    new DateOnly(2025, 10, 31).AddMonths(period - 1),
+                    $"P{period}"));
             }
         }
 
         // The other block: same promotion, its own semester.
-        db.StageSlots.Add(new StageSlot
-        {
-            Id = slotId, StageId = PediatrieId, AcademicYearId = YearId,
-            PeriodNumber = 1, Label = "P1",
-            StartDate = new DateOnly(2026, 2, 1), EndDate = new DateOnly(2026, 2, 28),
-        });
+        db.StageSlots.Add(TestHarness.NewSlot(
+            slotId, PediatrieId, YearId, 1,
+            new DateOnly(2026, 2, 1), new DateOnly(2026, 2, 28), "P1"));
     });
 
     private static string Url(params int[] stageIds) =>

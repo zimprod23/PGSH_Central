@@ -363,7 +363,7 @@ public class CnpnVersionManagementTests
         SeedSourceText(db, from, 1, 2, 3, 4, 5, 6);
         await db.SaveChangesAsync();
 
-        var result = await new CloneCnpnCurriculaCommandHandler(db, db.AdminAuthorizer())
+        var result = await new CloneCnpnCurriculaCommandHandler(db, db.AdminAuthorizer(), new RecordingAuditTrail())
             .Handle(new CloneCnpnCurriculaCommand(from, to), default);
 
         result.IsSuccess.Should().BeTrue();
@@ -385,7 +385,7 @@ public class CnpnVersionManagementTests
         SeedSourceText(db, from, 6, 7);
         await db.SaveChangesAsync();
 
-        var result = await new CloneCnpnCurriculaCommandHandler(db, db.AdminAuthorizer())
+        var result = await new CloneCnpnCurriculaCommandHandler(db, db.AdminAuthorizer(), new RecordingAuditTrail())
             .Handle(new CloneCnpnCurriculaCommand(from, to), default);
 
         result.Value.LevelsCloned.Should().Be(1);
@@ -405,7 +405,7 @@ public class CnpnVersionManagementTests
         db.Curriculums.Add(new Curriculum { LevelId = 201, CnpnVersionId = to, Reference = "saisi à la main" });
         await db.SaveChangesAsync();
 
-        var result = await new CloneCnpnCurriculaCommandHandler(db, db.AdminAuthorizer())
+        var result = await new CloneCnpnCurriculaCommandHandler(db, db.AdminAuthorizer(), new RecordingAuditTrail())
             .Handle(new CloneCnpnCurriculaCommand(from, to), default);
 
         result.Value.LevelsCloned.Should().Be(1);
@@ -427,7 +427,7 @@ public class CnpnVersionManagementTests
         SeedSourceText(db, from, 1);
         await db.SaveChangesAsync();
 
-        var result = await new CloneCnpnCurriculaCommandHandler(db, db.AdminAuthorizer())
+        var result = await new CloneCnpnCurriculaCommandHandler(db, db.AdminAuthorizer(), new RecordingAuditTrail())
             .Handle(new CloneCnpnCurriculaCommand(from, to), default);
 
         result.IsFailure.Should().BeTrue();
@@ -442,7 +442,7 @@ public class CnpnVersionManagementTests
         await db.SaveChangesAsync();
         int id = (await Creator(db).Handle(New(), default)).Value;
 
-        var result = await new CloneCnpnCurriculaCommandHandler(db, db.AdminAuthorizer())
+        var result = await new CloneCnpnCurriculaCommandHandler(db, db.AdminAuthorizer(), new RecordingAuditTrail())
             .Handle(new CloneCnpnCurriculaCommand(id, id), default);
 
         result.IsFailure.Should().BeTrue();
@@ -460,7 +460,7 @@ public class CnpnVersionManagementTests
         int to   = (await Creator(db).Handle(New(code: "NEW"), default)).Value;
         await db.SaveChangesAsync();
 
-        var result = await new CloneCnpnCurriculaCommandHandler(db, db.AdminAuthorizer())
+        var result = await new CloneCnpnCurriculaCommandHandler(db, db.AdminAuthorizer(), new RecordingAuditTrail())
             .Handle(new CloneCnpnCurriculaCommand(from, to), default);
 
         result.IsFailure.Should().BeTrue();

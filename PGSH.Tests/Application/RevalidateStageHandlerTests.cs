@@ -257,11 +257,7 @@ public class RevalidateStageHandlerTests
         var hostCohort = db.SeedCohort(firstYearStage, 10, "Groupe 10 — 1ère année");
 
         // The student now sits in a 6th-year group, which has no cohort for a 1st-year stage.
-        var sixthGroup = new AcademicGroup
-        {
-            Id = 60, Label = "Groupe 60", GroupNumber = 60, AcademicYearId = TestHarness.CurrentYearId,
-        };
-        db.AcademicGroups.Add(sixthGroup);
+        var sixthGroup = db.SeedGroup(60, 60, levelId: OtherLevelId, label: "Groupe 60");
         var sixth = db.SeedRegistration("Omar", "Tazi", sixthGroup, levelId: OtherLevelId);
         sixth.StudentId = first.StudentId;
         sixth.Student   = first.Student;
@@ -492,11 +488,7 @@ public class RevalidateStageHandlerTests
             academicYearId: TestHarness.PreviousYearId);
 
         // This year's group exists but no cohort was ever configured for it on this stage.
-        var orphanGroup = new AcademicGroup
-        {
-            Id = 77, Label = "Groupe 77", GroupNumber = 77, AcademicYearId = TestHarness.CurrentYearId,
-        };
-        db.AcademicGroups.Add(orphanGroup);
+        var orphanGroup = db.SeedGroup(77, 77, label: "Groupe 77");
         var current = db.SeedRegistration("Omar", "Tazi", orphanGroup);
         current.StudentId = previous.StudentId;
         current.Student   = previous.Student;

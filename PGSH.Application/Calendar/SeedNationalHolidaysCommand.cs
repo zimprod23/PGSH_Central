@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
+using PGSH.Application.Audit;
 using PGSH.Application.AcademicYears;
 using PGSH.Domain.Calendar;
 using PGSH.SharedKernel;
@@ -33,7 +34,8 @@ public sealed record SeedNationalHolidaysResult(
 
 internal sealed class SeedNationalHolidaysCommandHandler(
     IApplicationDbContext dbContext,
-    AcademicYearResolver yearResolver)
+    AcademicYearResolver yearResolver,
+    IAuditTrail auditTrail)
     : ICommandHandler<SeedNationalHolidaysCommand, SeedNationalHolidaysResult>
 {
     public async Task<Result<SeedNationalHolidaysResult>> Handle(
@@ -72,10 +74,18 @@ internal sealed class SeedNationalHolidaysCommandHandler(
             .ToList();
 
         if (missing.Count > 0)
-        {
             await dbContext.Holidays.AddRangeAsync(missing, cancellationToken);
-            await dbContext.SaveChangesAsync(cancellationToken);
-        }
+
+        auditTrail.RecordOutcome(
+            ("academicYearId", year.Id),
+            ("created", missing.Count),
+            ("alreadyPresent", candidates.Count - missing.Count));
+
+        // ⚠ Inconditionnel, et c'est le rejeu qui l'exige : semer une année déjà semée n'ajoute aucun
+        // jour, donc sous `if (missing.Count > 0)` l'entrée mise en attente par le pipeline mourait
+        // avec la requête. Le registre disait alors que le calendrier n'avait jamais été semé, sur une
+        // année où il l'avait été deux fois.
+        await dbContext.SaveChangesAsync(cancellationToken);
 
         var recorded = await dbContext.Holidays
             .Where(h => h.EndDate >= year.StartDate && h.StartDate <= year.EndDate)

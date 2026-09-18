@@ -83,11 +83,8 @@ public class PromotionPauseEndpointTests : IClassFixture<ApiFactory>, IAsyncLife
             Id = 1, Name = "Chirurgie", LevelId = LevelId, Coefficient = 2, DurationInDays = 44,
         });
 
-        db.StageSlots.Add(new StageSlot
-        {
-            Id = 1, StageId = 1, AcademicYearId = YearId, PeriodNumber = 1,
-            StartDate = new DateOnly(2026, 1, 5), EndDate = new DateOnly(2026, 2, 6),
-        });
+        db.StageSlots.Add(TestHarness.NewSlot(
+            1, 1, YearId, 1, new DateOnly(2026, 1, 5), new DateOnly(2026, 2, 6)));
     });
 
     private const string Url = "/api/calendar/promotion-pauses";

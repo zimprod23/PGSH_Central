@@ -114,8 +114,14 @@ internal sealed class GetStudentsExportQueryHandler(
         if (ExportNotes.EmptyColumnsNote(Columns, cells) is { } empty)
             notes.Add(empty);
 
-        // Asked only when the answer will be printed — the ordinary export pays nothing for it.
-        if (ExportNotes.EmptyColumns(Columns, cells).Contains(GroupColumnHeader))
+        // ⚠ Asked on « la colonne est-elle incomplète », pas « est-elle vide ». Depuis que la 3ᵉ MED
+        // est répartie, le rôle de l'année sort avec 933 lignes sur 6 839 portant un groupe : la
+        // colonne n'est plus vide, l'ancienne condition ne se déclenchait donc plus, et le lecteur
+        // recevait une colonne blanche à 86 % sans un mot. Le compte est toujours payé seulement
+        // quand il sera imprimé.
+        var (filled, total) = ExportNotes.ColumnFill(Columns, cells, GroupColumnHeader);
+
+        if (filled < total)
         {
             int rosters = await dbContext.AcademicGroups
                 .AsNoTracking()
@@ -123,7 +129,8 @@ internal sealed class GetStudentsExportQueryHandler(
                          && (levelId == null || g.LevelId == levelId))
                 .CountAsync(cancellationToken);
 
-            notes.Add(ExportNotes.RosterNote(rosters));
+            if (ExportNotes.RosterNote(rosters, filled, total) is { } roster)
+                notes.Add(roster);
         }
 
         return notes;

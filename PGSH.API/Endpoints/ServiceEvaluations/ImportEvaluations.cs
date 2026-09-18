@@ -1,4 +1,4 @@
-﻿using MediatR;
+using MediatR;
 using PGSH.API.Extensions;
 using PGSH.API.Infrastructure;
 using PGSH.Application.Stages.Evaluations.Import;
@@ -19,17 +19,23 @@ public sealed class ImportEvaluations : IEndpoint
 {
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
+        // ⚠ The template route bound `scope` and `mode` as bare enums while its two siblings below
+        // already went through ImportOptions + Required(). An enum is a value type, so an omitted one
+        // threw inside routing before any validator ran — the download simply failed with a bare 400,
+        // on the one route of the three a user reaches *first*. Same options record, same refusal.
         app.MapGet("stages/{stageId:int}/evaluations/import/template", async (
             int stageId,
-            EvaluationImportScope scope,
-            EvaluationMode mode,
-            int? periodNumber,
-            int? academicYearId,
+            [AsParameters] ImportOptions options,
             ISender sender,
             CancellationToken ct) =>
         {
-            var result = await sender.Send(
-                new GetEvaluationImportTemplateQuery(stageId, scope, periodNumber, mode, academicYearId), ct);
+            var stated = Required(options);
+            if (stated.IsFailure)
+                return CustomResults.Problem(stated);
+
+            var result = await sender.Send(new GetEvaluationImportTemplateQuery(
+                stageId, stated.Value.Scope, options.PeriodNumber, stated.Value.Mode,
+                options.AcademicYearId), ct);
 
             return result.Match(
                 file => Results.File(

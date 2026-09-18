@@ -195,11 +195,7 @@ public class StudentGroupChangeTests
         var fixture = await SeedTwoRostersAsync(db);
 
         db.Levels.Add(new Level { Id = 77, Label = "5ème année", Year = 5 });
-        db.AcademicGroups.Add(new AcademicGroup
-        {
-            Id = 30, Label = "G3", GroupNumber = 3,
-            AcademicYearId = TestHarness.CurrentYearId, LevelId = 77,
-        });
+        db.SeedGroup(30, 3, levelId: 77);
         await db.SaveChangesAsync();
 
         var result = await ChangeAsync(db, fixture.Mover.Id, targetGroupId: 30);
@@ -218,11 +214,7 @@ public class StudentGroupChangeTests
         await using var db = TestHarness.NewContext("group-change-bucket");
         var fixture = await SeedTwoRostersAsync(db);
 
-        db.AcademicGroups.Add(new AcademicGroup
-        {
-            Id = 40, Label = "Non réparti", GroupNumber = 0,
-            AcademicYearId = TestHarness.CurrentYearId, LevelId = null,
-        });
+        db.SeedUnassignedBucket(40);
         await db.SaveChangesAsync();
 
         var result = await ChangeAsync(db, fixture.Mover.Id, targetGroupId: 40);
@@ -359,11 +351,7 @@ public class StudentGroupChangeTests
         // A second stage the target roster runs and the source roster does not.
         var second = new Stage { Id = 2, Name = "Pneumologie", LevelId = TestHarness.LevelId, Coefficient = 1 };
         db.Stages.Add(second);
-        db.Cohorts.Add(new Cohort
-        {
-            Id = 103, Label = "Pneumo · G2", StageId = second.Id,
-            AcademicGroupId = TargetGroupId,
-        });
+        db.SeedCohortFor(second, fixture.TargetCell.Cohort.AcademicGroup, cohortId: 103);
         await db.SaveChangesAsync();
 
         var result = await ChangeAsync(db, fixture.Mover.Id);

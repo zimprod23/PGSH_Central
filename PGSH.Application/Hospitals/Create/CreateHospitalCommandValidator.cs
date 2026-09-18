@@ -11,11 +11,18 @@ public sealed class CreateHospitalCommandValidator : AbstractValidator<CreateHos
 
         RuleFor(x => x.Name)
             .NotEmpty()
-            .MaximumLength(200);
+            .MaximumLength(HospitalTextLengths.Name);
 
         RuleFor(x => x.City)
             .NotEmpty()
-            .MaximumLength(100);
+            .MaximumLength(HospitalTextLengths.City);
+
+        // ⚠ Bounded to the column, not left to the database to refuse in a language nobody reads.
+        RuleFor(x => x.Description).MaximumLength(HospitalTextLengths.Description);
+        RuleFor(x => x.Email).MaximumLength(HospitalTextLengths.Email);
+        RuleFor(x => x.LocalizationX).MaximumLength(HospitalTextLengths.Coordinate);
+        RuleFor(x => x.LocalizationY).MaximumLength(HospitalTextLengths.Coordinate);
+        RuleFor(x => x.LocalizationZ).MaximumLength(HospitalTextLengths.Coordinate);
 
         RuleFor(x => x.Email)
             .EmailAddress()

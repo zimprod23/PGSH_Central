@@ -47,34 +47,17 @@ public class NoRequiredQueryStringValueTypesTests : IClassFixture<ApiFactory>
     /// <para>⚠ <b>Nothing may be added to this list.</b> If a change makes it longer, the change is the
     /// bug.</para>
     /// </remarks>
-    private static readonly HashSet<string> KnownOffenders =
-    [
-        "api/groups/all → academicYearId",
-        "api/groups/all/students → academicYearId",
-        "api/groups/assign-partitions → academicYearId",
-        "api/groups/assign-partitions → levelId",
-        "api/groups/partitions → academicYearId",
-        "api/groups/partitions → levelId",
-        "api/hospitals/{hospitalId:int}/stage-coverage → levelId",
-        "api/inscription → levelId",
-        "api/inscription/preview → levelId",
-        "api/inscription/template → levelId",
-        "api/levels/{levelId:int}/curriculum/compare → fromCnpnVersionId",
-        "api/levels/{levelId:int}/curriculum/compare → toCnpnVersionId",
-        "api/registrations/{id:guid} → studentId",
-        "api/registrations/{registrationId:guid}/revalidation-context → stageId",
-        "api/reinscription/preview → fromAcademicYearId",
-        "api/reinscription/preview → toAcademicYearId",
-        "api/reinscription/sheet → fromAcademicYearId",
-        "api/reinscription/sheet → toAcademicYearId",
-        "api/reinscription/sheet/export → fromAcademicYearId",
-        "api/reinscription/sheet/export → toAcademicYearId",
-        "api/reinscription/sheet/preview → fromAcademicYearId",
-        "api/reinscription/sheet/preview → toAcademicYearId",
-        "api/stages/{stageId:int}/evaluations/import/template → mode",
-        "api/stages/{stageId:int}/evaluations/import/template → scope",
-    ];
-
+    /// <summary>
+    /// ⚠ <b>Empty, and it must stay empty.</b> The twenty-four routes this list was opened with were
+    /// worked through one at a time (HANDOFF item 0bs); each now binds its parameter nullable and
+    /// refuses the omission <i>in words</i>, so the caller gets a sentence instead of a bare 400.
+    /// </summary>
+    /// <remarks>
+    /// Kept as an empty set rather than deleted, because the two tests below are the ratchet and the
+    /// mechanism has to survive the list: a new offender fails immediately, and there is no longer any
+    /// amnesty to add it to.
+    /// </remarks>
+    private static readonly HashSet<string> KnownOffenders = [];
     [Fact]
     public void No_route_requires_a_value_type_from_the_query_string()
     {

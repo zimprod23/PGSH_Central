@@ -8,8 +8,12 @@ public sealed class UpdateCenterCommandValidator : AbstractValidator<UpdateCente
     public UpdateCenterCommandValidator()
     {
         RuleFor(x => x.Id).NotEmpty();
-        RuleFor(x => x.Name).NotEmpty().MaximumLength(200);
+        RuleFor(x => x.Name).NotEmpty().MaximumLength(HospitalTextLengths.Name);
         RuleFor(x => x.CenterType).IsInEnum().NotEqual(CenterType.None);
-        RuleFor(x => x.City).MaximumLength(100);
+        RuleFor(x => x.City).MaximumLength(HospitalTextLengths.City);
+
+        RuleFor(x => x.LocalizationX).MaximumLength(HospitalTextLengths.Coordinate);
+        RuleFor(x => x.LocalizationY).MaximumLength(HospitalTextLengths.Coordinate);
+        RuleFor(x => x.LocalizationZ).MaximumLength(HospitalTextLengths.Coordinate);
     }
 }

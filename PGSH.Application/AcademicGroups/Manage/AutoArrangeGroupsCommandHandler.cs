@@ -195,15 +195,19 @@ internal sealed class AutoArrangeGroupsCommandHandler(
                     : " [CNPN à confirmer]"
                 : string.Empty;
 
-            var newGroups = Enumerable.Range(0, groupCount)
-                .Select(i => new AcademicGroup
-                {
-                    Label          = $"Groupe {nextNumber + i} — {levelLabel}{suffix}",
-                    GroupNumber    = nextNumber + i,
-                    AcademicYearId = request.AcademicYearId,
-                    LevelId        = request.LevelId,
-                })
+            var made = Enumerable.Range(0, groupCount)
+                .Select(i => AcademicGroup.ForPromotion(
+                    request.AcademicYearId, request.LevelId, nextNumber + i,
+                    $"Groupe {nextNumber + i} — {levelLabel}{suffix}"))
                 .ToList();
+
+            // The cut is scoped to one promotion by construction, so a refusal here is a bug in this
+            // handler and not a state the operator can produce — but it is returned rather than
+            // thrown, because an act that writes rosters must never half-write them.
+            if (made.FirstOrDefault(m => m.IsFailure) is { } refused)
+                return Result.Failure<BulkResponse<Guid, int>>(refused.Error);
+
+            var newGroups = made.ConvertAll(m => m.Value);
 
             dbContext.AcademicGroups.AddRange(newGroups);
             await dbContext.SaveChangesAsync(cancellationToken);

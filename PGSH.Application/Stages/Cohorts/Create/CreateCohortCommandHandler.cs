@@ -48,12 +48,12 @@ internal sealed class CreateCohortCommandHandler(IApplicationDbContext dbContext
                 "Cohorts.Duplicate",
                 "A cohort for this group and stage already exists."));
 
-        var cohort = new Cohort
-        {
-            StageId         = request.StageId,
-            AcademicGroupId = request.AcademicGroupId,
-            Label           = request.Label,
-        };
+        var made = Cohort.For(request.StageId, request.AcademicGroupId, request.Label);
+
+        if (made.IsFailure)
+            return Result.Failure<int>(made.Error);
+
+        var cohort = made.Value;
 
         dbContext.Cohorts.Add(cohort);
         await dbContext.SaveChangesAsync(cancellationToken);

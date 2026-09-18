@@ -1,4 +1,4 @@
-using FluentValidation;
+﻿using FluentValidation;
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
@@ -15,8 +15,8 @@ namespace PGSH.Application.Calendar.Pauses;
 /// </summary>
 /// <remarks>
 /// ⚠ <b>Correcting a window already begun is allowed, and it is the case that happens.</b> Declaring
-/// pushed no date, so nothing double-counts when the window moves — which is exactly what
-/// <c>InternshipAssignment.ResumePeriod</c> cannot say, and why that one cannot be corrected at all.
+/// pushed no date, so nothing double-counts when the window moves — which is exactly what the
+/// accumulating pause retired on 18/09/2026 could never say, and why that one had no correction.
 /// The promotion is <b>not</b> editable here: a window belongs to the promotion that declared it, and
 /// moving it to another one is two acts (revoke, declare) with two confirmations.
 /// </remarks>

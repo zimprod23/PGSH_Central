@@ -19,6 +19,35 @@ public static class AcademicGroupErrors
         $"The academic group with Id = '{groupId}' was not found.");
 
     /// <summary>
+    /// Les trois moitiés de l'identité d'un groupe — (année, niveau, numéro).
+    /// </summary>
+    /// <remarks>
+    /// <para>⚠ Ce sont des refus adressés au <em>programmeur</em>, comme ceux d'un créneau : un
+    /// appelant qui en omet un a écrit un bug, et la seule chose qui comptait est qu'il ne puisse
+    /// plus le faire en silence. <c>Validation</c> et non <c>Problem</c>, parce qu'une demande
+    /// malformée reste une demande malformée d'où qu'elle vienne.</para>
+    ///
+    /// <para>⚠ <b><see cref="RosterNeedsPromotion"/> n'est pas le refus de « Non réparti ».</b> Le
+    /// panier est légitime et a sa propre fabrique, <c>AcademicGroup.AsUnassignedBucket</c> ; ce qui
+    /// est refusé ici est de l'obtenir sans l'avoir voulu. Le refus adressé à l'<em>utilisateur</em>
+    /// qui essaie de traiter le panier en groupe est
+    /// <see cref="UnassignedRosterCannotBePartitioned"/>, plus bas.</para>
+    /// </remarks>
+    public static readonly Error RosterNeedsAcademicYear = Error.Validation(
+        "AcademicGroups.RosterNeedsAcademicYear",
+        "Un groupe appartient à une année universitaire : hors d'une année, ce n'est pas un groupe.");
+
+    public static readonly Error RosterNeedsPromotion = Error.Validation(
+        "AcademicGroups.RosterNeedsPromotion",
+        "Un groupe suit le programme d'une seule promotion. Un groupe sans promotion est « Non "
+        + "réparti », qui se demande explicitement et ne s'obtient pas en oubliant le niveau.");
+
+    public static readonly Error RosterNeedsNumber = Error.Validation(
+        "AcademicGroups.RosterNeedsNumber",
+        "Un groupe porte un numéro dans sa promotion, à partir de 1 : le zéro est réservé à « Non "
+        + "réparti », qui est hors de la numérotation.");
+
+    /// <summary>
     /// The target roster belongs to a different academic year. Never a legitimate move: a registration
     /// <i>is</i> a year, so pointing it at another year's roster does not transfer the student, it
     /// makes the row describe two years at once.

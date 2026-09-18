@@ -105,9 +105,116 @@ internal static class Seeder
             await context.Employees.AddAsync(employee, ct);
         }
 
+        await SeedRealmCompanionsAsync(context, ct);
+
         await context.SaveChangesAsync(ct);
         logger.LogInformation("Static users ready (student: amine.bennani@um5.ac.ma, admin: admin.pgsh@um5.ac.ma, employee: employee.test@um5.ac.ma).");
     }
+
+    /// <summary>
+    /// The rest of the accounts <c>keycloak/pgsh-realm.json</c> declares — a second chef, a
+    /// secrétaire, and two more students.
+    /// </summary>
+    /// <remarks>
+    /// <para>⚠ <b>The two lists are one list.</b> A Keycloak account whose e-mail matches no
+    /// <c>User</c> row logs in perfectly and then gets <b>403 « Profile Not Found »</b> from
+    /// <c>UserContext.SyncAsync</c> — a refusal that names nothing the operator can act on. So every
+    /// user in the realm file has its row here, and adding one there without one here is the defect
+    /// this method exists to prevent.</para>
+    ///
+    /// <para>⚠ <b>Nothing here makes anybody a chef de service.</b> <c>Service.AssignChef</c> requires
+    /// the employee to be in the service's <c>Staff</c> and <b>closes the sitting chef's tenure</b>
+    /// (<c>ServiceChefAssignment</c>). On the live base that rewrites who leads a real service of the
+    /// faculty — a domain act, done from the service's own screen, never by a seeder. What is set is
+    /// <c>Position.ServiceChef</c>, which is only the precondition <c>AssignChef</c> checks.</para>
+    ///
+    /// <para>Idempotent by e-mail, like the three above, because it runs on every Aspire start —
+    /// including against the real base, where <c>Seeding:Enabled</c> is false and this is the only
+    /// seeding that happens at all.</para>
+    /// </remarks>
+    private static async Task SeedRealmCompanionsAsync(ApplicationDbContext context, CancellationToken ct)
+    {
+        if (!await context.Employees.AnyAsync(e => e.Email == "chef.cardio@um5.ac.ma", ct))
+        {
+            await context.Employees.AddAsync(new Employee
+            {
+                Id = new Guid("44444444-4444-4444-4444-444444444444"),
+                Email = "chef.cardio@um5.ac.ma",
+                FirstName = "Nadia",
+                LastName = "Benjelloun",
+                CIN = "AB334455",
+                Gender = Gender.Female,
+                Status = new Status(CivilStatus.Civil, NationalityStatus.Marocaine),
+                Grade = Grade.PES,
+                Position = Position.ServiceChef,
+                WorkPlace = WorkPlace.Hospital,
+                Label = "Chef de service (compte de test)",
+            }, ct);
+        }
+
+        if (!await context.Employees.AnyAsync(e => e.Email == "secretaire.test@um5.ac.ma", ct))
+        {
+            await context.Employees.AddAsync(new Employee
+            {
+                Id = new Guid("55555555-5555-5555-5555-555555555555"),
+                Email = "secretaire.test@um5.ac.ma",
+                FirstName = "Salma",
+                LastName = "Tazi",
+                CIN = "AC556677",
+                Gender = Gender.Female,
+                Status = new Status(CivilStatus.Civil, NationalityStatus.Marocaine),
+                Grade = Grade.Administrator,
+                Position = Position.Normal,
+                WorkPlace = WorkPlace.Hospital,
+                Label = "Secrétaire de service (compte de test)",
+            }, ct);
+        }
+
+        if (!await context.Students.AnyAsync(s => s.Email == "etudiant.test2@um5.ac.ma", ct))
+        {
+            await context.Students.AddAsync(NewTestStudent(
+                new Guid("66666666-6666-6666-6666-666666666666"),
+                "etudiant.test2@um5.ac.ma", "Imane", "Chraibi",
+                cin: "AD667788", cne: "G135000222", appogee: "22003345", Gender.Female), ct);
+        }
+
+        if (!await context.Students.AnyAsync(s => s.Email == "etudiant.test3@um5.ac.ma", ct))
+        {
+            await context.Students.AddAsync(NewTestStudent(
+                new Guid("77777777-7777-7777-7777-777777777777"),
+                "etudiant.test3@um5.ac.ma", "Omar", "Sbai",
+                cin: "AE778899", cne: "G135000333", appogee: "22003346", Gender.Male), ct);
+        }
+    }
+
+    /// <summary>
+    /// ⚠ <b>No <c>Registration</c> is created.</b> A registration is a fact about a promotion — an
+    /// (année, niveau) somebody chose — and inventing one would put a test account into a real
+    /// promotion's roll, where every count and every canvas would then carry it. Enrol these from the
+    /// Inscriptions screen when a test needs them in a promotion.
+    /// </summary>
+    private static Student NewTestStudent(
+        Guid id, string email, string firstName, string lastName,
+        string cin, string cne, string appogee, Gender gender) =>
+        new()
+        {
+            Id = id,
+            Email = email,
+            FirstName = firstName,
+            LastName = lastName,
+            CIN = cin,
+            CNE = cne,
+            Appogee = appogee,
+            AccessGrade = 15.00m,
+            AcademicProgram = AcademicProgram.Medecine,
+            BacSeries = BacSeries.SVT,
+            BacYear = "2023",
+            Gender = gender,
+            Status = new Status(CivilStatus.Civil, NationalityStatus.Marocaine),
+            PlaceOfBirth = "Rabat",
+            DateOfBirth = new DateOnly(2005, 1, 1),
+            Address = new Address("Rabat"),
+        };
 
     // -------------------------------------------------------------------------
     // Academic years — 3 years of history + current

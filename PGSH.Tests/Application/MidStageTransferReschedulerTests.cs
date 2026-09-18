@@ -31,11 +31,11 @@ public class MidStageTransferReschedulerTests
     // colleague has a started period on the target slot), so a transferred student can land there.
     private static async Task SeedScheduleAsync(ApplicationDbContext db)
     {
-        db.StageSlots.Add(new StageSlot
-        {
-            Id = StageSlotId, StageId = 1, PeriodNumber = 1,
-            StartDate = new DateOnly(2026, 1, 1), EndDate = new DateOnly(2026, 1, 31),
-        });
+        // ⚠ Cette fixture posait un créneau **sans année** — un objet qu'aucun chemin de production
+        // ne peut plus produire. TestHarness.CurrentYearId est l'année que le reste du décor utilise.
+        db.StageSlots.Add(TestHarness.NewSlot(
+            StageSlotId, 1, TestHarness.CurrentYearId, 1,
+            new DateOnly(2026, 1, 1), new DateOnly(2026, 1, 31)));
 
         db.CohortSlotAssignments.AddRange(
             new CohortSlotAssignment { Id = 1, CohortId = OriginCohortId, StageSlotId = StageSlotId, ServiceId = OriginServiceId },

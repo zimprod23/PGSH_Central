@@ -11,7 +11,7 @@ Two items the user asked for explicitly, both ahead of everything still open in 
 
 | | what | why now |
 |---|---|---|
-| ~~**Phase 17**~~ ✅ | « Suspension d'examens » scoped to a **promotion**, declared as a window | **Built 2026-09-06.** A promotion's window joins its own working-day calendar and the axis laid afterwards steps over it, in jours ouvrables — no date is pushed onto anything. **§17.1 (moving P7 while P3 runs) remains open.** |
+| ~~**Phase 17**~~ ✅ | « Suspension d'examens » scoped to a **promotion**, declared as a window | **Built 2026-09-06.** A promotion's window joins its own working-day calendar and the axis laid afterwards steps over it, in jours ouvrables — no date is pushed onto anything. **§17.1 (moving P7 while P3 runs) built 2026-09-13** — `PublishedPeriodShifter`. **§17.2 (17/09/2026)**: the pause report names that remedy and counts how many crossed columns it would accept (`SlotsMovable`), and names the off-grid case neither remedy reaches. **§17.3 (17/09/2026)**: the calendar answers its two questions separately — a closure can be *crossed* without lengthening what crosses it (`ICalendarClosure.CountsAsWorkingDay`). **§17.4 (18/09/2026)**: the lifecycle answers *its* two questions separately too — `Movable` (« déplacer le début ») and `Extendable` (« repousser la fin »), plus `InternshipAssignment.ExtendTo`, which is what makes a started rotation repairable at all. ⚠ The promotion-wide **cascade** that consumes them is still not built. |
 | **Phase 18** | Scheduled backups and a **named safe point** before every bulk act | the app is live on the real base — 10 203 students, 43 605 registrations, 105 626 périodes — and the only undo today is a `pg_dump` somebody remembered to take |
 
 ---
@@ -356,10 +356,11 @@ Employee shell + routing exists. `EmployeeDashboardPage`, `EmployeeProfilePage`,
 
 ---
 
-## 🔲 Phase 11.4 — Test infrastructure (integration + functional)
+## ✅ Phase 11.4 — Test infrastructure (integration + functional)
 
-**Status: unit suite done (1 017 tests, `PGSH.Tests`); functional done (`Integration/ApiFactory`);
-Testcontainers NOT started — but the *translation* half of its case is now closed on the macro-plan path.**
+**Status: unit suite done (`PGSH.Tests`); functional done (`Integration/ApiFactory`); Testcontainers
+**built 13/09/2026** (`PGSH.Tests/Postgres/`) — the three tiers now cover translation, the pipeline,
+and the schema.**
 
 The suite runs over `UseInMemoryDatabase`, which ignores FK constraints, unique indexes,
 `OnDelete` behaviour and SQL translatability — so a whole class of defect is invisible.
@@ -372,14 +373,23 @@ The suite runs over `UseInMemoryDatabase`, which ignores FK constraints, unique 
 the sweep found no second defect. It narrows what Testcontainers is still owed for — **rows, FKs,
 unique indexes and `OnDelete`** — rather than replacing it.
 
-Two additions, in order:
+Both additions are in:
 
-1. **Integration — Testcontainers over real Postgres.** Spin up `postgres:17.2`, run the real migrations, move
-   the handler tests off InMemory. Catches FK/constraint/translation defects. Would have caught the chef
-   worklist year-filter directly (that bug was found by querying the live DB by hand, not by a test).
-2. **Functional — `WebApplicationFactory` + stubbed `IUserContext` per role.** The only way to assert
-   "a student gets 403 from `stages/delocalize`" and to stop the Phase 8 authorization gaps from regressing.
-   Requires referencing `PGSH.API` from the test project (it currently references only Domain/Application/Infrastructure).
+1. ✅ **Integration — Testcontainers over real Postgres** (13/09/2026). One `postgres:17-alpine` per
+   run, one database per test cloned from a template. `[PostgresFact]` skips *with a sentence* when
+   Docker is absent rather than passing. First cases: the two **filtered** unique indexes no other
+   provider here can express (`IX_AcademicYear_IsCurrent`, `IX_Student_CNE`) and `Cohort.Stage` as
+   `RESTRICT`.
+   - ⚠ **It does not run the migration chain, and it cannot.** Three CNPN *data* migrations open with
+     `RAISE EXCEPTION` against an empty base by design (`docs/operations.md` §1), so the schema is
+     built with `EnsureCreated` from the model. Migration drift therefore remains uncovered — the
+     one thing this phase was expected to close and does not.
+   - ⚠ **Moving the handler tests off InMemory wholesale is *not* done and is not obviously right**:
+     ~1 990 tests through a container would cost minutes per run. The rule is per-question — a case
+     goes to `Postgres/` when the answer depends on the schema, and stays in-memory otherwise.
+2. ✅ **Functional — `WebApplicationFactory` + header-driven auth** (`Integration/ApiFactory`,
+   `TestAuthHandler`). `PGSH.API` is referenced from the test project; see the build note in
+   `CLAUDE.md` about `-p:BaseOutputPath`.
 
 ---
 
@@ -1750,11 +1760,54 @@ state. Silently rewriting the dates of a published promotion is the one thing th
 ⚠ **And whether that shortfall can be repaired is a fact about the promotion, found by running §50.5
 on the live base rather than by reasoning.** Re-laying the axis is a real act *only while nothing has
 been published from it*: `ApplyRotationCycleCommand` refuses on `PublishedCells > 0` for the whole
-block, and the 3ᵉ MED holds **804** — « Appliquer l'axe » is disabled and the page says « ce bloc ne
-peut plus être redéfini ». So for a published promotion there is **no remedy today**; the window is
-recorded, the report is honest, and the days are lost until §17.1 exists. The preview carries
-`PublishedCellsInGrid` and its warning branches on it, because **a report that prescribes a refused
-button is worse than one that prescribes nothing**.
+block, and the 3ᵉ MED holds **1 000** — « Appliquer l'axe » is disabled and the page says « ce bloc ne
+peut plus être redéfini ». The preview carries `PublishedCellsInGrid` and its warning branches on it,
+because **a report that prescribes a refused button is worse than one that prescribes nothing**.
+
+#### ✅ 17.2 — the report caught up with its own remedy (17/09/2026)
+
+Raised by the user while reading the real screen — 3ᵉ MED, 10/03/2027 → 30/04/2027, 37 jours ouvrables,
+16 créneaux, 1 000 cellules publiées. Three defects, all in `PromotionPauseImpactReader.Warnings`.
+
+- ⚠ **The published branch named no remedy, and by then one existed.** It ended « déplacer une colonne
+  déjà publiée n'est pas encore possible » — written the day it was true, and left standing when §17.1
+  shipped the move four sessions later. **Naming no remedy where one exists reads as « les jours sont
+  perdus »**: the same defect as prescribing a refused button, arrived at from the other side. It now
+  names the move.
+- ⚠ **And it now says how much of it is worth starting** — `SlotsMovable`, how many of the crossed
+  columns the move would accept, via `PromotionPauseQueries.UnmovableSlotsQuery`. On that screen the
+  answer is **16 of 16**: a published rotation is `IsStarted = false` until the administration starts
+  it, which is exactly why « Rotations en cours » read 0 beside 933 students. The three sentences —
+  all / some / none — differ because the acts they call for differ; a bare number left the reader to
+  guess which case they were in.
+- ⚠ **A third case had no branch at all**: rotations crossing the window while **no créneau** does —
+  périodes written *hors grille* by the canevas des affectations, a délocalisation or a legacy import.
+  Neither remedy reaches them (one starts from the axis, the other from the cells). On a promotion with
+  rotations under way it fell into « reposez l'axe » — a gesture that succeeds and changes nothing for
+  them — and on one at rest into **no warning whatsoever**. Now named, with the remedy that does apply:
+  re-send the canevas with the windows shifted.
+
+- ⚠ **A fifth case, found on the real screen 17/09/2026 and fixed the same day**: a column the window
+  **empties**. `SlotsEmptied` / `CellsInEmptiedSlots`. December 2026 over the 3ᵉ MED — 23 worked days
+  against columns of 15 — leaves one column of every one of the 8 stages with **no worked day at all**,
+  and `Warnings()` had never been given `MinWorkingDaysAfter`: the only trace was the left end of a
+  « 0 – 10 » range in a table cell. Emptied is not shortened — a shift catches up a short column, while
+  an empty one is a rotation nobody serves — so it gets its own sentence, **added** to the remedy rather
+  than substituted for it.
+
+**The rule behind `SlotsMovable` was extracted rather than copied.** `IsStarted || IsComplete ||
+Evaluation != null || Attendance.Any()` was written out in `InternshipAssignment.Reschedule` and again
+in `PublishedPeriodShifter.PlanAsync`; a third copy in the report is how a screen comes to promise a
+move the aggregate then refuses. It is now `ServicePeriodLifecycle.Movable`, and the store-side read
+**composes** it (`ExpressionComposition.Through` + a new `.Not()`) instead of restating it — `Invoke`
+is what EF refuses. ⚠ It is deliberately *not* derived from the four lifecycle states: it reads
+`Attendance`, which bears on none of them, and a `Planned` rotation carrying présences must not move.
+
+⚠ **What it still does not do: cascade.** A move shifts one column and leaves the ones after it where
+they are, so repairing those 16 columns is 16 acts and the run-order guard will refuse the ones that
+would overlap. The warning says so in words. The promotion-wide cascade — split the column the window
+falls inside, push the rest of each partition's itinerary, check no other promotion is standing where
+they land — is **not built**, and it is the natural next phase.
 
 **Re-applying moves nothing** — the property the phase asked for, and here it is trivially true
 rather than carefully arranged: nothing is added to what is stored, so the same window twice is the
@@ -1782,8 +1835,10 @@ ceiling of `MaxSpanDays = 120` because beyond a term the right row is a faculty 
 saying it is out that week, not the decree naming the date, and counting it would report the calendar
 complete on the strength of one promotion's window.
 
-**The stage-scoped pause stays.** `StagePauseRunner` answers a different question — a service closing
-for a week — and is untouched.
+**~~The stage-scoped pause stays.~~ ❌ Reversed on 18/09/2026 — it was retired instead.** See §17.2
+below: the two mechanisms behaved as opposites, the cascade had to pick a side, and the side it picked
+is the declarative one. `StagePauseRunner`, `PauseStagePeriodsCommand`, `ResumeStagePeriodsCommand`,
+`InternshipAssignment.PausePeriod` / `ResumePeriod`, the two routes and the two buttons are gone.
 
 **Côté écran:** `PromotionPausesPanel` on the calendar page (declare / preview / correct / revoke, the
 impact report bounded to créneaux and stages with cohortes, rotations and students *counted*), and
@@ -1795,6 +1850,40 @@ invisible. `GeneratedAxisColumn.Pauses` is reported apart from `Holidays`: a hol
 through `InternshipAssignment.Registration` are joins the store had never been asked for. Both new
 guards were broken and restored to prove they bite.
 
+#### ✅ 17.3 — a day that counts and does not bound (17/09/2026)
+
+The faculty's rule, given 10/09/2026: **the only planning constraint is that a période neither begins
+nor ends on a rest day or a closure.** A closure may therefore be *crossed*, and crossing it need not
+lengthen the window that crosses it — which the calendar could not express, because
+`WorkingDayCalendar.IsWorkingDay` answered two questions at once. Marking a férié worked would also have
+let a stage end on it.
+
+- **Two predicates, and no `IsWorkingDay`.** `CountsTowardDuration` (is somebody expected in a service)
+  and `CanBoundAWindow` (may a période begin or end here). Removing the old one **named its own
+  offenders**: six test call sites, each of which turned out to be asking one question or the other.
+  ⚠ They are **nested**, never independent — every bounding day counts, not every counted day bounds —
+  and a sweep over seven months pins it.
+- **The flag is `ICalendarClosure.CountsAsWorkingDay`, on the interface.** That interface's own sentence
+  is that its two implementations « differ in scope and in nothing else »; a flag on `Holiday` alone
+  would have made it quietly false. `PromotionPause` answers `false` **unconditionally and without a
+  column** — a promotion sitting an exam is not in a service. `ProposedClosure` computes it from the
+  scope rather than taking it: that record exists so a preview and the act it previews cannot report two
+  numbers, and a free field there would have been the one able to make them disagree.
+- ⚠ **`Lay` may now return a window holding more than was asked, and says so.** When the Nᵗʰ counted day
+  falls on a worked closure, `End` advances to the next day that can bound and the worked days crossed
+  on the way are **counted**. The item's note said to extend « sans le compter »; taken literally that is
+  the contradiction its own next clause warns about, since the day the window ends on is itself worked.
+  `Count(Start, End)` therefore still equals `WorkingDays`, and the divergence travels in
+  `WorkingDayWindow.RunsLongerThanAsked`.
+- **Two defects found while writing, both outside the calendar.** `UpdateHolidayResult.SlotsSpanning` was
+  gated on `DatesMoved` alone, so the one change that gives days *back* would have been the only silent
+  one (`CountingChanged` is named beside it); and `UpdateHolidayCommand.CountsAsWorkingDay` is `bool?`
+  with null meaning **unchanged**, because a full-replace PUT from a client that has never heard of the
+  field would otherwise undo a flag somebody set on purpose.
+- **Additive migration, `DEFAULT false`** — the old arithmetic line for line, so it lands on a base
+  carrying a published promotion without moving a date. ⚠ **No screen yet** (separate repository), so
+  nothing can be flagged from the application: item **0cf**.
+
 ### The gap analysis this replaced — kept because it is why the shape is what it is
 
 > **The sentence that settles the scope:** « a pause and a matter of exams … is a matter of whole
@@ -1803,10 +1892,12 @@ guards were broken and restored to prove they bite.
 > The unit of the act is therefore **(année académique, niveau)** — never the stage, and never the
 > faculty.
 
-#### What existed, read from the code 2026-09-03
+#### What existed, read from the code 2026-09-03 — ⚠ **retired 18/09/2026, kept as the record of why**
 
 `StagePauseRunner` (`Application/Stages/Planning/`) with `InternshipAssignment.PausePeriod` /
-`ResumePeriod`. It works, and it answers a different question:
+`ResumePeriod`. It ran, and it answered a different question — which is what kept it alive through two
+reviews. The table below is the reading that eventually condemned it: every row is a decision taken at
+**pause time**, and writing dates at pause time is the single cause of all four gaps.
 
 | | today |
 |---|---|
@@ -1876,33 +1967,192 @@ Four gaps, and each is a design fault rather than a missing option:
     `AcademicYearCalendarGuard`: the days in the overlap would be counted twice against every
     duration.
   - The window falls inside the academic year it names.
-  - ⚠ **Closed and interrupted périodes never move.** `ResumePeriod` gets this right today
-    (`!p.IsComplete && !p.IsInterrupted`) and the rule must survive the rewrite: a closed rotation is
-    what actually happened, and pushing it forward rewrites the past to make room for the present.
-- **The stage-scoped pause stays.** A service closing for a week, a stage suspended for one cohorte,
-  is genuinely per stage — `StagePauseRunner` answers that and should keep answering it. The
-  promotion pause is a **second act**, not a replacement, and the two must not be folded into one.
+  - ⚠ **Closed and interrupted périodes never move.** The retired `ResumePeriod` got this one right
+    (`!p.IsComplete && !p.IsInterrupted`) and the rule outlived it: it is now
+    `ServicePeriodLifecycle.Movable`, read by `InternshipAssignment.Reschedule` and by the pause
+    preview, which is stricter — it also refuses a rotation carrying **journées de présence**, a state
+    `ResumePeriod` walked straight over. A closed rotation is what actually happened, and pushing it
+    forward rewrites the past to make room for the present.
+- **~~The stage-scoped pause stays.~~ ❌ Reversed 18/09/2026, and the reversal is worth reading rather
+  than skipping** — the argument above is not wrong, it is answering a question nobody had asked.
+  - **What the argument said:** « a service closing for a week, a stage suspended for one cohorte, is
+    genuinely per stage ». True as a *domain* statement. What made it decide wrongly is that it
+    compared the promotion pause to an idealised stage pause rather than to the one in the repository.
+  - **What was actually there**, measured 18/09/2026: an act that lengthened a stage in **calendar**
+    days (a week-end inside the window counted as two lost days and pushed the rotation two days
+    further); that moved the student's `ServicePeriod` dates and **not** the créneaux or the cellules,
+    from which `ServiceOccupancyCalculator` reads occupancy — so the grid showed one window and the
+    dossier another, with nothing saying which was true; that took its date from
+    `DateTime.UtcNow` at both ends, so someone had to be present on the first morning and again on the
+    last; that pushed later périodes **without** the `Movable` guard, over journées de présence already
+    recorded; that raised no domain event; that wrote **nothing** to the register, not being
+    `IAuditableCommand`; and whose `SaveChanges` was behind `if (affected > 0)`, so a run with no effect
+    left no trace of having been attempted. Replayed, it moved everything twice.
+  - **And it had never been used.** The live base held **0** paused périodes, **0** `PeriodPause` rows
+    and **0** `PromotionPauses` on 18/09/2026. The « different question » was hypothetical; the defects
+    were not.
+  - ⚠ **Say the loss plainly: suspending one cohorte's rotation is now something PGSH cannot do.**
+    That is a withdrawal, not a substitution, and it should be recorded as one. When the faculty asks
+    for it, it gets built on the shape that survived — a scoped **declaration** that writes no date,
+    plus `InternshipAssignment.Reschedule` for the columns it cuts — and not by restoring an act whose
+    every defect followed from writing dates at pause time.
 
-### 17.1 — The adjacent gap, same machinery: moving P7 while P3 runs
+### ⏭ 17.3 — Rattraper une fenêtre sur une promotion publiée (spécifié 18/09/2026, **pas encore écrit**)
 
-Asked in the same session. « Ten periods, we are in P3, can we change P7 — and therefore P8-P10 —
-without republishing everything? » **Today, no**, and the three obstacles are each one step from the
-work above, because "shift the later périodes *and their cells*" is the same operation:
+**La question, telle que l'utilisateur l'a posée :** « une pause tombe au milieu de P3 et finit au
+milieu de P4 ; on repousse la fin de P3 et la suite suit. Sur une promotion non publiée c'est facile
+— pourquoi serait-ce difficile sur une publiée ? Ce ne sont que des dates. »
 
-- `UpdateStageSlotCommandHandler` has **no published-guard at all** (unlike `DeleteStageSlot`, which
-  checks `SlotHasPublishedCellAsync`). It rewrites the slot's dates and never touches the
-  `ServicePeriod`s published from it — gap 3 above, reached from the grid side. Editing P7 is
-  *allowed* and silently splits the grid from the périodes, which is worse than a refusal.
-- `SetCohortSlotAssignmentCommandHandler` refuses when the **cohorte** holds any grid-linked période
-  at all, not when *this cell* is published. `PublishedCells.IsCellPublishedAsync` exists precisely
-  to answer the narrower question and is not used here.
-- `UnpublishCohortScheduleCommand(int CohortId, bool Force)` has no period scope: undoing P7 means
-  undoing P1-P10 for that cohorte, and `Force` cascades away the évaluations and the attendance of
-  the périodes already served.
+**Il a raison, et la première spécification de cet item visait la mauvaise moitié du problème.**
 
-⚠ **`SingleService` is the complication in all three.** `SchedulePublisher` folds the *kₛ* cells of a
-run into one `ServicePeriod`, so editing a column mid-run splits a stay rather than editing a row —
-and 5ᵉ/6ᵉ année are `SingleService` in 51 923 of 51 924 imported placements.
+#### ⚠ Ce qui a renversé la spécification
+
+`ServicePeriodLifecycle.Movable` vaut
+`!IsStarted && !IsComplete && Evaluation == null && !Attendance.Any()` : **une rotation commencée ne
+se déplace pas du tout.** L'ancienne fiche disait « déplacer les colonnes traversées, une par une » —
+or le cas qui compte vraiment n'est pas la semaine d'examens oubliée (celle-là se prévient en
+déclarant avant de poser l'axe) mais la **fermeture imprévue en cours d'année** : grève, épidémie,
+deuil national, un service qui ferme. Par définition elle arrive quand tout est publié **et
+commencé**, donc l'acte spécifié n'aurait rien pu déplacer et aurait rapporté zéro.
+
+⚠ **Le remède est de *prolonger* la colonne en cours, puis de pousser les suivantes** — c'est
+exactement l'arithmétique de la pause retirée en 73. Elle avait la **bonne forme pour ce cas-là** et
+tout le reste de faux (jours calendaires, grille laissée derrière, `UtcNow`, aucun événement, aucun
+registre, accumulation au rejeu). Ce qu'il faut en garder est la forme, pas le code.
+
+⚠ **Donc `Movable` confond deux questions** et devra les séparer :
+
+| Sur une rotation commencée | |
+|---|---|
+| Déplacer son **début** | **Non** — cela réécrit ce qui a eu lieu |
+| Repousser sa **fin** | **Oui** — rien de passé n'est touché, l'étudiant sert plus longtemps |
+| Prolonger une rotation close ou notée | Non |
+| Pousser une colonne **suivante**, non commencée | `Movable` tel quel |
+
+#### La décision structurante : aucune table d'historique
+
+L'axe est une **fonction pure** : date d'ancrage + durées des stages + **calendrier de la promotion**,
+lequel contient déjà les fenêtres déclarées.
+
+- Déclarer une fenêtre → recalculer → les colonnes se replacent.
+- **Révoquer → recalculer → les dates d'origine reviennent toutes seules.**
+- Deux, trois fenêtres coexistent sans interagir : il n'y a pas de deltas à composer.
+
+⚠ **C'est pourquoi il ne faut rien stocker des anciennes dates.** L'utilisateur a demandé une
+traçabilité pour pouvoir défaire ; la réponse est que recalculer *est* le défaire. Stocker les
+anciennes fenêtres obligerait chaque correction à porter son propre annulateur, et deux fenêtres
+successives deviendraient une histoire à rejouer dans l'ordre. C'est déjà le principe que
+`PromotionPause` énonce sur lui-même (« derived from, never added to ») ; il s'agit de l'étendre à la
+grille au lieu de s'arrêter au calendrier.
+
+#### Les six autres décisions
+
+1. **Modifier, jamais recréer.** `InternshipAssignment.Reschedule` existe, garde dans l'agrégat, et
+   transporte les deux fenêtres.
+2. **Un seul événement pour l'acte.** `ServicePeriodRescheduledDomainEvent` n'a **aucun
+   consommateur** (vérifié le 18/09/2026) ; en lever un par rotation coûterait les minutes que
+   `NOTES.md` décrit sur la déliberation, et l'historique par ligne est redondant dès lors que les
+   dates sont dérivées. L'événement d'acte plus `IAuditTrail.RecordOutcome` portent les comptes.
+3. **Le même acte sert une promotion non publiée**, où la moitié « périodes » est simplement sans
+   effet. ⚠ Mais il ne **ré-arrange pas les services** : ne bouger que des dates est précisément ce
+   qui le rend sûr sur du publié, là où reposer l'axe est refusé.
+4. **Un seul refus** : un séjour portant une **note** ou des **journées de présence**. Les compter,
+   les nommer, déplacer le reste.
+5. **Le dépassement de capacité qui en résulte est un rapport, pas un blocage** — règle tranchée le
+   12/09/2026 et rien ici ne la rouvre.
+6. **Une seule migration : un marqueur « déplacée à la main » sur `StageSlot`.** Il n'en a aucun là
+   où `CohortSlotAssignment.Source` en a un, donc un recalcul écraserait en silence la correction
+   qu'un humain a faite par §61 — la faute exacte que `Source` avait été créé pour empêcher.
+
+#### Coût, et pourquoi il est tenable
+
+Le recalcul lui-même est trivial (une trentaine de colonnes). Le prix est dans les séjours — 4 625
+pour la seule 4ᵉ MED. Donc : une requête étroite pour savoir ce qui bouge et ce qui est refusé,
+l'aperçu tiré de la **même** fonction (donc gratuit), puis le chargement et la mutation dans une seule
+transaction. Ne pas lever d'événement par ligne est la plus grosse économie.
+
+### ✅ 17.4 — « déplacer le début » et « repousser la fin » sont deux questions (18/09/2026)
+
+La pièce de domaine sans laquelle le rattrapage d'une promotion **publiée** ne peut rien faire du cas
+qui compte. `ServicePeriodLifecycle` portait une seule règle de mobilité, `Movable`, qui refuse toute
+rotation commencée — à juste titre : quelque chose a eu lieu à cette date de début. Mais une fenêtre
+imprévue (grève, épidémie, deuil, session d'examens déclarée tard) tombe précisément sur une
+promotion **en cours**, donc sous cette seule règle le rapport comptait zéro colonne déplaçable et
+concluait « les jours sont perdus ».
+
+**Ce qui a été livré :**
+
+- **`ServicePeriodLifecycle.Extendable`** — `!IsInterrupted && !IsComplete && Evaluation == null`.
+  Le démarrage n'entre pas, c'est tout le propos ; les présences non plus.
+- **`InternshipAssignment.ExtendTo(periodId, newEnd)`** — un second acte, pas un drapeau sur
+  `Reschedule` : deux questions, deux gardes, et un drapeau aurait fait choisir l'invariant par
+  l'appelant.
+- **`StageErrors.PeriodCannotBeExtended` / `PeriodExtensionGoesBackwards`** — deux phrases distinctes,
+  parce qu'une phrase partagée dirait « cette rotation a commencé » à propos d'un allongement : vrai,
+  et sans rapport avec le refus.
+- **`Movable` gagne `!IsInterrupted`** — narrowing assumé, documenté à sa source.
+
+⚠ **Les présences interdisent un déplacement et pas un allongement**, et cette asymétrie *est* la
+raison d'être de la scission : une journée pointée vit entre le début et l'ancienne fin, et une
+fenêtre qui ne fait que croître la contient toujours. Le refus qui manque donc à `Extendable` — ramener
+la fin en arrière — vit dans le **nom de l'acte**, pas dans un état qu'un appelant pourrait mal lire.
+
+⚠ **Les deux règles sont emboîtées, `Movable` ⊂ `Extendable`**, exactement comme
+`CountsTowardDuration` et `CanBoundAWindow` depuis §17.3 et pour la même raison : deux prédicats
+indépendants finissent par répondre des choses incompatibles sur une même ligne, et l'acte de
+rattrapage choisit alors le mauvais. C'est pour en faire un **théorème** plutôt qu'une coïncidence que
+`IsInterrupted` a rejoint `Movable` — une rotation coupée par un transfert a ses deux bouts pour faits.
+En pratique une interruption implique un démarrage, donc rien de ce que le cycle de vie produit ne
+change ; ce que cela ferme est une ligne que le magasin peut porter. Vérifié sur les **32**
+combinaisons, pas sur un échantillon.
+
+⚠ **`ExtendTo` écrit une date *absolue*, jamais un delta.** C'est la propriété qui rendra le recalcul
+d'axe rejouable : déclarer, corriger puis révoquer une fenêtre relance l'acte autant de fois qu'il le
+faut sans que la rotation s'allonge à chaque passage. `ExtendBy(jours)` aurait été exactement
+l'accumulation pour laquelle la pause par étape a été **retirée** plutôt que réparée (§17.2).
+L'événement est le même que celui du déplacement — `ServicePeriodRescheduledDomainEvent`, début
+inchangé des deux côtés — parce qu'un allongement *est* un changement de fenêtre, et que deux types
+pour un fait obligeraient chaque futur consommateur à s'abonner deux fois.
+
+⚠ **Rien n'en dépend encore**, et c'est volontaire : c'est la clé de voûte du recalcul promotion-wide
+(item 0ce), posée et éprouvée seule pour que la suite n'ait pas à la redécider. Aucune migration,
+aucun écran, aucun changement de comportement pour un appelant existant.
+→ `PGSH.Tests/Domain/PeriodExtensionTests.cs`, `ServicePeriodLifecycleTests`
+
+### ✅ 17.1 — moving P7 while P3 runs (built 13/09/2026)
+
+« Ten periods, we are in P3, can we change P7 — and therefore P8-P10 — without republishing
+everything? » **Yes**, since `PublishedPeriodShifter`: the column and the périodes published from it
+move as **one** operation, under one transaction, with the count confirmed.
+
+How the three obstacles were answered:
+
+- `UpdateStageSlotCommandHandler` gained a published-guard on 13/09/2026 and then, the same day, the
+  act the guard was standing in for. It no longer refuses a published column: it re-derives every
+  affected période's window and writes both halves together. Leaving it at the refusal was expensive
+  — on a promotion published in its entirety the only remedy was « dépubliez d'abord », i.e. destroy
+  a year's plan to shift one week.
+- `SetCohortSlotAssignmentCommandHandler` asking about the **cohorte** rather than the cell turned out
+  to be **right**, not a gap — publication is once per cohorte, so narrowing it would have let an edit
+  *appear* to work and produce nothing. Its twin `ClearCohortSlotAssignment` was moved to match
+  (13/09/2026); the asymmetry was the actual defect. → `docs/planning-rotation.md`.
+- `UnpublishCohortScheduleCommand` still has **no period scope**, and that is now a standalone hazard
+  rather than a blocker: nothing in the reschedule goes through it any more. It remains the only path
+  that destroys marks, and it does so at whole-cohorte granularity. → HANDOFF « A2 (reste) ».
+
+⚠ **`SingleService` was the complication, and it is what shaped the design.** A période spans a whole
+run, so a window is **re-derived** from the cells it covers — min/max, the same rule
+`CohortStayFolder` uses when publishing — and never offset by a delta. Moving the *middle* column of a
+run therefore changes nothing, which is correct and is not what an offset would have written. The act
+reports `PeriodsCovered` and `PeriodsShifted` separately for exactly this reason; 5ᵉ/6ᵉ année are
+`SingleService` in 51 923 of 51 924 imported placements, so the smaller number is the common case.
+
+⚠ **What it refuses**: a période that has begun, carries an evaluation, or carries **attendance** —
+counted and named, because a présence is invisible until the day somebody needs it — and any move
+that would leave a run's columns out of order.
+
+⚠ **Not verified against the live base.** The 3ᵉ MED holds 7 464 published périodes; moving one of its
+columns is the user's click, not a verification to help oneself to. `SMOKE-TEST.md` §61.
 
 #### Definition of done — met, and rehearsed on the live base 06/09/2026
 
@@ -2084,13 +2334,26 @@ tour qui le referme.
 - **A restore somebody has actually run.** `VerifyBackupPointCommand` reads an archive's table of
   contents back (`pg_restore -l`) — enough to catch the truncation a piped dump produced here once —
   and `BackupVerification.Restored` is a value **nothing sets yet**. ⚠ A backup nobody has restored
-  is a hypothesis.
-- **`pgsh-snapshot` / `pgsh-restore` as scripts**, so the act exists outside a running API. Today the
-  restore command is *printed* by the plan; §18's « rollback to the latest safe point becomes a
-  command » is not finished until it is one.
-- **Assert the restore in SQL** — `RAISE EXCEPTION` on a row-count mismatch against the manifest's
-  census, the shape the 2026-09-01 rebuild established.
-- **Keycloak's volume**, either dumped with the base or established in writing as independent.
+  is a hypothesis. **This is the last one open**, and 17/09/2026 is the day to close it.
+- ✅ **`pgsh-snapshot` / `pgsh-restore` as scripts (17/09/2026)** — `scripts/`, with
+  `pgsh-common.ps1` holding the container discovery. ⚠ The discovery rules are *copied from*
+  `PgDumpBackupArchive` deliberately: a script that found the container differently would one day
+  find a different one than the application, and a dump of the wrong base filed under this one's name
+  is the silent failure phase 18 exists to remove. Several matches is a refusal, and pgAdmin is
+  excluded **by image**, since its name contains « postgres » too.
+- ✅ **Assert the restore (17/09/2026).** ⚠ Not in SQL in the end, and the reason is worth keeping:
+  `pg_restore`'s exit code is **not** the verdict in either direction — `--clean --if-exists` reports
+  missing objects on an empty base and exits non-zero having restored perfectly, and it exits 0 on
+  errors that left tables empty. So the script **recounts** the manifest's census and refuses on a
+  mismatch, naming the tables that disagree. A key the manifest does not carry is reported as
+  « le manifeste n'en dit rien », never as agreement — the `DatabaseCensus` rule that a missing key is
+  `null` and never `0`.
+- ✅ **Keycloak's volume (17/09/2026) — the second branch: *established in writing as independent*.**
+  `keycloak/pgsh-realm.json`, imported by `.WithRealmImport("../keycloak")`. ⚠ Chosen over dumping the
+  volume because a dump is a second thing to remember to take, and the day it is missing you are where
+  17/09 left us: the base came back from a safe point and the realm had no copy anywhere. A written
+  realm needs no backup — it rebuilds. ⚠ `KeycloakRealmCovered` **stays `false`**: the realm is still
+  not in the `.dump`, and flipping the flag would send a reader looking for it there.
 - **Application-level undo** for the two acts a full restore is too big a hammer for
   (`ApplyDeliberationCommand`, the réinscription roll). ⚠ `IAuditableCommand` records the criteria,
   the author and the date — **never the previous values** — so today the snapshot *is* the undo, and

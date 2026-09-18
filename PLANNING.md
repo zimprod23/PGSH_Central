@@ -391,8 +391,11 @@ refusal:
 - Dépublier has no portée par période: undoing P7 undoes P1-P10 of the cohorte, and forcing it takes
   the marks and the attendance of the périodes already served.
 
-The same is true of a suspension: `StagePauseRunner` pauses **one stage**, compensates in *calendar*
-days, and moves the `ServicePeriod`s without moving the créneaux. Both are `PHASES.md` §17 / §17.1.
+⚠ **Suspending is no longer one of these acts at all.** `StagePauseRunner` paused **one stage**,
+compensated in *calendar* days, and moved the `ServicePeriod`s without moving the créneaux; it was
+**retired on 18/09/2026** rather than repaired, because each of those is a consequence of writing
+dates at pause time. An exam window is now **declared** (`PromotionPause`, no date written, revocable)
+and the columns it cuts are moved by « Déplacer la colonne ». `PHASES.md` §17 / §17.1 / §17.2.
 
 ⚠ **Take a `pg_dump -Fc` before any of the acts in this section.** They are the ones with no undo but
 a restore, and the base is the faculty's real data — `PHASES.md` §18.

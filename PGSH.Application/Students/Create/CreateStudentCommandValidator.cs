@@ -3,6 +3,18 @@ using PGSH.Domain.Users;
 
 namespace PGSH.Application.Students.Create;
 
+/// <summary>
+/// What creating a student from the admin form must satisfy.
+/// </summary>
+/// <remarks>
+/// ⚠ <b>Deliberately stricter than <c>UpdateStudentCommandValidator</c>, on two rules only</b> — a
+/// gender that is not <c>None</c>, and a date of birth. Nothing already stored is judged by this
+/// validator, so demanding them here costs nobody a read-only record; a human at a form can be asked,
+/// and refusing at creation is the cheap end of the rule this file's siblings exist about. The bulk
+/// paths (<c>InscriptionPlanner</c>, <c>PGSH.LegacyImport</c>) do not come through here and must go on
+/// storing <c>None</c> and <c>null</c> when the source says nothing — inventing either would be a
+/// guess written into a student's file.
+/// </remarks>
 public sealed class CreateStudentCommandValidator : AbstractValidator<CreateStudentCommand>
 {
     public CreateStudentCommandValidator()
@@ -10,8 +22,7 @@ public sealed class CreateStudentCommandValidator : AbstractValidator<CreateStud
         RuleFor(x => x.Email)
             .NotEmpty()
             .EmailAddress()
-            .Must(email => email.EndsWith("@um5.ac.ma"))
-            .WithMessage("Email must belong to the University domain (@um5.ac.ma).");
+            .UniversityEmail();
 
         RuleFor(x => x.CNE).ValidCne();
 
@@ -25,8 +36,6 @@ public sealed class CreateStudentCommandValidator : AbstractValidator<CreateStud
             .NotEmpty()
             .MaximumLength(StudentIdentifierRules.MaxAppogeeLength);
 
-        // 4. Enums: Ensure they aren't "None" or out of range
-        // This prevents "Alien" or "None" from being used if you want to restrict them
         RuleFor(x => x.Gender)
             .IsInEnum()
             .NotEqual(Gender.None);
@@ -36,9 +45,11 @@ public sealed class CreateStudentCommandValidator : AbstractValidator<CreateStud
         RuleFor(x => x.CivilStatus).IsInEnum();
         RuleFor(x => x.NationalityStatus).IsInEnum();
 
-        // 5. Required Profile Fields
-        RuleFor(x => x.FirstName).NotEmpty().MaximumLength(50);
-        RuleFor(x => x.LastName).NotEmpty().MaximumLength(50);
+        // ⚠ The column's width, not a rounder number: capped at 50 here and truncated to 100 by the
+        // import, a name of 51 to 100 characters could be imported and then never saved again.
+        RuleFor(x => x.FirstName).NotEmpty().MaximumLength(StudentIdentifierRules.MaxNameLength);
+        RuleFor(x => x.LastName).NotEmpty().MaximumLength(StudentIdentifierRules.MaxNameLength);
+
         RuleFor(x => x.DateOfBirth)
             .NotEmpty()
             .Must(date => date < DateOnly.FromDateTime(DateTime.Now.AddYears(-15)))

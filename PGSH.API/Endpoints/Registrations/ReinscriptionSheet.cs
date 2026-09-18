@@ -30,8 +30,8 @@ public sealed class ReinscriptionSheet : IEndpoint
     {
         app.MapPost("reinscription/sheet/preview", async (
             IFormFile file,
-            int fromAcademicYearId,
-            int toAcademicYearId,
+            int? fromAcademicYearId,
+            int? toAcademicYearId,
             IReinscriptionSheetParser parser,
             ISender sender,
             CancellationToken ct) =>
@@ -55,8 +55,8 @@ public sealed class ReinscriptionSheet : IEndpoint
         // instead of having its cursus ended by a confirmation nobody gave for it.
         app.MapPost("reinscription/sheet", async (
             IFormFile file,
-            int fromAcademicYearId,
-            int toAcademicYearId,
+            int? fromAcademicYearId,
+            int? toAcademicYearId,
             int? confirmedGraduationCount,
             IReinscriptionSheetParser parser,
             ISender sender,
@@ -82,8 +82,8 @@ public sealed class ReinscriptionSheet : IEndpoint
         // offending line cannot answer it. The report on screen is capped; this file is not.
         app.MapPost("reinscription/sheet/export", async (
             IFormFile file,
-            int fromAcademicYearId,
-            int toAcademicYearId,
+            int? fromAcademicYearId,
+            int? toAcademicYearId,
             IReinscriptionSheetParser parser,
             ISender sender,
             CancellationToken ct) =>

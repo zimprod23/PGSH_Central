@@ -1,4 +1,4 @@
-using FluentValidation;
+﻿using FluentValidation;
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
@@ -11,37 +11,51 @@ namespace PGSH.Application.Calendar;
 /// Records a non-working stretch. The one that matters is <see cref="HolidayKind.Religious"/>: those dates
 /// cannot be generated, so this command is how a year's calendar becomes complete enough to lay an axis on.
 /// </summary>
+/// <param name="CountsAsWorkingDay">
+/// Whether the faculty works through it. Defaults to <c>false</c> — nobody serves — which is what every
+/// row in the base says and what an omitted field must therefore mean.
+/// </param>
 public sealed record CreateHolidayCommand(
     DateOnly StartDate,
     DateOnly EndDate,
     string Name,
     HolidayKind Kind,
-    bool IsConfirmed = true) : ICommand<int>, IAuditableCommand
+    bool IsConfirmed = true,
+    bool CountsAsWorkingDay = false) : ICommand<int>, IAuditableCommand
 {
     public string AuditAction => "HOLIDAY_CREATED";
     public string AuditEntityType => "Holiday";
     public string? AuditEntityId => null;
     public string? AuditMetadata =>
-        $$"""{"name":"{{Name}}","from":"{{StartDate:yyyy-MM-dd}}","to":"{{EndDate:yyyy-MM-dd}}","kind":"{{Kind}}","confirmed":{{(IsConfirmed ? "true" : "false")}}}""";
+        $$"""{"name":"{{Name}}","from":"{{StartDate:yyyy-MM-dd}}","to":"{{EndDate:yyyy-MM-dd}}","kind":"{{Kind}}","confirmed":{{(IsConfirmed ? "true" : "false")}},"worked":{{(CountsAsWorkingDay ? "true" : "false")}}}""";
 }
 
 /// <summary>
 /// Corrects a recorded holiday — most often the act of confirming a lunar date the decree has now fixed,
 /// which is why <paramref name="IsConfirmed"/> is editable rather than write-once.
 /// </summary>
+/// <param name="CountsAsWorkingDay">
+/// ⚠ <b>Nullable, and null means « leave it as it is » — not <c>false</c>.</b> This is a full-replace PUT
+/// and the client lives in another repository, so a plain <c>bool</c> could not tell a client asking for
+/// « chômé » from one that has never heard of the field: saving a holiday's <i>name</i> from an older
+/// screen would silently undo a flag somebody deliberately set, and nothing anywhere would say so. The
+/// other flag on this command, <paramref name="IsConfirmed"/>, is not nullable because every client that
+/// exists already sends it.
+/// </param>
 public sealed record UpdateHolidayCommand(
     int Id,
     DateOnly StartDate,
     DateOnly EndDate,
     string Name,
     HolidayKind Kind,
-    bool IsConfirmed) : ICommand<UpdateHolidayResult>, IAuditableCommand
+    bool IsConfirmed,
+    bool? CountsAsWorkingDay = null) : ICommand<UpdateHolidayResult>, IAuditableCommand
 {
     public string AuditAction => "HOLIDAY_UPDATED";
     public string AuditEntityType => "Holiday";
     public string? AuditEntityId => Id.ToString();
     public string? AuditMetadata =>
-        $$"""{"name":"{{Name}}","from":"{{StartDate:yyyy-MM-dd}}","to":"{{EndDate:yyyy-MM-dd}}","confirmed":{{(IsConfirmed ? "true" : "false")}}}""";
+        $$"""{"name":"{{Name}}","from":"{{StartDate:yyyy-MM-dd}}","to":"{{EndDate:yyyy-MM-dd}}","confirmed":{{(IsConfirmed ? "true" : "false")}},"worked":{{(CountsAsWorkingDay is null ? "\"unchanged\"" : CountsAsWorkingDay.Value ? "true" : "false")}}}""";
 }
 
 /// <summary>
@@ -54,15 +68,24 @@ public sealed record UpdateHolidayCommand(
 /// span that was already right costs nothing — no window's day count changes — and reporting slots then
 /// would train the user to dismiss the one report that matters.
 /// </param>
+/// <param name="CountingChanged">
+/// True when <c>CountsAsWorkingDay</c> was toggled. ⚠ <b>Reported apart from
+/// <paramref name="DatesMoved"/> because it is a second way to change what every window over the date is
+/// worth, arrived at without touching a date</b> — flagging the Fête du Trône worked gives a day back to
+/// every créneau crossing it, exactly as deleting the row would. The two are named separately because the
+/// sentences differ: one says the holiday moved, the other that it stopped costing anything.
+/// </param>
 /// <param name="SlotsSpanning">
 /// Slots overlapping the span it <b>left</b> or the span it <b>arrived at</b>, counted once. Both halves
 /// are affected and for opposite reasons: the first was laid around a holiday that is no longer there,
-/// the second now contains one it never counted. Zero when <paramref name="DatesMoved"/> is false.
+/// the second now contains one it never counted. Zero when neither <paramref name="DatesMoved"/> nor
+/// <paramref name="CountingChanged"/> is true.
 /// </param>
 public sealed record UpdateHolidayResult(
     string Name,
     DateOnly StartDate,
     bool DatesMoved,
+    bool CountingChanged,
     int SlotsSpanning);
 
 /// <summary>
@@ -122,6 +145,7 @@ internal sealed class CreateHolidayCommandHandler(IApplicationDbContext dbContex
             Name = request.Name.Trim(),
             Kind = request.Kind,
             IsConfirmed = request.IsConfirmed,
+            CountsAsWorkingDay = request.CountsAsWorkingDay,
         };
 
         dbContext.Holidays.Add(holiday);
@@ -152,12 +176,19 @@ internal sealed class UpdateHolidayCommandHandler(IApplicationDbContext dbContex
                 HolidayErrors.Duplicate(request.StartDate, request.Name));
 
         bool datesMoved = holiday.StartDate != request.StartDate || holiday.EndDate != request.EndDate;
+        // Null is « unchanged », never « chômé » — see the command's own note.
+        bool worked = request.CountsAsWorkingDay ?? holiday.CountsAsWorkingDay;
+        bool countingChanged = holiday.CountsAsWorkingDay != worked;
 
         // Counted before the write, and over the union of the old and the new span: a slot laid around
         // the old date no longer reproduces from the count that produced it, and one covering the new
         // date has just gained a non-working stretch it never counted. Overlapping spans — the usual
         // case, a date corrected by a day — are counted once, which is what the confirmation says.
-        int slotsSpanning = datesMoved
+        //
+        // ⚠ Toggling « travaillé » opens the same gate without moving a date: the span stays where it is
+        // and every window over it changes length. Gating on datesMoved alone would have made the one
+        // change that gives days *back* the only silent one.
+        int slotsSpanning = datesMoved || countingChanged
             ? await dbContext.StageSlots.CountAsync(
                 s => (s.StartDate <= holiday.EndDate && s.EndDate >= holiday.StartDate)
                   || (s.StartDate <= request.EndDate && s.EndDate >= request.StartDate),
@@ -169,10 +200,12 @@ internal sealed class UpdateHolidayCommandHandler(IApplicationDbContext dbContex
         holiday.Name = request.Name.Trim();
         holiday.Kind = request.Kind;
         holiday.IsConfirmed = request.IsConfirmed;
+        holiday.CountsAsWorkingDay = worked;
 
         await dbContext.SaveChangesAsync(cancellationToken);
 
-        return new UpdateHolidayResult(holiday.Name, holiday.StartDate, datesMoved, slotsSpanning);
+        return new UpdateHolidayResult(
+            holiday.Name, holiday.StartDate, datesMoved, countingChanged, slotsSpanning);
     }
 }
 

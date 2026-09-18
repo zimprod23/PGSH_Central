@@ -320,8 +320,7 @@ public class BulkRosterAssignmentTests
     {
         await using var db = TestHarness.NewContext(nameof(The_unassigned_bucket_is_never_a_destination));
         var s = Seed(db);
-        var bucket = db.SeedGroup(90, 90);
-        bucket.LevelId = null;
+        var bucket = db.SeedUnassignedBucket(90);
         var student = db.SeedRegistration("Anas", "Sebti", s.Source);
         await db.SaveChangesAsync();
 

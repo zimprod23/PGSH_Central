@@ -1,4 +1,4 @@
-﻿using PGSH.Application.Abstractions.Behaviors;
+using PGSH.Application.Abstractions.Behaviors;
 using FluentValidation;
 using Microsoft.Extensions.DependencyInjection;
 using PGSH.Application.Abstractions.Authorization;
@@ -54,13 +54,13 @@ public static class DependencyInjection
         services.AddScoped<ServiceIntakeCalculator>();
         services.AddScoped<ServiceLevelCapacityResolver>();
         services.AddScoped<RotationArranger>();
+        services.AddScoped<PublishedPeriodShifter>();
         services.AddScoped<PGSH.Application.Stages.AllowedServices.ServiceRankWriter>();
         services.AddScoped<PromotionPartitioning>();
         services.AddScoped<StudentAffectationService>();
         services.AddScoped<AffectationTollReader>();
         services.AddScoped<SchedulePublisher>();
         services.AddScoped<StagePeriodRunner>();
-        services.AddScoped<StagePauseRunner>();
         services.AddScoped<MidStageTransferRescheduler>();
         services.AddScoped<LateArrivalScheduler>();
         services.AddScoped<CohortMemberScheduler>();
@@ -97,6 +97,7 @@ public static class DependencyInjection
         services.AddScoped<PGSH.Application.Calendar.Pauses.PromotionPauseContext>();
         services.AddScoped<PGSH.Application.Calendar.Pauses.PromotionPauseCalendarGuard>();
         services.AddScoped<PGSH.Application.Calendar.Pauses.PromotionPauseImpactReader>();
+        services.AddScoped<PGSH.Application.Calendar.Pauses.PromotionSuspensionLookup>();
         services.AddScoped<ServiceChefProvider>();
 
         return services;

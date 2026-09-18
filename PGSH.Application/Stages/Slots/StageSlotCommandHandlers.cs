@@ -38,15 +38,14 @@ internal sealed class CreateStageSlotCommandHandler(
         if (overlap.IsFailure)
             return Result.Failure<int>(overlap.Error);
 
-        var slot = new StageSlot
-        {
-            StageId        = request.StageId,
-            AcademicYearId = request.AcademicYearId,
-            PeriodNumber   = request.PeriodNumber,
-            Label          = request.Label,
-            StartDate      = request.StartDate,
-            EndDate        = request.EndDate,
-        };
+        var made = StageSlot.For(
+            request.StageId, request.AcademicYearId, request.PeriodNumber,
+            request.StartDate, request.EndDate, request.Label);
+
+        if (made.IsFailure)
+            return Result.Failure<int>(made.Error);
+
+        var slot = made.Value;
 
         dbContext.StageSlots.Add(slot);
         await dbContext.SaveChangesAsync(cancellationToken);
@@ -58,32 +57,51 @@ internal sealed class UpdateStageSlotCommandHandler(
     IApplicationDbContext dbContext,
     SlotOverlapGuard overlapGuard,
     GroupScheduleConflictGuard groupGuard,
+    PublishedPeriodShifter shifter,
     IAuditTrail auditTrail)
-    : ICommandHandler<UpdateStageSlotCommand>
+    : ICommandHandler<UpdateStageSlotCommand, StageSlotMoveResult>
 {
-    public async Task<Result> Handle(UpdateStageSlotCommand request, CancellationToken cancellationToken)
+    /// <remarks>
+    /// ⚠ <b>Atomique, et par la piste plutôt que par le contexte.</b> Le créneau et les périodes
+    /// publiées qui en viennent sont deux écritures : s'arrêter entre les deux laisse exactement
+    /// l'état que cet acte existe pour supprimer — une colonne à ses nouvelles dates et des périodes
+    /// aux anciennes. Et <c>IAuditTrail.RunAtomicallyAsync</c> plutôt que
+    /// <c>ExecuteAtomicallyAsync</c>, parce qu'un réessai vide le change tracker et que seule la
+    /// piste sait quelle version de son entrée est la bonne.
+    /// </remarks>
+    public Task<Result<StageSlotMoveResult>> Handle(
+        UpdateStageSlotCommand request, CancellationToken cancellationToken) =>
+        auditTrail.RunAtomicallyAsync(ct => MoveAsync(request, ct), cancellationToken);
+
+    private async Task<Result<StageSlotMoveResult>> MoveAsync(
+        UpdateStageSlotCommand request, CancellationToken cancellationToken)
     {
         var slot = await dbContext.StageSlots
             .FirstOrDefaultAsync(s => s.Id == request.SlotId && s.StageId == request.StageId, cancellationToken);
 
         if (slot is null)
-            return Result.Failure(StageErrors.SlotNotFound(request.SlotId));
+            return Result.Failure<StageSlotMoveResult>(StageErrors.SlotNotFound(request.SlotId));
 
-        // ⚠ **Asked first, and it had no guard at all until 13/09/2026.** `DeleteStageSlotCommandHandler`
-        // directly below refuses a published column; moving one was unguarded — and moving is the worse
-        // of the two, because deleting fails loudly while moving succeeds and desynchronises in
-        // silence: the créneau takes its new dates, the périodes published from it keep their old
-        // ones, and neither screen says which is true.
-        //
-        // Latent while the base published nothing. The 3ᵉ MED of 2026-2027 was published on
-        // 13/09/2026 — 1 000 cellules, 7 464 périodes — so every column of it was one drag away from
-        // this. Refused rather than cascaded: moving a published column *and its périodes* is one
-        // operation and it does not exist yet (Phase 17.1).
-        //
-        // First, because it is the most fundamental refusal — the others ask whether the new window is
-        // free, and there is no point asking that about a move that may not happen.
-        if (await dbContext.SlotHasPublishedCellAsync(slot.Id, cancellationToken))
-            return Result.Failure(StageErrors.SlotPublishedCannotMove);
+        // ⚠ **Ce que fait la moitié publiée, décidé avant toute écriture.** Jusqu'au 13/09/2026 cet
+        // acte *refusait* une colonne publiée (`Schedule.SlotPublishedCannotMove`), parce que déplacer
+        // la colonne sans ses périodes réussit et désynchronise en silence — le créneau prend ses
+        // nouvelles dates, les périodes gardent les anciennes, et aucun écran ne dit laquelle est
+        // vraie. Le seul remède offert était « dépubliez d'abord », ce qui sur une promotion publiée
+        // en entier veut dire détruire l'année pour décaler une semaine. C'est la phase 17.1 : les
+        // deux moitiés bougent ensemble ou rien ne bouge.
+        var plan = await shifter.PlanAsync(slot.Id, request.StartDate, request.EndDate, cancellationToken);
+        if (plan.IsFailure)
+            return Result.Failure<StageSlotMoveResult>(plan.Error);
+
+        // ⚠ Le nombre montré, comparé à ce qu'on trouve — jamais une case à cocher. Une période
+        // évaluée entre l'aperçu et l'application est précisément le cas qu'un booléen laisse passer.
+        if (plan.Value.PeriodsAffected > 0 && request.ConfirmedPeriodCount is null)
+            return Result.Failure<StageSlotMoveResult>(
+                StageErrors.SlotMoveNotConfirmed(plan.Value.PeriodsAffected));
+
+        if (plan.Value.PeriodsAffected > 0 && request.ConfirmedPeriodCount != plan.Value.PeriodsAffected)
+            return Result.Failure<StageSlotMoveResult>(StageErrors.SlotMoveCountMismatch(
+                request.ConfirmedPeriodCount!.Value, plan.Value.PeriodsAffected));
 
         // Moving a period must respect the same rule as creating one — it is the same collision,
         // just reached by editing dates instead of adding a row.
@@ -91,30 +109,39 @@ internal sealed class UpdateStageSlotCommandHandler(
             request.StageId, slot.AcademicYearId, slot.PeriodNumber, request.StartDate, request.EndDate,
             excludedSlotId: slot.Id, cancellationToken);
         if (overlap.IsFailure)
-            return overlap;
+            return Result.Failure<StageSlotMoveResult>(overlap.Error);
 
         // Dragging a period onto another stage's window double-books every group already in it,
         // without any cell being touched. The per-stage overlap check above cannot see that.
         var free = await groupGuard.EnsureSlotCanMoveAsync(
             slot.Id, request.StartDate, request.EndDate, cancellationToken);
         if (free.IsFailure)
-            return free;
+            return Result.Failure<StageSlotMoveResult>(free.Error);
 
         // ⚠ Relevées avant l'écrasement : une fois la ligne écrite, les anciennes dates n'existent
         // plus nulle part, et « d'où ce créneau a-t-il été déplacé » est la question qu'on pose au
-        // registre après avoir vu une promotion décalée.
+        // registre après avoir vu une promotion décalée. Les deux comptes y sont aussi, parce que le
+        // code seul ne distingue pas « colonne vide déplacée » de « 7 464 périodes réécrites ».
         auditTrail.RecordOutcome(
             ("academicYearId", slot.AcademicYearId),
             ("periodNumber", slot.PeriodNumber),
             ("fromStartDate", slot.StartDate.ToString("yyyy-MM-dd")),
-            ("fromEndDate", slot.EndDate.ToString("yyyy-MM-dd")));
+            ("fromEndDate", slot.EndDate.ToString("yyyy-MM-dd")),
+            ("periodsCovered", plan.Value.PeriodsAffected),
+            ("periodsShifted", plan.Value.PeriodsWhoseWindowChanges));
 
         slot.Label     = request.Label;
         slot.StartDate = request.StartDate;
         slot.EndDate   = request.EndDate;
 
+        var shifted = await shifter.ApplyAsync(plan.Value, cancellationToken);
+        if (shifted.IsFailure)
+            return Result.Failure<StageSlotMoveResult>(shifted.Error);
+
         await dbContext.SaveChangesAsync(cancellationToken);
-        return Result.Success();
+
+        return new StageSlotMoveResult(
+            plan.Value.PeriodsWhoseWindowChanges, plan.Value.PeriodsAffected);
     }
 }
 

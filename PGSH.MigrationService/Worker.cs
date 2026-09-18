@@ -45,6 +45,7 @@ public class Worker(
 
             //Launch operations
             await EnsureDatabaseCreated(dbContext, stoppingToken);//To Remove later
+            await RefuseToBuildAnEmptyBaseAsync(dbContext, logger, stoppingToken);
             await RunMigrationAsync(dbContext, stoppingToken);
 
             if (configuration.GetValue(SeedingStaticUsersKey, defaultValue: true))
@@ -83,6 +84,51 @@ public class Worker(
                 await dbCreator.CreateAsync(cancellationToken);
             }
         });
+    }
+
+    /// <summary>
+    /// Stops, with a sentence, when the chain is about to be run against a base that has never been
+    /// migrated — because it cannot succeed there.
+    /// </summary>
+    /// <remarks>
+    /// <para>⚠ <b>Three of the migrations are <i>data</i> migrations</b> — the arrêté 1650.25
+    /// requirement sets — and they read the catalogue the legacy import writes. On a base with no
+    /// <c>Levels</c> they <c>RAISE EXCEPTION</c> <b>by design</b>: « Refusing costs an apply; a wrong
+    /// requirement set costs a promotion planned against stages it does not owe. » So « migrate then
+    /// import » is not a way to build this database, and never was — <c>docs/operations.md</c> §1.
+    /// (It is also why the Testcontainers tier builds its schema with <c>EnsureCreated</c>.)</para>
+    ///
+    /// <para>⚠ <b>Why refuse rather than let it fail on its own.</b> It already failed on its own, on
+    /// 17/09/2026, and what it produced was a <c>PostgresException</c> stack trace ending in
+    /// <c>MigrateAsync</c> — accurate, and saying neither that the state was expected nor what to do
+    /// about it. PostgreSQL has transactional DDL, so EF had additionally rolled the <b>whole chain</b>
+    /// back: the operator was left with one empty table and a stack trace, reading the situation as a
+    /// broken build rather than as an empty database. Same rule as <c>DatabaseOutage</c> — an
+    /// infrastructure state must not look like a defect.</para>
+    ///
+    /// <para>The condition is deliberately the narrow one: <b>no migration has ever been applied</b>.
+    /// A base mid-chain is a different question (a real drift) and still gets the provider's own
+    /// error, because this class has nothing useful to add to it.</para>
+    /// </remarks>
+    private static async Task RefuseToBuildAnEmptyBaseAsync(
+        ApplicationDbContext dbContext, ILogger<Worker> logger, CancellationToken cancellationToken)
+    {
+        var applied = await dbContext.Database.GetAppliedMigrationsAsync(cancellationToken);
+        if (applied.Any())
+            return;
+
+        const string explanation =
+            "Cette base n'a jamais été migrée, et la chaîne de migrations ne peut pas la construire : " +
+            "trois d'entre elles sont des migrations de DONNÉES (les jeux d'exigences de l'arrêté " +
+            "1650.25) qui lisent le catalogue écrit par l'import hérité, et refusent une base vide " +
+            "par conception — « Aucun niveau \"3ᵉ année Médecine\" : le catalogue des niveaux doit " +
+            "exister avant les stages. » Ce n'est pas un défaut de l'application. " +
+            "Pour repartir : restaurez un point de sauvegarde — scripts/pgsh-restore.ps1 -List, puis " +
+            "-Id <point> — ou rejouez la procédure de reconstruction depuis Medecine.mdb " +
+            "(docs/operations.md). Un volume Docker perdu se restaure, il ne se re-migre pas.";
+
+        logger.LogError("{Explanation}", explanation);
+        throw new EmptyDatabaseCannotBeMigratedException(explanation);
     }
 
     private static async Task RunMigrationAsync(ApplicationDbContext dbContext, CancellationToken cancellationToken)

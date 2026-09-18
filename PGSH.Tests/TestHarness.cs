@@ -130,6 +130,23 @@ public static class TestHarness
         return connection;
     }
 
+    /// <summary>
+    /// A clock stopped on <paramref name="on"/> — midday UTC, so no test straddles a date boundary by
+    /// timezone.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ <b>Shared because « quel jour est-il ? » is now a question several reads ask</b>, and because
+    /// the alternative is the habit that made the retired pause untestable: <c>DateTime.UtcNow</c> read
+    /// at the bottom of a class, so « cette promotion est-elle en examens ? » could only ever be asked
+    /// about the day the suite happened to run.
+    /// </remarks>
+    public static IDateTimeProvider ClockOn(DateOnly on)
+    {
+        var clock = Substitute.For<IDateTimeProvider>();
+        clock.UtcNow.Returns(on.ToDateTime(new TimeOnly(12, 0), DateTimeKind.Utc));
+        return clock;
+    }
+
     /// <summary>A caller identified by <paramref name="keycloakId"/> holding exactly <paramref name="roles"/>.</summary>
     public static IUserContext UserContext(Guid keycloakId, params string[] roles)
     {
@@ -229,7 +246,8 @@ public static class TestHarness
     /// stubbed guard would make the ordering untestable.
     /// </summary>
     internal static UpdateStageSlotCommandHandler UpdateSlotHandler(this ApplicationDbContext db) =>
-        new(db, new SlotOverlapGuard(db), new GroupScheduleConflictGuard(db), new RecordingAuditTrail());
+        new(db, new SlotOverlapGuard(db), new GroupScheduleConflictGuard(db),
+            new PublishedPeriodShifter(db), new RecordingAuditTrail());
 
     internal static SetCohortSlotAssignmentCommandHandler SetCellHandler(this ApplicationDbContext db) =>
         new(db, new GroupScheduleConflictGuard(db), new RecordingAuditTrail());
@@ -559,16 +577,8 @@ public static class TestHarness
         // The roster takes the stage's promotion. A roster is identified by (year, level, number) and
         // a cohorte cannot straddle two promotions, so a level-less group here would seed a state the
         // handlers now refuse to create — and quietly exempt every test built on it from the rule.
-        var group = new AcademicGroup
-        {
-            Id = groupId, Label = groupLabel, GroupNumber = groupId, AcademicYearId = academicYearId,
-            LevelId = stage.LevelId,
-        };
-        var cohort = new Cohort
-        {
-            Id = groupId, Label = groupLabel, StageId = stage.Id, Stage = stage,
-            AcademicGroupId = groupId, AcademicGroup = group,
-        };
+        var group = NewGroup(groupId, academicYearId, stage.LevelId, groupId, groupLabel);
+        var cohort = NewCohort(groupId, stage, group, groupLabel);
         db.AcademicGroups.Add(group);
         db.Cohorts.Add(cohort);
         return cohort;
@@ -579,15 +589,19 @@ public static class TestHarness
     /// covers the common case of one group taking one stage; a level whose groups rotate through
     /// several stages needs the roster separate from the cohorts hanging off it.
     /// </summary>
+    /// <param name="levelId">
+    /// ⚠ The promotion, and it is not optional in the sense a default makes it look: a roster is
+    /// keyed (année, niveau, numéro), so two fixtures sharing a number across two promotions are two
+    /// rosters and sharing it inside one is a collision. A test covering two promotions passes it.
+    /// There is deliberately no null to pass — a roster without a promotion is « Non réparti », which
+    /// has <see cref="SeedUnassignedBucket"/>.
+    /// </param>
     public static AcademicGroup SeedGroup(
         this ApplicationDbContext db, int groupId, int groupNumber, string? rotationGroup = null,
-        int academicYearId = CurrentYearId)
+        int academicYearId = CurrentYearId, int levelId = LevelId, string? label = null)
     {
-        var group = new AcademicGroup
-        {
-            Id = groupId, Label = $"G{groupNumber}", GroupNumber = groupNumber,
-            RotationGroup = rotationGroup, AcademicYearId = academicYearId, LevelId = LevelId,
-        };
+        var group = NewGroup(
+            groupId, academicYearId, levelId, groupNumber, label ?? $"G{groupNumber}", rotationGroup);
         db.AcademicGroups.Add(group);
         return group;
     }
@@ -596,13 +610,100 @@ public static class TestHarness
     public static Cohort SeedCohortFor(
         this ApplicationDbContext db, Stage stage, AcademicGroup group, int cohortId)
     {
-        var cohort = new Cohort
-        {
-            Id = cohortId, Label = $"{stage.Name} · {group.Label}", StageId = stage.Id, Stage = stage,
-            AcademicGroupId = group.Id, AcademicGroup = group,
-        };
+        var cohort = NewCohort(cohortId, stage, group, $"{stage.Name} · {group.Label}");
         db.Cohorts.Add(cohort);
         return cohort;
+    }
+
+    /// <summary>
+    /// The year's « Non réparti » — the roster that belongs to no promotion, seeded through the
+    /// factory that says so.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ It gets its own helper for the reason it has its own factory: a fixture reaching for
+    /// <see cref="SeedGroup"/> and leaving the level out would be seeding the bucket <i>by
+    /// accident</i>, which is the shape of the incident the pair exists to prevent. A test asserting
+    /// that the bucket is excluded from something has to be able to say it is seeding one.
+    /// </remarks>
+    public static AcademicGroup SeedUnassignedBucket(
+        this ApplicationDbContext db, int groupId, int academicYearId = CurrentYearId,
+        string label = "Non réparti")
+    {
+        var made = AcademicGroup.AsUnassignedBucket(academicYearId, label);
+        Ensure(made);
+
+        made.Value.Id = groupId;
+        db.AcademicGroups.Add(made.Value);
+        return made.Value;
+    }
+
+    /// <summary>
+    /// Un groupe de promotion, avec son identifiant fixé — ce que <c>AcademicGroup.ForPromotion</c>
+    /// ne donne pas, puisqu'un identifiant est au magasin et non au domaine.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ Passe par la fabrique comme le code de production, et c'est le but : une fixture qui
+    /// construirait un groupe autrement pourrait en poser un que l'application ne sait pas produire.
+    /// Le niveau est <c>int?</c> parce que <c>Stage.LevelId</c> l'est, et un <c>null</c> y est refusé
+    /// bruyamment plutôt que traduit en « Non réparti » — c'est exactement la confusion que
+    /// <see cref="SeedUnassignedBucket"/> existe pour empêcher.
+    /// </remarks>
+    public static AcademicGroup NewGroup(
+        int groupId, int academicYearId, int? levelId, int groupNumber, string label,
+        string? rotationGroup = null, string? geographicZone = null, string? purpose = null)
+    {
+        if (levelId is not { } promotion)
+            throw new InvalidOperationException(
+                "Fixture invalide — un groupe de promotion porte un niveau. Un groupe sans "
+                + "promotion est « Non réparti » : utilisez SeedUnassignedBucket.");
+
+        var made = AcademicGroup.ForPromotion(
+            academicYearId, promotion, groupNumber, label, geographicZone, rotationGroup, purpose);
+
+        Ensure(made);
+        made.Value.Id = groupId;
+        return made.Value;
+    }
+
+    /// <summary>
+    /// Une cohorte, avec son identifiant fixé. Même raison et même forme que <see cref="NewSlot"/>.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ Les deux navigations sont posées en plus des clés : le fournisseur en mémoire les résout
+    /// depuis le change tracker, mais une fixture qui construit son graphe sans l'ajouter au contexte
+    /// ne lui donne rien à résoudre.
+    /// </remarks>
+    public static Cohort NewCohort(int cohortId, Stage stage, AcademicGroup group, string label)
+    {
+        var cohort = NewCohort(cohortId, stage.Id, group.Id, label);
+        cohort.Stage = stage;
+        cohort.AcademicGroup = group;
+        return cohort;
+    }
+
+    /// <summary>
+    /// The same, by key alone — for a fixture whose stage and roster are rows it added rather than
+    /// objects it holds. The navigations are then EF's to fix up.
+    /// </summary>
+    public static Cohort NewCohort(int cohortId, int stageId, int academicGroupId, string label)
+    {
+        var made = Cohort.For(stageId, academicGroupId, label);
+        Ensure(made);
+
+        made.Value.Id = cohortId;
+        return made.Value;
+    }
+
+    /// <summary>
+    /// ⚠ Une fixture qui viole l'identité d'un objet de planification est un <b>bug de la fixture</b>,
+    /// pas un cas de test : elle poserait une ligne qu'aucun chemin réel ne peut produire, et le test
+    /// bâti dessus ne prouverait rien. Elle échoue donc bruyamment, ici, plutôt qu'en assertion.
+    /// </summary>
+    private static void Ensure<T>(Result<T> made)
+    {
+        if (made.IsFailure)
+            throw new InvalidOperationException(
+                $"Fixture invalide — {made.Error.Code} : {made.Error.Description}");
     }
 
     /// <summary>A student with this year's registration, optionally attached to <paramref name="group"/>.</summary>
@@ -668,6 +769,38 @@ public static class TestHarness
     }
 
     /// <summary>
+    /// A rotation standing in the store as <b>suspended</b>: the flag <i>and</i> its open
+    /// <see cref="PeriodPause"/> row, which are one state and not two.
+    /// </summary>
+    /// <remarks>
+    /// <para>⚠ <b>There is deliberately no act that produces this any more.</b> The stage-scoped
+    /// pause was retired on 18/09/2026 — it extended a période by <i>calendar</i> days, moved the
+    /// student's dates without the grid, and accumulated on a replay. What still produces the state
+    /// is an import reversal putting back a période that already carried it
+    /// (<c>RestoredPeriod.IsPaused</c>), so the readers must keep showing it and this is how a test
+    /// poses it.</para>
+    ///
+    /// <para>⚠ <b>Setting the flag alone would be a state no path can produce</b> — a période
+    /// suspended with nothing saying since when or why — and a test built on it would prove nothing.
+    /// That is the whole reason this is a helper rather than two lines per file.</para>
+    /// </remarks>
+    public static ServicePeriod SeedPausedPeriod(
+        this ApplicationDbContext db, InternshipAssignment assignment, Service service,
+        DateOnly start, DateOnly end, DateOnly pausedOn, PauseKind kind, string? reason)
+    {
+        var period = db.SeedPeriod(assignment, service, start, end);
+        period.IsPaused = true;
+        period.Pauses.Add(new PeriodPause
+        {
+            ServicePeriodId = period.Id,
+            StartDate       = pausedOn,
+            Kind            = kind,
+            Reason          = reason,
+        });
+        return period;
+    }
+
+    /// <summary>
     /// An assignment carried all the way to a verdict: one rotation, started, closed, then marked
     /// <paramref name="mark"/> out of 20. Goes through the real lifecycle rather than back-filling
     /// <c>FinalScore</c>/<c>Result</c> — those have private setters precisely so the verdict can only
@@ -705,13 +838,30 @@ public static class TestHarness
         this ApplicationDbContext db, Stage stage, int slotId, int periodNumber, DateOnly start, DateOnly end,
         int? academicYearId = null)
     {
-        var slot = new StageSlot
-        {
-            Id = slotId, StageId = stage.Id, AcademicYearId = academicYearId ?? CurrentYearId,
-            PeriodNumber = periodNumber, StartDate = start, EndDate = end,
-        };
+        var slot = NewSlot(slotId, stage.Id, academicYearId ?? CurrentYearId, periodNumber, start, end);
         db.StageSlots.Add(slot);
         return slot;
+    }
+
+    /// <summary>
+    /// Un créneau, avec son identifiant fixé — ce que <c>StageSlot.For</c> ne donne pas, puisqu'un
+    /// identifiant est au magasin et non au domaine.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ Passe par <c>StageSlot.For</c> comme le code de production, et c'est le but : une fixture
+    /// qui construirait un créneau autrement pourrait en fabriquer un que l'application ne sait pas
+    /// produire — et c'est arrivé, <c>MidStageTransferReschedulerTests</c> en posait un **sans
+    /// année**, ce qu'aucun chemin réel ne peut plus faire.
+    /// </remarks>
+    public static StageSlot NewSlot(
+        int slotId, int stageId, int academicYearId, int periodNumber,
+        DateOnly start, DateOnly end, string? label = null)
+    {
+        var made = StageSlot.For(stageId, academicYearId, periodNumber, start, end, label);
+        Ensure(made);
+
+        made.Value.Id = slotId;
+        return made.Value;
     }
 
     /// <summary>One cell of the planning grid: this cohort spends this slot in this service.</summary>
@@ -761,6 +911,35 @@ public static class TestHarness
         period.SlotCoverage.Add(coverage);
         db.ServicePeriodSlotCoverage.Add(coverage);
         return coverage;
+    }
+
+    /// <summary>
+    /// One day of présence against <paramref name="period"/> — the fact that makes a rotation
+    /// un-movable and un-rewritable without announcing itself anywhere.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ <b>The quiet half of « ce que rien ne remet ».</b> A mark shows on every screen; a journée de
+    /// présence is invisible until the day somebody needs it, and <c>AttendanceRecord</c> cascades from
+    /// <c>ServicePeriod</c> — so an act that rewrites a rotation deletes them in silence. Any fixture
+    /// exercising a guard that must refuse over attendance goes through this rather than reaching for
+    /// the entity, so the guards and the reports read one shape.
+    /// </remarks>
+    public static AttendanceRecord SeedAttendance(
+        this ApplicationDbContext db, ServicePeriod period, DateOnly? date = null,
+        AttendanceStatus status = AttendanceStatus.Present)
+    {
+        var record = new AttendanceRecord
+        {
+            Id = Guid.NewGuid(),
+            ServicePeriodId = period.Id,
+            ServicePeriod = period,
+            Date = date ?? period.StartDate,
+            Status = status,
+        };
+
+        period.Attendance.Add(record);
+        db.AttendanceRecords.Add(record);
+        return record;
     }
 
     /// <summary>
@@ -819,7 +998,8 @@ public static class TestHarness
     /// </summary>
     public static Holiday SeedHoliday(
         this ApplicationDbContext db, DateOnly start, string name, int days = 1,
-        HolidayKind kind = HolidayKind.National, bool confirmed = true)
+        HolidayKind kind = HolidayKind.National, bool confirmed = true,
+        bool countsAsWorkingDay = false)
     {
         var holiday = new Holiday
         {
@@ -828,6 +1008,7 @@ public static class TestHarness
             Name = name,
             Kind = kind,
             IsConfirmed = confirmed,
+            CountsAsWorkingDay = countsAsWorkingDay,
         };
         db.Holidays.Add(holiday);
         return holiday;

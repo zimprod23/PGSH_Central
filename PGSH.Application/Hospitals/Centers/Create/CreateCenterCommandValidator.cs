@@ -8,18 +8,19 @@ public sealed class CreateCenterCommandValidator : AbstractValidator<CreateCente
     public CreateCenterCommandValidator()
     {
         RuleFor(x => x.Name)
-            .NotEmpty().MaximumLength(200);
+            .NotEmpty().MaximumLength(HospitalTextLengths.Name);
 
         RuleFor(x => x.City)
-            .MaximumLength(100);
+            .MaximumLength(HospitalTextLengths.City);
 
         RuleFor(x => x.CenterType)
             .IsInEnum()
             .NotEqual(CenterType.None)
             .WithMessage("A valid Center Type must be selected.");
 
-        // Optional: Validate coordinate formats if they aren't null
-        RuleFor(x => x.LocalizationX).MaximumLength(50);
-        RuleFor(x => x.LocalizationY).MaximumLength(50);
+        // ⚠ Z was missing while X and Y were bounded — the same column, two of three checked.
+        RuleFor(x => x.LocalizationX).MaximumLength(HospitalTextLengths.Coordinate);
+        RuleFor(x => x.LocalizationY).MaximumLength(HospitalTextLengths.Coordinate);
+        RuleFor(x => x.LocalizationZ).MaximumLength(HospitalTextLengths.Coordinate);
     }
 }

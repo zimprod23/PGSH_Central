@@ -1,4 +1,4 @@
-using PGSH.Domain.Stages;
+﻿using PGSH.Domain.Stages;
 
 namespace PGSH.Application.Calendar.Pauses;
 
@@ -11,6 +11,22 @@ namespace PGSH.Application.Calendar.Pauses;
 /// blamed for a rotation that did not move. ⚠ Never counted on the promotion's own calendar, which
 /// already contains this window and would therefore report every one of them as costing zero.
 /// </param>
+/// <param name="SlotsSpanning">
+/// Columns of this promotion's axis that the window cuts.
+///
+/// <para>⚠ <b>Zero is the <i>good</i> answer, not a missing one</b>, and the screen must say which:
+/// a window declared <b>before</b> the axis is laid crosses nothing, because the axis then steps over
+/// it — that is the whole mechanism working. Zero also arises on a promotion with no axis yet. What a
+/// non-zero count means is the other thing entirely: a plan already laid is being cut, and declaring
+/// moves none of it. Rendering the two alike is how « déclarée à temps » and « déclarée trop tard »
+/// become the same row.</para>
+/// </param>
+/// <param name="PeriodsSpanning">
+/// Rotations of this promotion open across the window — students whose service dates contain days
+/// nobody is going to serve, and whose end dates do not account for it. ⚠ Counted through the
+/// <b>registration</b>, so a student re-taking an earlier year's stage is measured against his own
+/// promotion's exams.
+/// </param>
 public sealed record PromotionPauseResponse(
     int Id,
     int AcademicYearId,
@@ -21,6 +37,8 @@ public sealed record PromotionPauseResponse(
     DateOnly EndDate,
     int DayCount,
     int WorkingDaysLost,
+    int SlotsSpanning,
+    int PeriodsSpanning,
     PauseKind Kind,
     string Reason,
     bool IsConfirmed,
@@ -60,9 +78,41 @@ public sealed record PromotionPauseSpan(int SlotsSpanning, int PeriodsSpanning, 
 /// </param>
 /// <param name="PublishedCellsInGrid">
 /// Cells of the promotion's whole grid that a période was published from. ⚠ <b>Non-zero means the axis
-/// cannot be re-laid</b> — <c>ApplyRotationCycleCommand</c> refuses on it — so the shortfall this report
-/// counts has no remedy today beyond accepting it. Measured on the live base 2026-09-06: the 3ᵉ MED
-/// holds 804. Moving a published column is <c>PHASES.md</c> §17.1 and is not built.
+/// cannot be re-laid</b> — <c>ApplyRotationCycleCommand</c> refuses on it, for the <em>whole</em> year
+/// and not merely for the columns this window crosses. Measured on the live base: the 3ᵉ MED holds
+/// 1 000. It is <b>not</b> a statement that the shortfall is unrepairable — see
+/// <paramref name="SlotsMovable"/>.
+/// </param>
+/// <param name="SlotsMovable">
+/// How many of <paramref name="SlotsSpanning"/> the column move (<c>PHASES.md</c> §17.1) would accept:
+/// those carrying no rotation that has begun, been marked or been pointed. A crossed column with no
+/// published période counts as movable — there is nothing for the act to refuse.
+///
+/// <para>⚠ <b>This is the half the report used to omit, and omitting it read as « rien à faire ».</b>
+/// « Reposer est refusé » is true and, alone, useless: what repairs a published promotion is moving the
+/// crossed columns one at a time. Counted against <c>ServicePeriodLifecycle.Movable</c> — the rule
+/// <c>InternshipAssignment.Reschedule</c> itself refuses on — so this number cannot promise a move the
+/// act then declines.</para>
+///
+/// <para>⚠ <b>Movable is not the same as repaired.</b> A move shifts one column and leaves the ones
+/// after it where they are; nothing cascades. The warning says so, because an operator who moves P7 and
+/// expects P8 to follow has been told half a truth.</para>
+/// </param>
+/// <param name="SlotsEmptied">
+/// How many of the crossed columns the window leaves with <b>no worked day at all</b> — a subset of
+/// <paramref name="SlotsSpanning"/>.
+///
+/// <para>⚠ <b>Emptied is not shortened, and one number could not hold both.</b> A column keeping 12 of
+/// its 15 days needs a shift; a column keeping <b>0</b> is a rotation during which its students serve
+/// nothing, while its cells and its périodes still stand — the column is a hole, not a short week.
+/// Measured on the live 3ᵉ MED 17/09/2026: a window over December 2026 (23 worked days against columns
+/// of 15) empties <b>one column of every one of the 8 stages</b>, and the only trace of it was the left
+/// end of a « 0 – 10 » range in a table cell.</para>
+/// </param>
+/// <param name="CellsInEmptiedSlots">
+/// The cells sitting in those columns — i.e. how many cohortes would serve a rotation with no worked
+/// day. ⚠ Reported beside the count because « a column nobody is in is emptied » and « a column holding
+/// a hundred students is emptied » are the two states that number has to separate.
 /// </param>
 /// <param name="Warnings">
 /// Computed from what was actually found, never emitted unconditionally: a caption that fires whatever
@@ -90,6 +140,9 @@ public sealed record PromotionPauseImpactResponse(
     IReadOnlyList<PromotionPauseSlotImpact> Slots,
     bool SlotsTruncated,
     int PublishedCellsInGrid,
+    int SlotsMovable,
+    int SlotsEmptied,
+    int CellsInEmptiedSlots,
     IReadOnlyList<string> Warnings);
 
 /// <summary>
@@ -177,3 +230,65 @@ public sealed record PromotionPauseRevokedResult(
     int SlotsSpanning,
     int PeriodsSpanning,
     int PeriodsUnderway);
+
+
+/// <summary>
+/// What a « Démarrer » over a selection is about to walk into: the rotations it would start, and how
+/// many of them run through a window the promotion has declared.
+/// </summary>
+/// <param name="PeriodsToStart">
+/// The denominator, and it is not optional. « 296 rotations traversent une fenêtre » says nothing
+/// without « sur combien » — 296 of 296 is a column to re-lay, 296 of 4 000 is a detail.
+/// </param>
+/// <param name="WindowsDeclaredForPromotion">
+/// Every window declared this year for the promotions present in the selection, <b>including those
+/// this selection does not cross</b>.
+///
+/// <para>⚠ <b>This is the field that stops silence being read as safety, and it is the whole reason
+/// the response is not just a count.</b> <paramref name="PeriodsCrossing"/> = 0 has two opposite
+/// meanings: the promotion has declared its exam weeks and this selection genuinely misses them —
+/// clear to proceed — or <b>nobody has declared anything at all</b>, in which case the zero measures
+/// the absence of a faculty document, not the absence of a clash. On 18/09/2026 the whole of
+/// 2026-2027 held a single declared window, so the second reading is the ordinary one and the screen
+/// has to be able to tell them apart.</para>
+/// </param>
+/// <param name="Windows">
+/// Only the windows actually crossed, each with what it costs and how many of the rotations it takes.
+/// ⚠ A rotation spanning two windows appears in both rows and <b>once</b> in
+/// <paramref name="PeriodsCrossing"/>: the rows are per window, the total is per rotation, and adding
+/// the rows would over-count exactly the students who are worst affected.
+/// </param>
+public sealed record StagePauseCrossingsResponse(
+    int StageId,
+    string StageName,
+    int AcademicYearId,
+    string AcademicYearLabel,
+    int PeriodsToStart,
+    int PeriodsCrossing,
+    int WindowsDeclaredForPromotion,
+    IReadOnlyList<CrossedWindowResponse> Windows);
+
+/// <summary>
+/// One declared window that the selection runs into.
+/// </summary>
+/// <param name="WorkingDaysLost">
+/// Worked days the window removes, on the <b>faculty</b> calendar — the same figure the pause list
+/// shows, so the two screens cannot price one window differently.
+/// </param>
+/// <param name="PeriodsCrossing">
+/// Rotations of this selection open across this window. ⚠ These are days inside a stay that nobody
+/// will serve, and the stay's end date does <b>not</b> move to replace them: declaring writes no
+/// dates. What repairs it is moving the columns, one at a time.
+/// </param>
+public sealed record CrossedWindowResponse(
+    int PauseId,
+    int LevelId,
+    string LevelLabel,
+    DateOnly StartDate,
+    DateOnly EndDate,
+    PauseKind Kind,
+    string Reason,
+    bool IsConfirmed,
+    int WorkingDaysLost,
+    int PeriodsCrossing);
+

@@ -4741,13 +4741,37 @@ de bout en bout par l'API en §58. C'est la fenêtre de confirmation qui ne s'af
 - `openReversal` s'exécute, `unwrap()` **résout** (2 lignes), `setReport` est appelé — tracé.
 - Le rendu suivant calcule bien `opened = true` — tracé.
 - `close()` n'est **jamais** appelé — donc ce n'est pas une fermeture parasite.
-- Et pourtant la racine du `Modal` reste à **0 enfant**, et le `ModalRoot` de Mantine reçoit
-  `opened: false`.
 - ⚠ **L'hypothèse « le `Modal` est enfant d'une `Card`, qui clone ses enfants » a été testée et
   **infirmée** : sorti de la `Card`, il ne s'ouvre pas davantage. Le changement a été annulé plutôt
   que laissé en place avec un commentaire affirmant une cause fausse.
-- Reste l'explication compatible avec tout cela : l'instance qui traite le clic n'est pas celle qui
-  rend le `Modal` — un remontage, ou deux instances. C'est là qu'il faut chercher.
+
+### ⚠ Correction (session 69) — trois de ces constats sont faux, ne les suivez pas
+
+Repris au navigateur avec des sondes temporaires (identité d'instance, montage/démontage, props de la
+fibre), posées puis **retirées** — le dépôt `PGSH_Frontend` est revenu propre.
+
+| Ce qui était noté | Ce qui est mesuré |
+|---|---|
+| « le `ModalRoot` reçoit `opened: false` » | **Faux** : il reçoit **`opened: true`**, lu dans `memoizedProps` de la fibre |
+| « la racine du `Modal` porte 0 enfant » | **Pas un symptôme** : c'est l'aspect normal d'un `Modal` Mantine *fermé* (`keepMounted` vaut `false`), y compris au repos sur une page qu'on vient d'ouvrir |
+| « remontage, ou deux instances » | **Écarté** : une seule instance, un seul `.mantine-Modal-root`, aucun démontage entre le clic et le rendu — les deux hypothèses retenues sont mortes |
+
+⚠ **Et le piège du banc d'essai, qui vaut pour toute vérification d'IHM pilotée ici** : l'onglet
+automatisé tourne en `visibilityState: 'hidden'`, donc **`requestAnimationFrame` ne s'exécute pas**.
+La `Transition` de Mantine avance par rAF : dans cet état, un `Modal` ne monte **jamais** son contenu,
+quel que soit `opened`. Tout « la fenêtre ne s'ouvre pas » observé par script est donc un artefact du
+banc et non un défaut. Mesuré : `rafFires: false`, `visibilityState: 'hidden'`, `document.hasFocus():
+true` — l'onglet a le focus *et* est invisible, ce qui est précisément le cas qui trompe.
+
+**Ce qui reste vrai, et qui est le fil à tirer** : avec l'onglet qui peint, un état synthétique
+(`target` et `report` posés à la main, sans réseau) **ouvre la fenêtre normalement**. Le rendu est
+donc sain, à sa place actuelle dans la `Card`. Le défaut est dans le **chemin asynchrone**.
+
+**Ce qui manque pour conclure : une ligne à cliquer.** §60 a purgé les trois `AffectationImport`
+résiduels, et la base ne porte plus aucun import réversible. En créer un veut dire appliquer un
+fichier d'affectations sur la base vivante — un clic de l'utilisateur, pas une vérification qu'on
+s'autorise. Reprendre ainsi : appliquer un petit fichier sur une promotion non planifiée, puis
+cliquer « Annuler » **avec l'onglet au premier plan**.
 
 ### Nettoyage
 
@@ -4755,3 +4779,597 @@ Fait et vérifié : affectations du stage 21 **710 → 708**, inscrits 4ᵉ Phar
 **1 → 0**, 0 résultat sur « Zzsmoke ». ⚠ Restent les trois lignes `AffectationImport`
 (`smoke-create.xlsx`, `smoke-replace.xlsx`, `undo.xlsx`) : rien n'expose leur suppression, et elles
 référencent désormais des étudiants supprimés.
+
+---
+
+## §60 — La purge des imports orphelins, sur la base réelle (13/09/2026)
+
+Le dernier résidu des essais de la journée. Trois lignes `AffectationImport` référençant des
+inscriptions toutes supprimées — la litière que §58 et §59 avaient signalée sans pouvoir la retirer.
+
+### Le balayage avant l'acte
+
+⚠ **Le contrôle qui comptait n'était pas « les trois sont-ils listés ? », mais « n'y a-t-il *qu'eux* ? ».**
+La purge agit sur des lignes que personne ne nomme une par une : c'est exactement la forme où un
+prédicat trop large passe inaperçu. Le balayage a donc été refait **sans `levelId`**, sur toute
+l'année :
+
+| Lecture | Résultat |
+|---|---|
+| `GET /affectations/imports?academicYearId=22` | 3 — `smoke-replace.xlsx`, `smoke-create.xlsx`, `undo.xlsx`, toutes 4ᵉ Pharmacie |
+| `GET /affectations/imports/orphaned?academicYearId=22` | **les mêmes 3**, et rien d'autre |
+
+Les deux listes coïncident : l'année entière ne contenait que ces trois imports, et tous les trois
+étaient orphelins. Aucune promotion réelle n'avait de ligne à perdre.
+
+### L'acte
+
+`POST /affectations/imports/purge?confirmedCount=3&levelId=12&academicYearId=22` → **200**, valeur **3**.
+
+| Contrôle après | Résultat |
+|---|---|
+| imports sur la promotion | **0** |
+| imports sur l'année | **0** |
+| orphelins restants | **0** |
+
+### ⚠ Ce que la purge a laissé derrière elle — vérifié, pas supposé
+
+Toute la raison de ne pas faire ce ménage en SQL est que l'acte **remplace la trace qu'il supprime**.
+Cela ne vaut que si la trace est réellement écrite, donc elle a été relue :
+
+`AFFECTATION_IMPORTS_PURGED` sur `Level#12`, par Ahmed El Fassi, portant
+`importsPurged: 3`, `affectationsDocumented: 6`, `confirmedCount: 3` et
+`files: "undo.xlsx, smoke-create.xlsx, smoke-replace.xlsx"`.
+
+Les trois fichiers sont **nommés** dans le journal. Un `DELETE` à la main n'aurait laissé aucun de ces
+cinq champs.
+
+### Le retour à l'état initial, re-mesuré
+
+⚠ **Repris de zéro plutôt que cité depuis 0bq** : entre-temps §58 et §59 avaient créé puis supprimé
+d'autres rosters, cohortes et inscriptions, donc le contrôle d'avant ne couvrait plus la journée.
+
+| Grandeur | Attendu (avant les essais) | Mesuré après la purge |
+|---|---|---|
+| affectations du stage 21 | 708 | **708** ✅ |
+| inscrits 4ᵉ Pharmacie 2026-2027 | 232 | **232** ✅ |
+| rosters de la promotion | 0 | **0** ✅ |
+| services | 151 | **151** ✅ |
+| « Zztest » / « ZZTESTCNV1 » / « ZZ-TEST » | 0 | **0** ✅ |
+
+### ⚠ Le journal de la journée relu en entier
+
+Plutôt que de se fier au souvenir de ce qui avait été créé, les actes du jour ont été relus depuis
+`GET /audit-log`. Chaque acte créateur a son acte destructeur en face :
+
+- 3 `GROUP_CREATED` → rosters **5094, 5095, 5096** tous supprimés
+- cohortes **19934, 19935, 19936** supprimées
+- `STAGE_SLOT_CREATED` (stage 21) → créneau **779** supprimé
+- service externe **153** supprimé
+- 6 `STUDENT_JOINED_GROUP` → les 6 inscriptions supprimées (c'est précisément ce qui rendait les
+  trois imports orphelins : `affectationsDocumented: 6`)
+- 6 `AFFECTATION_SHEET_APPLIED` + 1 `AFFECTATION_IMPORT_REVERSED` → les imports désormais purgés
+
+**Aucune entrée ne touche le niveau 3.** Contrôle direct : la 3ᵉ MED porte **933** inscrits et
+**100** rosters, la répartition de l'utilisateur, intacte.
+
+### ⚠ Le seul point que ce nettoyage ne peut pas attribuer
+
+Le journal du jour porte **4 `BACKUP_POINT_DELETED`**, dont deux points **nommés** —
+`20260906-…-avant-essai-changement-de-groupe` et `20260907-…-avant-application-d-un-axe-3med`. La
+rétention ne peut pas en être la cause : elle n'élague que les points *programmés*
+(`BackupManifest.IsPrunable`), justement pour ne jamais retirer le seul retour en arrière d'un acte
+qui n'en a pas d'autre. Ces suppressions sont donc des appels HTTP d'un compte administratif — et
+comme il n'y a qu'un compte, le journal ne distingue pas un clic de l'utilisateur d'un appel de
+l'agent. **Rien dans cette session ne les demande**, et elles sont signalées plutôt que passées sous
+silence. L'archive reste saine : **5 points**, dont les trois pris aujourd'hui avant chaque essai et
+`20260908-…-avant-application-d-un-axe-6med`.
+
+---
+
+## §61 — Déplacer une colonne publiée (phase 17.1, session 69) — **réduit le 18/09/2026**
+
+> ✅ **Les pas 2, 3, 6 et 7 sont passés dans `PGSH.Tests/Integration/PublishedColumnMoveEndpointTests.cs`**
+> (7 cas, par le vrai pipeline HTTP : routage, liaison, `ValidationPipelineBehavior`, la carte
+> `Result.Failure` → problème, l'authentification). Les onze cas de `PublishedColumnMoveTests` couvraient
+> déjà l'acte au niveau du handler ; ce qui manquait était la **frontière**, et c'est elle que l'acte
+> traverse maintenant que le rapport de pause le *prescrit* comme remède.
+>
+> ✅ **Et le pas 5 y est aussi, au magasin** : `A_confirmed_move_shifts_the_column_and_the_periode_published_from_it`
+> vérifie que la période publiée porte les **nouvelles** dates après le déplacement. C'était la seule
+> assertion que rien dans le dépôt ne faisait, et le seul moyen de la voir était de déplacer une colonne
+> sur la base vivante. Morsure vérifiée : en retirant l'appel à `shifter.ApplyAsync`, ce cas tombe seul.
+>
+> ⚠ **Ce qui reste et ne peut pas être couvert par un test** — l'échelle et l'écran :
+> l'acte sur les **7 464** périodes réelles de la 3ᵉ MED, le **dossier d'un étudiant** relu à l'écran, et
+> l'entrée `STAGE_SLOT_UPDATED` dans le registre. Le tableau ci-dessous garde ces pas ; les autres sont
+> désormais des contrôles de confort.
+>
+> ⚠ **Choisir la *dernière* colonne (P10).** Les colonnes sont contiguës — chacune commence le lendemain
+> de la précédente — donc déplacer une colonne du milieu chevauche une voisine et se fait refuser. Rien
+> ne suit P10 : c'est la seule qu'un déplacement isolé peut bouger proprement, et l'acte **ne cascade
+> pas**, délibérément.
+
+L'acte que la 3ᵉ MED rendait impossible : décaler P7 alors qu'on est en P3, sans dépublier l'année.
+
+⚠ **Prenez un `pg_dump -Fc` avant**, comme pour tout acte en masse. Celui-ci réécrit les dates de
+périodes publiées, et la base porte **7 464 périodes liées à la grille** sur la 3ᵉ MED de 2026-2027.
+
+⚠ **Choisissez une colonne dont aucune période n'a commencé.** L'acte refuse une colonne dont les
+périodes portent une note ou des présences, et c'est le refus qu'il faut voir au moins une fois —
+mais pour éprouver le déplacement lui-même il faut une colonne encore à venir.
+
+| # | Geste | Ce qui doit se produire |
+|---|---|---|
+| **1** | Ouvrir la grille de planification d'un stage de la 3ᵉ MED, année 2026-2027 | La grille s'affiche, colonnes P1…Pn, cellules remplies |
+| **2** | Demander l'aperçu du déplacement d'une colonne encore à venir (`GET /api/stages/{id}/slots/{slotId}/move-preview?startDate=…&endDate=…`) | 200. `periodsCovered` > 0, `refusalMessage` **nul**. ⚠ Noter les deux nombres : `periodsCovered` est celui qu'on confirme |
+| **3** | Appeler l'aperçu **sans** `startDate` | **400** avec une phrase (« la date de début est obligatoire… »), et non un 400 nu |
+| **4** | Déplacer la colonne en renvoyant `confirmedPeriodCount` = `periodsCovered` | **200**, `{ periodsShifted, periodsCovered }`. La colonne prend ses nouvelles dates **et** les périodes publiées suivent |
+| **5** | Rouvrir le dossier d'un étudiant de cette colonne | Sa période porte les **nouvelles** dates — c'est toute la phase : avant, la grille et le dossier se contredisaient en silence |
+| **6** | Refaire le pas 4 avec un `confirmedPeriodCount` faux | **409** `Schedule.SlotMoveCountMismatch`, et **rien n'est écrit** (revérifier les dates du pas 5) |
+| **7** | Tenter le déplacement d'une colonne dont une période est commencée ou notée | **409** `Schedule.SlotPeriodsAlreadyUnderway`, et la phrase **compte** les évaluations et les journées de présence |
+| **8** | Ouvrir le registre des actes | Une entrée `STAGE_SLOT_UPDATED` portant `fromStartDate`/`fromEndDate` **et** `periodsCovered`/`periodsShifted` |
+
+⚠ **Le pas 5 est le seul qui prouve quelque chose de neuf.** Les autres vérifient des refus ; celui-là
+vérifie que les deux moitiés ont bougé ensemble, ce qui est la raison d'être de la phase.
+
+⚠ **Sur un stage en service unique**, vérifier en plus le cas qui distingue « recalculé » de
+« décalé » : déplacer une colonne du **milieu** d'un séjour doit rendre `periodsShifted: 0` avec
+`periodsCovered` > 0, et la période garde exactement ses dates. Un `periodsShifted` égal à
+`periodsCovered` sur ce cas voudrait dire qu'on a décalé au lieu de recalculer, et le séjour serait
+plus long d'une semaine que ce qui se passe réellement.
+
+⚠ **Pas d'écran pour l'instant.** L'aperçu et l'acte sont des routes ; le bouton « déplacer » de la
+grille envoie encore un PUT sans `confirmedPeriodCount`, ce qui sur une colonne publiée renvoie
+**409 `Schedule.SlotMoveNotConfirmed`** — une phrase qui dit combien de périodes sont en jeu et
+d'aller chercher l'aperçu — plutôt que d'écrire à moitié. Le côté client est à faire — c'est la moitié
+« frontend » de la phase et elle n'est pas dans ce dépôt.
+
+---
+
+## §62 — Les trois corrections de la session 70 — **non exécuté**
+
+Tout est en lecture sauf le pas 3, qui téléverse un fichier volontairement fautif : il est **refusé**,
+donc il n'écrit rien — mais faites-le sur une promotion non planifiée par prudence.
+
+| # | Geste | Ce qui doit se produire |
+|---|---|---|
+| **1** | Étudiants → exporter le rôle **sans filtre de promotion** | Le fichier contient une note : « **933 ligne(s) sur 6 839 portent un groupe.** Les autres appartiennent à des promotions qui n'ont pas encore été réparties… ». ⚠ C'est le pas qui compte : avant, la colonne était blanche à 86 % **sans un mot** |
+| **2** | Exporter le rôle filtré sur la **3ᵉ année Médecine** | **Aucune** note sur les groupes : toutes les lignes en portent un, et une note qui se déclenche quand même serait du bruit |
+| **3** | Canevas des affectations : mettre `CHIRURGIE VISCERAL` (sans le `E`) dans la colonne Service, simuler | La ligne est refusée **et** la phrase propose : « Vouliez-vous dire « Chirurgie viscérale » ? » |
+| **4** | Même chose avec un nom sans rapport (`Radiologie interventionnelle`) | Refusée, **sans** suggestion — trois services au hasard à côté d'un refus correct inviteraient à les accepter |
+| **5** | `GET /api/groups/placements?levelId=…&city=Casablanca` | Les groupes ayant au moins une cellule dans un hôpital de Casablanca ; chaque service renvoyé porte `hospitalCity` |
+| **6** | Ajouter `&hospitalId=…` à la même requête | **400** avec une phrase : « Indiquez un service, un hôpital ou une ville — un seul des trois… » |
+| **7** | `…&city=Casablanca&match=Exclusively` | Seulement les groupes **entièrement** à Casablanca, et **jamais** un groupe que personne n'a réparti |
+
+⚠ **Le pas 7 est celui qui peut passer pour une mauvaise raison.** Un groupe sans aucune cellule
+satisfait « aucune cellule ailleurs » par vacuité ; si un groupe non réparti apparaît, c'est la moitié
+« au moins une cellule » qui manque.
+
+⚠ **Aucun écran n'offre encore le filtre par ville** : c'est un paramètre de requête, à vérifier au
+navigateur ou avec un client REST. Le dépôt frontend est séparé.
+
+---
+
+## §63 — L'audit de la session 69 : trois classes de défauts corrigées — **non exécuté**
+
+⚠ **Redémarrez l'AppHost d'abord.** Rien ici n'exige de migration, mais tout est du code applicatif :
+un processus antérieur continue de refuser les étudiants importés et de répondre 500 sur un nom trop
+long. **Le contrôle qui distingue « ancien processus » de « défaut »** est le pas 0.
+
+⚠ **Aucun pas n'écrit dans la base sauf les pas 1 et 6**, qui sont deux enregistrements réversibles sur
+une seule ligne, et le pas 8, qui rejoue un acte **sans effet**. Prenez quand même un `pg_dump -Fc`.
+
+| # | Geste | Ce qui doit se produire |
+|---|---|---|
+| **0** | Étudiants → ouvrir un étudiant **importé** dont la fiche n'affiche ni sexe ni date de naissance, cliquer **Enregistrer** sans rien changer | ✅ **Enregistré.** Sur l'ancien processus : refus nommant « Gender » ou « Date Of Birth » — c'est le contrôle de version |
+| **1** | Sur ce même étudiant, corriger **uniquement** le CNE, enregistrer | ✅ Enregistré, et le sexe reste « non renseigné » — on ne doit pas avoir à inventer un sexe pour corriger un code |
+| **2** | Chercher un étudiant dont le **prénom est vide** (nom d'origine en un seul mot), l'ouvrir, enregistrer | ✅ Enregistré. ⚠ C'est le cas produit par `SplitName`, donc il y en a beaucoup |
+| **3** | Vider **les deux** champs de nom, enregistrer | ❌ Refusé, avec la phrase « Un étudiant doit porter au moins un nom — prénom ou nom de famille. » |
+| **4** | Saisir une date de naissance d'il y a **3 ans**, enregistrer | ❌ Refusé (« au moins 15 ans ») — le champ est devenu facultatif, pas ininspecté |
+| **5** | Infrastructure → **nouvel hôpital**, coller un nom de ~150 caractères | ❌ **400 avec une phrase nommant le champ.** ⚠ Avant : **500** et « Une erreur serveur est survenue », donc personne n'apprenait que le nom était trop long |
+| **6** | Même formulaire, nom de **100 caractères exactement**, enregistrer | ✅ Accepté — c'est la largeur de la colonne, et le contrôle sans lequel le pas 5 ne prouve rien |
+| **7** | Même chose pour la **ville** (51 caractères ❌ / 50 ✅) et pour un centre | Mêmes réponses |
+| **8** | Groupes → sur une promotion **déjà partitionnée**, rejouer « Assigner les partitions » avec le même nombre | ✅ Réussi, 0 étiqueté — puis **Journal** : une ligne `PARTITIONS_ASSIGNED` portant `labeled: 0`, `totalGroups: <n>` |
+| **9** | Journal → vérifier qu'il n'y a **aucune** ligne pour une tentative refusée (rejouer le pas 3, puis regarder) | Aucune ligne : le registre reste la liste de ce qui a eu lieu, pas des tentatives |
+
+⚠ **Le pas 8 est le cœur de l'item 0bd**, et il est contre-intuitif : l'acte qui ne change *rien* est
+justement celui qui n'écrivait rien au registre. « Personne n'a joué cet acte » et « quelqu'un l'a joué
+sans effet » se lisaient pareil.
+
+⚠ **Le pas 9 est le témoin du pas 8.** Sans lui, le pas 8 passerait aussi bien si l'acte s'était mis à
+écrire une ligne pour *tout*, refus compris — ce qui serait le défaut inverse.
+
+⚠ **Ce que ces pas ne peuvent pas montrer** : combien d'étudiants étaient concernés. Le compte mesuré
+en lisant l'importeur est de **1 053** sur le seul critère du sexe, plus tous ceux sans date de
+naissance et tous ceux à prénom vide ; le vérifier demanderait une lecture de la base de production.
+
+---
+
+## §64 — Le reste de l'audit (session 69b) — **non exécuté**
+
+⚠ **Redémarrez l'AppHost.** Aucune migration : `BacSeries.NonRenseigne` est un membre ajouté en fin
+d'enum, stocké dans une colonne `integer` qui existe déjà. Le contrôle de version est le pas 1.
+
+⚠ **Le pas 4 est une lecture, le pas 5 déplace une colonne publiée.** Faites le 5 sur une promotion de
+test, ou sautez-le : il est couvert par 8 tests. `pg_dump -Fc` avant, comme toujours.
+
+| # | Geste | Ce qui doit se produire |
+|---|---|---|
+| **1** | Inscriptions → télécharger le canevas, remplir une ligne en **laissant « Série du bac » vide**, simuler puis appliquer | L'étudiant créé porte **« Non renseigné »**. ⚠ Sur l'ancien processus il portait **SVT** — une série que personne n'a saisie. C'est le contrôle de version |
+| **2** | Même canevas, une ligne avec « SVT » en toutes lettres | L'étudiant porte **SVT** — le témoin, sans lequel le pas 1 passerait si la colonne avait cessé d'être lue |
+| **3** | Ouvrir n'importe quel étudiant **importé**, regarder la série du bac | Toujours « Bac Français ». ⚠ **C'est attendu et ce n'est pas corrigé** : les 10 203 lignes portent 0, et un 0 stocké ne dit pas si quelqu'un l'a choisi. Voir l'item 0cb |
+| **4** | Centres → ouvrir la fiche d'un centre | La liste de ses hôpitaux s'affiche comme avant. ⚠ Le type a été renommé `HospitalInCenterResponse` ; le nom du type n'est pas dans le JSON, donc **rien ne doit changer** — c'est un contrôle de non-régression |
+| **5** | Grille → déplacer une colonne **publiée** d'une semaine, confirmer le nombre annoncé | Réussi, et le rapport donne les deux nombres. Puis **Journal** : `STAGE_SLOT_UPDATED` avec `periodsCovered` et `periodsShifted` |
+| **6** | Déplacer la colonne du **milieu** d'un séjour en service unique (5ᵉ ou 6ᵉ année) | Réussi avec **`periodsShifted: 0`** — un séjour commence à sa première colonne et finit à sa dernière |
+| **7** | Niveaux → chercher un niveau par son libellé | La recherche répond comme avant (garde de nullité ajoutée sur `Level.Label`) |
+
+⚠ **Le pas 3 est le seul de cette liste qui constate un défaut restant plutôt qu'un correctif.** Il est
+là pour que personne ne le re-signale comme neuf : la valeur est fausse, elle est connue, et la
+corriger est un acte sur la base vivante qui effacerait aussi les séries saisies depuis l'import.
+
+⚠ **Ce que ces pas ne montrent pas** : l'événement de domaine du pas 5. Il est publié après le commit
+et aucun écran ne l'affiche — il est couvert par `PublishedColumnMoveTests`. Le vérifier à l'écran
+demanderait un abonné qui écrive quelque part, et il n'y en a pas encore.
+
+---
+
+## §65 — L'aperçu d'une fenêtre d'examens dit enfin ce qu'on peut en faire (session 70) — ✅ **déroulé le 17/09/2026**
+
+> ✅ **Les six contrôles de 65.1 passent**, sur une fenêtre autre que celle prescrite — **3ᵉ MED,
+> 01/12/2026 → 31/12/2026** au lieu de 10/03 → 30/04. Les assertions sont les mêmes et tiennent toutes :
+> **24 / 24 créneaux déplaçables**, la phrase « n'est pas encore possible » **absente**, l'avertissement
+> dans l'ordre (reposer refusé → déplacer une par une → combien), la limite honnête en clôture
+> (« un déplacement ne décale pas les colonnes suivantes »), **1 000** cellules publiées et **933**
+> étudiants — les chiffres du manifeste — et « Rotations en cours » à **0**, ce qui est *pourquoi* les 24
+> sont déplaçables.
+>
+> ✅ **Et les chiffres se recoupent, ce qui clôt au passage le pas 3 de §67.1** (pour lequel il n'existait
+> aucun instantané d'avant-redémarrage) : **23 ouvrables perdus** = exactement les 23 jours de semaine de
+> décembre 2026, aucun férié n'y tombant ; **24 créneaux traversés** = 8 stages × 3 colonnes, ligne pour
+> ligne avec le tableau par stage ; et les durées annoncées **15 / 30** contre des colonnes de 15 j.o.
+> redonnent *k* = 1,1,1,1,1,1,2,2 donc **T = 10**, l'axe que `CLAUDE.md` enregistre. Un axe qui aurait
+> dérivé ne pourrait pas retomber sur les trois. **La migration n'a déplacé aucune date.**
+>
+> ✅ **65.2 et 65.3 déroulés le 17/09/2026**, aucun défaut signalé. ⚠ Comme pour §68, les chiffres
+> n'ont pas été consignés — la promotion non planifiée et les rotations hors grille ont été vues, et ce
+> qui est établi est « ça n'a pas cassé ».
+>
+> ⚠ **Et l'écran a fait apparaître un trou que personne n'avait vu : « Restant / colonne : 0 – 10 »**, sur
+> les 8 stages. Ce zéro veut dire qu'une colonne de chaque stage ressortirait **sans aucun jour ouvrable**
+> — 23 j.o. perdus contre des colonnes de 15, donc décembre en avale une entièrement. `Warnings()` ne
+> recevait pas ce minimum : le seul témoin était le bord gauche d'un intervalle dans une cellule de
+> tableau. Corrigé le 17/09/2026 (session 72) → §68.
+
+Entièrement en **lecture** : l'aperçu d'une pause n'écrit rien, et rien ici ne demande de déclarer la
+fenêtre. C'est la section la moins risquée du fichier ; elle se déroule sur la base vivante sans
+`pg_dump` préalable — **à condition de s'arrêter à l'aperçu**.
+
+Trois défauts corrigés, et trois états à voir. *Admin → Calendrier → Suspensions d'examens*.
+
+### 65.1 — La promotion publiée : le remède existe et se chiffre
+
+| # | Geste | Ce qui doit se produire |
+|---|---|---|
+| **1** | Choisir **3ᵉ année Médecine**, 2026-2027, fenêtre **10/03/2027 → 30/04/2027**, puis « Aperçu » | Le rapport s'affiche. **Ne pas déclarer.** |
+| **2** | Lire les tuiles | Six désormais, pas cinq : « Cellules publiées » **1 000** et, à côté, **« Créneaux déplaçables »** |
+| **3** | Lire « Créneaux déplaçables » | **16 / 16**, en **vert** — aucune rotation de ces colonnes n'a commencé, n'est notée ni pointée |
+| **4** | Lire l'avertissement | Il dit que reposer l'axe est refusé, **puis** que la fenêtre se rattrape « en déplaçant les colonnes traversées, une par une », **puis** que les 16 sont toutes déplaçables |
+| **5** | ⚠ Chercher la phrase « n'est pas encore possible » | **Elle ne doit plus y être.** C'est le défaut : elle a survécu à la phase 17.1 de six jours |
+| **6** | Lire la fin de l'avertissement | « ⚠ Un déplacement ne décale pas les colonnes suivantes » — la limite honnête, et la raison de l'item 0ce |
+
+⚠ **Le pas 3 est celui qui prouve le correctif.** « 16 / 16 » n'est pas une reformulation de
+« 16 créneaux traversés » : c'est une seconde question posée au magasin (les rotations de ces colonnes
+ont-elles commencé ?) et la réponse est ce qui rend la suite actionnable. Si les deux nombres
+divergent un jour — « 9 / 16 » — l'avertissement doit basculer sur la phrase « … ; les 7 autres
+portent des rotations commencées, notées ou pointées ».
+
+⚠ **Pourquoi « Rotations en cours » affiche 0 à côté de 933 étudiants** : une rotation publiée est
+`IsStarted = false` jusqu'à ce que l'administration la démarre. Ce n'est pas une contradiction avec le
+« 16 / 16 » — c'est *pourquoi* il vaut 16.
+
+### 65.2 — La promotion sans grille : le zéro qui veut dire l'inverse
+
+| # | Geste | Ce qui doit se produire |
+|---|---|---|
+| **1** | Même écran, une promotion **non planifiée** (l'année 2026-2027 en porte plusieurs), fenêtre quelconque | « Créneaux traversés » **0**, « Créneaux déplaçables » **0 / 0** en gris |
+| **2** | Lire l'avertissement | « Aucun créneau ni aucune rotation ne traverse cette fenêtre : rien n'est à reposer… » |
+
+⚠ **Le gris du pas 1 est voulu** : `0 / 0` sur une promotion vierge n'est pas un refus, c'est
+« il n'y a rien ». Un rouge ici entraînerait le lecteur à ignorer le rouge qui compte.
+
+### 65.3 — Les rotations hors grille : le cas qui n'avait aucune phrase
+
+C'est le troisième défaut, et le plus difficile à provoquer : il faut une promotion portant des
+périodes **sans cellule**. Deux façons d'en trouver une sans rien écrire :
+
+- une **année importée** — 2017-18 → 2025-26 portent 105 626 périodes et **0 créneau** : n'importe
+  quelle fenêtre posée dessus tombe dans ce cas ;
+- une promotion sur laquelle le **canevas des affectations** a été appliqué (§56), dont les périodes
+  sont hors grille par construction.
+
+| # | Geste | Ce qui doit se produire |
+|---|---|---|
+| **1** | Aperçu d'une fenêtre traversant des rotations d'une année importée | « Créneaux traversés » **0**, « Rotations » **> 0** |
+| **2** | Lire l'avertissement | « N rotation(s) traversent cette fenêtre alors qu'aucun créneau ne la traverse : elles ont été écrites **hors grille**… » et le remède : renvoyer le canevas des affectations |
+| **3** | ⚠ Contrôle | Ni « Reposez l'axe » ni « déplaçant les colonnes » ne doivent apparaître — **aucun des deux remèdes ne les atteint** |
+| **4** | ⚠ Contrôle | Ce n'est **pas** la phrase du 65.2 : « aucun créneau **ni aucune rotation** » dirait qu'il n'y a rien, alors qu'il y a des centaines de rotations |
+
+⚠ **Avant cette session, le pas 2 n'affichait rien du tout** quand aucune rotation n'était en cours,
+et « reposez l'axe » quand il y en avait — un geste qui réussit et ne touche aucune de ces périodes.
+C'est « dire ce que veut dire un blanc » appliqué à un écran qui n'en disait rien.
+
+
+
+---
+
+## §66 — Repartir de zéro depuis une sauvegarde (session 71) — **déroulé pour de vrai le 17/09/2026**
+
+La procédure complète vit dans [`docs/operations.md` §0](docs/operations.md). Cette section n'est que
+le contrôle : ce qu'il faut **voir** à chaque étape pour savoir qu'on est sur le bon chemin.
+
+⚠ **Ne se déroule pas pour l'exercice sur la base vivante.** Restaurer écrase tout ce qui est entré
+depuis le point. Pour répéter la manœuvre sans risque, prendre d'abord un point neuf
+(`pgsh-snapshot.ps1`) et restaurer **celui-là**.
+
+| # | Geste | Ce qui doit se produire |
+|---|---|---|
+| **1** | `docker info` | répond ; sinon Docker Desktop, et `wsl --shutdown` si la distro ne monte pas |
+| **2** | Lancer l'AppHost sur une base vide | ⚠ `migrations` **échoue** en nommant le remède, `pgsh-api` **refuse de démarrer** avec le bandeau `L'API NE DÉMARRE PAS`. Les deux sont corrects |
+| **3** | Chercher une pile d'appels | **il ne doit pas y en avoir** : ce sont des phrases, pas des exceptions |
+| **4** | Arrêter l'AppHost, laisser Docker | le conteneur Postgres reste `Up` (lifetime persistant) |
+| **5** | `.\scripts\pgsh-restore.ps1 -List` | les points, du plus récent au plus ancien, avec libellé et migration |
+| **6** | `.\scripts\pgsh-restore.ps1 -Id <point>` | les **douze** effectifs cochés `✓`, puis « Restauration vérifiée » |
+| **7** | Relancer l'AppHost | `migrations` ne trouve rien à appliquer ; `pgsh-api` démarre |
+| **8** | Se connecter `admin.pgsh@um5.ac.ma` / `123` | on entre **et on reste** — pas de renvoi à l'écran de connexion |
+| **9** | Rouvrir la même session | plus aucun re-rattachement : le `sub` du realm refait est désormais celui du dossier |
+| **10** | Les écrans | effectif des étudiants, grille de la promotion planifiée, page Sauvegardes |
+| **11** | `.\scripts\pgsh-snapshot.ps1 -Label "après restauration"` | un point neuf, avec son manifeste |
+
+⚠ **Le pas 6 est celui qui prouve quelque chose.** `pg_restore` peut rendre non-zéro en ayant
+parfaitement restauré, et 0 en ayant laissé des tables vides : **seul le recomptage tranche**.
+
+⚠ **Le pas 8 est le second.** C'est là que se voyaient les trois défauts d'identité du 17/09 — pas
+d'`aud` (401 puis déconnexion), pas de `sub` (« User id is unavailable »), et `sub` périmé
+(« User already linked »). Une connexion qui tient est la preuve que les trois sont fermés.
+
+---
+
+## §67 — Un férié que la faculté travaille (session 72) — **non exécuté**
+
+⚠ **Redémarrez l'AppHost d'abord** — migration `HolidayCountsAsWorkingDay`. Sans elle, le modèle
+interroge une colonne qui n'existe pas et `GET /api/calendar/holidays` répond **500**. La migration est
+purement additive avec `DEFAULT false`, donc elle atterrit sur la base vivante — 3ᵉ MED publiée
+comprise — **sans qu'aucune date bouge** : c'est ce qui la rend sûre.
+
+⚠ **Pas d'écran.** La case n'existe pas encore dans `PGSH_Frontend` : §67 se déroule par l'API (Scalar,
+`/scalar/v1`, ou un client REST). Les pas 1-3 sont en **lecture**. Le pas 4 écrit — il pose un drapeau
+sur un vrai férié — et c'est le clic de l'utilisateur ; le pas 6 le retire.
+
+### 67.1 — Rien n'a bougé (lecture seule, à faire en premier)
+
+| # | Geste | Ce qui doit se produire |
+|---|---|---|
+| **1** | `GET /api/calendar/holidays` | **200**. Chaque ligne porte désormais `countsAsWorkingDay`, **`false` partout**, et `workedThroughCount` vaut **0** |
+| **2** | Comparer `workingDays` de la réponse au chiffre noté avant le redémarrage | **Identique.** ⚠ C'est le pas qui compte : la migration ne doit rien changer à l'arithmétique de l'année |
+| **3** | Ouvrir la grille de planification de la 3ᵉ MED 2026-2027 | Les 80 créneaux portent **exactement** les mêmes dates qu'avant. Un seul jour de décalage ici voudrait dire que le défaut est par défaut `true` quelque part |
+
+### 67.2 — Poser le drapeau, et lire les deux zéros
+
+⚠ **Prenez un `pg_dump -Fc` avant le pas 4** — c'est une écriture sur le calendrier de la faculté.
+Choisissez un férié **hors** de toute fenêtre publiée si vous voulez pouvoir juger le pas 5 sans bruit.
+
+| # | Geste | Ce qui doit se produire |
+|---|---|---|
+| **4** | `PUT /api/calendar/holidays/{id}` en renvoyant la ligne telle quelle **plus** `"countsAsWorkingDay": true` | **200**. `countingChanged: true`, `datesMoved: **false**`, et `slotsSpanning` > 0 s'il traverse des créneaux |
+| **5** | ⚠ Relire `GET /api/calendar/holidays` | Ce férié porte `workingDaysLost: **0**` et `countsAsWorkingDay: true`. `workingDays` de l'année a **augmenté** du nombre de jours ouvrables qu'il coûtait |
+| **6** | Renvoyer le même PUT avec `"countsAsWorkingDay": false` | **200**, `countingChanged: true`, et tout revient au chiffre du pas 2 |
+
+⚠ **Le pas 4 est celui qui prouve le correctif du CRUD.** `datesMoved: false` **avec** un
+`slotsSpanning` non nul est exactement la combinaison qui était impossible avant : la garde ne
+s'ouvrait que sur un déplacement de date, donc le seul changement qui *rend* des jours aux créneaux
+était le seul à ne rien signaler.
+
+⚠ **Le pas 5 est celui où « dire ce que veut dire un blanc » se vérifie.** `workingDaysLost: 0` a
+maintenant **deux** causes opposées — tombé un dimanche, ou travaillé — et seule `countsAsWorkingDay`
+les sépare. Un écran qui n'afficherait que le zéro serait à refaire.
+
+### 67.3 — Le champ omis ne défait rien
+
+| # | Geste | Ce qui doit se produire |
+|---|---|---|
+| **7** | Reposer le drapeau (pas 4), puis renvoyer un PUT **sans** la clé `countsAsWorkingDay`, en changeant seulement le `name` | **200**, `countingChanged: **false**`, et une relecture montre le drapeau **toujours posé** |
+| **8** | ⚠ Contrôle | Le même PUT avec `"countsAsWorkingDay": false` **explicite** le retire, lui, et répond `countingChanged: true` |
+
+⚠ **Le pas 7 est la raison d'être du `bool?`.** C'est un PUT qui remplace tout et l'écran vit dans un
+autre dépôt : sans lui, enregistrer le *nom* d'un férié depuis un écran qui ignore le champ défaisait en
+silence un drapeau posé exprès. Un `countingChanged: true` ici serait ce défaut.
+
+### 67.4 — Ce qui n'est pas dans cette section
+
+- **Aucun férié travaillé n'est déclaré sur 2026-2027** à la fin de §67 si vous avez déroulé le pas 6 ou
+  le pas 8 : la lecture est faite, la décision d'en marquer un est celle de la faculté. Les **8** fériés
+  de l'année scolaire allongent donc toujours toute colonne qui les croise.
+- **L'axe n'est pas reposé.** 0ay devait précéder 0ap et le fait ; poser les axes reste l'item **0ap**.
+
+---
+
+## §68 — Une colonne vidée se distingue d'une colonne raccourcie (session 72) — ✅ **déroulé le 17/09/2026**
+
+> ✅ **Déroulé par l'utilisateur, aucun défaut signalé.**
+> ⚠ **Les chiffres n'ont pas été consignés** — ni le nombre de créneaux vidés, ni le nombre de cellules
+> qu'ils portaient, ni le libellé exact de la phrase. Ce qui est établi est donc « ça n'a pas cassé »,
+> pas « ça disait N ». Si un doute revient sur ce que l'écran affiche, la section est à rejouer : le pas
+> qui porte l'information est le **4**, le contrôle sur une fenêtre courte.
+
+Entièrement en **lecture** : c'est le même aperçu que §65, rien n'est déclaré. Aucune migration.
+
+⚠ **Redémarrez l'AppHost** — c'est du code applicatif, donc le processus doit postdater la session 72.
+
+| # | Geste | Ce qui doit se produire |
+|---|---|---|
+| **1** | Refaire exactement §65 avec **3ᵉ MED, 01/12/2026 → 31/12/2026**, puis « Aperçu » | Les six contrôles de §65 passent **à l'identique** — 24 / 24, 1 000 cellules, 933 étudiants |
+| **2** | Lire les avertissements | Il y en a désormais **deux** : celui de l'axe publié (inchangé) **et** « ⚠ 8 des 24 créneau(x) traversés perdent la totalité de leurs jours ouvrables… » |
+| **3** | Lire la fin de cette phrase | Elle dit que ce ne sont **pas** des colonnes raccourcies, donne le nombre de **cellules** concernées, et que « un décalage ne suffit pas : ces colonnes sont à reposer ou à retirer » |
+| **4** | ⚠ Contrôle — refaire l'aperçu sur une fenêtre **courte**, p. ex. **07/12/2026 → 11/12/2026** | La phrase « perdent la totalité » **ne doit pas apparaître** : cette fenêtre ne fait que raccourcir |
+| **5** | ⚠ Contrôle | Les deux avertissements coexistent au pas 2 — le nouveau **s'ajoute** au remède, il ne le remplace pas : une colonne vidée arrive que l'axe soit publié, en cours ou au repos |
+
+⚠ **Le pas 4 est celui qui compte autant que le pas 2.** Une phrase qui se déclencherait sur toute
+fenêtre serait du bruit, et le bruit se fait ignorer — ce qui mettrait hors de vue celle qui compte.
+
+⚠ **Pourquoi « 8 » au pas 2** : décembre 2026 porte 23 jours ouvrables contre des colonnes de 15, donc
+la fenêtre avale entièrement **une** colonne de chacun des 8 stages. Le tableau par stage le disait déjà,
+mais seulement comme le bord gauche de « 0 – 10 ».
+
+
+## §69 — La pause par étape n'existe plus (session 73) — ✅ **déroulé le 18/09/2026**
+
+✅ **Les deux moitiés sont couvertes, et par deux moyens différents.**
+
+- **L'écran** : « Pause » et « Reprendre » ont disparu de la barre d'actions groupées de
+  « Suivi des affectations » — confirmé par l'utilisateur. Le contrôle du pas 2 est acquis de fait :
+  « Démarrer » a servi le même jour sur Cardiologie (314 rotations), donc la coupe n'a pas emporté
+  ses voisines.
+- **Les routes** : mesuré en HTTP contre le processus vivant le 18/09/2026 —
+  `POST /api/stages/3/schedule/pause` → **404**, `.../resume` → **404**, tandis que
+  `.../schedule/start` → **401**. C'est exactement la distinction que la section demande : 401 est la
+  signature d'une route vivante et protégée, et aucune des deux retirées ne la porte.
+
+⚠ **Ce qui n'a pas été vérifié à l'œil, et qui est couvert autrement** : le badge « En pause »
+subsiste au catalogue (pas 6) pour le cas d'une annulation de téléversement, et c'est
+`PromotionSuspensionDisplayTests.A_stored_pause_and_a_declared_window_are_reported_apart` qui tient
+qu'il reste distinct de « En examens ».
+
+⚠ **Aucune migration**, aucune colonne touchée : le retrait est du code et deux boutons. Mais il faut
+**redémarrer l'AppHost et recharger le frontend** — sur un processus antérieur les routes répondent
+encore et les boutons sont encore là, ce qui est exactement l'état qu'on vérifie avoir quitté.
+
+⚠ **Rien ici n'écrit dans la base.** La seule étape qui s'en approche est le pas 5, une lecture.
+
+| # | Geste | Attendu |
+|---|---|---|
+| **1** | `Suivi des affectations` → choisir un stage, une promotion **autre que la 3ᵉ MED**, cocher une cohorte | La barre d'actions groupées montre **« Démarrer »** et **« Clôturer »**, et **ni « Pause » ni « Reprendre »** |
+| **2** | ⚠ Contrôle — cliquer « Démarrer » puis annuler / ne rien confirmer | Les deux actes voisins sont **intacts** : le retrait n'a pas emporté ses voisins de la même barre. C'est la moitié que le test automatique tient aussi (`The_neighbouring_lifecycle_acts_are_still_mapped`) |
+| **3** | Ouvrir l'onglet réseau, rejouer `POST /api/stages/1/schedule/pause` à la main (ou par Scalar) | La route **n'existe plus** : la réponse doit être celle d'un chemin jamais mappé sous le même préfixe, et surtout **pas 401** — 401 est la signature d'une route vivante et protégée |
+| **4** | Idem pour `.../schedule/resume` | Même réponse |
+| **5** | `Jours fériés` → panneau « Suspensions de promotion » | C'est **le** chemin restant pour une semaine d'examens : déclarer, apercevoir, corriger, révoquer. Il ne pousse aucune date |
+| **6** | ⚠ Le badge « En pause » reste au catalogue | Sur une ligne d'affectation, `isPaused` s'affiche toujours — plus rien ne peut le **poser**, mais une annulation de téléversement le **remet**. Ne pas le lire comme un bouton manquant |
+
+⚠ **Ce que cette section ne peut pas montrer, et c'est le point de la §65 :** ce qui *remplace*
+l'acte n'est pas une pause réparée, c'est deux actes séparés — déclarer la fenêtre (ici) puis
+**déplacer** les colonnes qu'elle coupe (« Déplacer la colonne », §61). Le second n'a toujours jamais
+été joué sur la base vivante.
+
+⚠ **Et ce que le retrait coûte, à dire à l'utilisateur plutôt qu'à découvrir :** suspendre la
+rotation d'**une seule cohorte** n'est plus possible, et rien ne le remplace. Mesuré avant de couper :
+0 période suspendue en base, donc personne ne perd un usage en cours.
+
+
+## §70 — Une fenêtre déclarée dit enfin ce qu'elle coupe (session 73b) — ✅ **déroulé le 18/09/2026**
+
+✅ **Les deux pas qui portent la section passent, avec leurs chiffres.**
+
+- **Pas 1** — la ligne de la 4ᵉ MED (fenêtre « En xams », 15/09 → 15/10/2026) affiche
+  **31** jours, **23** ouvrables perdus, et le badge neuf : **« 10 col. · 1535 rot. »**. C'est le
+  défaut d'origine corrigé : la ligne ne disait que ce que la fenêtre *coûtait*.
+- **Pas 3 (le contrôle)** — une fenêtre déclarée sur la **5ᵉ MED**, non planifiée (15/09 → 16/10) rend
+  **0 créneau, 0 rotation, 0 étudiant, 0 cellule, 0/0 déplaçable** et la phrase « Aucun créneau ni
+  aucune rotation ne traverse cette fenêtre : rien n'est à reposer, et l'axe qui sera posé ensuite
+  l'enjambera de lui-même. » ⚠ C'est « déclarée à temps », et cela ne ressemble en rien au pas 1 —
+  ce qui est tout l'objet du contrôle.
+
+⚠ **Vérifié au passage, contre la base** : les 1 535 rotations sont bien la somme par stage
+(Cardiologie 314 + Dermatologie 314 + Pédiatrie 315 + Pneumologie 296 + Rhumatologie 296), et le
+chiffre est le **même** que pour la fenêtre plus large du matin — les deux recouvrent P1 et P2 de la
+même façon.
+
+⚠ **Non consigné, et à revoir si un doute revient** : le badge **vert « rien »** de la ligne de liste
+pour le cas zéro (le pas 3 a été lu sur le rapport d'impact, pas sur la ligne), et le pas 4
+(ouvrir une fenêtre déclarée ré-affiche son impact sans presser « Aperçu »).
+
+⚠ **Aucune migration.** Redémarrer l'AppHost et recharger le frontend : sur un processus antérieur la
+liste ne porte pas la colonne et `POST /api/stages/{id}/schedule/start/preview` répond **404** — c'est
+le contrôle qui distingue « ancien processus » de « défaut ».
+
+⚠ **Rien ici n'écrit dans la base.** L'aperçu et la liste sont des lectures ; le seul geste qui écrit
+est le pas 7, et il est facultatif.
+
+**À jouer sur la 4ᵉ MED, qui porte déjà la fenêtre 14/09 → 22/10.**
+
+| # | Geste | Attendu |
+|---|---|---|
+| **1** | `Jours fériés` → « Suspensions de promotion » | La ligne de la 4ᵉ MED porte **« Ouvrables perdus » = 29** *et*, dans la colonne **« Ce qu'elle coupe »**, un badge orange **« 10 col. · 1 535 rot. »** |
+| **2** | Survoler ce badge | L'infobulle dit que déclarer ne déplace rien et que ces jours sont perdus tant que les colonnes ne sont pas déplacées |
+| **3** | ⚠ **Le contrôle qui donne un sens au pas 1** — déclarer une fenêtre sur une promotion **non planifiée** (5ᵉ ou 6ᵉ Pharma), p. ex. une semaine quelconque | La ligne porte son coût en jours **et** un badge **vert « rien »** : aucune colonne posée. C'est à quoi ressemble « déclarée à temps », et cela ne doit **pas** ressembler au pas 1 |
+| **4** | Rouvrir la fenêtre de la 4ᵉ MED par le crayon | ⚠ Le rapport d'impact complet s'affiche **sans presser « Aperçu »**. C'est le défaut rapporté : ouvrir une fenêtre en vigueur ne montrait rien |
+| **5** | Modifier la date de fin dans ce formulaire | Le rapport **disparaît** — il décrivait d'autres dates. Presser « Aperçu » le recalcule |
+| **6** | `Suivi des affectations` → 4ᵉ MED → un stage → cocher une cohorte dont les rotations ne sont pas démarrées | Un bandeau **orange** au-dessus de la barre d'actions : « N des M rotation(s) à démarrer traversent une fenêtre déclarée », puis une ligne par fenêtre avec son motif, ses dates et ses **jours ouvrables** pris |
+| **7** | *(facultatif, écrit)* Cliquer « Démarrer » quand même | L'acte **réussit** : c'est une phrase, pas un refus. ⚠ Prendre un `pg_dump -Fc` avant, et le faire sur une cohorte dont le démarrage est de toute façon voulu |
+| **8** | ⚠ **Le contrôle du bandeau** — même geste sur une promotion **sans aucune fenêtre déclarée** (5ᵉ MED, 6ᵉ MED…) | Un bandeau **gris** disant qu'aucune semaine d'examens n'est déclarée, et que cela ne veut pas dire que ces rotations sont libres. **Pas de silence** |
+| **9** | ⚠ Cocher une cohorte dont **tout** est déjà démarré (Pédiatrie, séjour 14/09 → 13/11) | Aucun bandeau orange — il n'y a rien à démarrer — et **surtout pas** le bandeau gris du pas 8 : la fenêtre existe toujours |
+
+⚠ **Les pas 3, 8 et 9 sont ceux qui comptent autant que les pas 1 et 6.** Le pas 3 sépare « déclarée à
+temps » de « déclarée trop tard », que la ligne rendait identiques. Le pas 8 sépare « rien ne
+traverse » de « personne n'a rien déclaré » — sur cette base, la seconde est l'ordinaire. Et le pas 9
+est le cas où le correctif lui-même s'était trompé : sélection vide, il annonçait « aucune fenêtre
+déclarée » alors qu'il y en avait une.
+
+⚠ **Ce que cette section ne montre pas :** la réparation. Les 1 535 rotations gardent des fins de
+séjour courtes de 29 jours ouvrables, et les remettre d'aplomb est « Déplacer la colonne » (§61),
+**refusé sur 2 des 10** parce que leurs rotations ont commencé. Item 0cj.
+
+
+## §71 — « En examens » remplace « En cours » (session 73c) — ⏳ **partiellement déroulé le 18/09/2026**
+
+✅ **Les deux pas qui décident passent.** Le badge **« En examens »** remplace bien « En cours » sur
+les rotations ouvertes de la promotion (pas 3), et surtout : **révoquer la fenêtre a fait revenir
+toutes les lignes à « En cours » d'un coup** (pas 5), sans acte de reprise et sans qu'une date bouge.
+C'est la preuve que l'état est **dérivé** et non posé — la propriété entière pour laquelle la pause
+par étape a été retirée.
+
+⚠ **Le pas 9b est passé à vide, et il faut le dire.** Les colonnes suivantes s'affichaient
+« Planifiée » — donc le cas n'a pas été exercé. La raison est que le « Démarrer » de la barre groupée
+passe par `StagePeriodRunner`, qui appelle `StartPeriod` **période par période** : les colonnes non
+sélectionnées gardent `IsStarted = false`. Le chemin qui ouvre *toutes* les périodes d'un coup est le
+**démarrage par étudiant** (`InternshipAssignment.Start()`, « whole-student start »), et c'est celui-là
+qu'il faut jouer pour mettre la garde à l'épreuve : démarrer **un** étudiant depuis son dossier, puis
+vérifier que ses séjours de janvier ne portent **pas** le badge pendant une fenêtre de septembre. En
+attendant, le cas est tenu par
+`PromotionSuspensionDisplayTests.Only_the_open_rotation_of_the_file_carries_it`.
+
+⏳ **Les pas 9 et 9c restent à jouer** — la liste du chef et le dossier de l'étudiant. Décision de
+l'utilisateur le 18/09/2026 : finir le côté administration d'abord. ⚠ Ce sont **d'autres chemins
+serveur** (`/employees/me/service-periods`, `/internship-assignments/{id}`) et **d'autres types
+côté client**, donc rien de ce qui précède ne les prouve.
+
+⚠ **Aucune migration.** Redémarrer l'AppHost et recharger le frontend.
+
+⚠ **Rien ici n'écrit dans la base** : déclarer et révoquer une fenêtre n'écrivent aucune date, et tout
+le reste est lecture. C'est la section la plus sûre du fichier.
+
+**Préparer :** une promotion planifiée dont au moins une rotation est **démarrée** et couvre
+aujourd'hui.
+
+| # | Geste | Attendu |
+|---|---|---|
+| **1** | `Suivi des affectations` → cette promotion → un stage → regarder la colonne de statut | Les rotations démarrées portent **« En cours »** |
+| **2** | `Jours fériés` → déclarer une fenêtre couvrant **aujourd'hui** sur cette promotion, motif p. ex. « Examens du 1er semestre » | Rien ne bouge côté dates — c'est le principe |
+| **3** | Revenir au `Suivi des affectations` et recharger | Les mêmes lignes portent désormais **« En examens · Examens du 1er semestre »** à la place de « En cours ». ⚠ **À la place**, pas à côté |
+| **4** | Survoler le badge | L'infobulle donne l'échéance (« jusqu'au … ») et rappelle que la rotation reste « En cours » et reprendra d'elle-même |
+| **5** | ⚠ **Le contrôle qui distingue une dérivation d'un drapeau** — révoquer la fenêtre, recharger | Toutes les lignes reviennent à **« En cours »** d'un seul coup. Aucun acte de reprise, aucune date touchée, rien à défaire |
+| **6** | ⚠ Contrôle — déclarer une fenêtre qui **ne couvre pas** aujourd'hui (p. ex. le mois prochain), recharger | Les lignes restent **« En cours »**. La fenêtre existe et compte, mais l'étudiant est bien dans son service ce matin |
+| **7** | ⚠ Contrôle — une affectation **non démarrée** de la même promotion, pendant une fenêtre déclarée | Elle reste **« Planifiée »**. Une rotation qui n'a pas commencé n'est nulle part : l'annoncer « En examens » noierait les lignes où c'est vrai |
+| **8** | ⚠ Contrôle — une **autre** promotion, même moment | Elle reste **« En cours »**. Deux promotions tournent dans les mêmes services le même matin et une seule compose |
+| **9** | Se connecter en **chef de service** → `Mes services` → liste de travail, pendant une fenêtre déclarée | Les lignes de cette promotion portent le même badge. ⚠ **C'est le cas qui décide d'un geste** : pointer une absence un matin d'examens est une faute que rien n'aurait signalée |
+| **9b** | ⚠ Sur cette même liste, une rotation du **même** étudiant dont la fenêtre de séjour est **plus tard dans l'année** | Elle ne porte **pas** le badge. « Ouverte » n'est pas « en cours aujourd'hui » : `Start()` ouvre toutes les périodes d'un coup, donc un séjour de mai est `IsStarted` dès septembre |
+| **9c** | Se connecter en **étudiant** de cette promotion → son dossier de stage, pendant la fenêtre | Sa rotation en cours porte le badge, avec l'échéance. ⚠ C'est un **autre chemin serveur** que les deux précédents (`/internship-assignments/{id}`) et un autre type côté client : il se vérifie à part |
+| **10** | Si une **arrivée de transfert** figure dans cette liste | Elle porte le badge aussi. Elle s'affiche à côté des vraies lignes ; muette, elle donnerait deux réponses à une même règle sur un même écran |
+
+⚠ **Le pas 5 est celui qui compte le plus.** Il est la différence entre l'état dérivé et l'ancien
+drapeau posé sur chaque période : là où « reprendre » devait repasser sur des milliers de lignes,
+pouvait être oublié et laissait des rotations gelées sans fin, révoquer suffit ici et n'écrit rien.
+
+⚠ **Ce que cette section ne montre pas :** les jours perdus. « En examens » dit où sont les étudiants,
+pas que leur stage est complet. Les fins de séjour ne rattrapent rien — cela reste le déplacement des
+colonnes (§61, item 0cj).
+

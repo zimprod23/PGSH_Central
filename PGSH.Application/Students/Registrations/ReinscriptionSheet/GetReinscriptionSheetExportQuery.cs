@@ -1,6 +1,8 @@
+using FluentValidation;
 using PGSH.Application.Abstractions.Authorization;
 using PGSH.Application.Abstractions.Messaging;
 using PGSH.Application.Exports;
+using PGSH.Application.Extensions;
 using PGSH.Domain.Registrations;
 using PGSH.SharedKernel;
 
@@ -37,8 +39,27 @@ namespace PGSH.Application.Students.Registrations.ReinscriptionSheet;
 /// </remarks>
 public sealed record GetReinscriptionSheetExportQuery(
     IReadOnlyList<ReinscriptionSheetRow> Rows,
-    int FromAcademicYearId,
-    int ToAcademicYearId) : IQuery<ExportFile>;
+    int? FromAcademicYearId,
+    int? ToAcademicYearId) : IQuery<ExportFile>;
+
+/// <summary>
+/// ⚠ The export had <b>no validator at all</b>: its two years were enforced only by the model binder,
+/// which throws in routing and says nothing a screen can render. It writes nothing, but « donne-moi la
+/// liste des erreurs » is exactly the request made when something is already wrong — answering it with
+/// a bare 400 is the worst moment for the screen to look broken.
+/// </summary>
+internal sealed class GetReinscriptionSheetExportQueryValidator
+    : AbstractValidator<GetReinscriptionSheetExportQuery>
+{
+    public GetReinscriptionSheetExportQueryValidator()
+    {
+        RuleFor(x => x.FromAcademicYearId)
+            .IsARequiredReference(ReinscriptionSheetErrors.FromYearRequiredMessage);
+
+        RuleFor(x => x.ToAcademicYearId)
+            .IsARequiredReference(ReinscriptionSheetErrors.ToYearRequiredMessage);
+    }
+}
 
 internal sealed class GetReinscriptionSheetExportQueryHandler(
     ReinscriptionSheetPlanner planner,
@@ -53,8 +74,11 @@ internal sealed class GetReinscriptionSheetExportQueryHandler(
         if (access.IsFailure)
             return Result.Failure<ExportFile>(access.Error);
 
+        // Nullable only so an omitted query-string year reaches the validator instead of
+        // throwing in routing; both have been refused in words by the time we are here.
         var plan = await planner.PlanAsync(
-            request.FromAcademicYearId, request.ToAcademicYearId, request.Rows, cancellationToken);
+            request.FromAcademicYearId!.Value, request.ToAcademicYearId!.Value, request.Rows,
+            cancellationToken);
 
         if (plan.IsFailure)
             return Result.Failure<ExportFile>(plan.Error);

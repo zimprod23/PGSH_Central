@@ -1,6 +1,8 @@
+using FluentValidation;
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
+using PGSH.Application.Extensions;
 using PGSH.Domain.Common.Utils;
 using PGSH.Domain.Stages;
 using PGSH.SharedKernel;
@@ -27,8 +29,24 @@ namespace PGSH.Application.Hospitals.Coverage;
 /// outlive every promotion — so there is no year for this read to be wrong about. Adding one would
 /// suggest the answer moves from September to September, which it does not.
 /// </remarks>
-public sealed record GetHospitalStageCoverageQuery(int HospitalId, int LevelId)
+public sealed record GetHospitalStageCoverageQuery(int HospitalId, int? LevelId)
     : IQuery<HospitalStageCoverageResponse>;
+
+/// <summary>
+/// ⚠ The promotion is nullable only so that an omitted query-string value reaches a refusal that can
+/// be read. Coverage is a fact about a hospital <i>and</i> a promotion — a hospital's coverage of
+/// nothing in particular is not a question anyone asks — but bound non-nullable it threw in routing
+/// before any validator ran, so the page showed a generic error instead of « choisissez une
+/// promotion ».
+/// </summary>
+internal sealed class GetHospitalStageCoverageQueryValidator
+    : AbstractValidator<GetHospitalStageCoverageQuery>
+{
+    public GetHospitalStageCoverageQueryValidator() =>
+        RuleFor(x => x.LevelId).IsARequiredReference(
+            "La promotion est obligatoire : cet écran répond à « cet hôpital couvre-t-il toute la "
+            + "rotation de cette promotion ? », et sans promotion la question n'a pas d'objet.");
+}
 
 /// <param name="CoveredStageCount">Stages with at least one authorised service at this hospital.</param>
 /// <param name="UnauthoredStageCount">
@@ -79,18 +97,18 @@ internal sealed class GetHospitalStageCoverageQueryHandler(IApplicationDbContext
 
         var level = await dbContext.Levels
             .AsNoTracking()
-            .Where(l => l.Id == request.LevelId)
+            .Where(l => l.Id == request.LevelId!.Value)
             .Select(l => new { l.Id, l.Label })
             .FirstOrDefaultAsync(cancellationToken);
 
         if (level is null)
             return Result.Failure<HospitalStageCoverageResponse>(
-                LevelErrors.NotFound(request.LevelId));
+                LevelErrors.NotFound(request.LevelId!.Value));
 
-        var stages = await StagesQuery(dbContext, request.LevelId, request.HospitalId)
+        var stages = await StagesQuery(dbContext, request.LevelId!.Value, request.HospitalId)
             .ToListAsync(cancellationToken);
 
-        var services = (await ServicesAtHospitalQuery(dbContext, request.LevelId)
+        var services = (await ServicesAtHospitalQuery(dbContext, request.LevelId!.Value)
                 .ToListAsync(cancellationToken))
             .ToDictionary(
                 s => s.Id,

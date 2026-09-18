@@ -25,6 +25,14 @@ internal static class ExpressionComposition
             Substitute(predicate.Body, predicate.Parameters[0], path.Body),
             path.Parameters[0]);
 
+    /// <summary>
+    /// Le prédicat inverse, recousu plutôt que réécrit — « cette colonne porte une rotation que le
+    /// déplacement <i>refuserait</i> » se pose sur la règle qui dit ce qu'il accepte, jamais sur une
+    /// copie de ses quatre drapeaux inversés à la main.
+    /// </summary>
+    public static Expression<Func<T, bool>> Not<T>(this Expression<Func<T, bool>> predicate) =>
+        Expression.Lambda<Func<T, bool>>(Expression.Not(predicate.Body), predicate.Parameters[0]);
+
     /// <summary>Les deux prédicats, dont l'un ou l'autre suffit.</summary>
     public static Expression<Func<T, bool>> Or<T>(
         this Expression<Func<T, bool>> left,

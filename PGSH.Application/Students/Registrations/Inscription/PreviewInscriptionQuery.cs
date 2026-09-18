@@ -1,6 +1,7 @@
 using FluentValidation;
 using PGSH.Application.Abstractions.Authorization;
 using PGSH.Application.Abstractions.Messaging;
+using PGSH.Application.Extensions;
 using PGSH.SharedKernel;
 
 namespace PGSH.Application.Students.Registrations.Inscription;
@@ -12,17 +13,19 @@ namespace PGSH.Application.Students.Registrations.Inscription;
 /// </summary>
 public sealed record PreviewInscriptionQuery(
     IReadOnlyList<InscriptionRow> Rows,
-    int LevelId,
+    int? LevelId,
     int? AcademicYearId = null) : IQuery<InscriptionReport>
 {
-    public InscriptionScope Scope => new(LevelId, AcademicYearId);
+    // Nullable only so an omitted query-string value reaches the validator rather than throwing in
+    // routing; the scope is built after the validator has refused its absence in words.
+    public InscriptionScope Scope => new(LevelId!.Value, AcademicYearId);
 }
 
 internal sealed class PreviewInscriptionQueryValidator : AbstractValidator<PreviewInscriptionQuery>
 {
     public PreviewInscriptionQueryValidator()
     {
-        RuleFor(x => x.LevelId).GreaterThan(0);
+        RuleFor(x => x.LevelId).IsARequiredReference(InscriptionErrors.PromotionRequiredMessage);
         RuleFor(x => x.Rows).NotEmpty().WithMessage(InscriptionErrors.EmptySheetMessage);
     }
 }

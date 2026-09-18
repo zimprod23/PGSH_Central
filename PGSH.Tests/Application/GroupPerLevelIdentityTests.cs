@@ -106,13 +106,10 @@ public class GroupPerLevelIdentityTests
 
         for (int i = 1; i <= 4; i++) db.SeedGroup(groupId: i, groupNumber: i);
         for (int i = 1; i <= 4; i++)
-        {
-            var sixth = db.SeedGroup(groupId: 100 + i, groupNumber: i);
-            sixth.LevelId = SixthYearId;
-        }
+            db.SeedGroup(groupId: 100 + i, groupNumber: i, levelId: SixthYearId);
         await db.SaveChangesAsync();
 
-        await new AssignRotationGroupsCommandHandler(db).Handle(
+        await new AssignRotationGroupsCommandHandler(db, new RecordingAuditTrail()).Handle(
             new AssignRotationGroupsCommand(TestHarness.CurrentYearId, 2, TestHarness.LevelId), default);
 
         var sixthYear = await db.AcademicGroups.Where(g => g.LevelId == SixthYearId).ToListAsync();
@@ -133,16 +130,11 @@ public class GroupPerLevelIdentityTests
 
         for (int i = 1; i <= 4; i++) db.SeedGroup(groupId: i, groupNumber: i);
 
-        var bucket = new AcademicGroup
-        {
-            Id = 999, Label = "Non réparti", GroupNumber = 0,
-            AcademicYearId = TestHarness.CurrentYearId, LevelId = null,
-        };
-        db.AcademicGroups.Add(bucket);
+        var bucket = db.SeedUnassignedBucket(999);
         db.SeedRegistration("Sans", "Groupe", bucket);
         await db.SaveChangesAsync();
 
-        var result = await new AssignRotationGroupsCommandHandler(db).Handle(
+        var result = await new AssignRotationGroupsCommandHandler(db, new RecordingAuditTrail()).Handle(
             new AssignRotationGroupsCommand(TestHarness.CurrentYearId, 2, TestHarness.LevelId), default);
 
         result.IsSuccess.Should().BeTrue();
@@ -170,8 +162,7 @@ public class GroupPerLevelIdentityTests
         SeedTwoPromotions(db);
 
         var home  = db.SeedGroup(groupId: 1, groupNumber: 1);
-        var other = db.SeedGroup(groupId: 2, groupNumber: 1);
-        other.LevelId = SixthYearId;
+        var other = db.SeedGroup(groupId: 2, groupNumber: 1, levelId: SixthYearId);
 
         var registration = db.SeedRegistration("Imane", "Chraibi", home);
         await db.SaveChangesAsync();
@@ -234,12 +225,7 @@ public class GroupPerLevelIdentityTests
         await using var db = TestHarness.NewContext(nameof(A_cohort_cannot_be_built_on_the_no_promotion_bucket));
         var stage = db.SeedCatalog();
 
-        var bucket = new AcademicGroup
-        {
-            Id = 999, Label = "Non réparti", GroupNumber = 0,
-            AcademicYearId = TestHarness.CurrentYearId, LevelId = null,
-        };
-        db.AcademicGroups.Add(bucket);
+        var bucket = db.SeedUnassignedBucket(999);
         await db.SaveChangesAsync();
 
         var result = await new CreateCohortCommandHandler(db).Handle(
@@ -257,12 +243,7 @@ public class GroupPerLevelIdentityTests
         await using var db = TestHarness.NewContext(nameof(The_bucket_cannot_be_handed_a_partition_label_by_hand));
         db.SeedCatalog();
 
-        var bucket = new AcademicGroup
-        {
-            Id = 999, Label = "Non réparti", GroupNumber = 0,
-            AcademicYearId = TestHarness.CurrentYearId, LevelId = null,
-        };
-        db.AcademicGroups.Add(bucket);
+        var bucket = db.SeedUnassignedBucket(999);
         await db.SaveChangesAsync();
 
         var result = await new UpdateGroupCommandHandler(db).Handle(
@@ -312,8 +293,7 @@ public class GroupPerLevelIdentityTests
         var thirdYearStage = SeedTwoPromotionsWithStage(db);
 
         db.SeedGroup(groupId: 1, groupNumber: 1, rotationGroup: "A");
-        var sixth = db.SeedGroup(groupId: 2, groupNumber: 1, rotationGroup: "A");
-        sixth.LevelId = SixthYearId;
+        db.SeedGroup(groupId: 2, groupNumber: 1, rotationGroup: "A", levelId: SixthYearId);
         await db.SaveChangesAsync();
 
         var result = await new CohortProvisioner(db).EnsureCohortsAsync(

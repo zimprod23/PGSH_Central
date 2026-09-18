@@ -60,21 +60,16 @@ public class AbolishedStageRevalidationTests
 
         // 2025-2026 — Sara is registered again; her group has no Clinique 3 cohort, because no group
         // runs a stage the CNPN no longer contains. The retake gets its own.
-        var currentGroup = new AcademicGroup
-        {
-            Id = 60, Label = "Groupe 60", GroupNumber = 60, AcademicYearId = TestHarness.CurrentYearId,
-        };
-        db.AcademicGroups.Add(currentGroup);
+        // ⚠ Elle porte sa promotion. Cette fixture omettait le niveau — donc posait « Non réparti »
+        // sans le vouloir — et bâtissait dessus la cohorte de rattrapage, un état que
+        // CreateCohortCommandHandler refuse depuis longtemps.
+        var currentGroup = db.SeedGroup(60, 60, levelId: PharmacieY5, label: "Groupe 60");
         var current = db.SeedRegistration("Sara", "Alami", currentGroup);
         current.StudentId = failed.StudentId;
         current.Student   = failed.Student;
 
-        var retakeCohort = new Cohort
-        {
-            Id = 61, Label = "Pharmacie Clinique 3 — rattrapage",
-            StageId = Clinique3, Stage = clinique3,
-            AcademicGroupId = currentGroup.Id, AcademicGroup = currentGroup,
-        };
+        var retakeCohort = TestHarness.NewCohort(
+            61, clinique3, currentGroup, "Pharmacie Clinique 3 — rattrapage");
         db.Cohorts.Add(retakeCohort);
 
         return new Scenario(failed, current, retakeCohort, pharmacy);

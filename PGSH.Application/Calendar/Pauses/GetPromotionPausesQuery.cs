@@ -1,4 +1,4 @@
-using FluentValidation;
+﻿using FluentValidation;
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
@@ -70,16 +70,36 @@ internal sealed class GetPromotionPausesQueryHandler(
         // this is the exact figure and not an approximation.
         var calendar = await workingDays.BuildAsync(cancellationToken);
 
+        // ⚠ What a window *costs* and what it *hits* are two different facts, and the row carried only
+        // the first. « 29 ouvrables perdus » beside nothing else reads as an accounting note; the
+        // number that says a plan is being cut is the count of columns and rotations underneath it —
+        // and that number lived solely in the preview, behind a button, which is why a declared window
+        // looked like it had no effect at all.
+        var spans = await PromotionPauseQueries
+            .PauseSpansQuery(dbContext, yearId, request.LevelId)
+            .AsNoTracking()
+            .ToDictionaryAsync(r => r.PauseId, cancellationToken);
+
         return new PaginatedResponse<PromotionPauseResponse>(
-            page.Items.Select(r => Map(r, yearId, yearLabel, calendar)).ToList(),
+            page.Items.Select(r => Map(r, yearId, yearLabel, calendar, spans)).ToList(),
             page.PageNumber,
             page.PageSize,
             page.TotalCount);
     }
 
     private static PromotionPauseResponse Map(
-        PauseRow row, int yearId, string yearLabel, WorkingDayCalendar calendar) =>
-        new(row.Id,
+        PauseRow row,
+        int yearId,
+        string yearLabel,
+        WorkingDayCalendar calendar,
+        IReadOnlyDictionary<int, PromotionPauseQueries.PauseSpanRow> spans)
+    {
+        // A window declared on a promotion with no axis has no row here, and « no columns » is exactly
+        // what that means — not « unknown ».
+        var span = spans.GetValueOrDefault(row.Id);
+
+        return new PromotionPauseResponse(
+            row.Id,
             yearId,
             yearLabel,
             row.LevelId,
@@ -88,10 +108,13 @@ internal sealed class GetPromotionPausesQueryHandler(
             row.EndDate,
             row.EndDate.DayNumber - row.StartDate.DayNumber + 1,
             calendar.Count(row.StartDate, row.EndDate),
+            span?.SlotsSpanning ?? 0,
+            span?.PeriodsSpanning ?? 0,
             row.Kind,
             row.Reason,
             row.IsConfirmed,
             row.RecordedOn);
+    }
 
     /// <summary>
     /// The row as the store gives it. Separate from <see cref="PromotionPauseResponse"/> because

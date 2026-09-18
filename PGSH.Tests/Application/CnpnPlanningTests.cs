@@ -107,13 +107,7 @@ public class CnpnPlanningTests
         var stage = db.SeedCatalog();
         db.SeedStage(OldOnlyStage, "Stage supprimé par le nouveau texte");
 
-        var group = new AcademicGroup
-        {
-            Id = 30, Label = "Groupe 30", GroupNumber = 30,
-            AcademicYearId = TestHarness.CurrentYearId, LevelId = TestHarness.LevelId,
-            RotationGroup = "A",
-        };
-        db.AcademicGroups.Add(group);
+        var group = db.SeedGroup(30, 30, rotationGroup: "A", label: "Groupe 30");
 
         var registration = db.SeedRegistration("Sara", "Bennani", group);
         if (studentText is { } text)
@@ -172,13 +166,7 @@ public class CnpnPlanningTests
         var stage = db.SeedCatalog();
         db.SeedStage(OldOnlyStage, "Stage hors texte");
 
-        var group = new AcademicGroup
-        {
-            Id = 30, Label = "Groupe 30", GroupNumber = 30,
-            AcademicYearId = TestHarness.CurrentYearId, LevelId = TestHarness.LevelId,
-            RotationGroup = "A",
-        };
-        db.AcademicGroups.Add(group);
+        var group = db.SeedGroup(30, 30, rotationGroup: "A", label: "Groupe 30");
         db.SeedRegistration("Sara", "Bennani", group).Student.AssignCnpnVersion(NewText, isInferred: false);
         await db.SaveChangesAsync();
 

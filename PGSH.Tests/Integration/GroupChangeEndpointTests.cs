@@ -85,20 +85,11 @@ public class GroupChangeEndpointTests : IClassFixture<ApiFactory>, IAsyncLifetim
         });
 
         foreach (var (id, level) in new[] { (RosterA, Level3), (RosterB, Level3), (OtherPromotionRoster, Level4) })
-            db.AcademicGroups.Add(new AcademicGroup
-            {
-                Id = id, Label = $"Groupe {id / 10}", GroupNumber = id / 10,
-                AcademicYearId = YearId, LevelId = level,
-            });
+            db.SeedGroup(
+                id, id / 10, academicYearId: YearId, levelId: level, label: $"Groupe {id / 10}");
 
-        db.Cohorts.Add(new Cohort
-        {
-            Id = CohortA, Label = "Cardio · A", StageId = StageId, AcademicGroupId = RosterA,
-        });
-        db.Cohorts.Add(new Cohort
-        {
-            Id = CohortB, Label = "Cardio · B", StageId = StageId, AcademicGroupId = RosterB,
-        });
+        db.Cohorts.Add(TestHarness.NewCohort(CohortA, StageId, RosterA, "Cardio · A"));
+        db.Cohorts.Add(TestHarness.NewCohort(CohortB, StageId, RosterB, "Cardio · B"));
 
         AddStudent(db, SaraCne, "Sara", "Bennani", RosterA, CohortA);
         AddStudent(db, AliCne, "Ali", "Amrani", RosterB, CohortB);

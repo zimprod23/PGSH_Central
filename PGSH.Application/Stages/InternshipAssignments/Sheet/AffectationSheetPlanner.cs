@@ -293,7 +293,10 @@ internal sealed class AffectationSheetPlanner(
                 resolved.Add(ResolvedRow.Refused(row, identifier, registration,
                     stageMatches.Count == 0
                         ? AffectationSheetRowStatus.UnknownStage
-                        : AffectationSheetRowStatus.AmbiguousStage));
+                        : AffectationSheetRowStatus.AmbiguousStage,
+                    hint: stageMatches.Count == 0
+                        ? NameSuggestions.Hint(row.StageName, catalog.Stages.Select(st => st.StageName))
+                        : ""));
                 continue;
             }
 
@@ -311,11 +314,19 @@ internal sealed class AffectationSheetPlanner(
 
             if (serviceMatches.Count != 1)
             {
+                // ⚠ La correspondance reste **exacte** — deux services d'ici ne diffèrent parfois que
+                // d'un caractère (« Médecine A » / « Médecine B »), et rapprocher au plus proche
+                // enverrait une cohorte ailleurs en silence. La tolérance est dépensée dans le
+                // rapport : « aucun service ne porte ce nom » sur la ligne 412 d'un fichier de 900
+                // était un refus juste et inutilisable.
                 resolved.Add(ResolvedRow.Refused(row, identifier, registration,
                     serviceMatches.Count == 0
                         ? AffectationSheetRowStatus.UnknownService
                         : AffectationSheetRowStatus.AmbiguousService,
-                    stage));
+                    stage,
+                    hint: serviceMatches.Count == 0
+                        ? NameSuggestions.Hint(row.ServiceName, catalog.Services.Select(sv => sv.ServiceName))
+                        : ""));
                 continue;
             }
 
@@ -665,7 +676,14 @@ internal sealed class AffectationSheetPlanner(
         return notes;
     }
 
-    private static string Describe(ResolvedRow row) => row.Status switch
+    /// <summary>
+    /// La phrase que porte la ligne du rapport. ⚠ <c>row.Hint</c> y est ajouté plutôt qu'inséré dans
+    /// chaque cas : une seule branche en a un aujourd'hui, deux en auront un demain, et une phrase
+    /// recopiée dans le <c>switch</c> est une phrase qui divergera.
+    /// </summary>
+    private static string Describe(ResolvedRow row) => DescribeStatus(row) + row.Hint;
+
+    private static string DescribeStatus(ResolvedRow row) => row.Status switch
     {
         AffectationSheetRowStatus.WillCreate =>
             "Affectation créée avec cette période.",
@@ -908,6 +926,14 @@ internal sealed class AffectationSheetPlanner(
         public PlannedPeriod? Period { get; init; }
         public bool OutsideCnpn { get; init; }
 
+        /// <summary>
+        /// ⚠ « Vouliez-vous dire … ? », computed where the catalogue is in hand. <c>Describe</c> turns
+        /// a status into a sentence and has no catalogue, so a refusal that wants to name near misses
+        /// has to carry them — the alternative is passing the whole catalogue into the message
+        /// function, which would let any message reach for anything.
+        /// </summary>
+        public string Hint { get; init; } = "";
+
         public AffectationSheetRowStatus? Status { get; set; }
 
         public static ResolvedRow Refused(
@@ -916,7 +942,8 @@ internal sealed class AffectationSheetPlanner(
             SheetRegistration? registration,
             AffectationSheetRowStatus status,
             SheetStage? stage = null,
-            SheetService? service = null) =>
+            SheetService? service = null,
+            string hint = "") =>
             new()
             {
                 Row = row,
@@ -925,6 +952,7 @@ internal sealed class AffectationSheetPlanner(
                 Stage = stage,
                 Service = service,
                 Status = status,
+                Hint = hint,
             };
     }
 

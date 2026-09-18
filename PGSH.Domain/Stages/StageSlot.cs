@@ -1,4 +1,5 @@
 using PGSH.Domain.Hospitals;
+using PGSH.SharedKernel;
 using PGSH.Domain.Registrations;
 
 namespace PGSH.Domain.Stages;
@@ -12,12 +13,59 @@ namespace PGSH.Domain.Stages;
 /// </summary>
 public sealed class StageSlot
 {
+    /// <summary>EF's constructor. Not for callers — use <see cref="For"/>.</summary>
+    private StageSlot() { }
+
+    /// <summary>
+    /// The only way to make a créneau: its identity is demanded, not remembered.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ <b>C'est la garde qui manquait, et elle manquait dans le seul endroit où elle compte.</b>
+    /// L'identité <c>(StageId, AcademicYearId, PeriodNumber)</c> est écrite dans <c>CLAUDE.md</c>,
+    /// tenue par un index unique dans PostgreSQL, et n'était **garantie nulle part dans le code** :
+    /// trois endroits construisaient un <c>StageSlot</c> par initialiseur d'objet, deux stampaient
+    /// l'année, et le troisième l'oubliait — écrivant un créneau d'année <c>0</c>. Un initialiseur
+    /// d'objet ne peut pas exiger un champ ; un constructeur, si.
+    ///
+    /// <para>Les trois clés sont en <c>private set</c> pour la même raison : changer l'année d'un
+    /// créneau existant n'est pas une correction, c'est un autre créneau. Les dates et le libellé
+    /// restent ouverts — c'est ce que « déplacer une colonne » modifie légitimement.</para>
+    /// </remarks>
+    public static Result<StageSlot> For(
+        int stageId, int academicYearId, int periodNumber,
+        DateOnly startDate, DateOnly endDate, string? label = null)
+    {
+        if (stageId <= 0)
+            return Result.Failure<StageSlot>(StageErrors.SlotNeedsStage);
+
+        // ⚠ Le défaut réel : sans année un créneau vaut pour toutes les promotions à la fois, et la
+        // valeur par défaut d'un `int` — 0 — est une année qui n'existe pas.
+        if (academicYearId <= 0)
+            return Result.Failure<StageSlot>(StageErrors.SlotNeedsAcademicYear);
+
+        if (periodNumber <= 0)
+            return Result.Failure<StageSlot>(StageErrors.SlotNeedsPeriodNumber);
+
+        if (endDate < startDate)
+            return Result.Failure<StageSlot>(StageErrors.PeriodWindowReversed(startDate, endDate));
+
+        return new StageSlot
+        {
+            StageId        = stageId,
+            AcademicYearId = academicYearId,
+            PeriodNumber   = periodNumber,
+            StartDate      = startDate,
+            EndDate        = endDate,
+            Label          = label,
+        };
+    }
+
     public int Id { get; set; }
-    public int StageId { get; set; }
+    public int StageId { get; private set; }
     public Stage Stage { get; set; } = default!;
-    public int AcademicYearId { get; set; }
+    public int AcademicYearId { get; private set; }
     public AcademicYear AcademicYear { get; set; } = default!;
-    public int PeriodNumber { get; set; }
+    public int PeriodNumber { get; private set; }
     public string? Label { get; set; }
     public DateOnly StartDate { get; set; }
     public DateOnly EndDate { get; set; }

@@ -142,8 +142,7 @@ public class ServiceOccupancyTests
             db.SeedAssignment(db.SeedRegistration($"T{i}", "Troisieme", thirdGroup), thirdCohort);
 
         // 6th year: 15 students, 15 March – 15 April.
-        var sixthGroup = db.SeedGroup(groupId: 2, groupNumber: 1);
-        sixthGroup.LevelId = OtherLevel;
+        var sixthGroup = db.SeedGroup(groupId: 2, groupNumber: 1, levelId: OtherLevel);
         var sixthCohort = db.SeedCohortFor(otherStage, sixthGroup, cohortId: 2);
         var sixthSlot = db.SeedSlot(otherStage, slotId: 2, periodNumber: 1, new(2026, 3, 15), new(2026, 4, 15));
         db.SeedSlotAssignment(2, sixthCohort, sixthSlot, service);

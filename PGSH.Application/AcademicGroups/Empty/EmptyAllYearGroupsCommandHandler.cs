@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
 using PGSH.Application.Audit;
@@ -41,6 +41,10 @@ internal sealed class EmptyAllYearGroupsCommandHandler(
     private async Task<Result<int>> EmptyAsync(
         EmptyAllYearGroupsCommand request, CancellationToken cancellationToken)
     {
+        // Nullable only so that an omitted query-string year reaches the validator instead of
+        // throwing in routing; the validator has already refused its absence in words.
+        int academicYearId = request.AcademicYearId!.Value;
+
         int? levelId = request.LevelId;
 
         string? levelLabel = null;
@@ -56,7 +60,7 @@ internal sealed class EmptyAllYearGroupsCommandHandler(
                 return Result.Failure<int>(LevelErrors.NotFound(levelId.Value));
         }
 
-        var groupIds = await RosterScope.Query(dbContext, request.AcademicYearId, levelId)
+        var groupIds = await RosterScope.Query(dbContext, academicYearId, levelId)
             .Select(g => g.Id)
             .ToListAsync(cancellationToken);
 
@@ -71,16 +75,16 @@ internal sealed class EmptyAllYearGroupsCommandHandler(
         }
 
         var toll = levelId is null
-            ? await tollReader.ForYearRostersAsync(request.AcademicYearId, cancellationToken)
+            ? await tollReader.ForYearRostersAsync(academicYearId, cancellationToken)
             : await tollReader.ForPromotionRostersAsync(
-                request.AcademicYearId, levelId.Value, cancellationToken);
+                academicYearId, levelId.Value, cancellationToken);
 
         if (!toll.IsEmpty)
         {
             string yearLabel = await dbContext.AcademicYears
-                .Where(y => y.Id == request.AcademicYearId)
+                .Where(y => y.Id == academicYearId)
                 .Select(y => y.Label)
-                .FirstOrDefaultAsync(cancellationToken) ?? $"l'année {request.AcademicYearId}";
+                .FirstOrDefaultAsync(cancellationToken) ?? $"l'année {academicYearId}";
 
             return Result.Failure<int>(levelId is null
                 ? AcademicGroupErrors.YearRostersHaveAffectations(

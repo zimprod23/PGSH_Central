@@ -1,4 +1,4 @@
-namespace PGSH.Domain.Calendar;
+﻿namespace PGSH.Domain.Calendar;
 
 /// <summary>
 /// Whose calendar a closure belongs to — which is also who it may be hidden from.
@@ -46,6 +46,24 @@ public interface ICalendarClosure
     /// the dates are settled instead of quietly being a day out.
     /// </summary>
     bool IsConfirmed { get; }
+
+    /// <summary>
+    /// Whether the days this closure covers still count toward a stage's duration — a day the faculty
+    /// works <em>through</em>.
+    ///
+    /// <para><b>A closure answers two questions, and this is what separates them.</b> The rule, given by
+    /// the faculty on 10/09/2026: the only planning constraint is that a période neither <b>begins</b>
+    /// nor <b>ends</b> on a rest day or a closure. A closure may therefore be <i>crossed</i>, and
+    /// crossing it need not lengthen the window. <c>false</c> — the answer for every row in the base
+    /// today — means the old behaviour exactly: the days neither count nor bound.</para>
+    /// </summary>
+    /// <remarks>
+    /// ⚠ <b>No closure may ever bound a window, whatever this says.</b> Counting and bounding are not two
+    /// names for one fact: a day people serve is still a day a période must not end on, because the
+    /// window's last day is the one the student is marked present for and a férié is not that day.
+    /// <see cref="WorkingDayCalendar.CanBoundAWindow"/> ignores this flag on purpose.
+    /// </remarks>
+    bool CountsAsWorkingDay { get; }
 
     CalendarClosureScope Scope { get; }
 }

@@ -1,4 +1,5 @@
-using FluentAssertions;
+﻿using FluentAssertions;
+using PGSH.Application.Calendar.Pauses;
 using PGSH.Application.Abstractions.Authorization;
 using PGSH.Application.Employees.MyServices;
 using PGSH.Application.Stages.Evaluations;
@@ -58,7 +59,10 @@ public class ChefWorklistScopeTests
     }
 
     private static GetMyServicePeriodsQueryHandler Handler(ApplicationDbContext db) =>
-        new(db, new ExecutionAuthorizer(db, TestHarness.UserContext(ChefIdentity)));
+        new(db,
+            new ExecutionAuthorizer(db, TestHarness.UserContext(ChefIdentity)),
+            new PromotionSuspensionLookup(db),
+            TestHarness.ClockOn(new DateOnly(2026, 3, 16)));
 
     private static async Task<ChefWorklistResponse> WorklistOf(
         ApplicationDbContext db, GetMyServicePeriodsQuery? query = null)
@@ -178,7 +182,10 @@ public class ChefWorklistScopeTests
         await using var db = TestHarness.NewContext("worklist-not-chef");
         await SeedAsync(db);
         var stranger = new GetMyServicePeriodsQueryHandler(
-            db, new ExecutionAuthorizer(db, TestHarness.UserContext(Guid.NewGuid())));
+            db,
+            new ExecutionAuthorizer(db, TestHarness.UserContext(Guid.NewGuid())),
+            new PromotionSuspensionLookup(db),
+            TestHarness.ClockOn(new DateOnly(2026, 3, 16)));
 
         var result = await stranger.Handle(new GetMyServicePeriodsQuery(), default);
 
@@ -263,9 +270,10 @@ public class ChefWorklistScopeTests
         var cohort = db.SeedCohort(stage, 10, "Groupe 10");
         var registration = db.SeedRegistration("Sara", "Bennani", cohort.AcademicGroup);
         var assignment = db.SeedAssignment(registration, cohort);
-        var period = db.SeedPeriod(assignment, service, Start, End);
-        assignment.PausePeriod(period.Id, new DateOnly(2026, 3, 10), PauseKind.Exam, "Semaine d'examens")
-            .IsSuccess.Should().BeTrue();
+        // Posée par le magasin, non par un acte : voir TestHarness.SeedPausedPeriod. La lecture reste
+        // exigible parce qu'une annulation d'import remet le drapeau tel quel.
+        db.SeedPausedPeriod(assignment, service, Start, End,
+            new DateOnly(2026, 3, 10), PauseKind.Exam, "Semaine d'examens");
         await db.SaveChangesAsync();
 
         var row = (await WorklistAsync(db)).Should().ContainSingle().Subject;

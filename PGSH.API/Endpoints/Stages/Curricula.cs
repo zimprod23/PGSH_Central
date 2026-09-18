@@ -29,7 +29,8 @@ public sealed class CompareCurricula : IEndpoint
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
         app.MapGet("levels/{levelId:int}/curriculum/compare", async (
-            int levelId, int fromCnpnVersionId, int toCnpnVersionId, ISender sender, CancellationToken ct) =>
+            int levelId, int? fromCnpnVersionId, int? toCnpnVersionId, ISender sender,
+            CancellationToken ct) =>
         {
             var result = await sender.Send(
                 new CompareCurriculaQuery(levelId, fromCnpnVersionId, toCnpnVersionId), ct);

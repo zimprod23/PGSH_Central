@@ -38,8 +38,8 @@ public class RosterPlacementTests
 
     private static GetRosterPlacementsQuery Query(
         int? serviceId = null, int? hospitalId = null, int? stageId = null,
-        PlacementMatch match = PlacementMatch.Anywhere) =>
-        new(TestHarness.LevelId, TestHarness.CurrentYearId, stageId, serviceId, hospitalId, match);
+        string? city = null, PlacementMatch match = PlacementMatch.Anywhere) =>
+        new(TestHarness.LevelId, TestHarness.CurrentYearId, stageId, serviceId, hospitalId, city, match);
 
     /// <summary>
     /// One promotion, two stages, two hospitals, and the four states a roster can be in relative to
@@ -51,7 +51,9 @@ public class RosterPlacementTests
         var cardio = db.SeedCatalog();
         var chirurgie = db.SeedStage(ChirurgieId, "Chirurgie");
 
-        db.SeedHospital(Militaire, "Hôpital Militaire Mohammed V");
+        // ⚠ Une seconde ville, sans quoi « filtrer par ville » ne sépare rien et le test passerait
+        // avec le filtre supprimé. Le CHU par défaut est à Rabat (TestHarness.SeedService).
+        db.SeedHospital(Militaire, "Hôpital Militaire Mohammed V", city: "Casablanca");
 
         var civilCardioService = db.SeedService(CivilCardio, "Cardiologie");
         var militaryCardioService = db.SeedService(
@@ -343,14 +345,8 @@ public class RosterPlacementTests
             new DateOnly(2024, 9, 1), new DateOnly(2025, 8, 31));
         db.SeedGroup(50, 50, academicYearId: TestHarness.PreviousYearId);
 
-        var otherPromotion = db.SeedGroup(60, 60);
-        otherPromotion.LevelId = 99;
-
-        db.AcademicGroups.Add(new AcademicGroup
-        {
-            Id = 999, Label = "Non réparti", GroupNumber = 0,
-            AcademicYearId = TestHarness.CurrentYearId, LevelId = null,
-        });
+        db.SeedGroup(60, 60, levelId: 99);
+        db.SeedUnassignedBucket(999);
         await db.SaveChangesAsync();
 
         var result = await Handler(db).Handle(Query(), default);
@@ -397,5 +393,94 @@ public class RosterPlacementTests
         result.Value.Rosters.PageSize.Should().Be(GetRosterPlacementsQuery.DefaultPageSize);
         result.Value.Rosters.PageNumber.Should().Be(1);
         result.Value.Rosters.Items.Should().HaveCount(4);
+    }
+
+    // ─── Par ville (13/09/2026) ───────────────────────────────────────────────
+    //
+    // ⚠ La ville est lue par `Service.Hospital.City`, jamais par une colonne recopiée sur le service :
+    // un service appartient à un hôpital et un hôpital porte déjà sa ville. Un second champ serait un
+    // doublon qui peut diverger — la même objection qui a tenu `AcademicYearId` hors de `Cohort` — et
+    // il faudrait une migration pour une donnée déjà présente.
+
+    [Fact]
+    public async Task A_city_finds_the_rosters_placed_in_it()
+    {
+        await using var db = TestHarness.NewContext(nameof(A_city_finds_the_rosters_placed_in_it));
+        await SeedAsync(db);
+
+        var result = await Handler(db).Handle(Query(city: "Casablanca"), default);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Rosters.Items.Select(r => r.GroupId)
+            .Should().BeEquivalentTo(new[] { MilitaryRoster, MixedRoster },
+                "both hold at least one cell in a Casablanca hospital");
+    }
+
+    /// <summary>
+    /// ⚠ The control that gives the one above its meaning: asked about the other city, the answer is
+    /// different. Without it the filter could be returning every arranged roster.
+    /// </summary>
+    [Fact]
+    public async Task The_other_city_gives_a_different_answer()
+    {
+        await using var db = TestHarness.NewContext(nameof(The_other_city_gives_a_different_answer));
+        await SeedAsync(db);
+
+        var result = await Handler(db).Handle(Query(city: "Rabat"), default);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Rosters.Items.Select(r => r.GroupId)
+            .Should().BeEquivalentTo(new[] { MixedRoster, CivilRoster });
+    }
+
+    /// <summary>
+    /// « Cet étudiant ne peut pas quitter Casablanca » — the request a city filter is actually for, and
+    /// the same trap as the hospital one: the roster nobody arranged satisfies « aucune cellule
+    /// ailleurs » vacuously and must not be returned.
+    /// </summary>
+    [Fact]
+    public async Task Exclusively_in_a_city_excludes_the_roster_nobody_arranged()
+    {
+        await using var db = TestHarness.NewContext(nameof(Exclusively_in_a_city_excludes_the_roster_nobody_arranged));
+        await SeedAsync(db);
+
+        var result = await Handler(db).Handle(
+            Query(city: "Casablanca", match: PlacementMatch.Exclusively), default);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Rosters.Items.Select(r => r.GroupId).Should().Equal(MilitaryRoster);
+        result.Value.Rosters.Items.Should().NotContain(r => r.GroupId == UnarrangedRoster);
+    }
+
+    /// <summary>A city typed in another case still matches — nobody types « Casablanca » twice alike.</summary>
+    [Fact]
+    public async Task A_city_is_matched_whatever_the_case()
+    {
+        await using var db = TestHarness.NewContext(nameof(A_city_is_matched_whatever_the_case));
+        await SeedAsync(db);
+
+        var result = await Handler(db).Handle(Query(city: "  cASABLANCA "), default);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Rosters.Items.Should().NotBeEmpty();
+    }
+
+    /// <summary>
+    /// ⚠ The city travels back on each placement line. A screen that filters by city has to be able to
+    /// <b>show</b> which one, or the filter acts with nothing on screen saying on what.
+    /// </summary>
+    [Fact]
+    public async Task A_placement_line_names_its_city()
+    {
+        await using var db = TestHarness.NewContext(nameof(A_placement_line_names_its_city));
+        await SeedAsync(db);
+
+        var result = await Handler(db).Handle(Query(hospitalId: Militaire), default);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Rosters.Items
+            .SelectMany(r => r.Stages).SelectMany(st => st.Services)
+            .Where(sv => sv.HospitalId == Militaire)
+            .Should().OnlyContain(sv => sv.HospitalCity == "Casablanca");
     }
 }

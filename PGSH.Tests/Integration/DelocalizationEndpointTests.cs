@@ -99,18 +99,10 @@ public class DelocalizationEndpointTests : IClassFixture<ApiFactory>, IAsyncLife
                 HospitalId = hospital.Id, Hospital = hospital, Capacity = 20, IsExternal = true,
             });
 
-            var group = new AcademicGroup
-            {
-                Id = GroupId, Label = "G10", GroupNumber = 10,
-                AcademicYearId = YearId, LevelId = LevelId,
-            };
-            db.AcademicGroups.Add(group);
+            var group = db.SeedGroup(
+                GroupId, 10, academicYearId: YearId, levelId: LevelId, label: "G10");
 
-            db.Cohorts.Add(new Cohort
-            {
-                Id = CohortId, Label = "Chirurgie · G10", StageId = StageId, Stage = stage,
-                AcademicGroupId = GroupId, AcademicGroup = group,
-            });
+            db.Cohorts.Add(TestHarness.NewCohort(CohortId, stage, group, "Chirurgie · G10"));
 
             db.Students.Add(new Student
             {
@@ -357,16 +349,9 @@ public class DelocalizationEndpointTests : IClassFixture<ApiFactory>, IAsyncLife
         // A stage crossed in two périodes, and this cohorte passing in the first only.
         await _factory.SeedAsync(db =>
         {
-            db.StageSlots.Add(new StageSlot
-            {
-                Id = 1, StageId = StageId, AcademicYearId = YearId, PeriodNumber = 1,
-                StartDate = Start, EndDate = End,
-            });
-            db.StageSlots.Add(new StageSlot
-            {
-                Id = 2, StageId = StageId, AcademicYearId = YearId, PeriodNumber = 2,
-                StartDate = new DateOnly(2026, 5, 4), EndDate = new DateOnly(2026, 5, 31),
-            });
+            db.StageSlots.Add(TestHarness.NewSlot(1, StageId, YearId, 1, Start, End));
+            db.StageSlots.Add(TestHarness.NewSlot(
+                2, StageId, YearId, 2, new DateOnly(2026, 5, 4), new DateOnly(2026, 5, 31)));
             db.CohortSlotAssignments.Add(new CohortSlotAssignment
             {
                 Id = 1, CohortId = CohortId, StageSlotId = 1, ServiceId = HomeId,

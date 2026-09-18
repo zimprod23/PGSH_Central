@@ -343,9 +343,14 @@ internal sealed class InscriptionPlanner(
         var grade = ParseDecimal(row.AccessGrade, "Note d'accès");
         if (grade.IsFailure) return Result.Failure<StudentFields>(grade.Error);
 
+        // ⚠ Chaque colonne vide devient la valeur qui dit « vide », jamais la plus probable. La série
+        // du bac écrivait `SVT` — pas le zéro de l'enum, une supposition *choisie*, et trois lignes
+        // après le `Gender.None` d'à côté dont le commentaire dit « None is the honest answer; it is
+        // not a guess ». Une colonne laissée vide se lisait donc, sur tous les écrans, comme une série
+        // que la faculté aurait relevée.
         return new StudentFields(
             Gender: gender.Value is { } g ? (Gender)g : Domain.Users.Gender.None,
-            BacSeries: bac.Value is { } b ? (BacSeries)b : Domain.Students.BacSeries.SVT,
+            BacSeries: bac.Value is { } b ? (BacSeries)b : Domain.Students.BacSeries.NonRenseigne,
             Agreement: agreement.Value is { } a ? (AgreementType)a : AgreementType.None,
             DateOfBirth: birth.Value,
             PlaceOfBirth: Trim(row.PlaceOfBirth),

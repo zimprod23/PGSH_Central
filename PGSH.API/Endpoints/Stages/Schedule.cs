@@ -2,13 +2,13 @@
 using Microsoft.AspNetCore.Mvc;
 using PGSH.API.Extensions;
 using PGSH.API.Infrastructure;
+using PGSH.Application.Calendar.Pauses;
 using PGSH.Application.Stages.Cohorts.Bulk;
 using PGSH.Application.Stages.Cohorts.PublishSchedule;
 using PGSH.Application.Stages.Cohorts.UnpublishSchedule;
 using PGSH.Application.Stages.Schedule;
 using PGSH.Application.Stages.Schedule.AutoArrange;
 using PGSH.Application.Stages.Slots;
-using PGSH.Domain.Stages;
 
 namespace PGSH.API.Endpoints.Stages;
 
@@ -45,12 +45,32 @@ internal sealed class StageScheduleEndpoints : IEndpoint
             .WithTags("Stages")
             .RequireAuthorization();
 
+        // ⚠ Renvoie ce qu'il a déplacé, et pas un 204 : déplacer une colonne publiée réécrit aussi
+        // les périodes qui en viennent (phase 17.1), et « combien » est la seule chose qui distingue
+        // une correction de dates d'une réécriture de l'année.
         app.MapPut("stages/{stageId:int}/slots/{slotId:int}",
-            async (int stageId, int slotId, SlotRequest request, ISender sender, CancellationToken ct) =>
+            async (int stageId, int slotId, SlotMoveRequest request, ISender sender, CancellationToken ct) =>
             {
-                var command = new UpdateStageSlotCommand(slotId, stageId, request.Label, request.StartDate, request.EndDate);
+                var command = new UpdateStageSlotCommand(
+                    slotId, stageId, request.Label, request.StartDate, request.EndDate,
+                    request.ConfirmedPeriodCount);
+
                 var result = await sender.Send(command, ct);
-                return result.Match(Results.NoContent, CustomResults.Problem);
+                return result.Match(Results.Ok, CustomResults.Problem);
+            })
+            .WithTags("Stages")
+            .RequireAuthorization();
+
+        // L'aperçu que le PUT ci-dessus fait confirmer. ⚠ Les deux dates sont liées en nullable et
+        // refusées par le validateur : un écran peut les laisser vides, et un type valeur obligatoire
+        // lève dans le routage avant que la moindre phrase soit écrite.
+        app.MapGet("stages/{stageId:int}/slots/{slotId:int}/move-preview",
+            async (int slotId, DateOnly? startDate, DateOnly? endDate, ISender sender, CancellationToken ct) =>
+            {
+                var result = await sender.Send(
+                    new GetStageSlotMovePreviewQuery(slotId, startDate, endDate), ct);
+
+                return result.Match(Results.Ok, CustomResults.Problem);
             })
             .WithTags("Stages")
             .RequireAuthorization();
@@ -162,27 +182,20 @@ internal sealed class StageScheduleEndpoints : IEndpoint
             .WithTags("Stages")
             .RequireAuthorization();
 
-        app.MapPost("stages/{stageId:int}/schedule/pause",
-            async (int stageId, [FromBody] StagePauseRequest? request, ISender sender, CancellationToken ct) =>
-            {
-                var command = new PauseStagePeriodsCommand(
-                    stageId, request?.Kind ?? PauseKind.Exam, request?.Reason, request?.AcademicYearId,
-                    request?.CohortIds, request?.PartitionLabels, request?.PeriodNumbers);
-                var result = await sender.Send(command, ct);
-                return result.Match(count => Results.Ok(new { paused = count }), CustomResults.Problem);
-            })
-            .WithTags("Stages")
-            .RequireAuthorization();
-
-        app.MapPost("stages/{stageId:int}/schedule/resume",
+        // ⚠ POST for a read, deliberately, and it follows calendar/promotion-pauses/preview rather
+        // than inventing a third shape: the selection is the same body « Démarrer » posts — arrays of
+        // cohortes and of period numbers — and putting those on a query string is where a required
+        // value type stops being bindable and the refusal stops being a sentence.
+        app.MapPost("stages/{stageId:int}/schedule/start/preview",
             async (int stageId, [FromBody] StageLifecycleRequest? request, ISender sender, CancellationToken ct) =>
             {
-                var command = new ResumeStagePeriodsCommand(
+                var query = new GetStagePauseCrossingsQuery(
                     stageId, request?.AcademicYearId, request?.CohortIds, request?.PartitionLabels,
                     request?.PeriodNumbers);
-                var result = await sender.Send(command, ct);
-                return result.Match(count => Results.Ok(new { resumed = count }), CustomResults.Problem);
+                var result = await sender.Send(query, ct);
+                return result.Match(Results.Ok, CustomResults.Problem);
             })
+            .WithName("PreviewStageStart")
             .WithTags("Stages")
             .RequireAuthorization();
     }
@@ -191,6 +204,13 @@ internal sealed class StageScheduleEndpoints : IEndpoint
 // AcademicYearId is nullable on the wire and resolved to the current year server-side, so an older
 // client cannot silently widen a stage operation to every promotion that ever took the stage.
 internal sealed record SlotRequest(int AcademicYearId, int PeriodNumber, string? Label, DateOnly StartDate, DateOnly EndDate);
+
+/// <param name="ConfirmedPeriodCount">
+/// Ce que l'aperçu a annoncé. Omis sur une colonne non publiée — il n'y a alors rien à confirmer —
+/// et obligatoire sinon, comparé par le handler à ce qu'il trouve.
+/// </param>
+internal sealed record SlotMoveRequest(
+    string? Label, DateOnly StartDate, DateOnly EndDate, int? ConfirmedPeriodCount);
 internal sealed record SetAssignmentRequest(int ServiceId);
 internal sealed record AutoArrangeRequest(int? AcademicYearId, int? PartitionCount, IReadOnlyList<string>? PartitionLabels, IReadOnlyList<int>? PeriodNumbers);
 internal sealed record PublishStageRequest(int? AcademicYearId, IReadOnlyList<string>? PartitionLabels, IReadOnlyList<int>? PeriodNumbers, bool AllowOverCapacity = false);
@@ -201,4 +221,3 @@ internal sealed record PublishStageRequest(int? AcademicYearId, IReadOnlyList<st
 /// </remarks>
 internal sealed record UnpublishStageRequest(int? AcademicYearId, IReadOnlyList<string>? PartitionLabels);
 internal sealed record StageLifecycleRequest(int? AcademicYearId, IReadOnlyList<int>? CohortIds, IReadOnlyList<string>? PartitionLabels, IReadOnlyList<int>? PeriodNumbers);
-internal sealed record StagePauseRequest(int? AcademicYearId, PauseKind? Kind, string? Reason, IReadOnlyList<int>? CohortIds, IReadOnlyList<string>? PartitionLabels, IReadOnlyList<int>? PeriodNumbers);

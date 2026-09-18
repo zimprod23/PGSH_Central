@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using NSubstitute;
 using PGSH.Application.AcademicYears;
@@ -136,7 +136,7 @@ public class PromotionPauseCommandTests
     }
 
     /// <summary>
-    /// The same request twice gives the same dates. <c>ResumePeriod</c> accumulates; this is what
+    /// The same request twice gives the same dates. The pause retired on 18/09/2026 accumulated; this is what
     /// replaces it for a promotion, and it is why the window can be corrected at all.
     /// </summary>
     [Fact]
@@ -293,6 +293,131 @@ public class PromotionPauseCommandTests
         published.Value.Warnings.Should().NotContain(w => w.Contains("Reposez l'axe"),
             "that button refuses once anything is published");
         published.Value.Warnings.Should().Contain(w => w.Contains("déjà publié"));
+
+        // ⚠ And it must name the remedy that DOES exist. The sentence « déplacer une colonne déjà
+        // publiée n'est pas encore possible » was true the day it was written and outlived itself when
+        // phase 17.1 shipped the move; a report naming no remedy reads as « rien à faire ».
+        published.Value.Warnings.Should().NotContain(w => w.Contains("n'est pas encore possible"));
+        published.Value.Warnings.Should().Contain(w => w.Contains("déplaçant les colonnes"));
+    }
+
+    /// <summary>
+    /// ⚠ <b>« Reposer est refusé » is true and, on its own, useless.</b> What repairs a published
+    /// promotion is moving the crossed columns one at a time, and whether that is worth starting
+    /// depends on how many of them the act would accept — so the report counts them, against the same
+    /// rule <c>InternshipAssignment.Reschedule</c> refuses on.
+    ///
+    /// <para>The three cases say different things — « tout est réparable », « une partie l'est »,
+    /// « ces jours sont perdus » — and a bare number would leave the reader to guess which.</para>
+    /// </summary>
+    [Fact]
+    public async Task A_published_grid_is_told_how_many_of_its_columns_the_move_would_accept()
+    {
+        await using var db = Seed(nameof(A_published_grid_is_told_how_many_of_its_columns_the_move_would_accept));
+
+        var stage = db.Stages.Local.First(s => s.Id == TestHarness.StageId);
+        var service = db.SeedService(1, "Cardiologie A");
+        var slot = db.StageSlots.Local.First();
+
+        // A second column across the same window, so « some » is distinguishable from « all ».
+        var secondSlot = db.SeedSlot(stage, slotId: 2, periodNumber: 2,
+            new DateOnly(2026, 1, 7), new DateOnly(2026, 2, 8));
+
+        var untouched = db.SeedCohort(stage, groupId: 1, groupLabel: "G1");
+        var running = db.SeedCohort(stage, groupId: 2, groupLabel: "G2");
+        var cellA = db.SeedSlotAssignment(1, untouched, slot, service);
+        var cellB = db.SeedSlotAssignment(2, running, secondSlot, service);
+        await db.SaveChangesAsync();
+
+        var handler = new PreviewPromotionPauseQueryHandler(Context(db), Reader(db));
+        var query = new PreviewPromotionPauseQuery(TestHarness.LevelId, ExamStart, ExamEnd, "Examens");
+
+        // Publish both columns, neither rotation started: the move refuses nothing.
+        var first = db.SeedRegistration("Houda", "Aamoud", untouched.AcademicGroup);
+        var plannedPeriod = db.SeedPeriod(
+            db.SeedAssignment(first, untouched), service, slot.StartDate, slot.EndDate, started: false);
+        db.SeedCoverage(plannedPeriod, cellA);
+
+        var second = db.SeedRegistration("Yassine", "Bennani", running.AcademicGroup);
+        var startedPeriod = db.SeedPeriod(
+            db.SeedAssignment(second, running), service,
+            secondSlot.StartDate, secondSlot.EndDate, started: false);
+        db.SeedCoverage(startedPeriod, cellB);
+        await db.SaveChangesAsync();
+
+        var allMovable = await handler.Handle(query, default);
+
+        allMovable.Value.SlotsSpanning.Should().Be(2);
+        allMovable.Value.SlotsMovable.Should().Be(2);
+        allMovable.Value.Warnings.Should().Contain(w => w.Contains("sont tous déplaçables"));
+
+        // Start the second one. Its column is now refused; the first is untouched and still movable.
+        startedPeriod.IsStarted = true;
+        await db.SaveChangesAsync();
+
+        var partly = await handler.Handle(query, default);
+
+        partly.Value.SlotsMovable.Should().Be(1);
+        partly.Value.Warnings.Should().Contain(w => w.Contains("1 des 2 créneau(x)"));
+
+        // ⚠ A journée de présence blocks exactly as a start does, and it is the silent one: the period
+        // below is never started, never marked, and still must not move.
+        db.SeedAttendance(plannedPeriod);
+        await db.SaveChangesAsync();
+
+        var none = await handler.Handle(query, default);
+
+        none.Value.SlotsMovable.Should().Be(0);
+        none.Value.Warnings.Should().Contain(w => w.Contains("Aucun des 2 créneau(x)"));
+        none.Value.Warnings.Should().Contain(w => w.Contains("perdus"));
+    }
+
+    /// <summary>
+    /// ⚠ <b>Rotations written outside the grid had no branch at all, and that is two opposite silences
+    /// in one.</b> A période from the canevas des affectations, a délocalisation or a legacy import
+    /// carries no cell, so neither remedy reaches it: re-laying starts from the axis and the move
+    /// starts from the cells. Before this the case fell either into « Reposez l'axe » — a gesture that
+    /// succeeds and changes nothing for them — or, with nothing under way, into no warning whatsoever.
+    /// </summary>
+    [Fact]
+    public async Task Rotations_with_no_creneau_are_named_rather_than_sent_to_relay_the_axis()
+    {
+        await using var db = Seed(nameof(Rotations_with_no_creneau_are_named_rather_than_sent_to_relay_the_axis));
+
+        var stage = db.Stages.Local.First(s => s.Id == TestHarness.StageId);
+        var service = db.SeedService(1, "Cardiologie A");
+        var cohort = db.SeedCohort(stage, groupId: 1, groupLabel: "G1");
+
+        // The promotion's only column moved off the window, so nothing of the grid crosses it.
+        var slot = db.StageSlots.Local.First();
+        slot.StartDate = new DateOnly(2026, 3, 2);
+        slot.EndDate = new DateOnly(2026, 4, 3);
+
+        // …and an off-grid rotation laid straight across it: no cell, no coverage.
+        var registration = db.SeedRegistration("Salma", "Idrissi", cohort.AcademicGroup);
+        db.SeedPeriod(
+            db.SeedAssignment(registration, cohort), service,
+            new DateOnly(2026, 1, 5), new DateOnly(2026, 2, 6), started: false);
+        await db.SaveChangesAsync();
+
+        var handler = new PreviewPromotionPauseQueryHandler(Context(db), Reader(db));
+        var preview = await handler.Handle(
+            new PreviewPromotionPauseQuery(TestHarness.LevelId, ExamStart, ExamEnd, "Examens"), default);
+
+        preview.Value.SlotsSpanning.Should().Be(0);
+        preview.Value.PeriodsSpanning.Should().Be(1);
+
+        preview.Value.Warnings.Should().Contain(w => w.Contains("hors grille"));
+        preview.Value.Warnings.Should().Contain(w => w.Contains("canevas des affectations"));
+
+        // The control: neither of the two grid remedies may be prescribed here, because neither
+        // reaches a période with no cell behind it.
+        preview.Value.Warnings.Should().NotContain(w => w.Contains("Reposez l'axe"));
+        preview.Value.Warnings.Should().NotContain(w => w.Contains("déplaçant les colonnes"));
+
+        // ⚠ And it is not the « rien n'est planifié » sentence either: that zero means the opposite —
+        // declaring the window in advance, with an axis still to lay.
+        preview.Value.Warnings.Should().NotContain(w => w.Contains("Aucun créneau ni aucune rotation"));
     }
 
     /// <summary>
@@ -456,5 +581,59 @@ public class PromotionPauseCommandTests
         page.Value.TotalCount.Should().Be(2, "an omitted year is the current one, never all of them");
         page.Value.Items.Single(p => p.LevelId == TestHarness.LevelId).WorkingDaysLost.Should().Be(5);
         page.Value.Items.Single(p => p.LevelId == OtherLevelId).WorkingDaysLost.Should().Be(0);
+    }
+
+    /// <summary>
+    /// ⚠ <b>Une colonne vidée n'est pas une colonne raccourcie, et un intervalle « 0 – 10 » ne le disait
+    /// pas.</b> Trouvé le 17/09/2026 en pilotant l'écran réel : une fenêtre sur décembre 2026 — 23 jours
+    /// ouvrables contre des colonnes de 15 — vide une colonne de chacun des 8 stages de la 3ᵉ MED, et la
+    /// seule trace était le bord gauche d'un intervalle dans une cellule de tableau. Le remède diffère :
+    /// une colonne qui garde 12 jours sur 15 se rattrape d'un décalage, une colonne qui en garde zéro est
+    /// une rotation pendant laquelle personne ne sert rien.
+    /// </summary>
+    [Fact]
+    public async Task A_column_the_window_empties_is_named_apart_from_one_it_merely_shortens()
+    {
+        await using var db = Seed(nameof(A_column_the_window_empties_is_named_apart_from_one_it_merely_shortens));
+
+        var stage = db.Stages.Local.First(s => s.Id == TestHarness.StageId);
+        var service = db.SeedService(1, "Cardiologie A");
+        var cohort = db.SeedCohort(stage, groupId: 1, groupLabel: "G1");
+
+        // Le créneau du fixture (05/01 → 06/02) traverse la fenêtre et en ressort raccourci. Celui-ci
+        // tient tout entier dedans : il n'en ressort pas du tout.
+        var swallowed = db.SeedSlot(stage, slotId: 2, periodNumber: 2, ExamStart, ExamEnd);
+        db.SeedSlotAssignment(2, cohort, swallowed, service);
+        await db.SaveChangesAsync();
+
+        var handler = new PreviewPromotionPauseQueryHandler(Context(db), Reader(db));
+
+        var preview = await handler.Handle(
+            new PreviewPromotionPauseQuery(TestHarness.LevelId, ExamStart, ExamEnd, "Examens"), default);
+
+        preview.IsSuccess.Should().BeTrue();
+        preview.Value.SlotsSpanning.Should().Be(2);
+
+        // Un seul des deux est vidé — l'autre garde des jours, et les confondre est tout le défaut.
+        preview.Value.SlotsEmptied.Should().Be(1);
+        preview.Value.CellsInEmptiedSlots.Should().Be(1, "la cellule reste en place dans la colonne vide");
+        preview.Value.Warnings.Should().Contain(w => w.Contains("perdent la totalité"));
+        preview.Value.Warnings.Should().Contain(w => w.Contains("1 cellule(s)"));
+
+        // ⚠ Et il s'ajoute au remède au lieu de le remplacer : une colonne vidée arrive que l'axe soit
+        // publié, en cours ou au repos, donc ce n'est pas une variante de ces cas mais un fait de plus.
+        preview.Value.Warnings.Should().Contain(w => w.Contains("Reposez l'axe"));
+
+        // Le contrôle, et c'est lui qui empêche la phrase de devenir du bruit : une fenêtre qui ne fait
+        // que raccourcir ne doit rien dire du tout.
+        var shortening = await handler.Handle(
+            new PreviewPromotionPauseQuery(
+                TestHarness.LevelId, new DateOnly(2026, 1, 26), new DateOnly(2026, 1, 30), "Examens"),
+            default);
+
+        shortening.Value.SlotsSpanning.Should().Be(1, "seul le créneau large atteint cette semaine");
+        shortening.Value.SlotsEmptied.Should().Be(0);
+        shortening.Value.CellsInEmptiedSlots.Should().Be(0);
+        shortening.Value.Warnings.Should().NotContain(w => w.Contains("perdent la totalité"));
     }
 }

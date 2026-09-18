@@ -137,7 +137,7 @@ public class RosterTeardownGuardTests
         // nothing — and « Non réparti », which carries no cohorte, is emptied as a matter of routine.
         var db = TestHarness.NewContext(nameof(Emptying_a_roster_that_holds_no_affectation_still_works_unasked));
         db.SeedCatalog();
-        var bucket = db.SeedGroup(99, 0);
+        var bucket = db.SeedUnassignedBucket(99);
         db.SeedRegistration("Omar", "Benali", bucket);
         db.SeedRegistration("Salma", "Idrissi", bucket);
         db.SaveChanges();
@@ -181,12 +181,7 @@ public class RosterTeardownGuardTests
             Id = 77, Label = "4ème année", Year = 4, AcademicProgram = AcademicProgram.Medecine,
         };
         world.Db.Levels.Add(otherLevel);
-        var otherRoster = new AcademicGroup
-        {
-            Id = 501, Label = "G1", GroupNumber = 1,
-            AcademicYearId = TestHarness.CurrentYearId, LevelId = otherLevel.Id,
-        };
-        world.Db.AcademicGroups.Add(otherRoster);
+        var otherRoster = world.Db.SeedGroup(501, 1, levelId: otherLevel.Id);
         world.Db.SeedRegistration("Nabil", "Cherkaoui", otherRoster, levelId: otherLevel.Id);
         world.Db.SaveChanges();
 
@@ -258,12 +253,7 @@ public class RosterTeardownGuardTests
             Id = 77, Label = "4ème année", Year = 4, AcademicProgram = AcademicProgram.Medecine,
         };
         world.Db.Levels.Add(otherLevel);
-        var otherRoster = new AcademicGroup
-        {
-            Id = 501, Label = "G1", GroupNumber = 1,
-            AcademicYearId = TestHarness.CurrentYearId, LevelId = otherLevel.Id,
-        };
-        world.Db.AcademicGroups.Add(otherRoster);
+        var otherRoster = world.Db.SeedGroup(501, 1, levelId: otherLevel.Id);
         world.Db.SeedRegistration("Nabil", "Cherkaoui", otherRoster, levelId: otherLevel.Id);
         world.Db.SaveChanges();
 

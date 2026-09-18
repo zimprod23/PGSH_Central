@@ -1,4 +1,4 @@
-﻿using PGSH.Application.Abstractions.Messaging;
+using PGSH.Application.Abstractions.Messaging;
 
 namespace PGSH.Application.Stages.Slots;
 
@@ -36,12 +36,20 @@ public sealed record CreateStageSlotCommand(
 /// survivent nulle part une fois la ligne écrasée : le handler les dépose dans l'entrée par
 /// <c>IAuditTrail</c>. Sans elles, le registre dirait où le créneau est allé sans dire d'où.
 /// </remarks>
+/// <param name="ConfirmedPeriodCount">
+/// Combien de périodes publiées l'opérateur a vu l'aperçu annoncer. ⚠ <b>Obligatoire dès qu'il y en
+/// a une</b>, et comparé à ce que l'acte trouve : déplacer une colonne publiée réécrit des milliers
+/// de lignes que personne n'a nommées une par une, et une case à cocher ne peut pas attraper le cas
+/// qui compte — une période évaluée entre l'aperçu et l'application change ce qui est refusé sans
+/// rien changer à l'écran. Omis sur une colonne non publiée, où il n'y a rien à confirmer.
+/// </param>
 public sealed record UpdateStageSlotCommand(
     int      SlotId,
     int      StageId,
     string?  Label,
     DateOnly StartDate,
-    DateOnly EndDate) : ICommand, IAuditableCommand
+    DateOnly EndDate,
+    int?     ConfirmedPeriodCount = null) : ICommand<StageSlotMoveResult>, IAuditableCommand
 {
     public string AuditAction => "STAGE_SLOT_UPDATED";
     public string AuditEntityType => "StageSlot";
@@ -52,6 +60,14 @@ public sealed record UpdateStageSlotCommand(
         ("toStartDate", StartDate.ToString("yyyy-MM-dd")),
         ("toEndDate", EndDate.ToString("yyyy-MM-dd")));
 }
+
+/// <param name="PeriodsShifted">
+/// Périodes publiées dont la fenêtre a effectivement bougé. ⚠ Zéro n'est pas « rien ne s'est passé » :
+/// une colonne non publiée en a zéro, et le milieu d'un séjour en service unique aussi — le séjour
+/// garde sa durée. <paramref name="PeriodsCovered"/> sépare les deux.
+/// </param>
+/// <param name="PeriodsCovered">Périodes que la colonne touche, qu'elles aient bougé ou non.</param>
+public sealed record StageSlotMoveResult(int PeriodsShifted, int PeriodsCovered);
 
 public sealed record DeleteStageSlotCommand(int SlotId) : ICommand, IAuditableCommand
 {

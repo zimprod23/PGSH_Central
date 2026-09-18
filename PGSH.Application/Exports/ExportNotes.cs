@@ -55,6 +55,43 @@ public static class ExportNotes
     }
 
     /// <summary>
+    /// How many of <paramref name="rows"/> carry a value in the column headed
+    /// <paramref name="header"/>, and how many rows there are.
+    /// </summary>
+    /// <remarks>
+    /// <para>⚠ <b>The half <see cref="EmptyColumns"/> cannot see.</b> That one asks « is this column
+    /// blank on <i>every</i> row », which was the right question while no promotion had been cut at
+    /// all. It is the wrong question now: on 13/09/2026 the 3ᵉ MED was cut and planned, so the roll of
+    /// 2026-2027 exports <b>933 lines carrying a group out of 6 839</b> — the column is no longer
+    /// empty, so no note fires, and the reader gets a column blank on 86% of lines with nothing
+    /// explaining it. Reported in exactly those terms: « it is partially working ».</para>
+    ///
+    /// <para>⚠ <b>Deliberately not a blanket « sparse column » note.</b> Half the columns of a roll are
+    /// legitimately partial — a CIN, a CNE, a date of birth — and a note that fires on all of them is
+    /// noise, which is dismissed, which puts the real one out of sight. It is asked for the one column
+    /// whose blank has two opposite remedies.</para>
+    /// </remarks>
+    public static (int Filled, int Total) ColumnFill(
+        IReadOnlyList<ExportColumn> columns,
+        IReadOnlyList<IReadOnlyList<ExportCell>> rows,
+        string header)
+    {
+        int index = -1;
+        for (int c = 0; c < columns.Count; c++)
+            if (columns[c].Header == header)
+            {
+                index = c;
+                break;
+            }
+
+        if (index < 0)
+            return (0, rows.Count);
+
+        int filled = rows.Count(row => index < row.Count && row[index].HasValue);
+        return (filled, rows.Count);
+    }
+
+    /// <summary>
     /// That list as the sentence the document prints, or null when every column carries something.
     /// </summary>
     /// <remarks>
@@ -108,10 +145,33 @@ public static class ExportNotes
               + "des liens de test. Un service dont le chef n'est nommé que par une affectation "
               + "apparaît donc sans nom.";
 
-    public static string RosterNote(int rostersInScope) => rostersInScope == 0
-        ? "Aucune inscription n'est rattachée à un groupe, et aucun groupe n'existe encore pour cette "
-          + "sélection : la promotion n'a pas été découpée."
-        : $"Aucune inscription n'est rattachée à un groupe, alors que {rostersInScope} groupe(s) "
-          + "existent pour cette sélection : le découpage est fait, la répartition des étudiants ne "
-          + "l'est pas encore.";
+    /// <param name="filled">Lignes de l'export portant un groupe.</param>
+    /// <param name="total">Lignes de l'export.</param>
+    /// <remarks>
+    /// ⚠ <b>Trois états, trois phrases, et un silence.</b> « aucun groupe n'existe », « les groupes
+    /// existent mais personne n'y est », « certaines promotions sont réparties et d'autres non » et
+    /// « tout le monde en a » appellent des gestes différents — et le troisième est désormais
+    /// l'ordinaire, puisque la faculté répartit une promotion à la fois. Une seule phrase pour les
+    /// quatre laisserait le lecteur conclure que l'export est cassé, ce qui est précisément ce qui a
+    /// été rapporté.
+    /// </remarks>
+    public static string? RosterNote(int rostersInScope, int filled, int total)
+    {
+        // Rien à signaler : la colonne est pleine. Une note qui se déclenche quoi qu'il arrive est du
+        // bruit, et le bruit est ignoré.
+        if (total == 0 || filled == total)
+            return null;
+
+        if (filled > 0)
+            return $"{filled} ligne(s) sur {total} portent un groupe. Les autres appartiennent à des "
+                 + "promotions qui n'ont pas encore été réparties en groupes : la colonne est vide "
+                 + "pour elles parce que la donnée n'existe pas, pas parce qu'elle n'a pas été lue.";
+
+        return rostersInScope == 0
+            ? "Aucune inscription n'est rattachée à un groupe, et aucun groupe n'existe encore pour "
+              + "cette sélection : la promotion n'a pas été découpée."
+            : $"Aucune inscription n'est rattachée à un groupe, alors que {rostersInScope} groupe(s) "
+              + "existent pour cette sélection : le découpage est fait, la répartition des étudiants "
+              + "ne l'est pas encore.";
+    }
 }

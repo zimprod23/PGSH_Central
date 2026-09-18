@@ -4,6 +4,17 @@ namespace PGSH.Application.Students.Registrations.Inscription;
 
 public static class InscriptionErrors
 {
+    /// <summary>
+    /// ⚠ One sentence for all three routes, and that is honest rather than lazy: the reason is a fact
+    /// about the <i>sheet</i>, not about any one route — the people it names hold no registration yet,
+    /// so there is nothing in the data to read a promotion from. Bound non-nullable from the query
+    /// string, <c>levelId</c> threw in routing before the validator ran, so a blank promotion selector
+    /// produced a bare 400 and the screen showed its generic sentence instead of this one.
+    /// </summary>
+    public const string PromotionRequiredMessage =
+        "La promotion est obligatoire : les étudiants de cette feuille ne sont pas encore inscrits, "
+        + "donc aucune inscription existante ne permet de déduire l'année d'études à leur donner.";
+
     public const string EmptySheetMessage =
         "Le fichier ne contient aucune ligne. Pour inscrire un seul étudiant, un fichier d'une ligne "
         + "convient — mais un fichier vide n'inscrit personne.";

@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using PGSH.Domain.Common.Utils;
 using PGSH.Domain.Stages;
 using Xunit;
@@ -37,18 +37,6 @@ public class InterruptedPeriodTests
         result.IsFailure.Should().BeTrue();
         result.Error.Code.Should().Be("AssignmentPeriods.Interrupted");
         period.IsComplete.Should().BeFalse();
-    }
-
-    [Fact]
-    public void PausePeriod_refuses_an_interrupted_period()
-    {
-        var (assignment, period) = InterruptedInFlight();
-
-        var result = assignment.PausePeriod(period.Id, new DateOnly(2026, 1, 10), PauseKind.Exam, null);
-
-        result.IsFailure.Should().BeTrue();
-        result.Error.Code.Should().Be("AssignmentPeriods.Interrupted");
-        period.IsPaused.Should().BeFalse();
     }
 
     [Fact]

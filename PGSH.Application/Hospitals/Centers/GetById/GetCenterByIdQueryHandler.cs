@@ -28,7 +28,7 @@ internal sealed class GetCenterByIdQueryHandler(IApplicationDbContext dbContext)
             center.LocalisationMaps?.x,
             center.LocalisationMaps?.y,
             center.LocalisationMaps?.z,
-            center.Hospitals.Select(h => new HospitalSummaryResponse(
+            center.Hospitals.Select(h => new HospitalInCenterResponse(
                 h.Id,
                 h.Name,
                 h.City,

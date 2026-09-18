@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
+using PGSH.Application.Audit;
 using PGSH.Application.Stages.Planning;
 using PGSH.Application.Stages.Repartition;
 using PGSH.Domain.Common.Utils;
@@ -9,7 +10,18 @@ using PGSH.SharedKernel;
 
 namespace PGSH.Application.AcademicGroups.AssignRotationGroups;
 
-internal sealed class AssignRotationGroupsCommandHandler(IApplicationDbContext dbContext)
+/// <remarks>
+/// ⚠ <b>Chaque sortie en succès atteint un <c>SaveChanges</c>, y compris celles qui n'écrivent rien.</b>
+/// <c>AuditLogPipelineBehavior</c> met la ligne du registre en attente <em>avant</em> le handler et
+/// seul le <c>SaveChanges</c> de celui-ci la valide — c'est ce qui fait qu'un acte refusé n'écrit rien,
+/// et c'est aussi ce qui faisait qu'un acte <em>réussi sans effet</em> n'écrivait rien non plus. Deux
+/// sorties étaient dans ce cas ici, dont « toutes les promotions portent déjà leur partition », qui est
+/// le rejeu ordinaire du bouton. « Personne n'a joué cet acte » et « quelqu'un l'a joué sans effet »
+/// sont deux événements sans rapport, et le registre existe pour les départager.
+/// </remarks>
+internal sealed class AssignRotationGroupsCommandHandler(
+    IApplicationDbContext dbContext,
+    IAuditTrail auditTrail)
     : ICommandHandler<AssignRotationGroupsCommand, PartitionAssignmentResult>
 {
     public async Task<Result<PartitionAssignmentResult>> Handle(
@@ -19,20 +31,25 @@ internal sealed class AssignRotationGroupsCommandHandler(IApplicationDbContext d
             return Result.Failure<PartitionAssignmentResult>(
                 Error.Validation("Partitions.InvalidCount", "Partition count must be at least 1."));
 
+        // Both are nullable only so that an omitted query-string value reaches the validator instead
+        // of throwing in routing; by here the validator has refused either absence in words.
+        int academicYearId = request.AcademicYearId!.Value;
+        int levelId = request.LevelId!.Value;
+
         // A partition divides a promotion. « Retrait » (year 0) is a withdrawal marker the legacy
         // import kept as a level — see Level.IsPromotion — so cutting it would describe a division of
         // the withdrawn, and it is exactly how one of its rosters came to carry a label.
         // ⚠ The clear is deliberately NOT guarded: it is how such a label is taken back off.
         var level = await dbContext.Levels
             .AsNoTracking()
-            .FirstOrDefaultAsync(l => l.Id == request.LevelId, cancellationToken);
+            .FirstOrDefaultAsync(l => l.Id == levelId, cancellationToken);
 
         if (level is null)
-            return Result.Failure<PartitionAssignmentResult>(LevelErrors.NotFound(request.LevelId));
+            return Result.Failure<PartitionAssignmentResult>(LevelErrors.NotFound(levelId));
 
         if (!level.IsPromotion)
             return Result.Failure<PartitionAssignmentResult>(
-                LevelErrors.NotAPromotion(level.Label ?? $"niveau {request.LevelId}"));
+                LevelErrors.NotAPromotion(level.Label ?? $"niveau {levelId}"));
 
         // Partitions are scoped per (year, level): different levels have different partition counts,
         // and one count applied across them is not a cut of anything.
@@ -45,12 +62,18 @@ internal sealed class AssignRotationGroupsCommandHandler(IApplicationDbContext d
         // without one are the buckets, and a bucket is not a rotation partition. Equality against a
         // non-null LevelId excludes them by construction — which is why the parameter is required.
         var groups = await dbContext.AcademicGroups
-            .Where(g => g.AcademicYearId == request.AcademicYearId && g.LevelId == request.LevelId)
+            .Where(g => g.AcademicYearId == academicYearId && g.LevelId == levelId)
             .OrderBy(g => g.GroupNumber)
             .ToListAsync(cancellationToken);
 
+        // Une promotion sans roster n'a rien à découper : l'acte a eu lieu, il n'a rien fait, et il
+        // s'enregistre avec ses zéros plutôt que de disparaître.
         if (groups.Count == 0)
+        {
+            auditTrail.RecordOutcome(("labeled", 0), ("reassigned", 0), ("totalGroups", 0));
+            await dbContext.SaveChangesAsync(cancellationToken);
             return new PartitionAssignmentResult(0, 0, 0, 0, []);
+        }
 
         var groupIds = groups.Select(g => g.Id).ToList();
 
@@ -98,8 +121,20 @@ internal sealed class AssignRotationGroupsCommandHandler(IApplicationDbContext d
             : await dbContext.CohortSlotAssignments
                 .CountAsync(a => groupIds.Contains(a.Cohort.AcademicGroupId), cancellationToken);
 
-        if (assignments.Count > 0)
-            await dbContext.SaveChangesAsync(cancellationToken);
+        // ⚠ Le code seul ne dit pas ce que l'acte a emporté : « découper une promotion vierge en dix »
+        // et « rejouer le bouton sur une promotion déjà découpée » sont la même commande et deux
+        // événements sans rapport. Le constat voyage avec l'entrée.
+        auditTrail.RecordOutcome(
+            ("labeled", labeled),
+            ("reassigned", reassigned),
+            ("totalGroups", groups.Count),
+            ("plannedCellsAffected", plannedCellsAffected));
+
+        // ⚠ Inconditionnel. Sous `if (assignments.Count > 0)` un rejeu sur une promotion dont chaque
+        // roster porte déjà sa partition — le cas ordinaire — n'appelait jamais `SaveChanges`, donc
+        // l'entrée mise en attente par le pipeline mourait avec la requête et le registre disait que
+        // personne n'avait rien fait.
+        await dbContext.SaveChangesAsync(cancellationToken);
 
         return new PartitionAssignmentResult(
             labeled,

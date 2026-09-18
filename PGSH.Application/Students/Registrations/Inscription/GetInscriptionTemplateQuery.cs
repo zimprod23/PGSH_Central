@@ -1,8 +1,10 @@
+using FluentValidation;
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Authorization;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
 using PGSH.Application.AcademicYears;
+using PGSH.Application.Extensions;
 using PGSH.Domain.Registrations;
 using PGSH.SharedKernel;
 
@@ -23,8 +25,21 @@ namespace PGSH.Application.Students.Registrations.Inscription;
 /// columns marked as required rather than optional.</para>
 /// </remarks>
 public sealed record GetInscriptionTemplateQuery(
-    int LevelId,
+    int? LevelId,
     int? AcademicYearId = null) : IQuery<InscriptionTemplateFile>;
+
+/// <summary>
+/// ⚠ The canvas had <b>no validator at all</b>, so its promotion was enforced only by the model
+/// binder — which throws in routing and says nothing a screen can render. The sheet is cut for one
+/// promotion (that is what stops a file filled in for the 3ᵉ année being uploaded against the 1ʳᵉ),
+/// so downloading one without naming it has no meaning.
+/// </summary>
+internal sealed class GetInscriptionTemplateQueryValidator
+    : AbstractValidator<GetInscriptionTemplateQuery>
+{
+    public GetInscriptionTemplateQueryValidator() =>
+        RuleFor(x => x.LevelId).IsARequiredReference(InscriptionErrors.PromotionRequiredMessage);
+}
 
 public sealed record InscriptionTemplateFile(string FileName, byte[] Content);
 
@@ -50,7 +65,7 @@ internal sealed class GetInscriptionTemplateQueryHandler(
 
         var level = await dbContext.Levels
             .AsNoTracking()
-            .Where(l => l.Id == request.LevelId)
+            .Where(l => l.Id == request.LevelId!.Value)
             .Select(l => new { l.Label, l.Year, l.AcademicProgram })
             .FirstOrDefaultAsync(cancellationToken);
 

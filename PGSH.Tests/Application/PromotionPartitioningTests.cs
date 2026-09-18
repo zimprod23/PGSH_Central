@@ -37,13 +37,8 @@ public class PromotionPartitioningTests
 
         // Another promotion, cut its own way, and the year's « Non réparti » bucket. Neither belongs
         // to this promotion's summary — the bucket belongs to no promotion at all.
-        var sixth = db.SeedGroup(100, 1, rotationGroup: "A");
-        sixth.LevelId = SixthYearId;
-        db.AcademicGroups.Add(new AcademicGroup
-        {
-            Id = 999, Label = "Non réparti", GroupNumber = 0,
-            AcademicYearId = TestHarness.CurrentYearId, LevelId = null,
-        });
+        db.SeedGroup(100, 1, rotationGroup: "A", levelId: SixthYearId);
+        db.SeedUnassignedBucket(999);
         await db.SaveChangesAsync();
 
         var result = await Handler(db).Handle(

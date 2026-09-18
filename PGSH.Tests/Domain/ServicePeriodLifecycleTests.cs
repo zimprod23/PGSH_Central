@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using PGSH.Domain.Stages;
 using Xunit;
 
@@ -123,5 +123,217 @@ public class ServicePeriodLifecycleTests
         ServicePeriodLifecycle
             .StateOf(Period(started: true, complete: true, interrupted: false, evaluated: true))
             .Should().Be(ServicePeriodState.Settled);
+    }
+
+    // ─── Movable: may this rotation's window still be moved? ──────────────────────
+
+    /// <summary>
+    /// Every combination of the four facts the move reads. ⚠ <b>Attendance is one of them</b>, and it
+    /// is the one that has no bearing on any <see cref="ServicePeriodState"/> — which is exactly why
+    /// « movable » is written as its own rule rather than derived from a state.
+    /// </summary>
+    public static TheoryData<bool, bool, bool, bool> AllMoveFactCombinations()
+    {
+        var data = new TheoryData<bool, bool, bool, bool>();
+        foreach (bool started in new[] { false, true })
+            foreach (bool complete in new[] { false, true })
+                foreach (bool evaluated in new[] { false, true })
+                    foreach (bool attended in new[] { false, true })
+                        data.Add(started, complete, evaluated, attended);
+        return data;
+    }
+
+    private static ServicePeriod MovablePeriod(bool started, bool complete, bool evaluated, bool attended)
+    {
+        var period = Period(started, complete, interrupted: false, evaluated);
+        if (attended)
+            period.Attendance.Add(new AttendanceRecord
+            {
+                Id = Guid.NewGuid(),
+                ServicePeriodId = period.Id,
+                Date = new DateOnly(2026, 1, 13),
+            });
+        return period;
+    }
+
+    /// <summary>
+    /// ⚠ <b>The two forms must not be able to disagree.</b> The expression is what EF compiles and the
+    /// four-boolean overload is what a projection asks — the column-move guard reads the first, the
+    /// pause report's « combien sont déplaçables » reads the second, and a screen that promises a move
+    /// the aggregate then refuses is worse than a screen that promises nothing.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(AllMoveFactCombinations))]
+    public void The_entity_form_and_the_projection_form_agree_on_every_combination(
+        bool started, bool complete, bool evaluated, bool attended)
+    {
+        ServicePeriodLifecycle
+            .IsMovable(MovablePeriod(started, complete, evaluated, attended))
+            .Should()
+            .Be(ServicePeriodLifecycle.IsMovable(started, complete, evaluated, attended));
+    }
+
+    /// <summary>
+    /// Exactly one combination moves: the rotation nothing has happened to. ⚠ Stated as its own test
+    /// rather than left implicit in the agreement above, which would hold just as well if both forms
+    /// were wrong in the same way.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(AllMoveFactCombinations))]
+    public void Only_a_rotation_nothing_has_happened_to_may_move(
+        bool started, bool complete, bool evaluated, bool attended)
+    {
+        bool untouched = !started && !complete && !evaluated && !attended;
+
+        ServicePeriodLifecycle
+            .IsMovable(MovablePeriod(started, complete, evaluated, attended))
+            .Should().Be(untouched);
+    }
+
+    /// <summary>
+    /// ⚠ A rotation that is <see cref="ServicePeriodState.Planned"/> and carries attendance is a row
+    /// the lifecycle cannot produce and the store can hold — and it must <b>not</b> move: the days a
+    /// secretary keyed in would end up on dates nobody served. This is the case that would be lost if
+    /// « movable » were ever rewritten as « is it Planned ».
+    /// </summary>
+    [Fact]
+    public void A_planned_rotation_carrying_attendance_is_planned_and_not_movable()
+    {
+        var period = MovablePeriod(started: false, complete: false, evaluated: false, attended: true);
+
+        ServicePeriodLifecycle.StateOf(period).Should().Be(ServicePeriodState.Planned);
+        ServicePeriodLifecycle.IsMovable(period).Should().BeFalse();
+    }
+
+    /// <summary>
+    /// ⚠ Une rotation coupée par un transfert ne se déplace pas non plus. En pratique une
+    /// interruption implique un démarrage, donc cette ligne est une ligne que le magasin peut porter
+    /// et que le cycle de vie ne produit pas — et c'est précisément celle qu'un déplacement aurait
+    /// réécrite en silence avant le 18/09/2026.
+    /// </summary>
+    [Fact]
+    public void An_interrupted_rotation_never_moves_even_with_nothing_else_against_it()
+    {
+        var period = Period(started: false, complete: false, interrupted: true, evaluated: false);
+
+        ServicePeriodLifecycle.IsMovable(period).Should().BeFalse();
+    }
+
+    // ─── Extendable: may this rotation's END be pushed back? ──────────────────────
+
+    /// <summary>
+    /// Les cinq faits dont dépendent les deux règles — 32 lignes, sans échantillonnage. L'interruption
+    /// entre ici alors qu'elle était fixée à <c>false</c> pour <see cref="AllMoveFactCombinations"/> :
+    /// c'est l'un des trois refus d'un allongement.
+    /// </summary>
+    public static TheoryData<bool, bool, bool, bool, bool> AllExtendFactCombinations()
+    {
+        var data = new TheoryData<bool, bool, bool, bool, bool>();
+        foreach (bool started in new[] { false, true })
+            foreach (bool complete in new[] { false, true })
+                foreach (bool interrupted in new[] { false, true })
+                    foreach (bool evaluated in new[] { false, true })
+                        foreach (bool attended in new[] { false, true })
+                            data.Add(started, complete, interrupted, evaluated, attended);
+        return data;
+    }
+
+    private static ServicePeriod FullPeriod(
+        bool started, bool complete, bool interrupted, bool evaluated, bool attended)
+    {
+        var period = Period(started, complete, interrupted, evaluated);
+        if (attended)
+            period.Attendance.Add(new AttendanceRecord
+            {
+                Id = Guid.NewGuid(),
+                ServicePeriodId = period.Id,
+                Date = new DateOnly(2026, 1, 13),
+            });
+        return period;
+    }
+
+    /// <summary>
+    /// ⚠ <b>Le théorème qui justifie qu'il y ait deux règles plutôt qu'une.</b> Tout ce qui se déplace
+    /// s'allonge, jamais l'inverse — le même emboîtement que <c>CountsTowardDuration</c> et
+    /// <c>CanBoundAWindow</c>, et pour la même raison : deux prédicats indépendants finiraient par
+    /// répondre des choses incompatibles sur une même ligne, et un acte de rattrapage choisirait le
+    /// mauvais.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(AllExtendFactCombinations))]
+    public void Everything_movable_is_extendable_and_not_the_other_way_round(
+        bool started, bool complete, bool interrupted, bool evaluated, bool attended)
+    {
+        var period = FullPeriod(started, complete, interrupted, evaluated, attended);
+
+        if (ServicePeriodLifecycle.IsMovable(period))
+            ServicePeriodLifecycle.IsExtendable(period).Should().BeTrue(
+                "a window that may move entirely may certainly have its end pushed");
+    }
+
+    /// <summary>
+    /// ⚠ <b>Le cas pour lequel la règle existe.</b> Une rotation commencée — ou commencée et pointée —
+    /// ne se déplace pas et s'allonge : c'est exactement l'état d'une promotion surprise par une
+    /// fermeture en cours d'année, et sous la seule règle <see cref="ServicePeriodLifecycle.Movable"/>
+    /// elle était irrattrapable.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_started_rotation_cannot_move_but_can_be_extended(bool attended)
+    {
+        var period = FullPeriod(
+            started: true, complete: false, interrupted: false, evaluated: false, attended);
+
+        ServicePeriodLifecycle.IsMovable(period).Should().BeFalse();
+        ServicePeriodLifecycle.IsExtendable(period).Should().BeTrue();
+    }
+
+    /// <summary>
+    /// Les trois refus, nommés un par un plutôt que laissés à l'accord des deux formes — lequel
+    /// tiendrait tout aussi bien si les deux étaient fausses de la même manière.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(AllExtendFactCombinations))]
+    public void Only_a_closure_a_mark_or_an_interruption_refuses_an_extension(
+        bool started, bool complete, bool interrupted, bool evaluated, bool attended)
+    {
+        bool open = !complete && !interrupted && !evaluated;
+
+        ServicePeriodLifecycle
+            .IsExtendable(FullPeriod(started, complete, interrupted, evaluated, attended))
+            .Should().Be(open);
+    }
+
+    /// <summary>
+    /// ⚠ L'expression et la projection plate ne doivent pas pouvoir diverger — l'aperçu du recalcul
+    /// compte « combien de colonnes s'allongent » depuis une projection, et l'agrégat refuse depuis
+    /// l'entité.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(AllExtendFactCombinations))]
+    public void The_entity_form_and_the_projection_form_agree_on_extension(
+        bool started, bool complete, bool interrupted, bool evaluated, bool attended)
+    {
+        ServicePeriodLifecycle
+            .IsExtendable(FullPeriod(started, complete, interrupted, evaluated, attended))
+            .Should()
+            .Be(ServicePeriodLifecycle.IsExtendable(complete, interrupted, evaluated));
+    }
+
+    /// <summary>
+    /// ⚠ <b>Les présences n'entrent pas dans l'allongement, et c'est un choix mesuré.</b> Une journée
+    /// pointée vit entre le début et l'ancienne fin ; une fenêtre qui ne fait que croître la contient
+    /// toujours. La garde qui manquerait — ramener la fin en arrière — vit dans le nom de l'acte
+    /// (<c>ExtendTo</c>), pas ici.
+    /// </summary>
+    [Fact]
+    public void Attendance_blocks_a_move_and_does_not_block_an_extension()
+    {
+        var period = FullPeriod(
+            started: true, complete: false, interrupted: false, evaluated: false, attended: true);
+
+        ServicePeriodLifecycle.IsMovable(period).Should().BeFalse();
+        ServicePeriodLifecycle.IsExtendable(period).Should().BeTrue();
     }
 }

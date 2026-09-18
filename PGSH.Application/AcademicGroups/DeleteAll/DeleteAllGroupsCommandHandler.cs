@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
 using PGSH.Application.Audit;
@@ -45,6 +45,10 @@ internal sealed class DeleteAllGroupsCommandHandler(
 
     private async Task<Result<int>> DeleteAsync(DeleteAllGroupsCommand request, CancellationToken cancellationToken)
     {
+        // Nullable only so that an omitted query-string year reaches the validator instead of
+        // throwing in routing; the validator has already refused its absence in words.
+        int academicYearId = request.AcademicYearId!.Value;
+
         int? levelId = request.LevelId;
         string? levelLabel = null;
 
@@ -61,7 +65,7 @@ internal sealed class DeleteAllGroupsCommandHandler(
                 return Result.Failure<int>(LevelErrors.NotFound(levelId.Value));
         }
 
-        var groupIds = await RosterScope.Query(dbContext, request.AcademicYearId, levelId)
+        var groupIds = await RosterScope.Query(dbContext, academicYearId, levelId)
             .Select(g => g.Id)
             .ToListAsync(cancellationToken);
 
@@ -83,7 +87,7 @@ internal sealed class DeleteAllGroupsCommandHandler(
 
         if (students > 0)
             return Result.Failure<int>(AcademicGroupErrors.RostersHaveStudents(
-                await ScopeLabelAsync(request.AcademicYearId, levelLabel, cancellationToken),
+                await ScopeLabelAsync(academicYearId, levelLabel, cancellationToken),
                 students,
                 groupIds.Count));
 
@@ -98,7 +102,7 @@ internal sealed class DeleteAllGroupsCommandHandler(
 
             if (toll.IsUnderway)
             {
-                string yearLabel = await YearLabelAsync(request.AcademicYearId, cancellationToken);
+                string yearLabel = await YearLabelAsync(academicYearId, cancellationToken);
 
                 return Result.Failure<int>(levelId is null
                     ? AcademicGroupErrors.YearRostersUnderway(

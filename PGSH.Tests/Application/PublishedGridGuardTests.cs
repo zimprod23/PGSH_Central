@@ -72,27 +72,94 @@ public class PublishedGridGuardTests
 
     // ─── ① Moving a published column ──────────────────────────────────────────
 
+    /// <summary>
+    /// ⚠ <b>Phase 17.1 turned this refusal into an act.</b> Until 13/09/2026 a published column simply
+    /// could not move (<c>Schedule.SlotPublishedCannotMove</c>), because the column and the périodes
+    /// published from it came apart in silence. It now moves <i>with</i> them — so what this test
+    /// asserts is no longer « refused » but « both halves moved together », which is the only outcome
+    /// that leaves the grid saying what the students actually do.
+    /// </summary>
     [Fact]
-    public async Task A_published_column_cannot_be_moved()
+    public async Task A_published_column_moves_its_periods_with_it()
     {
-        await using var db = TestHarness.NewContext(nameof(A_published_column_cannot_be_moved));
+        await using var db = TestHarness.NewContext(nameof(A_published_column_moves_its_periods_with_it));
         await SeedAsync(db, published: true);
 
         // ⚠ Moved **backwards**, into a window that collides with nothing. Moved forward it would
         // overlap P2, and the overlap guard would refuse it for a different reason entirely — the test
-        // would then pass with the publication guard deleted. Measured: it did.
+        // would then pass for the wrong reason. Measured: it did.
+        var result = await db.UpdateSlotHandler().Handle(
+            new UpdateStageSlotCommand(SlotP1, TestHarness.StageId, "P1",
+                P1Start.AddDays(-7), P1End.AddDays(-7), ConfirmedPeriodCount: 1),
+            default);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.PeriodsShifted.Should().Be(1);
+        result.Value.PeriodsCovered.Should().Be(1);
+
+        var slot = await db.StageSlots.AsNoTracking().SingleAsync(s => s.Id == SlotP1);
+        slot.StartDate.Should().Be(P1Start.AddDays(-7));
+
+        // The half that used to be left behind, and the whole point of the phase.
+        var period = await db.ServicePeriods.AsNoTracking()
+            .SingleAsync(x => x.CohortSlotAssignmentId != null);
+        period.StartDate.Should().Be(P1Start.AddDays(-7),
+            "a column and the périodes published from it move together or the grid stops being true");
+        period.EndDate.Should().Be(P1End.AddDays(-7));
+    }
+
+    /// <summary>
+    /// ⚠ The confirmation, and it is the reason the act is allowed at all. Moving a published column
+    /// rewrites rows nobody named one by one — 7 464 of them on the 3ᵉ MED — so the operator sends
+    /// back the number the preview showed and a mismatch refuses.
+    /// </summary>
+    [Fact]
+    public async Task Moving_a_published_column_without_confirming_the_count_is_refused()
+    {
+        await using var db = TestHarness.NewContext(
+            nameof(Moving_a_published_column_without_confirming_the_count_is_refused));
+        await SeedAsync(db, published: true);
+
         var result = await db.UpdateSlotHandler().Handle(
             new UpdateStageSlotCommand(SlotP1, TestHarness.StageId, "P1",
                 P1Start.AddDays(-7), P1End.AddDays(-7)),
             default);
 
         result.IsFailure.Should().BeTrue();
-        result.Error.Code.Should().Be("Schedule.SlotPublishedCannotMove",
-            "the only thing wrong with this move is that the column is published");
+        // ⚠ « rien confirmé » et « confirmé autre chose » sont deux codes : le premier vise un client
+        // qui n'a pas ouvert l'aperçu, le second un aperçu devenu faux entre-temps.
+        result.Error.Code.Should().Be("Schedule.SlotMoveNotConfirmed");
 
         var slot = await db.StageSlots.AsNoTracking().SingleAsync(s => s.Id == SlotP1);
         slot.StartDate.Should().Be(P1Start, "a refused move must not have written the dates on its way out");
         slot.EndDate.Should().Be(P1End);
+    }
+
+    /// <summary>
+    /// ⚠ A période that has <b>begun</b> is not moved, whatever is confirmed: the window would slide
+    /// under days that already happened. This is the refusal that replaces the blanket one.
+    /// </summary>
+    [Fact]
+    public async Task A_column_whose_periods_have_begun_cannot_be_moved()
+    {
+        await using var db = TestHarness.NewContext(
+            nameof(A_column_whose_periods_have_begun_cannot_be_moved));
+        await SeedAsync(db, published: true);
+
+        var started = await db.ServicePeriods.SingleAsync(x => x.CohortSlotAssignmentId != null);
+        started.IsStarted = true;
+        await db.SaveChangesAsync();
+
+        var result = await db.UpdateSlotHandler().Handle(
+            new UpdateStageSlotCommand(SlotP1, TestHarness.StageId, "P1",
+                P1Start.AddDays(-7), P1End.AddDays(-7), ConfirmedPeriodCount: 1),
+            default);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be("Schedule.SlotPeriodsAlreadyUnderway");
+
+        var slot = await db.StageSlots.AsNoTracking().SingleAsync(s => s.Id == SlotP1);
+        slot.StartDate.Should().Be(P1Start);
     }
 
     /// <summary>

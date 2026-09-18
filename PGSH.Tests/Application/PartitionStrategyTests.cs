@@ -15,7 +15,8 @@ namespace PGSH.Tests.Application;
 /// </summary>
 public class PartitionStrategyTests
 {
-    private static AssignRotationGroupsCommandHandler Handler(ApplicationDbContext db) => new(db);
+    private static AssignRotationGroupsCommandHandler Handler(ApplicationDbContext db) =>
+        new(db, new RecordingAuditTrail());
 
     private static void SeedGroups(ApplicationDbContext db, int count)
     {

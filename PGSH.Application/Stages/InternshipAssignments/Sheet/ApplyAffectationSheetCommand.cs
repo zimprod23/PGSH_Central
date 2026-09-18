@@ -142,7 +142,11 @@ internal sealed class ApplyAffectationSheetCommandHandler(
             return Result.Failure<AffectationSheetReport>(
                 AffectationSheetErrors.DroppedMismatch(request.ConfirmedDroppedPeriods, toDrop));
 
-        var cohorts = await EnsureCohortsAsync(plan, ct);
+        var cohortsMade = await EnsureCohortsAsync(plan, ct);
+        if (cohortsMade.IsFailure)
+            return Result.Failure<AffectationSheetReport>(cohortsMade.Error);
+
+        var cohorts = cohortsMade.Value;
         var assignments = await LoadTrackedAssignmentsAsync(plan, ct);
 
         var now = DateTime.UtcNow;
@@ -261,7 +265,7 @@ internal sealed class ApplyAffectationSheetCommandHandler(
     /// factory builds, which carries the id by value. One extra round-trip, no half-state: the
     /// enclosing transaction covers both.
     /// </remarks>
-    private async Task<Dictionary<(int, int), int>> EnsureCohortsAsync(
+    private async Task<Result<Dictionary<(int, int), int>>> EnsureCohortsAsync(
         AffectationSheetPlan plan, CancellationToken ct)
     {
         var groupIds = plan.Work.Select(w => w.AcademicGroupId).Distinct().ToList();
@@ -281,17 +285,21 @@ internal sealed class ApplyAffectationSheetCommandHandler(
             .Where(g => groupIds.Contains(g.Id))
             .ToDictionaryAsync(g => g.Id, g => g.Label, ct);
 
-        var fresh = plan.CohortsToCreate
+        var made = plan.CohortsToCreate
             .Where(key => !byKey.ContainsKey(key))
-            .Select(key => new Cohort
-            {
-                AcademicGroupId = key.AcademicGroupId,
-                StageId         = key.StageId,
-                Label           = labels.TryGetValue(key.AcademicGroupId, out string? label)
-                                    ? label
-                                    : string.Empty,
-            })
+            .Select(key => Cohort.For(
+                key.StageId,
+                key.AcademicGroupId,
+                labels.TryGetValue(key.AcademicGroupId, out string? label) ? label : string.Empty))
             .ToList();
+
+        // The planner resolved both ids against the catalogue, so a refusal here is a bug in it and
+        // not a row of the file — but the whole file is refused rather than partly applied, which is
+        // the rule this act is built on.
+        if (made.FirstOrDefault(m => m.IsFailure) is { } refused)
+            return Result.Failure<Dictionary<(int, int), int>>(refused.Error);
+
+        var fresh = made.ConvertAll(m => m.Value);
 
         if (fresh.Count == 0)
             return byKey;

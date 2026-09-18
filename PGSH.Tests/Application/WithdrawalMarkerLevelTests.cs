@@ -37,9 +37,7 @@ public class WithdrawalMarkerLevelTests
         db.SeedCatalog();
         db.SeedLevel(RetraitId, "Retrait", year: 0);
 
-        var roster = db.SeedGroup(50, 59);
-        roster.LevelId = RetraitId;
-        return roster;
+        return db.SeedGroup(50, 59, levelId: RetraitId);
     }
 
     [Fact]
@@ -56,7 +54,7 @@ public class WithdrawalMarkerLevelTests
         SeedRetrait(db);
         await db.SaveChangesAsync();
 
-        var result = await new AssignRotationGroupsCommandHandler(db).Handle(
+        var result = await new AssignRotationGroupsCommandHandler(db, new RecordingAuditTrail()).Handle(
             new AssignRotationGroupsCommand(TestHarness.CurrentYearId, 2, RetraitId), default);
 
         result.IsFailure.Should().BeTrue();
@@ -98,7 +96,7 @@ public class WithdrawalMarkerLevelTests
         roster.RotationGroup = "E";
         await db.SaveChangesAsync();
 
-        var result = await new ClearRotationGroupsCommandHandler(db).Handle(
+        var result = await new ClearRotationGroupsCommandHandler(db, new RecordingAuditTrail()).Handle(
             new ClearRotationGroupsCommand(TestHarness.CurrentYearId, RetraitId), default);
 
         result.IsSuccess.Should().BeTrue();

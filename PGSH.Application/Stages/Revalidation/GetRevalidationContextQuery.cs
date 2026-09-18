@@ -1,7 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Authorization;
+using FluentValidation;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
+using PGSH.Application.Extensions;
 using PGSH.Application.Calendar;
 using PGSH.Domain.Calendar;
 using PGSH.Domain.Registrations;
@@ -14,8 +16,23 @@ namespace PGSH.Application.Stages.Revalidation;
 /// The earliest day the retake could begin; today when omitted. The window is laid forward from the
 /// first <em>worked</em> day at or after it.
 /// </param>
-public sealed record GetRevalidationContextQuery(Guid RegistrationId, int StageId, DateOnly? From)
+public sealed record GetRevalidationContextQuery(Guid RegistrationId, int? StageId, DateOnly? From)
     : IQuery<RevalidationContextResponse>;
+
+/// <summary>
+/// ⚠ The stage is nullable only to carry an omission as far as a refusal that can be read. This is
+/// the read behind the revalidation dialog, so every answer it gives — is the act permitted, which
+/// text governs it, where the student failed — is a fact about <i>one</i> stage. Bound non-nullable it
+/// threw in routing before the validator ran, and the dialog opened onto a generic error.
+/// </summary>
+internal sealed class GetRevalidationContextQueryValidator
+    : AbstractValidator<GetRevalidationContextQuery>
+{
+    public GetRevalidationContextQueryValidator() =>
+        RuleFor(x => x.StageId).IsARequiredReference(
+            "Le stage est obligatoire : rouvrir « un stage » sans dire lequel ne désigne rien, et "
+            + "cet écran décrit ce qu'une réouverture ferait à un stage précis.");
+}
 
 internal sealed class GetRevalidationContextQueryHandler(
     IApplicationDbContext dbContext,
@@ -39,26 +56,26 @@ internal sealed class GetRevalidationContextQueryHandler(
             return Result.Failure<RevalidationContextResponse>(Error.NotFound(
                 "Registrations.NotFound", $"Registration '{request.RegistrationId}' not found."));
 
-        var stage = await StageQuery(dbContext, request.StageId).FirstOrDefaultAsync(cancellationToken);
+        var stage = await StageQuery(dbContext, request.StageId!.Value).FirstOrDefaultAsync(cancellationToken);
         if (stage is null)
-            return Result.Failure<RevalidationContextResponse>(StageErrors.NotFound(request.StageId));
+            return Result.Failure<RevalidationContextResponse>(StageErrors.NotFound(request.StageId!.Value));
 
         bool alreadyOnThisRegistration = await RevalidationPlanner
-            .ExistingAssignmentQuery(dbContext, request.RegistrationId, request.StageId)
+            .ExistingAssignmentQuery(dbContext, request.RegistrationId, request.StageId!.Value)
             .AnyAsync(cancellationToken);
 
         var priorAttempts = await RevalidationPlanner
-            .PriorAttemptsQuery(dbContext, registration.StudentId, request.StageId, request.RegistrationId)
+            .PriorAttemptsQuery(dbContext, registration.StudentId, request.StageId!.Value, request.RegistrationId)
             .ToListAsync(cancellationToken);
 
         var eligibility = RevalidationPlanner.CheckEligibility(
-            priorAttempts, alreadyOnThisRegistration, request.StageId);
+            priorAttempts, alreadyOnThisRegistration, request.StageId!.Value);
 
         // The governing text is read in the project's one order: the registration's own stamp first,
         // the student's current one only as a fallback. Null is "never resolved", not "owes nothing".
         int? textId = registration.CnpnVersionId ?? registration.StudentCnpnVersionId;
         var text = textId is { } id
-            ? await GoverningTextQuery(dbContext, id, stage.LevelId, request.StageId)
+            ? await GoverningTextQuery(dbContext, id, stage.LevelId, request.StageId!.Value)
                 .FirstOrDefaultAsync(cancellationToken)
             : null;
 
@@ -79,7 +96,7 @@ internal sealed class GetRevalidationContextQueryHandler(
         var failure = RevalidationPlanner.LastFailure(priorAttempts);
         var lastFailure = failure is null
             ? null
-            : await BuildLastFailureAsync(failure, request.StageId, calendar, cancellationToken);
+            : await BuildLastFailureAsync(failure, request.StageId!.Value, calendar, cancellationToken);
 
         // The proposal is laid from the TEXT's duration, never the catalogue's. Every student who
         // reaches this screen is on an older text by construction, so the catalogue is wrong for
@@ -88,17 +105,17 @@ internal sealed class GetRevalidationContextQueryHandler(
             ? calendar.Lay(request.From ?? DateOnly.FromDateTime(DateTime.UtcNow), duration)
             : null;
 
-        var cohorts = await CohortOptionsQuery(dbContext, request.StageId, registration.AcademicYearId)
+        var cohorts = await CohortOptionsQuery(dbContext, request.StageId!.Value, registration.AcademicYearId)
             .ToListAsync(cancellationToken);
 
         int? fallbackCohortId = registration.AcademicGroupId is { } rosterId
-            ? await RevalidationPlanner.OwnCohortQuery(dbContext, rosterId, request.StageId)
+            ? await RevalidationPlanner.OwnCohortQuery(dbContext, rosterId, request.StageId!.Value)
                 .Cast<int?>().FirstOrDefaultAsync(cancellationToken)
             : null;
 
         return new RevalidationContextResponse(
             request.RegistrationId,
-            request.StageId,
+            request.StageId!.Value,
             stage.Name,
             stage.LevelId,
             stage.LevelLabel,

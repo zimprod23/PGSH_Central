@@ -26,21 +26,28 @@ namespace PGSH.Application.AcademicGroups.AssignRotationGroups;
 /// promotion, so the type says so.
 /// </param>
 public sealed record AssignRotationGroupsCommand(
-    int AcademicYearId,
+    int? AcademicYearId,
     int PartitionCount,
-    int LevelId,
+    int? LevelId,
     PartitionStrategy Strategy = PartitionStrategy.Interleaved,
     bool Reassign = false) : ICommand<PartitionAssignmentResult>, IAuditableCommand
 {
+    // ⚠ Both are nullable to carry an *omission* as far as the validator, not because the act is
+    // meaningful without them — see AssignRotationGroupsCommandValidator. Bound non-nullable from the
+    // query string they threw in routing before any validator ran, so leaving the promotion selector
+    // blank produced a bare 400 the screen could only render as its generic sentence.
+    // `ValidationPipelineBehavior` runs before `AuditLogPipelineBehavior`, so the register below reads
+    // a command that has already been refused if either is missing.
+
     // ⚠ Its undo, ClearRotationGroupsCommand, has been audited from the start while the act that
     // *creates* a cut was not — so « qui a découpé cette promotion, et quand ? » had no answer, which
     // is exactly the question 66 rosters appearing on the 7ᵉ MED raised on 02/09/2026. Recording the
     // act that takes a cut away and not the one that makes it is the wrong way round.
     public string AuditAction => "PARTITIONS_ASSIGNED";
     public string AuditEntityType => "AcademicYear";
-    public string? AuditEntityId => AcademicYearId.ToString();
+    public string? AuditEntityId => AcademicYearId!.Value.ToString();
     public string? AuditMetadata => AuditMetadataJson.Of(
-        ("levelId", LevelId),
+        ("levelId", LevelId!.Value),
         ("partitionCount", PartitionCount),
         ("strategy", Strategy.ToString()),
         ("reassign", Reassign));

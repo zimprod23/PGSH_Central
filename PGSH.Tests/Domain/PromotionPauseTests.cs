@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using PGSH.Domain.Calendar;
 using PGSH.Domain.Common.Utils;
 using PGSH.Domain.Registrations;
@@ -13,7 +13,7 @@ namespace PGSH.Tests.Domain;
 /// than approximately seeded, the way <c>WorkingDayCalendarTests</c> settles jours ouvrables.
 ///
 /// <para>The property the whole design rests on is <see cref="Declaring_the_same_window_twice_gives_the_same_days"/>:
-/// a window is <b>derived from</b>, never added to. <c>InternshipAssignment.ResumePeriod</c> accumulates,
+/// a window is <b>derived from</b>, never added to. The pause retired on 18/09/2026 accumulated,
 /// which is why it cannot be corrected or revoked and this can.</para>
 /// </summary>
 public class PromotionPauseTests
@@ -49,8 +49,8 @@ public class PromotionPauseTests
         var calendar = WorkingDayCalendar.WeekendsOnly().With(pause);
 
         calendar.Count(new DateOnly(2027, 1, 11), new DateOnly(2027, 1, 15)).Should().Be(0);
-        calendar.IsWorkingDay(new DateOnly(2027, 1, 13)).Should().BeFalse();
-        calendar.IsWorkingDay(new DateOnly(2027, 1, 18)).Should().BeTrue();
+        calendar.CountsTowardDuration(new DateOnly(2027, 1, 13)).Should().BeFalse();
+        calendar.CountsTowardDuration(new DateOnly(2027, 1, 18)).Should().BeTrue();
     }
 
     /// <summary>

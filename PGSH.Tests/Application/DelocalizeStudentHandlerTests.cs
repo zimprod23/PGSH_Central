@@ -177,11 +177,7 @@ public class DelocalizeStudentHandlerTests
         await using var db = TestHarness.NewContext("deloc-no-cohort");
         db.SeedCatalog();
         db.SeedService(ExternalServiceId, "Externe");
-        var orphanGroup = new AcademicGroup
-        {
-            Id = 77, Label = "Groupe 77", GroupNumber = 77, AcademicYearId = TestHarness.CurrentYearId,
-        };
-        db.AcademicGroups.Add(orphanGroup);
+        var orphanGroup = db.SeedGroup(77, 77, label: "Groupe 77");
         var registration = db.SeedRegistration("Hamza", "Berrada", orphanGroup);
         await db.SaveChangesAsync();
 

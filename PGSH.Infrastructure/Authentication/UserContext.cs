@@ -58,7 +58,17 @@ internal sealed class UserContext : IUserContext
 
         if (user is not null)
         {
-            user.LinkIdentity(keycloakId.ToString());
+            // ⚠ Linking and RE-linking are different acts, and this is the path where the difference
+            // shows. A record with no subject is a first link. A record carrying a *stale* one — the
+            // ordinary state after an identity provider is rebuilt, since the new realm issues new
+            // subjects while the restored database still holds the old ones — is a re-link, which
+            // keeps what it replaced. Before the distinction existed, LinkIdentity refused here and a
+            // realm rebuild locked out every user who had ever logged in.
+            if (user.IdentityProviderId is null)
+                user.LinkIdentity(keycloakId.ToString());
+            else
+                user.RelinkIdentity(keycloakId.ToString());
+
             await _dbContext.SaveChangesAsync(cancellationToken);
             _memoryCache.Set(cacheKey, true, TimeSpan.FromMinutes(60));
             return;

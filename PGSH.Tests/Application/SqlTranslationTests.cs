@@ -1088,7 +1088,7 @@ public class SqlTranslationTests
 
         string byService = GetRosterPlacementsQueryHandler
             .MatchingRostersQuery(db, academicYearId: 21, levelId: 3, stageId: 7,
-                serviceId: 11, hospitalId: null, PlacementMatch.Anywhere)
+                serviceId: 11, hospitalId: null, city: null, PlacementMatch.Anywhere)
             .ToQueryString();
 
         byService.Should().Contain("AcademicGroups");
@@ -1096,13 +1096,24 @@ public class SqlTranslationTests
 
         string exclusively = GetRosterPlacementsQueryHandler
             .MatchingRostersQuery(db, academicYearId: 21, levelId: 3, stageId: null,
-                serviceId: null, hospitalId: 2, PlacementMatch.Exclusively)
+                serviceId: null, hospitalId: 2, city: null, PlacementMatch.Exclusively)
             .ToQueryString();
 
         exclusively.Should().ContainEquivalentOf("NOT EXISTS",
             "« aucune cellule ailleurs » is the negative half of Exclusively");
         exclusively.Should().ContainEquivalentOf("EXISTS",
             "and « au moins une cellule » is the positive half that keeps an unarranged roster out");
+
+        // ⚠ La ville traverse deux navigations (`a.Service.Hospital.City`) là où les deux autres n'en
+        // traversent qu'une : c'est une jointure de plus, et une jointure de plus est une occasion de
+        // plus que le fournisseur refuse. Elle se compile ici, sans base.
+        string byCity = GetRosterPlacementsQueryHandler
+            .MatchingRostersQuery(db, academicYearId: 21, levelId: 3, stageId: null,
+                serviceId: null, hospitalId: null, city: "Casablanca", PlacementMatch.Exclusively)
+            .ToQueryString();
+
+        byCity.Should().Contain("Hospitals", "the city is read through the service's hospital");
+        byCity.Should().ContainEquivalentOf("NOT EXISTS");
 
         GetRosterPlacementsQueryHandler.PageStagesQuery(db, [1, 2, 3], stageId: null)
             .ToQueryString().Should().Contain("Cohorts");
@@ -1263,6 +1274,75 @@ public class SqlTranslationTests
         string published = PromotionPauseQueries.PublishedCellsQuery(db, 1, 3).ToQueryString();
         published.Should().Contain("ServicePeriodSlotCoverage");
         published.Should().Contain("DISTINCT");
+
+        // ⚠ The one here that a provider could refuse. It carries no predicate of its own: it is
+        // ServicePeriodLifecycle.Movable — a rule written on ServicePeriod — recomposed onto a coverage
+        // row by substituting the path for its parameter, then negated. The naive spelling is Invoke,
+        // which EF refuses outright; and Movable reads a collection (Attendance.Any()) under a NOT, so
+        // the tree is not merely four column comparisons.
+        string unmovable = PromotionPauseQueries.UnmovableSlotsQuery(db, 1, 3, from, to).ToQueryString();
+        unmovable.Should().Contain("ServicePeriodSlotCoverage");
+        unmovable.Should().Contain("Attendance");
+        unmovable.Should().Contain("DISTINCT");
+    }
+
+    /// <summary>
+    /// The two reads added on 18/09/2026 so a declared window stops being invisible: the batched span
+    /// counts behind the pause list, and the « what am I about to start » crossing check.
+    /// </summary>
+    /// <remarks>
+    /// <para>⚠ <b><c>PauseSpansQuery</c> is the one worth pinning.</b> It carries two <b>correlated
+    /// scalar</b> sub-counts in its projection, which is a hair from the shape Npgsql refuses — a
+    /// <i>collection</i> subquery in a projection, the one that killed the macro plan. Scalar and
+    /// correlated is allowed; the distinction is invisible in C# and invisible to the in-memory suite,
+    /// so it is checked here rather than believed.</para>
+    ///
+    /// <para>⚠ <b>And <c>CrossingADeclaredWindowQuery</c> is an <c>EXISTS</c> correlated on
+    /// <c>Registration.LevelId</c></b> — a second table reached from inside a predicate, not a list of
+    /// windows loaded first and folded. Written the naive way it would be
+    /// <c>declared.Any(d =&gt; …)</c> over an in-memory list of records, which the provider cannot
+    /// translate at all.</para>
+    /// </remarks>
+    [Fact]
+    public void The_pause_visibility_reads_compile_to_sql()
+    {
+        using var db = TestHarness.NewNpgsqlContext();
+
+        string spans = PromotionPauseQueries.PauseSpansQuery(db, 1, null).ToQueryString();
+        spans.Should().Contain("PromotionPauses");
+        spans.Should().Contain("StageSlots");
+        spans.Should().Contain("ServicePeriods");
+
+        PromotionPauseQueries.PauseSpansQuery(db, 1, 4).ToQueryString()
+            .Should().Contain("PromotionPauses");
+
+        var toStart = PromotionPauseQueries.PeriodsAboutToStartQuery(
+            db, stageId: 3, academicYearId: 1,
+            cohortIds: null, partitionLabels: null, periodNumbers: null);
+
+        string plain = toStart.ToQueryString();
+        plain.Should().Contain("ServicePeriods");
+        plain.Should().Contain("IsStarted");
+
+        // Each optional narrowing separately: the period-number one reaches the column *through* the
+        // grid cell, which is two navigations and a null check, and is the one the runner does in memory.
+        PromotionPauseQueries.PeriodsAboutToStartQuery(
+                db, 3, 1, cohortIds: [7, 8], partitionLabels: null, periodNumbers: null)
+            .ToQueryString().Should().Contain("CurrentCohortId");
+
+        PromotionPauseQueries.PeriodsAboutToStartQuery(
+                db, 3, 1, cohortIds: null, partitionLabels: ["A", "B"], periodNumbers: null)
+            .ToQueryString().Should().Contain("RotationGroup");
+
+        PromotionPauseQueries.PeriodsAboutToStartQuery(
+                db, 3, 1, cohortIds: null, partitionLabels: null, periodNumbers: [3, 4])
+            .ToQueryString().Should().Contain("PeriodNumber");
+
+        string crossing = PromotionPauseQueries
+            .CrossingADeclaredWindowQuery(db, toStart, academicYearId: 1)
+            .ToQueryString();
+        crossing.Should().Contain("PromotionPauses");
+        crossing.Should().Contain("EXISTS");
     }
 
     /// <summary>
@@ -1619,6 +1699,41 @@ public class SqlTranslationTests
             .ToQueryString();
 
         sql.Should().Contain("AffectationImports");
+        sql.Should().Contain("EXISTS");
+    }
+
+    /// <summary>
+    /// Phase 17.1 — déplacer une colonne publiée. ⚠ La requête doit rendre, pour chaque période que la
+    /// colonne touche, <b>toutes</b> ses cellules couvertes, y compris celles d'autres colonnes : sans
+    /// elles, la fenêtre d'un séjour en service unique ne peut pas être recalculée. C'est exactement la
+    /// forme où l'on est tenté d'écrire une sous-collection dans la projection — celle que Npgsql
+    /// refuse et qui a tué le plan macro avec toute la suite au vert. Elle est donc plate et
+    /// corrélée par un <c>EXISTS</c>.
+    /// </summary>
+    [Fact]
+    public void The_covered_cells_of_a_moved_column_compile()
+    {
+        using var db = TestHarness.NewNpgsqlContext();
+
+        string sql = PublishedPeriodShifter.CoveredCellsQuery(db, slotId: 1).ToQueryString();
+
+        sql.Should().Contain("EXISTS");
+        sql.Should().Contain("StageSlot");
+    }
+
+    /// <summary>
+    /// ⚠ Le <c>Count</c> corrélé sur les présences est une projection, pas un prédicat — elle se
+    /// traduit — mais c'est elle qui porte le refus « cette colonne a des journées enregistrées », donc
+    /// elle doit compiler pour que le refus existe.
+    /// </summary>
+    [Fact]
+    public void The_affected_periods_of_a_moved_column_compile()
+    {
+        using var db = TestHarness.NewNpgsqlContext();
+
+        string sql = PublishedPeriodShifter.AffectedPeriodsQuery(db, slotId: 1).ToQueryString();
+
+        sql.Should().Contain("ServicePeriods");
         sql.Should().Contain("EXISTS");
     }
 }

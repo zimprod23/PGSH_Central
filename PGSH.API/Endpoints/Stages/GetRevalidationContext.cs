@@ -18,7 +18,7 @@ public sealed class GetRevalidationContext : IEndpoint
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
         app.MapGet("registrations/{registrationId:guid}/revalidation-context", async (
-            Guid registrationId, int stageId, DateOnly? from, ISender sender, CancellationToken ct) =>
+            Guid registrationId, int? stageId, DateOnly? from, ISender sender, CancellationToken ct) =>
         {
             var result = await sender.Send(
                 new GetRevalidationContextQuery(registrationId, stageId, from), ct);

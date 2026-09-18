@@ -1,7 +1,8 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Authorization;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
+using PGSH.Application.Calendar.Pauses;
 using PGSH.Application.Extensions;
 using PGSH.Application.Stages.ServicePeriods;
 using PGSH.Domain.Stages;
@@ -12,7 +13,9 @@ namespace PGSH.Application.Employees.MyServices;
 
 internal sealed class GetMyServicePeriodsQueryHandler(
     IApplicationDbContext dbContext,
-    ExecutionAuthorizer authorizer)
+    ExecutionAuthorizer authorizer,
+    PromotionSuspensionLookup suspensions,
+    IDateTimeProvider clock)
     : IQueryHandler<GetMyServicePeriodsQuery, ChefWorklistResponse>
 {
     public async Task<Result<ChefWorklistResponse>> Handle(
@@ -256,6 +259,8 @@ internal sealed class GetMyServicePeriodsQueryHandler(
                     p.IsInterrupted,
                     p.IsPaused,
                     p.Pauses.Where(x => x.ResumeDate == null).Select(x => x.Reason).FirstOrDefault(),
+                    p.InternshipAssignment.Registration.AcademicYearId,
+                    p.InternshipAssignment.Registration.LevelId,
                     p.Evaluation != null,
                     p.CohortSlotAssignment != null
                         ? p.CohortSlotAssignment.Cohort.AcademicGroup.Label
@@ -278,6 +283,11 @@ internal sealed class GetMyServicePeriodsQueryHandler(
                         .Select(m => (DateOnly?)m.StartDate)
                         .FirstOrDefault()),
                 ct);
+
+        // ⚠ Une requête pour la page, et le jour vient de l'horloge injectée : DateTime.UtcNow pris au
+        // fond d'une classe est exactement ce qui rendait l'ancienne pause intestable.
+        var today = DateOnly.FromDateTime(clock.UtcNow);
+        var windows = await suspensions.OnAsync(today, ct);
 
         var items = page.Items.Select(r =>
         {
@@ -312,7 +322,13 @@ internal sealed class GetMyServicePeriodsQueryHandler(
                 r.PauseReason,
                 r.IsInterrupted,
                 ServicePeriodLifecycle.StateOf(
-                    r.IsStarted, r.IsComplete, r.IsInterrupted, r.HasEvaluation));
+                    r.IsStarted, r.IsComplete, r.IsInterrupted, r.HasEvaluation),
+                // ⚠ Ouverte **et** en cours ce jour-là. Start() ouvre toutes les périodes d'un
+                // coup, donc sans la seconde condition un séjour de mai porterait une fenêtre de mars.
+                r.IsStarted && !r.IsComplete && !r.IsInterrupted
+                    && r.StartDate <= today && r.EndDate >= today
+                    ? windows.GetValueOrDefault((r.RegistrationAcademicYearId, r.RegistrationLevelId))
+                    : null);
         }).ToList();
 
         return new PaginatedResponse<ServicePeriodResponse>(
@@ -339,6 +355,11 @@ internal sealed class GetMyServicePeriodsQueryHandler(
         bool IsInterrupted,
         bool IsPaused,
         string? PauseReason,
+        // La promotion, portée jusqu'ici parce qu'une fenêtre déclarée n'est jointe à aucune rotation
+        // et doit être pliée en mémoire. Lue sur l'inscription : un sixième année qui refait un stage
+        // de troisième passe les examens de *sa* promotion.
+        int RegistrationAcademicYearId,
+        int RegistrationLevelId,
         bool HasEvaluation,
         string RosterGroupLabel,
         string StageName,
@@ -360,6 +381,8 @@ internal sealed class GetMyServicePeriodsQueryHandler(
     private async Task<List<ServicePeriodResponse>> LoadIncomingTransfersAsync(
         List<int> chefServiceIds, int? academicYearId, CancellationToken ct)
     {
+        var windows = await suspensions.OnAsync(DateOnly.FromDateTime(clock.UtcNow), ct);
+
         var rows = await dbContext.CohortSlotAssignments
             .AsNoTracking()
             .Where(sa => chefServiceIds.Contains(sa.ServiceId))
@@ -376,6 +399,11 @@ internal sealed class GetMyServicePeriodsQueryHandler(
             .Select(x => new
             {
                 AssignmentId = x.a.Id,
+                // La promotion, pour la même raison que sur les vraies lignes : ces arrivées sont
+                // affichées à côté d'elles, et une fenêtre d'examens qui s'annoncerait sur les unes et
+                // pas sur les autres serait une règle avec deux réponses sur un même écran.
+                x.a.Registration.AcademicYearId,
+                x.a.Registration.LevelId,
                 FullName = (x.a.Registration.Student.FirstName ?? "") + " " +
                            (x.a.Registration.Student.LastName ?? ""),
                 Cne = x.a.Registration.Student.CNE,
@@ -436,6 +464,7 @@ internal sealed class GetMyServicePeriodsQueryHandler(
                 r.TransferDate),
             // Synthesized from a slot cell, so there is no period to be in a state: it is shown
             // beside the open rotations because that is where the chef needs to see the arrival.
-            State: ServicePeriodState.Underway)).ToList();
+            State: ServicePeriodState.Underway,
+            SuspendedBy: windows.GetValueOrDefault((r.AcademicYearId, r.LevelId)))).ToList();
     }
 }

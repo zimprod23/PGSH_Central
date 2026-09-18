@@ -145,71 +145,6 @@ public sealed class InternshipAssignment : Entity
                : InternshipStatus.Planned;
     }
 
-    // Suspends an in-flight period (e.g. an exam week). Only a started, not-yet-complete period
-    // can be paused; the chef sees it frozen until an admin resumes it.
-    public Result PausePeriod(Guid periodId, DateOnly date, PauseKind kind, string? reason)
-    {
-        var period = ServicePeriods.FirstOrDefault(p => p.Id == periodId);
-        if (period is null)
-            return AppResult.Failure(StageErrors.PeriodNotFound(periodId));
-        if (period.IsInterrupted)
-            return AppResult.Failure(StageErrors.PeriodInterrupted(periodId));
-        if (!period.IsStarted)
-            return AppResult.Failure(StageErrors.PeriodNotStarted(periodId));
-        if (period.IsComplete)
-            return AppResult.Failure(StageErrors.PeriodAlreadyComplete(periodId));
-        if (period.IsPaused)
-            return AppResult.Failure(StageErrors.PeriodAlreadyPaused(periodId));
-
-        period.IsPaused = true;
-        period.Pauses.Add(new PeriodPause
-        {
-            ServicePeriodId = period.Id,
-            StartDate       = date,
-            Kind            = kind,
-            Reason          = reason,
-        });
-        return AppResult.Success();
-    }
-
-    // Resumes a paused period: the days lost while paused extend this period's end, then every
-    // later period of this assignment is pushed forward by the same amount so the rotation stays
-    // contiguous and the student still serves each stage in full.
-    public Result ResumePeriod(Guid periodId, DateOnly date)
-    {
-        var period = ServicePeriods.FirstOrDefault(p => p.Id == periodId);
-        if (period is null)
-            return AppResult.Failure(StageErrors.PeriodNotFound(periodId));
-        if (!period.IsPaused)
-            return AppResult.Failure(StageErrors.PeriodNotPaused(periodId));
-
-        var openPause = period.Pauses.FirstOrDefault(p => p.ResumeDate is null);
-        period.IsPaused = false;
-        if (openPause is null)
-            return AppResult.Success();
-
-        openPause.ResumeDate = date;
-        int days = date.DayNumber - openPause.StartDate.DayNumber;
-        if (days <= 0)
-            return AppResult.Success();
-
-        period.EndDate = period.EndDate.AddDays(days);
-
-        // Only rotations still ahead of the student move. A closed rotation is history — its dates are
-        // what actually happened — and an interrupted one is terminal, so pushing either forward would
-        // rewrite the past to make room for time lost in the present.
-        foreach (var later in ServicePeriods.Where(p => p.Id != period.Id
-                                                     && p.StartDate > period.StartDate
-                                                     && !p.IsComplete
-                                                     && !p.IsInterrupted))
-        {
-            later.StartDate = later.StartDate.AddDays(days);
-            later.EndDate   = later.EndDate.AddDays(days);
-        }
-
-        return AppResult.Success();
-    }
-
     public Result CompletePeriod(Guid periodId)
     {
         var period = ServicePeriods.FirstOrDefault(p => p.Id == periodId);
@@ -219,10 +154,14 @@ public sealed class InternshipAssignment : Entity
             return AppResult.Failure(StageErrors.PeriodInterrupted(periodId));
         if (period.IsComplete)
             return AppResult.Failure(StageErrors.PeriodAlreadyComplete(periodId));
+        // Nothing in the application can set IsPaused any more (the stage-scoped pause act was
+        // retired on 18/09/2026 — a promotion declares a window, it does not push dates). The guard
+        // stays because the *store* can still hold a paused row: an import reversal puts back a
+        // période exactly as it stood, IsPaused included.
         if (period.IsPaused)
             return AppResult.Failure(StageErrors.PeriodPaused(periodId));
-        // Symmetric with PausePeriod: a rotation nobody ever began cannot be closed, and closing one
-        // is what makes it evaluable — without this a stage that never ran could still be graded.
+        // A rotation nobody ever began cannot be closed, and closing one is what makes it evaluable —
+        // without this a stage that never ran could still be graded.
         if (!period.IsStarted)
             return AppResult.Failure(StageErrors.PeriodNotStarted(periodId));
 
@@ -422,6 +361,137 @@ public sealed class InternshipAssignment : Entity
         RecomputeStatusFromPeriods();
         Raise(new AffectationImportedDomainEvent(Id, RegistrationId, stageId, periods.Count, dropped));
         return AppResult.Success(dropped);
+    }
+
+    /// <summary>
+    /// Déplace la fenêtre d'<b>une</b> rotation encore à venir — la moitié « exécution » du
+    /// déplacement d'une colonne publiée (phase 17.1).
+    /// </summary>
+    /// <remarks>
+    /// <para>⚠ <b>Cela passe par l'agrégat, et non par le contexte, pour deux raisons.</b> D'abord
+    /// l'invariant : une rotation commencée, notée ou pointée ne se déplace pas, et un agrégat qui
+    /// laisse son appelant garantir cela n'a pas d'invariant. Ensuite l'événement : « une rotation
+    /// publiée a bougé » est un fait du dossier de l'étudiant, et l'acte qui en déplace des milliers
+    /// d'un coup n'en levait aucun.</para>
+    ///
+    /// <para>⚠ <b>Elle ne décide pas de la fenêtre, elle l'applique.</b> Sous
+    /// <c>StageRotationMode.SingleService</c> une période couvre une suite de colonnes et sa fenêtre
+    /// est le min/max de celles-ci ; ce calcul appartient à <c>PublishedPeriodShifter</c>, qui voit
+    /// toutes les cellules. Le refaire ici demanderait à l'agrégat de connaître la grille.</para>
+    ///
+    /// <para>⚠ <b>Aucun recalcul de note ni de statut.</b> Déplacer une rotation qui n'a ni commencé
+    /// ni été notée ne change rien à ce que l'étudiant a obtenu — c'est précisément ce que les gardes
+    /// ci-dessus garantissent — donc appeler <c>RecomputeFinalScore</c> ici serait du bruit.</para>
+    ///
+    /// <para>⚠ <b>C'est le <i>seul</i> déplacement d'une fenêtre publiée, depuis le 18/09/2026, et
+    /// l'autre a été retiré plutôt que réparé.</b> <c>PausePeriod</c> / <c>ResumePeriod</c> faisaient
+    /// la même chose par accumulation : la reprise allongeait la période de
+    /// <c>date − début_de_pause</c> en <b>jours calendaires</b> — un week-end dans la fenêtre comptait
+    /// comme des jours perdus — puis poussait les périodes suivantes du même delta, sans lever
+    /// d'événement, sans la garde <c>Movable</c> (donc par-dessus des journées de présence), sans
+    /// toucher la grille dont <c>ServiceOccupancyCalculator</c> tire l'occupation, et sans rien
+    /// inscrire au registre. Rejouées, elles déplaçaient deux fois.</para>
+    ///
+    /// <para><b>La différence tient en une phrase : celle-ci écrit des dates <i>absolues</i>.</b>
+    /// Rejouée avec la même fenêtre elle ne fait rien (le court-circuit ci-dessous), ce qui est ce qui
+    /// rend une cascade rattrapable. Une fenêtre d'examens se <b>déclare</b> — <c>PromotionPause</c>,
+    /// qui n'écrit aucune date et se révoque — puis les colonnes qu'elle coupe se déplacent par ici.
+    /// Les deux actes sont séparés parce que la déclaration est une décision et le déplacement une
+    /// conséquence ; les confondre est ce qui a coûté les quatre défauts ci-dessus.</para>
+    /// </remarks>
+    public AppResult Reschedule(Guid servicePeriodId, DateOnly startDate, DateOnly endDate)
+    {
+        var period = ServicePeriods.FirstOrDefault(p => p.Id == servicePeriodId);
+
+        if (period is null)
+            return AppResult.Failure(StageErrors.PeriodNotFound(servicePeriodId));
+
+        // ⚠ La règle est celle de ServicePeriodLifecycle.Movable, pas une copie : l'aperçu d'une pause
+        // annonce combien de colonnes sont déplaçables en la posant au magasin, et une garde qui
+        // diverge de ce rapport propose un geste que l'agrégat refuse ensuite.
+        if (!ServicePeriodLifecycle.IsMovable(period))
+            return AppResult.Failure(StageErrors.PeriodCannotBeRescheduled);
+
+        if (endDate < startDate)
+            return AppResult.Failure(StageErrors.PeriodWindowReversed(startDate, endDate));
+
+        // Relevées avant l'écrasement : une fois la ligne écrite, les anciennes dates n'existent plus
+        // nulle part, et l'événement est la moitié « dossier » de la réponse à « d'où cela vient-il ».
+        var fromStart = period.StartDate;
+        var fromEnd   = period.EndDate;
+
+        // Rien à dire quand rien ne bouge : sous SingleService, déplacer une colonne du *milieu* d'un
+        // séjour laisse la fenêtre du séjour inchangée, et un événement par période couverte ferait
+        // lire « des milliers de rotations déplacées » là où aucune ne l'est.
+        if (fromStart == startDate && fromEnd == endDate)
+            return AppResult.Success();
+
+        period.StartDate = startDate;
+        period.EndDate   = endDate;
+
+        Raise(new ServicePeriodRescheduledDomainEvent(
+            Id, RegistrationId, period.Id, fromStart, fromEnd, startDate, endDate));
+
+        return AppResult.Success();
+    }
+
+    /// <summary>
+    /// Repousse la <b>fin</b> d'une rotation, en laissant son début où il est — ce qu'une rotation
+    /// déjà commencée autorise et qu'un déplacement n'autorise pas.
+    /// </summary>
+    /// <remarks>
+    /// <para>⚠ <b>Pourquoi un second acte plutôt qu'un paramètre de <see cref="Reschedule"/>.</b> Les
+    /// deux ne posent pas la même question et ne lisent donc pas la même garde :
+    /// <c>ServicePeriodLifecycle.Movable</c> refuse une rotation commencée ou pointée,
+    /// <c>ServicePeriodLifecycle.Extendable</c> les accepte et refuse une rotation close, notée ou
+    /// interrompue. Un drapeau sur un seul acte aurait fait porter à l'appelant le choix de la garde,
+    /// c'est-à-dire aurait rendu l'invariant optionnel.</para>
+    ///
+    /// <para>⚠ <b>Elle ne sait que repousser, et le refus vit dans le nom.</b> Ramener la fin en
+    /// arrière laisserait les journées de présence comprises entre la nouvelle fin et l'ancienne sur
+    /// des dates que la fenêtre ne couvre plus — exactement le tort qu'un déplacement fait au registre.
+    /// Plutôt que d'ajouter une garde sur les présences, l'acte se limite au sens où il est sûr : une
+    /// fenêtre qui ne fait que croître contient toujours tout ce qu'elle contenait.</para>
+    ///
+    /// <para>⚠ <b>Une date absolue, jamais un delta — comme <see cref="Reschedule"/> et pour la même
+    /// raison.</b> C'est ce qui sépare cet acte de la pause par étape retirée le 18/09/2026 : rejoué
+    /// avec la même date il ne fait rien, donc un recalcul d'axe peut être relancé autant de fois
+    /// qu'on veut sans que la rotation s'allonge à chaque passage. Une méthode <c>ExtendBy(jours)</c>
+    /// aurait été l'accumulation qui a coûté le retrait.</para>
+    ///
+    /// <para>⚠ <b>Le même événement que le déplacement, et c'est voulu.</b> Un allongement <i>est</i>
+    /// un changement de fenêtre ; <c>ServicePeriodRescheduledDomainEvent</c> transporte déjà les deux
+    /// fenêtres, donc un lecteur voit que le début n'a pas bougé sans qu'un second type le lui dise.
+    /// Deux événements pour un fait auraient obligé chaque futur consommateur à s'abonner aux deux.</para>
+    /// </remarks>
+    public AppResult ExtendTo(Guid servicePeriodId, DateOnly newEndDate)
+    {
+        var period = ServicePeriods.FirstOrDefault(p => p.Id == servicePeriodId);
+
+        if (period is null)
+            return AppResult.Failure(StageErrors.PeriodNotFound(servicePeriodId));
+
+        if (!ServicePeriodLifecycle.IsExtendable(period))
+            return AppResult.Failure(StageErrors.PeriodCannotBeExtended);
+
+        if (newEndDate < period.EndDate)
+            return AppResult.Failure(
+                StageErrors.PeriodExtensionGoesBackwards(period.EndDate, newEndDate));
+
+        // Rejeu : la même fin demandée deux fois n'est pas un allongement, et un événement le ferait
+        // lire comme tel.
+        if (newEndDate == period.EndDate)
+            return AppResult.Success();
+
+        var fromEnd = period.EndDate;
+        period.EndDate = newEndDate;
+
+        Raise(new ServicePeriodRescheduledDomainEvent(
+            Id, RegistrationId, period.Id,
+            period.StartDate, fromEnd,
+            period.StartDate, newEndDate));
+
+        return AppResult.Success();
     }
 
     /// <summary>

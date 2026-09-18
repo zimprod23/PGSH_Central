@@ -524,6 +524,135 @@ public static class StageErrors
         "Ce créneau a des cohortes publiées : en changer les dates laisserait leurs périodes aux "
         + "anciennes, et la grille cesserait de dire ce que font les étudiants. Dépubliez-les d'abord.");
 
+    /// <summary>
+    /// Phase 17.1's two refusals. ⚠ Both are <c>Conflict</c>, never <c>Problem</c>: the request meets
+    /// the state of the base, and a business refusal typed <c>Problem</c> becomes a 500 whose sentence
+    /// the client discards.
+    /// </summary>
+    public static Error SlotPeriodsAlreadyUnderway(int periods, int evaluated, int attendanceDays) =>
+        Error.Conflict(
+            "Schedule.SlotPeriodsAlreadyUnderway",
+            $"{periods} période(s) issues de ce créneau ont déjà commencé ou portent une trace : "
+            + $"{evaluated} évaluation(s) et {attendanceDays} journée(s) de présence. Déplacer la "
+            + "colonne sous elles ferait mentir le registre — une note et une présence sont des faits "
+            + "sur des dates qui ont eu lieu. Déplacez plutôt les colonnes encore à venir.");
+
+    /// <summary>
+    /// La garde de l'agrégat, doublant celle de <c>PublishedPeriodShifter.PlanAsync</c>.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ <b>Doublée à dessein.</b> Le planificateur écarte déjà ces périodes, donc ce refus ne devrait
+    /// jamais s'afficher — mais un agrégat qui fait confiance à son appelant n'a pas d'invariant, il a
+    /// une convention. Une note et une journée de présence sont des faits sur des dates qui ont eu
+    /// lieu : rien ne doit pouvoir glisser la fenêtre sous elles, quel que soit le chemin.
+    /// </remarks>
+    /// <summary>
+    /// ⚠ Une fenêtre négative n'est pas seulement fausse, elle est <b>silencieuse</b> : chaque calcul
+    /// de durée en aval la lit comme un nombre de jours négatif et rend des totaux que rien n'annonce
+    /// comme absurdes. Refusée à l'entrée de l'agrégat plutôt que constatée trois écrans plus loin.
+    /// </summary>
+    /// <summary>
+    /// Les trois moitiés de l'identité d'un créneau. ⚠ Elles ne devraient jamais s'afficher : ce sont
+    /// des refus adressés au <em>programmeur</em>, pas à l'utilisateur — un appelant qui omet l'un des
+    /// trois a écrit un bug, et la seule chose qui comptait était qu'il ne puisse plus le faire en
+    /// silence. Elles sont `Validation` et non `Problem` parce qu'une demande malformée reste une
+    /// demande malformée, d'où qu'elle vienne.
+    /// </summary>
+    public static readonly Error SlotNeedsStage = Error.Validation(
+        "Schedule.SlotNeedsStage", "Un créneau appartient à un stage.");
+
+    public static readonly Error SlotNeedsAcademicYear = Error.Validation(
+        "Schedule.SlotNeedsAcademicYear",
+        "Un créneau appartient à une année universitaire : sans elle il vaudrait pour toutes les "
+        + "promotions à la fois, avec les dates d'une seule.");
+
+    public static readonly Error SlotNeedsPeriodNumber = Error.Validation(
+        "Schedule.SlotNeedsPeriodNumber", "Un créneau porte un numéro de période (P1, P2…).");
+
+    /// <summary>
+    /// Les deux moitiés de l'identité d'une cohorte, refusées pour la même raison et avec la même
+    /// portée que celles d'un créneau juste au-dessus : ce sont des refus adressés au
+    /// <em>programmeur</em>.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ <b>Rien dans le schéma ne tient <c>(StageId, AcademicGroupId)</c>.</b> Il n'y a pas d'index
+    /// unique derrière cette paire — <c>CreateCohortCommandHandler</c> et <c>CohortProvisioner</c>
+    /// cherchent le doublon eux-mêmes — donc ces deux refus ne couvrent que l'autre moitié : une
+    /// cohorte sans stage ou sans groupe, c'est-à-dire une ligne qu'aucune lecture ne sait
+    /// interpréter. Voir <see cref="Cohort.For(int, int, string)"/>.
+    /// </remarks>
+    public static readonly Error CohortNeedsStage = Error.Validation(
+        "Cohorts.CohortNeedsStage",
+        "Une cohorte est un groupe qui fait un stage : sans le stage, il ne reste que le groupe.");
+
+    public static readonly Error CohortNeedsRoster = Error.Validation(
+        "Cohorts.CohortNeedsRoster",
+        "Une cohorte est un groupe qui fait un stage : sans le groupe, il ne reste que le stage.");
+
+    public static Error PeriodWindowReversed(DateOnly startDate, DateOnly endDate) => Error.Validation(
+        "Schedule.PeriodWindowReversed",
+        $"La fenêtre demandée se termine ({endDate:dd/MM/yyyy}) avant de commencer "
+        + $"({startDate:dd/MM/yyyy}).");
+
+    public static Error PeriodCannotBeRescheduled = Error.Conflict(
+        "Schedule.PeriodCannotBeRescheduled",
+        "Cette rotation a commencé, ou porte déjà une note ou des journées de présence : sa fenêtre "
+        + "ne peut plus être déplacée sans faire mentir le registre.");
+
+    /// <summary>
+    /// Le pendant de <see cref="PeriodCannotBeRescheduled"/> pour l'autre question.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ <b>Les deux phrases nomment des faits différents, à dessein.</b> Un déplacement bute sur le
+    /// démarrage et sur les présences ; un allongement ne bute que sur une clôture, une note ou une
+    /// interruption. Une phrase partagée dirait « cette rotation a commencé » à propos d'un
+    /// allongement, ce qui est vrai et sans rapport avec le refus — et enverrait l'opérateur chercher
+    /// une cause qui n'en est pas une.
+    /// </remarks>
+    public static readonly Error PeriodCannotBeExtended = Error.Conflict(
+        "Schedule.PeriodCannotBeExtended",
+        "Cette rotation est close, notée, ou a été coupée par un transfert : sa fin est un fait et ne "
+        + "peut plus être repoussée. Une rotation simplement commencée, elle, s'allonge.");
+
+    /// <summary>
+    /// ⚠ Un raccourcissement déguisé en allongement. Refusé <b>par le nom de l'acte</b> plutôt que par
+    /// une garde sur les présences : ramener la fin en arrière laisserait les journées pointées entre
+    /// la nouvelle fin et l'ancienne sur des dates que la fenêtre ne couvre plus. Déplacer une fenêtre
+    /// est l'autre acte, et il a sa propre garde.
+    /// </summary>
+    public static Error PeriodExtensionGoesBackwards(DateOnly currentEnd, DateOnly requestedEnd) =>
+        Error.Validation(
+            "Schedule.PeriodExtensionGoesBackwards",
+            $"Allonger une rotation ne peut que repousser sa fin : elle se termine le "
+            + $"{currentEnd:dd/MM/yyyy} et la fenêtre demandée s'arrête le {requestedEnd:dd/MM/yyyy}.");
+
+    public static Error SlotMoveBreaksRun(int fromPeriodNumber, int toPeriodNumber) =>
+        Error.Conflict(
+            "Schedule.SlotMoveBreaksRun",
+            $"Ce déplacement ferait se chevaucher ou s'inverser les périodes P{fromPeriodNumber} et "
+            + $"P{toPeriodNumber} d'un même séjour : un stage en service unique est une présence "
+            + "continue, et ses colonnes doivent se suivre. Choisissez une fenêtre qui reste entre "
+            + "les colonnes voisines.");
+
+    /// <summary>
+    /// ⚠ Distinct de <see cref="SlotMoveCountMismatch"/>, et c'est la règle de la maison : « je n'ai
+    /// rien confirmé » et « j'ai confirmé autre chose » appellent des gestes différents. Un client qui
+    /// n'a jamais ouvert d'aperçu — l'ancien bouton de la grille, qui ne connaît pas encore ce
+    /// paramètre — recevrait sinon une phrase lui parlant d'un aperçu qu'il n'a pas vu.
+    /// </summary>
+    public static Error SlotMoveNotConfirmed(int periods) =>
+        Error.Conflict(
+            "Schedule.SlotMoveNotConfirmed",
+            $"Ce créneau est publié : le déplacer réécrirait la fenêtre de {periods} période(s) déjà "
+            + "publiées. Demandez l'aperçu du déplacement, puis renvoyez ce nombre pour confirmer.");
+
+    public static Error SlotMoveCountMismatch(int confirmed, int actual) =>
+        Error.Conflict(
+            "Schedule.SlotMoveCountMismatch",
+            $"Vous avez confirmé le déplacement de {confirmed} période(s), mais {actual} sont "
+            + "concernées maintenant. Quelque chose a changé depuis l'aperçu — rouvrez-le et vérifiez "
+            + "avant d'appliquer.");
+
     public static readonly Error SlotPublished = Error.Conflict(
         "Schedule.SlotPublished",
         "This period cannot be deleted because one or more of its cohorts have already been published. Unpublish them first.");
@@ -628,19 +757,20 @@ public static class StageErrors
 
     public static Error PeriodNotStarted(Guid periodId) => Error.Conflict(
         "AssignmentPeriods.NotStarted",
-        $"Service period '{periodId}' must be started before it can be paused.");
+        $"La rotation '{periodId}' n'a pas été démarrée : elle ne peut pas être clôturée.");
 
-    public static Error PeriodAlreadyPaused(Guid periodId) => Error.Conflict(
-        "AssignmentPeriods.AlreadyPaused",
-        $"Service period '{periodId}' is already paused.");
-
-    public static Error PeriodNotPaused(Guid periodId) => Error.Conflict(
-        "AssignmentPeriods.NotPaused",
-        $"Service period '{periodId}' is not paused.");
-
+    /// <remarks>
+    /// ⚠ <b>Le remède que cette phrase nomme n'est plus un acte de l'application.</b> L'acte
+    /// « reprendre » a été retiré le 18/09/2026 avec la pause par étape, et rien ne peut plus poser
+    /// <c>IsPaused</c> : une période suspendue en base ne peut venir que d'une annulation d'import qui
+    /// a remis le drapeau tel quel (<c>RestoredPeriod</c>). Dire « reprenez-la » enverrait donc
+    /// chercher un bouton absent — la phrase nomme ce qui est réellement possible.
+    /// </remarks>
     public static Error PeriodPaused(Guid periodId) => Error.Conflict(
         "AssignmentPeriods.Paused",
-        $"Service period '{periodId}' is paused; resume it before closing.");
+        $"La rotation '{periodId}' est enregistrée comme suspendue et ne peut pas être clôturée en "
+        + "l'état. Corrigez ses dates par « Déplacer la colonne », ou reprenez l'affectation depuis "
+        + "le dossier de l'étudiant.");
 
     public static Error PeriodInterrupted(Guid periodId) => Error.Conflict(
         "AssignmentPeriods.Interrupted",

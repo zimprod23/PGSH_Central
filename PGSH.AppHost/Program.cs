@@ -11,8 +11,16 @@ var postgres = builder.AddPostgres("postgres")
     .WithPgAdmin(pgadm => pgadm.WithHostPort(5050))
     .AddDatabase("TodoDatabase");
 
+// ⚠ Le realm est un FICHIER versionné (`keycloak/pgsh-realm.json`), pas seulement le contenu du
+// volume. Le 17/09/2026 une réinitialisation de Docker Desktop a emporté le .vhdx : la base est
+// revenue d'un point de sauvegarde (ils vivent hors du volume), le realm n'avait aucune copie et
+// était à refaire de mémoire. C'est la branche « established in writing as independent » de
+// PHASES.md §18.2 — un realm écrit n'a pas besoin d'être sauvegardé, il se reconstruit.
+// ⚠ Keycloak n'importe QUE si le realm est absent : ce fichier ne réécrit jamais un realm déjà là,
+// donc ce qu'un humain règle dans l'admin console lui survit. Détails : keycloak/README.md.
 var keycloak = builder.AddKeycloak("keycloak", 8082)
     .WithDataVolume()
+    .WithRealmImport("../keycloak")
     .WithExternalHttpEndpoints();
 
 //var redis = builder.AddRedis("cache");

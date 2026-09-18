@@ -18,8 +18,8 @@ public sealed class Reinscription : IEndpoint
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
         app.MapGet("reinscription/preview", async (
-            int fromAcademicYearId,
-            int toAcademicYearId,
+            int? fromAcademicYearId,
+            int? toAcademicYearId,
             int? levelId,
             ISender sender,
             CancellationToken ct) =>

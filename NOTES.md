@@ -3197,6 +3197,11 @@ charge exactement comme la garde le fait » ; c'était vrai de l'intention et fa
 
 ---
 
+## ⚠ Ces deux sections décrivent un acte **retiré le 18/09/2026** — voir « Une pause de moins » plus bas
+
+Elles sont gardées telles quelles : elles sont la mesure qui a fini par le condamner, et la raison
+pour laquelle il a survécu à deux revues avant cela.
+
 ## La pause existe, et elle répond à une autre question (2026-09-03, session 40)
 
 L'utilisateur a posé deux questions le même jour — « peut-on changer P7 alors qu'on est en P3 ? » et
@@ -3925,6 +3930,66 @@ dont la grille est déjà publiée.
   blanc » : ici c'est *dire ce que veut dire un manque*, et ne le dire que quand on sait quoi en faire.
 - **Rien de tout cela n'était visible aux tests.** Les 1 696 étaient verts, la traduction SQL passait,
   le pipeline HTTP passait. Ce qui l'a montré est un clic sur un bouton désactivé.
+
+### ⚠ …et la phrase écrite ce jour-là est devenue fausse six jours plus tard (17/09/2026)
+
+Suite directe, remontée par l'utilisateur lisant l'écran réel : 3ᵉ MED, 10/03/2027 → 30/04/2027,
+37 ouvrables perdus, 16 créneaux traversés, 933 étudiants, **1 000 cellules publiées**, et le message
+se terminant par « déplacer une colonne déjà publiée n'est pas encore possible ». La phase **17.1 l'a
+livré le 13/09** — quatre sessions plus tard, dans le même arbre de travail.
+
+- ⚠ **Le défaut est le symétrique exact de celui du 07/09, et c'est ce qui le rend instructif.** Le
+  premier prescrivait un remède qui n'existait pas ; le second niait un remède qui existait. Les deux
+  sortent de la même cause — **une phrase qui décrit l'état du dépôt vieillit, et rien ne la relit**.
+  Un rapport qui ne nomme aucune suite se lit « les jours sont perdus », ce qui est une prescription,
+  pas une abstention.
+- **Ce qui a remplacé la phrase** : `SlotsMovable`, le nombre de colonnes traversées que le
+  déplacement accepterait. Sur cet écran-là c'est **16 sur 16** — une rotation publiée est
+  `IsStarted = false` jusqu'à ce que l'administration la démarre, ce qui est exactement pourquoi
+  « Rotations en cours » affichait **0** à côté de 933 étudiants. Le remède était entièrement
+  disponible et le rapport disait qu'il n'existait pas.
+- **Un troisième cas n'avait aucune branche** : des rotations traversant la fenêtre alors qu'**aucun
+  créneau** ne la traverse — des périodes écrites *hors grille*. Promotion au repos : **aucun
+  avertissement du tout**. Promotion avec des rotations en cours : « reposez l'axe », un geste qui
+  réussit et ne les touche pas. Les deux remèdes partent de la grille (l'un de l'axe, l'autre des
+  cellules) et une période hors grille n'a ni l'un ni l'autre.
+- ⚠ **La règle a été *extraite*, pas recopiée une troisième fois.** `IsStarted || IsComplete ||
+  Evaluation != null || Attendance.Any()` vivait dans `InternshipAssignment.Reschedule` **et** dans
+  `PublishedPeriodShifter.PlanAsync`. Une troisième copie dans le rapport est précisément comment un
+  écran en vient à promettre un déplacement que l'agrégat refuse ensuite. C'est
+  `ServicePeriodLifecycle.Movable`, et la lecture côté magasin la **recompose**
+  (`ExpressionComposition.Through` + un `.Not()` neuf) au lieu de la réécrire — `Invoke` est ce qu'EF
+  refuse.
+  - ⚠ **Elle n'est délibérément pas dérivée des quatre états du cycle de vie.** Elle lit `Attendance`,
+    qui n'entre dans aucun d'eux : une rotation `Planned` portant des journées de présence est une
+    ligne que le cycle de vie ne peut pas produire et que le magasin peut porter, et la déplacer
+    laisserait ces journées sur des dates que personne n'a servies.
+  - ⚠ **Et elle ne répondait qu'à *une* des deux questions — mesuré le 18/09/2026, c'est ce qui
+    rendait le cas qui compte irréparable.** « Puis-je déplacer le **début** ? » est non dès qu'une
+    rotation a commencé. « Puis-je repousser la **fin** ? » est oui : allonger un séjour ne réécrit
+    rien de ce qui a eu lieu. Or une fenêtre déclarée en cours d'année tombe *par construction* sur
+    une promotion en cours — 2 des 10 colonnes traversées de la 4ᵉ MED portent les 315 rotations de
+    Pédiatrie démarrées le 17/09 — donc sous la seule règle `Movable` le rapport comptait ces
+    colonnes perdues alors qu'elles sont allongeables. D'où `ServicePeriodLifecycle.Extendable`
+    (`!IsInterrupted && !IsComplete && Evaluation == null`) et `InternshipAssignment.ExtendTo`.
+    - ⚠ **Les présences sont le pivot de la distinction** : elles interdisent le déplacement et
+      **pas** l'allongement, parce qu'une journée pointée vit entre le début et l'ancienne fin et
+      qu'une fenêtre qui ne fait que croître la contient encore. Le refus du raccourcissement n'est
+      donc pas une garde d'état — il est dans le **nom de l'acte**, `ExtendTo`, qui ne sait que
+      repousser. Une garde nommée `Resize` aurait rendu le mauvais sens atteignable.
+    - ⚠ **`Movable` ⊂ `Extendable` est vérifié sur les 32 combinaisons**, pas déduit. Pour que ce
+      soit un théorème, `IsInterrupted` a été ajouté à `Movable` : une rotation coupée par un
+      transfert a pour fenêtre ce qui a été servi avant la coupure, donc ses **deux** bouts sont des
+      faits. En pratique une interruption implique un démarrage — la ligne fermée est donc une ligne
+      que le magasin peut porter et que le cycle de vie ne produit pas, exactement comme la
+      `Planned` pointée au-dessus.
+    - ⚠ **Date absolue, jamais un delta.** Rejoué avec la même fin, `ExtendTo` ne fait rien et ne
+      lève rien. C'est ce qui permettra de relancer un recalcul d'axe après chaque fenêtre déclarée,
+      corrigée ou révoquée sans que la rotation s'allonge à chaque passage — l'accumulation pour
+      laquelle `ResumePeriod` a été retirée la veille plutôt que réparée.
+- ⚠ **Ce qui reste absent, et c'est le vrai sujet** : le déplacement **ne cascade pas**. Réparer ces
+  16 colonnes, c'est 16 actes, et la garde d'ordre du séjour refusera ceux qui se chevaucheraient.
+  L'avertissement le dit en toutes lettres plutôt que de le laisser découvrir au deuxième clic.
 
 ## Un balayage des résidus, et ce qu'il a réellement trouvé (07/09/2026, session 50)
 
@@ -4893,6 +4958,50 @@ dépasse son délai.
 
 ---
 
+## Session 72 — Un prédicat qui répondait à deux questions (17/09/2026)
+
+**Le constat, et comment il a été mesuré.** `WorkingDayCalendar.IsWorkingDay` était appelé à trois
+endroits — `Count`, `NextWorkingDay`, `Lay` — et ces trois appels ne posaient pas la même question.
+`Count` demande « ce jour compte-t-il dans la durée », `NextWorkingDay` demande « une fenêtre peut-elle
+commencer là », et `Lay` les deux. Tant que c'était un seul prédicat, la règle donnée par la faculté le
+10/09/2026 — un férié peut être **traversé**, une période ne peut ni commencer ni finir dessus — était
+**inexprimable** : marquer un férié travaillé l'aurait rendu bornable du même geste.
+
+**Ce qui prouve que les deux questions sont vraiment distinctes**, plutôt qu'une distinction inventée
+pour la symétrie : le jeu de réponses n'est pas le même. Jour de repos : ne compte pas, ne borne pas.
+Férié ordinaire : ne compte pas, ne borne pas. Férié travaillé : **compte**, ne borne pas. La quatrième
+combinaison — borne mais ne compte pas — est celle qui n'existe pas, et c'est pourquoi les deux
+prédicats sont emboîtés : une fenêtre dont le dernier jour ne compterait pas serait une fenêtre qui ne
+contient pas son propre dernier jour.
+
+**La décision qui restait à prendre, et pourquoi elle s'écarte de la note de l'item.** L'item 0ay disait :
+si le Nᵉ jour tombe sur un férié drapeau, étendre jusqu'au jour bornable suivant « sans le compter,
+sinon le compte et la date de fin se contredisent ». La raison est juste ; la prescription, prise à la
+lettre, produit la contradiction qu'elle redoute. Le jour d'arrivée est bornable, donc — les prédicats
+étant emboîtés — il compte : l'exclure du compte d'une fenêtre qui le **contient** fait diverger
+`Count(Start, End)` et `WorkingDays` sur la même fenêtre. Retenu : étendre **et** compter, donc
+`Count(Start, End) == WorkingDays` reste vrai partout, et l'écart avec ce qui a été demandé est
+**rapporté** (`WorkingDayWindow.RunsLongerThanAsked`) au lieu d'être absorbé. C'est la règle maison
+appliquée à elle-même : un nombre ne tient pas deux états, on en met deux.
+
+⚠ **Cas inatteignable aujourd'hui** — aucune ligne n'est marquée travaillée, donc toute fenêtre tient
+exactement ce qu'on lui a demandé. Il est couvert quand même parce que c'est précisément le genre de
+branche qu'on découvre sur une table publiée.
+
+**Le compilateur a trouvé deux choses que je n'avais pas vues.** `ProposedClosure` — une troisième
+implémentation de `ICalendarClosure`, un seul site d'appel — et, par elle, le fait qu'un champ libre y
+aurait permis à un aperçu d'annoncer un état que `PromotionPause` est incapable d'avoir, dans le type
+même dont la documentation dit qu'il existe pour que l'aperçu et l'acte ne divergent pas. Il est calculé
+depuis la portée. Et la suppression d'`IsWorkingDay` a nommé six sites de test dont chacun posait en
+fait l'une ou l'autre question — le même bénéfice que `StageSlot.For` avait donné.
+
+**Et deux défauts trouvés en écrivant, tous deux dans le CRUD et non dans le calendrier.**
+① `UpdateHolidayResult.SlotsSpanning` était gardé par `DatesMoved` seul : basculer le drapeau change ce
+que vaut toute fenêtre traversant la date **sans bouger de date**, si bien que le seul changement qui
+*rend* des jours serait devenu le seul silencieux. ② `UpdateHolidayCommand.CountsAsWorkingDay` est
+`bool?` : un PUT qui remplace tout, un écran dans un autre dépôt, et un `bool` nu ne distingue pas
+« je demande chômé » de « je ne connais pas ce champ » — enregistrer un *nom* aurait défait un drapeau.
+
 ## Session 58 — Téléverser une répartition au lieu de la générer (13/09/2026)
 
 Demande de l'utilisateur, formulée juste après l'explication du canevas de découpage : téléverser des
@@ -5315,3 +5424,565 @@ c'était faux. `docs/operations.md` dit de ne pas écrire dans la base pour se d
 retirée à la main ne laisse **rien** derrière elle qui dise qu'elle a existé. L'acte porte un nombre
 confirmé, une entrée `AFFECTATION_IMPORTS_PURGED`, et un constat disant combien d'imports et quels
 fichiers — c'est-à-dire qu'il remplace la trace qu'il supprime.
+
+## Session 69 — Trois classes de défauts, cherchées plutôt que rencontrées (14/09/2026)
+
+Audit du dépôt demandé pour lui-même : pas un bug signalé, un balayage des classes de défauts que
+`CLAUDE.md` nomme déjà comme récurrentes. Ce qui suit est ce qui est **sorti** du balayage, et le
+balayage a autant de valeur par ce qu'il a trouvé propre que par ce qu'il a trouvé cassé.
+
+### ① Trois règles rendaient des étudiants importés non enregistrables
+
+Troisième, quatrième et cinquième instances de « un validateur décrit ce qu'une *sauvegarde* doit
+satisfaire », toutes sur `UpdateStudentCommandValidator`, toutes contre des valeurs que les chemins
+d'écriture en masse produisent **exprès** :
+
+| Règle | Ce que la base contient |
+|---|---|
+| `Gender.NotEqual(Gender.None)` | `LegacyIdentityMapper.MapGender` écrit `None` pour **1 050** lignes à sexe vide et 3 qui portent « C ». Son propre commentaire : « None is the honest answer; it is not a guess. » Et `InscriptionPlanner` en écrit encore à chaque canevas dont la colonne Sexe est vide. |
+| `DateOfBirth.NotEmpty()` | `User.DateOfBirth` est `DateOnly?`, et `LegacyImportPlanner` comme `InscriptionPlanner` stockent `null` quand la source ne porte pas de date. |
+| `FirstName/LastName.NotEmpty().MaximumLength(50)` | `SplitName` rend `("", "Bennani")` pour un nom d'un seul mot, à dessein ; et l'import tronque à **100**, la largeur réelle de la colonne. Un nom de 51 à 100 caractères s'importait puis ne se sauvegardait plus. |
+
+⚠ **La méthode qui les a trouvées est reproductible** : lire le chemin d'écriture, pas le formulaire.
+Chacune des trois est réfutée par un fichier — l'importeur ou le planificateur — qui dit en
+commentaire *pourquoi* il stocke cette valeur-là. La question qu'une règle nouvelle doit trancher
+n'est jamais « une bonne fiche devrait-elle avoir ceci ? » mais « quelque chose de déjà stocké en
+manque-t-il ? », et la réponse est dans ce qui a écrit les lignes.
+
+⚠ **Le côté création reste plus strict, et c'est délibéré.** Aucun enregistrement existant n'est jugé
+par un validateur de création, donc `CreateStudentCommandValidator` continue d'exiger un sexe et une
+date de naissance : on peut demander à un humain devant un formulaire, on ne peut rien demander à une
+ligne importée. L'asymétrie est écrite sur les deux classes pour qu'elle ne se lise pas comme un oubli.
+
+### ② Le même défaut à l'envers : un validateur plus large que sa colonne fait un 500
+
+Les quatre validateurs d'hôpital et de centre autorisaient un nom de **200** caractères contre
+`varchar(100)`, et une ville de **100** contre `varchar(50)`. La description, l'e-mail et les trois
+coordonnées n'étaient bornés **nulle part** — ni à la création, ni à la modification. Une valeur trop
+longue passait la validation, PostgreSQL répondait `22001 string_data_right_truncation`, et cela
+devient une `DbUpdateException` → **500** dont le client jette le `detail` : l'écran affiche « Une
+erreur serveur est survenue » et l'utilisateur n'apprend jamais qu'un nom est trop long.
+
+C'est « une suppression interroge le schéma, ou la contrainte répond à sa place », atteinte par une
+longueur plutôt que par une clé étrangère. Les largeurs sont désormais nommées une fois
+(`HospitalTextLengths`, `StudentIdentifierRules.MaxNameLength`) plutôt qu'écrites à la main de chaque
+côté — c'était précisément la dérive.
+
+⚠ **Le contrôle a servi tout de suite.** Le cas « un nom qui remplit exactement la colonne est
+accepté » a échoué en **404**, parce que `SeedCatalog` ne crée aucun centre et que la création
+d'hôpital en exige un. Les cas de refus, eux, passaient — la validation précède le handler, donc ils
+n'atteignaient jamais le 404. Un fichier qui n'aurait testé que les refus aurait été vert et faux.
+
+### ③ Item 0bd fini : le `SaveChanges` **conditionnel**
+
+Le balayage du 10/09 n'avait retenu que les handlers n'appelant *jamais* `SaveChanges` — deux, tous
+deux défectueux. Restaient ceux dont l'appel est sous une garde, et la garde est toujours
+`if (count > 0)`. **Six sorties** ne validaient donc pas l'entrée du registre, et chaque fois sur le
+run où l'acte n'a rien changé, c'est-à-dire **le rejeu du bouton** : redécouper une promotion déjà
+découpée, resemer un calendrier déjà semé, recloner un texte déjà cloné, reposer un mode de placement
+à l'identique. Détail dans `docs/audit-calendar.md`.
+
+⚠ **`PARTITIONS_ASSIGNED` est celui qui pique.** Le code d'acte avait été ajouté exprès pour que
+« qui a découpé cette promotion, et quand ? » ait une réponse — la question qu'ont soulevée 66 rosters
+apparus sur la 7ᵉ MED le 02/09/2026 — et c'est le rejeu, celui qui n'étiquette plus rien, qui ne
+laissait aucune ligne. Les deux actes de partition ne déposaient par ailleurs **aucun** constat, même
+sur leur chemin normal : l'entrée disait ce qui avait été *demandé* et jamais ce qui avait été *fait*.
+
+### Ce que le balayage a trouvé propre, et qui vaut d'être écrit une fois
+
+Pour que la prochaine session ne les rebalaye pas : `Error.Problem` n'est plus que sur les quatre
+sites de sauvegarde légitimes ; le couple niveau + année + statut est bien **un seul** `Any` ;
+`AsNoTracking` n'atteint plus aucun hôte d'écriture (`CnpnTargetPlanner` est correct) ; les huit
+contrôles d'unicité de modification excluent bien la ligne courante et gardent l'identifiant optionnel
+contre `null` ; `DeleteStageCommand` et `DeleteServiceCommand` ont leurs gardes ; les quatre erreurs
+neuves de la phase 17.1 sont toutes `Conflict` ; aucun acte en masse n'échappe à une transaction ;
+`ServicePeriodSlotCoverage` est lu partout où la FK de tête aurait menti.
+
+### Deux choses vues et **non** corrigées, à décider
+
+- ⚠ **`BacSeries` n'est jamais renseigné par l'import.** `LegacyImportPlanner` ne l'écrit pas, donc
+  les **10 203** étudiants importés portent la valeur 0 de l'enum, soit **`BacFrançais`**, et l'enum
+  n'a pas de membre `None`/`Inconnu`. Une seule valeur pour « on sait » et « on n'a jamais demandé » —
+  la règle « dire ce que le blanc veut dire », violée dans le schéma et non dans un écran. Corriger
+  demande un membre d'enum, une migration et une décision sur ce que devient l'existant : ce n'est pas
+  un correctif de validateur, et cela n'a pas été fait de ma propre initiative.
+- ⚠ **`PublishedPeriodShifter.ApplyAsync` mute des `ServicePeriod` chargées directement sur le
+  contexte**, hors de l'agrégat `InternshipAssignment`, et ne lève **aucun événement de domaine** —
+  alors que « une rotation publiée a bougé » est un fait plus gros que bien des actes qui en lèvent un.
+  Ce n'est pas une dérive introduite par la phase 17.1 : `MidStageTransferRescheduler` fait déjà pareil
+  depuis longtemps. Mais c'est le chemin qui réécrit des milliers de lignes d'un coup.
+
+## Session 69b — Le reste de l'audit, et une supposition qui se faisait passer pour une donnée (14/09/2026)
+
+### La colonne `SERIE` existe, et c'est la réponse à 0cb
+
+Mesuré directement dans `Medecine.mdb` (lecture du **schéma** seul, pas des lignes) : la table
+`ETUDIANT` porte `SERIE` à côté de `NAT_BAC`, `CENTRE`, `ANNEE_BAC`, `NOTE_ACCES`, `CLASSEMT`,
+`CODE_NAT`, `CODE_PROV`, `C_PROFESS`, `C_ACADEMIE`, `DELEGATION`, `PAYS` — et il existe une table de
+correspondance `TYPEBAC` (`SERIE` / `CODEBAC`). `AccessLegacyReader` sélectionne onze colonnes et pas
+celle-là.
+
+⚠ **Mais reprendre la colonne n'est pas un mapping.** Le catalogue `TYPEBAC` contient des séries que
+l'enum `BacSeries` ne sait pas exprimer : « Lettres », « Lettres Modernes Bilingues », « Lettres
+Originelles », « Lettres Originelles Arabisées », « Sciences Agronomiques », « Mathématique
+Technique », « Bac E », « Bac F », « Bac G ». Les plier sur sept membres serait très exactement la
+supposition que cette session retire par ailleurs. C'est donc une décision de modélisation — élargir
+l'enum, ou garder le libellé d'origine — et elle n'a pas été prise de ma propre initiative.
+
+### Le défaut réel était pire que celui signalé
+
+Le rapport d'audit disait : « l'import n'écrit pas `BacSeries`, donc l'enum rend son zéro, et 10 203
+étudiants se lisent *Bac Français* ». Vrai. Mais en cherchant le second chemin d'écriture :
+
+```csharp
+BacSeries: bac.Value is { } b ? (BacSeries)b : Domain.Students.BacSeries.SVT,
+```
+
+`InscriptionPlanner` écrivait **`SVT`** pour toute ligne de canevas dont la colonne est vide. Pas le
+zéro d'un enum mal conçu : une valeur **choisie**, écrite à la main — et la ligne juste au-dessus, dans
+la même expression, est `Gender.None`, dont le commentaire de l'importeur dit « None is the honest
+answer; it is not a guess ». Un même fichier faisait la chose honnête pour le sexe et devinait pour le
+bac, et rien sur aucun écran ne distinguait une série devinée d'une série relevée.
+
+⚠ **La leçon de méthode** : le défaut signalé était « une valeur par défaut malheureuse », donc
+passif ; le défaut réel était une écriture délibérée, donc actif et toujours en cours. Chercher *tous*
+les chemins qui écrivent un champ, et pas seulement celui par lequel on est arrivé.
+
+⚠ **`NonRenseigne` est ajouté en dernier**, et c'est structurel : la colonne est un `integer` **sans
+conversion** (`BacSeries` n'a aucune configuration EF), donc chaque membre a déjà sa valeur écrite dans
+10 203 lignes et réordonner reclasserait la base en silence. Aucune migration n'est nécessaire pour un
+membre ajouté à la fin.
+
+⚠ **Les lignes déjà écrites ne sont pas corrigées**, et ne peuvent pas l'être par du code : un 0 stocké
+recouvre « importé, jamais renseigné » et « quelqu'un a bien choisi Bac Français », que rien ne
+distingue après coup. Un `UPDATE` en masse effacerait les secondes.
+
+### L'agrégat reprend son invariant (0cc)
+
+`PublishedPeriodShifter.ApplyAsync` chargeait des `ServicePeriod` à plat sur le contexte et leur
+écrivait des dates. Deux conséquences : la règle « une rotation commencée, notée ou pointée ne se
+déplace pas » ne vivait que dans `PlanAsync`, donc **dans l'appelant** ; et l'acte ne levait aucun
+événement de domaine alors qu'il réécrit des milliers de fenêtres d'un coup.
+
+`InternshipAssignment.Reschedule` porte maintenant les deux, plus une garde que personne n'avait :
+une fenêtre dont la fin précède le début. ⚠ Celle-là est **silencieuse** — chaque calcul de durée en
+aval la lit comme un nombre de jours négatif et rend des totaux que rien n'annonce comme absurdes.
+
+⚠ **Un événement par changement *réel*, jamais par ligne touchée.** Sous `SingleService` une période
+couvre une suite de colonnes ; déplacer celle du milieu ne bouge pas le séjour. Lever un événement par
+période *couverte* ferait lire « des milliers de rotations déplacées » là où aucune ne l'est — la même
+distinction que `PeriodsShifted` / `PeriodsCovered` porte déjà dans le résultat de l'acte.
+
+⚠ **`MidStageTransferRescheduler` n'a pas été aligné, délibérément.** Il raccourcit une rotation *qui a
+commencé* — ce que `Reschedule` refuse par construction — et l'acte qui l'appelle lève déjà
+`StudentCohortTransferredDomainEvent`. Les unifier aurait demandé d'affaiblir la garde pour rien ;
+« une seule règle » ne veut pas dire « une seule méthode » quand les actes diffèrent.
+
+## Session 69c — Le vrai défaut de données, et il ne venait pas de l'audit de style (14/09/2026)
+
+Question posée : « quels bugs restants causent de gros problèmes de données ? » — c'est-à-dire, en
+creux, « ce que tu viens de corriger, est-ce que ça comptait ? ». Réponse honnête : **non, pas à ce
+titre**. Un étudiant impossible à enregistrer bloque un geste ; un 500 sans phrase déroute. Ni l'un ni
+l'autre n'abîme la donnée. Le balayage refait sous cet angle-là en a sorti **un** qui l'abîme.
+
+### `POST /api/groups/generate-schedule`
+
+Reliquat d'avant le plan macro (`git log` : « Restructure », « Macro vs Micro partitions »), toujours
+**mappé**, toujours authentifié, **zéro test**, et **aucun écran ne l'appelle** — vérifié sur les deux
+dépôts. Sa seule surface cliquable était Scalar/Swagger.
+
+⚠ **Le chemin dangereux est silencieux** :
+
+```csharp
+var slot = await dbContext.StageSlots
+    .FirstOrDefaultAsync(s => s.StageId == stageReq.StageId && s.PeriodNumber == r + 1, ct);
+```
+
+Aucun prédicat d'année, sur une table clé `(StageId, AcademicYearId, PeriodNumber)` — le même P1 existe
+une fois par promotion, avec ses propres dates. Et l'insertion **réussit** : le seul index unique en jeu
+est `(CohortId, StageSlotId)`, et la cohorte qu'il crée est neuve. Donc des cellules se rattachent à la
+colonne d'une autre promotion, et la grille, les lectures d'occupation et la garde de publication les
+comptent ensuite comme réelles. Ce n'est plus théorique : la base porte 80 créneaux sur la 3ᵉ MED
+2026-2027 depuis le 13/09.
+
+Le reste, dans l'ordre où cela ferait mal : le `StageSlot` qu'il crée n'a pas d'`AcademicYearId` (→ 0 →
+FK `Restrict` → 500, levé au `SaveChanges` **au milieu** de sa boucle, donc après des écritures déjà
+validées) ; **il n'y a aucun index unique sur `Cohort(StageId, AcademicGroupId)`** — vérifié — donc le
+rejouer double chaque cohorte et chaque affectation ; il contourne toutes les gardes de planification et
+lit `Service.Capacity` là où les quotas sont censés le remplacer ; et il n'est **ni audité, ni confirmé,
+ni atomique**, de sorte que s'il a déjà été joué, rien nulle part ne le dit.
+
+**Déprécié plutôt que supprimé** (décision de l'utilisateur) : `[Obsolete]` sur la commande, le handler
+et le validateur, le détail complet sur l'endpoint, et `ExcludeFromDescription()` pour le retirer de
+Scalar et de Swagger. ⚠ **La route répond toujours à un appel direct** — masquer n'est pas désactiver.
+Suppression = item 0cd.
+
+### La leçon de méthode
+
+Les trois classes balayées en session 69 venaient de `CLAUDE.md`, donc de défauts **déjà rencontrés**.
+Celui-ci ne ressemblait à aucun d'eux : il ne se trouve pas en cherchant un motif connu, mais en
+demandant « quel code écrit beaucoup, et qui le regarde ? ». Le croisement qui l'a sorti est
+**« endpoint mappé » × « aucun test » × « écrit en masse »** — et il était le seul des trois à la fois.
+
+## Session 69e — Les deux autres racines de la planification, fermées (14/09/2026)
+
+Suite directe de la session 69d, qui avait fermé `StageSlot` derrière `StageSlot.For(...)`. Même
+geste, mêmes raisons, sur les deux autres racines : `Cohort` et `AcademicGroup`. Aucune
+fonctionnalité — du nettoyage, et ce qu'il a fait tomber.
+
+### Ce qui a été fermé
+
+| Type | Identité | Sites de construction | Fabrique |
+|---|---|---|---|
+| `Cohort` | `(StageId, AcademicGroupId)` | 5 | `Cohort.For(...)` |
+| `AcademicGroup` | `(AcademicYearId, LevelId, GroupNumber)` | 3 | `ForPromotion(...)` **et** `AsUnassignedBucket(...)` |
+
+Les clés passent en `private set`. Le reste — le libellé d'une cohorte, le libellé, la zone, la
+partition et le but d'un groupe — reste ouvert : c'est ce que `UpdateGroupCommand` modifie
+légitimement. Changer l'année ou la promotion d'un groupe n'est pas une correction, c'est un autre
+groupe, et ses cohortes, ses cellules et l'année entière de ses étudiants le suivraient en silence.
+
+### ⚠ Deux fabriques pour `AcademicGroup`, et c'est là tout le propos
+
+« Non réparti » est légitime : c'est le panier d'une année, qui rassemble les inscriptions non
+réparties de **toutes** ses promotions — 4 725 en 2025-2026. Il n'a pas de niveau, et il ne doit pas
+en avoir.
+
+Sous **une** fabrique à `levelId` nullable, *oublier* la promotion et *vouloir* le panier auraient été
+le même appel. C'est exactement la forme de l'incident des 4 725 : un panier qui se comporte comme un
+groupe entre en entier dans `CohortProvisioner` et reçoit une cohorte, donc un service. Séparées :
+l'oubli ne compile pas, et le panier se demande.
+
+⚠ Et `AsUnassignedBucket` ne prend **pas** de `rotationGroup`. Une étiquette de partition sur le
+panier est précisément ce qui le fait entrer dans le plan ; `AcademicGroupErrors.UnassignedRosterCannotBePartitioned`
+le refuse à l'exécution, et ici il n'y a simplement pas de paramètre par où le passer.
+
+### ⚠ Fermer le type ne veut pas dire que le schéma est d'accord
+
+L'identité d'un `StageSlot` est tenue par un index unique. Celle d'une `Cohort` n'est tenue par
+**rien** — mesuré en session 69c : il n'y a aucun index unique sur `Cohort(StageId, AcademicGroupId)`.
+`CreateCohortCommandHandler` et `CohortProvisioner` cherchent le doublon eux-mêmes, et un chemin qui
+oublierait de le faire n'est rattrapé par personne. Une fabrique voit un objet, jamais la table : elle
+ferme l'autre moitié — une cohorte amputée d'un de ses deux côtés — et le dit dans sa doc XML plutôt
+que de laisser croire qu'elle fait davantage.
+
+### Le changement a de nouveau nommé ses propres coupables
+
+Comme pour `StageSlot`, la valeur du geste se lit dans ce que le compilateur a sorti tout seul :
+
+- **`AbolishedStageRevalidationTests`** construisait son groupe de l'année courante **sans niveau** —
+  donc semait « Non réparti » sans le vouloir — et bâtissait dessus la cohorte de rattrapage. C'est
+  l'état que `CreateCohortCommandHandler` refuse depuis `StageErrors.CohortOnUnassignedRoster`, et la
+  fixture l'exemptait de la règle en silence.
+- **`RosterTeardownGuardTests`** semait « le panier » par `SeedGroup(99, 0)` : un groupe **de
+  promotion** numéroté 0, c'est-à-dire ni un groupe ni le panier. Celui-là n'est pas tombé à la
+  compilation mais à l'exécution, sur le garde-fou de fixture — la seule des 2 074 à le faire.
+- Huit autres fixtures annulaient le niveau d'un groupe *après* l'avoir semé (`group.LevelId = null`,
+  `= SixthYearId`), ce qui est devenu `SeedUnassignedBucket(...)` ou `levelId:` à la source.
+
+### Le chemin du graphe
+
+`LegacyImportPlanner` construit l'année, le groupe et la cohorte en une passe et laisse le magasin
+numéroter les trois. Une fabrique à identifiants y serait satisfaite par deux zéros — précisément la
+ligne qu'on refuse. Les deux classes portent donc une surcharge par **navigation** (`ForPromotion(year,
+level, …)`, `Cohort.For(stage, group, …)`) plutôt que de laisser ce chemin passer à côté. Et c'est
+dans ce fichier que la distinction des deux fabriques se lit le mieux : `number == 0` y était déjà la
+branche du panier, elle appelle maintenant la porte qui porte ce nom.
+
+### Les fixtures passent par les fabriques
+
+`TestHarness.NewGroup` / `NewCohort`, sur le modèle de `NewSlot` : la fabrique, puis l'identifiant
+posé après (un identifiant est au magasin, pas au domaine). `SeedUnassignedBucket` est **délibérément**
+un helper séparé — une fixture qui atteindrait `SeedGroup` en omettant le niveau sèmerait le panier par
+accident, ce que la paire de fabriques existe pour empêcher. Une fixture qui viole une identité lève
+sur place : elle poserait une ligne qu'aucun chemin réel ne produit, et le test bâti dessus ne
+prouverait rien.
+
+### Couverture
+
+`PlanningIdentityTests` passe de 5 à 18 cas — ce que le compilateur ne peut pas dire : une clé
+**présente mais dénuée de sens** (`0`, négative), qu'un `int` laisse toujours écrire. Le zéro et le
+négatif sont deux cas distincts, sans quoi une garde écrite `== 0` passerait. Et deux témoins : que
+les deux formes de groupe ne sont pas le même objet, et que le panier sort de sa fabrique sans
+étiquette de partition.
+
+**Vert : 2 074 tests, 0 échec**, y compris les 9 cas Testcontainers — c'est la seule preuve que le
+vrai fournisseur matérialise bien des clés en `private set`.
+
+
+## Une pause de moins : l'acte retiré plutôt que réparé (18/09/2026, session 73)
+
+**Le point de départ n'était pas la pause, c'était la cascade.** L'item 0ce — rattraper une fenêtre
+d'examens sur une promotion déjà publiée — butait sur une phrase de son propre énoncé : « deux choses
+s'appellent « pause » et se comportent à l'inverse, sans se connaître : trancher leur articulation
+*avant* d'écrire l'acte ». La cascade ne pouvait pas être écrite tant que les deux existaient, parce
+qu'elle aurait dû choisir laquelle des deux elle prolongeait.
+
+### Les deux gardes, mesurées avant de couper
+
+**En base, le 18/09/2026** (lecture seule, base vivante) : `ServicePeriods.IsPaused` = **0**,
+`PeriodPause` = **0** lignes, dont **0** ouvertes, `PromotionPauses` = **0**. Rien n'était donc
+suspendu, et rien ne serait resté bloqué sans acte de reprise — ce qui était le vrai risque, la
+suppression de `ResumePeriod` étant sans retour pour une période déjà gelée.
+
+⚠ **Et `PromotionPauses` à 0 confirme l'item le plus urgent de la file** : 2026-2027 n'a **aucune**
+fenêtre d'examens déclarée, alors que la 3ᵉ MED est publiée depuis le 13/09.
+
+**Côté écran** : contrairement à `groups/generate-schedule` (item 0cd, supprimé quatre jours plus
+tôt sans que rien ne l'appelle), la pause par étape **avait deux boutons** — « Pause » et
+« Reprendre » sur « Suivi des affectations », plus une fenêtre de saisie du motif. Le retrait est
+donc une modification des deux dépôts, pas un nettoyage de code mort.
+
+### Ce que l'acte faisait, lu dans le code le jour du retrait
+
+Quatre défauts avaient déjà été écrits (session 49, `PHASES.md` §17.2). La lecture du 18/09 en a
+ajouté trois que personne n'avait relevés :
+
+5. **Aucune garde `Movable`.** `ResumePeriod` poussait les périodes suivantes sur le seul critère
+   `!IsComplete && !IsInterrupted`. `ServicePeriodLifecycle.Movable` — écrit depuis — refuse en plus
+   une rotation portant des **journées de présence**. L'acte marchait donc par-dessus des présences
+   déjà pointées, les laissant sur des dates que plus personne ne servait.
+6. **Aucun événement de domaine.** L'acte réécrivait les fenêtres de milliers d'affectations sans
+   rien lever. C'est exactement le défaut que la phase 17.1 avait corrigé sur le déplacement d'une
+   colonne publiée (`ServicePeriodRescheduledDomainEvent`, qui transporte **les deux** fenêtres) —
+   corrigé d'un côté, laissé intact de l'autre.
+7. **Rien au registre, et le zéro non plus.** Les deux commandes n'étaient pas `IAuditableCommand`,
+   donc aucune entrée ; et le `SaveChangesAsync` était derrière `if (affected > 0)`, la forme
+   exacte que `CLAUDE.md` nomme — « personne n'a joué cet acte » et « quelqu'un l'a joué sans
+   effet » devenaient la même trace, c'est-à-dire aucune.
+
+### Pourquoi retirer plutôt que réparer
+
+Les sept défauts ont **une** cause : l'acte écrit des dates au moment de la pause. Jours calendaires,
+grille laissée derrière, `UtcNow` aux deux bouts, accumulation au rejeu — tout en découle. Le réparer
+voulait dire le réécrire entièrement en gardant son nom, et le nom aurait continué de désigner la
+mauvaise unité (« un stage » là où un examen est un fait de promotion).
+
+**Ce qui survit est la forme opposée, et elle existait déjà des deux côtés :** `PromotionPause`
+déclare une fenêtre sans écrire de date, se corrige et se révoque ; `InternshipAssignment.Reschedule`
+déplace une fenêtre publiée en écrivant des dates **absolues**, sous la garde de l'agrégat et en
+levant son événement. Rejoué avec la même fenêtre, `Reschedule` ne fait rien — c'est cette propriété,
+et elle seule, qui rend une cascade rattrapable.
+
+### ⚠ Ce que le retrait coûte, dit franchement
+
+**Suspendre la rotation d'une seule cohorte n'est plus possible.** C'est un retrait, pas un
+remplacement, et l'argument qui avait sauvé l'acte deux fois — « un service qui ferme une semaine,
+c'est vraiment par stage » — reste juste **en tant qu'énoncé de domaine**. Ce qu'il comparait était
+une pause par étape idéale, pas celle du dépôt. Le jour où la faculté le demande, cela se construit
+sur la forme déclarative, et non en ressuscitant un acte dont chaque défaut venait d'écrire des dates
+trop tôt.
+
+### Deux trouvailles de bordure
+
+- **`ServicePeriod.IsPaused` et `PeriodPause` restent en base, et ce n'est pas un oubli.** Une
+  annulation de téléversement remet une période **telle qu'elle était**, drapeau compris
+  (`RestoredPeriod.IsPaused`) : c'est le seul chemin qui puisse encore produire l'état, donc les
+  lectures — export, liste de travail du chef, badge « En pause » — restent exigibles. Ce qui a
+  changé est qu'il n'existe plus aucun **écrivain**. Retirer la colonne serait un second acte, avec
+  sa migration et sa section de recette, sur un registre d'annulation lui-même pas encore éprouvé
+  (items 0br / 0bx) : deux choses non vérifiées à la fois.
+- **Une note de test périmée, découverte en tirant le fil.** `AssignmentCommandTests` portait depuis
+  des mois : « clôturer une rotation jamais démarrée est accepté — `CompletePeriod` garde
+  interrompue/close/suspendue mais pas non-démarrée, contrairement à `PausePeriod` », et laissait le
+  cas **volontairement non couvert** en attendant un arbitrage. La garde `!period.IsStarted` existe
+  bel et bien, et `PHASES.md` la liste comme défaut **clos**. La note se servait de `PausePeriod`
+  comme point de comparaison, ce qui est la seule raison pour laquelle elle a été relue. Le cas est
+  désormais couvert.
+
+
+## « Aucun impact » : une fenêtre déclarée qui coupait 1 535 rotations (18/09/2026, session 73b)
+
+**Rapporté par l'utilisateur, deux fois.** La 4ᵉ MED est découpée, répartie et **publiée** (600
+cellules, 4 625 périodes). Une fenêtre d'examens est déclarée sur décembre, puis retirée, puis
+re-déclarée sur 14/09 → 22/10. À chaque fois : « je ne vois aucun impact ».
+
+### Ce que la base disait, mesuré
+
+| | |
+|---|---|
+| Fenêtre (id 6) | 4ᵉ MED, 2026-2027, 14/09 → 22/10, `Exam`, confirmée |
+| Créneaux traversés | **10** (2 par stage × 5 stages) |
+| Rotations traversées | **1 535** |
+| Ouvrables perdus | **29** (29 jours de semaine, aucun férié dedans) |
+| Colonnes déplaçables | **8 / 10** — les deux autres portent les 315 rotations démarrées la veille |
+
+Donc l'impact était réel et considérable. Rien n'était cassé côté calcul.
+
+### La première fausse piste, et pourquoi elle était fausse
+
+Le premier réflexe a été « la promotion se lit peut-être par un chemin, la fenêtre par un autre » :
+`PeriodsQuery` porte les rotations par `Registration.AcademicYearId/LevelId`, alors que le reste du
+planning passe par `Cohort → AcademicGroup`. Les deux comptes ont été pris séparément :
+**1 535 des deux côtés**. Le scoping n'était pas en cause, et la mesure a évité d'aller « corriger »
+un chemin qui n'avait rien.
+
+### Le vrai défaut : le rapport n'existait qu'en *aperçu*
+
+`PromotionPausesPanel` garde l'impact dans un `useState` local :
+
+- `openCreate()` → `setImpact(null)` ;
+- `openEdit()` → `setImpact(null)` — donc **ouvrir une fenêtre déjà en vigueur n'affichait rien** ;
+- un `useEffect` le vide à **chaque** changement de niveau, de dates ou de motif ;
+- seul `handlePreview()` — le bouton « Aperçu » — le remplit.
+
+Donc : remplir le formulaire, presser **Enregistrer**, la fenêtre apparaît dans la liste avec ses
+dates et son coût, et **rien** sur ce qu'elle coupe. Le chiffre n'était pas faux, il n'était
+demandé par personne.
+
+⚠ **Et la ligne de liste portait déjà `WorkingDaysLost`** — ce qui rendait le défaut plus difficile à
+voir, pas plus facile : une colonne « Ouvrables perdus » donne l'impression que la ligne dit ce
+qu'il y a à dire. **Ce qu'une fenêtre coûte et ce qu'elle coupe sont deux faits**, et le second est
+celui qui signale qu'un plan déjà posé est entaillé.
+
+### Ce qui a été livré
+
+1. `PromotionPauseQueries.PauseSpansQuery` — deux `Count` **corrélés** dans la projection, en une
+   requête pour toute la page, donc pas un N+1. ⚠ Corrélé **scalaire** est traduisible ; c'est une
+   sous-requête de **collection** dans une projection que Npgsql refuse — la distinction est
+   invisible en C# et invisible à la suite en mémoire, d'où un cas dans `SqlTranslationTests`.
+2. `GetStagePauseCrossingsQuery` — « les rotations que je vais démarrer traversent-elles une fenêtre
+   déclarée ? », avec **la portée exacte du bouton** (cohortes prioritaires sur les partitions,
+   numéros de période atteints *à travers la cellule*). C'est une **lecture**, pas une garde :
+   démarrer une rotation qui enjambe des examens n'est pas une faute, c'est le silence qui l'est.
+3. La liste porte `SlotsSpanning` / `PeriodsSpanning`, et ouvrir une fenêtre déclarée en relance
+   l'aperçu.
+
+### ⚠ Le défaut que le test a trouvé *dans le correctif*
+
+`WindowsDeclaredForPromotion` existe pour séparer « la promotion a déclaré, la sélection évite » de
+« personne n'a rien déclaré » — sans quoi le zéro rassurant est celui que rend une promotion dont la
+faculté n'a rien transmis, c'est-à-dire l'état ordinaire ici.
+
+Première version : les promotions étaient tirées **de la sélection**. Sélection vide — toutes les
+rotations déjà démarrées, l'état courant d'un stage en cours — ⇒ aucune promotion ⇒ aucune fenêtre ⇒
+`WindowsDeclaredForPromotion = 0`, c'est-à-dire « aucune fenêtre déclarée » alors qu'il y en avait
+une. **Le piège que le champ existe pour refuser, reproduit à l'intérieur du correctif.** La
+promotion du stage entre donc dans l'union. Trouvé par
+`A_rotation_already_started_is_not_about_to_start`, écrit avant de relire le code.
+
+### Deux constats de bordure
+
+- **Le « Démarrer » de la veille était sain.** Pédiatrie est `SingleService`, 44 jours ouvrables =
+  **2 colonnes par séjour** ; les 315 rotations démarrées sont le séjour 14/09 → **13/11**, qui ne
+  touche pas décembre. « Aucun impact » était, ce jour-là, la bonne réponse — et l'écran ne pouvait
+  pas le dire parce qu'il ne disait rien du tout.
+- ⚠ **`npx tsc --noEmit` ne vaut pas `npm run build` ici.** Le premier est passé propre sur un fichier
+  auquel manquaient `Alert`, `IconAlertTriangle`, `IconInfoCircle` et le hook RTK ; `tsc -b`, que
+  `npm run build` lance, les a tous signalés. C'est `tsc -b` qui fait foi.
+
+### Ce qui reste vrai et n'est pas résolu
+
+**Déclarer ne déplace toujours rien.** Les 1 535 rotations gardent des fins de séjour qui ne
+rattrapent pas les 29 jours. La réparation est le déplacement des colonnes, une par une — et **2 des
+10 sont déjà refusées** parce que leurs rotations ont commencé. Rien de ce qui précède ne change
+cela ; tout sert à ce que ce soit **su** avant que la colonne suivante ne démarre.
+
+
+## « En examens » : rendre visible une fenêtre qui n'écrit rien (18/09/2026, session 73c)
+
+**Le constat de l'utilisateur, après avoir démarré une colonne :** « tous les stages sont en cours,
+il n'y a aucune pause ». Mesuré dans la base le même matin, avec la fenêtre 14/09 → 22/10 déclarée
+sur la 4ᵉ MED :
+
+| Stage | Rotations ouvertes ce jour | Dans la fenêtre déclarée |
+|---|---|---|
+| Pédiatrie | 315 | **315** |
+| Cardiologie | 157 | **157** |
+
+**472 rotations se lisaient « En cours »** — c'est-à-dire « cet étudiant est dans son service » —
+un matin où la faculté avait écrit le contraire, et **rien nulle part ne le contredisait**.
+
+### Ce n'était pas un défaut de calcul, c'était la moitié manquante du retrait de la veille
+
+Retirer la pause par étape (session 73) a supprimé la seule chose qui rendait une suspension
+**visible sur une rotation** : le drapeau `IsPaused`. Le badge « En pause » est resté à l'écran,
+définitivement éteint. Une fenêtre déclarée n'écrivant rien — la propriété même qui la rend
+révocable — plus rien ne pouvait la faire voir.
+
+⚠ **La leçon générale : un fait déclaré qui n'agit sur rien doit se dériver à la lecture.** Sinon le
+seul signe de son existence est la ligne du calendrier où on l'a saisi.
+
+### La forme, et pourquoi elle n'est pas un retour en arrière
+
+`PromotionSuspensionLookup.OnAsync(date)` → un dictionnaire indexé par **(année, niveau)**, une
+requête pour toute la page. Deux fenêtres d'une même promotion ne pouvant pas se chevaucher
+(`PromotionPauseCalendarGuard`), une promotion a au plus une fenêtre à une date donnée : le
+dictionnaire est **exact**, pas un premier arrivé arbitraire.
+
+Ce que cela donne, et que le drapeau ne savait pas donner :
+
+- **Rien n'est stocké.** Révoquer la fenêtre éteint l'état pour les 472 d'un coup, à la lecture
+  suivante, sans un écrit. L'ancien « reprendre » devait repasser sur chaque période, pouvait être
+  oublié, et laissait des rotations gelées sans fin.
+- **L'étudiant redevient « En cours » tout seul** le lendemain de la fenêtre. Aucun acte à jouer.
+- **La date vient de `IDateTimeProvider`.** `DateTime.UtcNow` au fond de la classe est exactement ce
+  qui rendait l'ancienne pause impossible à programmer *et* impossible à tester : on ne pouvait poser
+  la question que du jour où la suite tournait. `TestHarness.ClockOn` est le pendant partagé.
+
+### Le motif remplace le statut, il ne s'y ajoute pas
+
+Décision de l'utilisateur, et elle est juste : « En cours » est vrai du **cycle de vie** de la
+rotation et faux de **l'endroit où l'étudiant se trouve ce matin**, et c'est la seconde question que
+la colonne sert à poser. La ligne affiche donc « En examens · Examens du 1er semestre », avec
+l'échéance en infobulle — un état sans terme se lit comme un blocage.
+
+⚠ **`IsPaused` et `SuspendedBy` coexistent exprès.** Le premier est un drapeau *stocké* que plus
+aucun acte ne pose et qu'une annulation de téléversement peut encore remettre ; le second est
+*dérivé*. Les fondre en un seul champ serait refaire l'erreur que le retrait a servi à défaire.
+
+### Où c'est porté, et pourquoi jusque-là
+
+Liste des affectations, liste des périodes, **liste de travail du chef** — arrivées de transfert
+comprises. ⚠ Le chef est le cas qui décide d'un geste : pointer une absence un matin d'examens est
+une faute que rien n'aurait signalée, l'étudiant étant parfaitement « en cours » partout. Et les
+arrivées de transfert sont synthétisées à côté des vraies lignes : les laisser muettes aurait mis
+deux réponses à une même règle sur un même écran.
+
+### Ce que cela ne fait pas
+
+**Cela ne rend aucun jour.** Les rotations traversées gardent des fins de séjour qui ne rattrapent
+pas les jours perdus ; la réparation reste le déplacement des colonnes. Ceci sert à ce que ce soit
+**su** — pas à ce que ce soit réparé.
+
+### ⚠ Deux choses trouvées en portant l'état aux portails (même jour)
+
+**① Livré d'abord côté administration seulement, et c'était une demi-réponse.** La question de
+l'utilisateur — « le portail étudiant et le portail chef vont-ils refléter ça ? » — a trouvé l'état
+dans trois situations différentes : la liste du chef recevait la donnée mais ne la déclarait pas dans
+son type et ne l'affichait pas ; le portail étudiant ne recevait **rien du tout**, parce qu'il lit
+`GET /internship-assignments/{id}` que rien n'avait touché. ⚠ Et les trois écrans **ne partagent
+aucun type côté client** : `admin.types.ts`, `employee.types.ts` et `student.types.ts` déclarent
+chacun leur propre ligne. Un état dérivé qui n'atteint pas tous les portails est une règle avec deux
+réponses selon qui regarde — et ici c'est le chef qui pointe les absences et l'étudiant lui-même qui
+en avaient le plus besoin.
+
+**② « Ouverte » n'est pas « en cours aujourd'hui », et le test l'a montré avant la relecture.**
+`InternshipAssignment.Start()` est un *whole-student start* : son commentaire le dit (« activate
+every period so the relevant chefs can manage them ») et il pose `IsStarted` sur **toutes** les
+périodes d'un coup. Un séjour de mai porte donc `IsStarted` dès septembre, et la première version —
+qui ne testait que le cycle de vie — marquait « En examens » un stage qui ne commençait pas avant
+deux mois. La règle au niveau **période** porte donc deux conditions : ouverte, **et** sa fenêtre
+contient le jour.
+
+⚠ **La ligne d'*affectation* garde volontairement le critère large.** Elle parle de l'étudiant, qui
+compose ses examens quelles que soient les dates de sa rotation ; c'est la *période* qui doit dire
+où il est ce matin. Les deux ne répondent pas à la même question, et les aligner serait une
+uniformité fausse.
+
+### ⚠ Et un trou trouvé en cherchant ce qu'il reste : les présences ne lisent aucun calendrier
+
+`GenerateAttendanceCommandHandler` boucle `for (var date = period.StartDate; date <= period.EndDate;
+date = date.AddDays(1))` et écrit un `AttendanceRecord` à **`Present`** pour chaque jour — sans
+consulter `WorkingDayCalendar`, ni le calendrier de la faculté, ni celui de la promotion. Week-ends,
+fériés et semaines d'examens reçoivent donc tous une ligne « présent ».
+
+**Antérieur aux pauses** (les week-ends suffisaient déjà à le rendre faux) mais les pauses le rendent
+plus grave : pendant une fenêtre déclarée, l'étudiant est enregistré présent dans un service où
+personne ne l'attend. Et une note s'annonce sur tous les écrans, une présence est invisible jusqu'au
+jour où on en a besoin.
+
+⚠ **Latent, pas actif, et c'est ce qui laisse le temps de bien faire.** La route existe
+(`POST /service-periods/{id}/attendance/generate`) mais n'a jamais servi sur la base vivante :
+**9** lignes de présence au total, **0** un week-end — toutes saisies à la main. Item 0cl.
+

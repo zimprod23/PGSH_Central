@@ -1,0 +1,210 @@
+{
+  "realm": "pgsh",
+  "enabled": true,
+  "displayName": "PGSH — Stages Hospitaliers",
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "editUsernameAllowed": false,
+  "bruteForceProtected": false,
+  "accessTokenLifespan": 1800,
+  "ssoSessionIdleTimeout": 7200,
+  "ssoSessionMaxLifespan": 36000,
+  "roles": {
+    "realm": [
+      {
+        "name": "Student",
+        "description": "Étudiant — son propre dossier."
+      },
+      {
+        "name": "Scolarite",
+        "description": "Service de scolarité — administratif, portée globale."
+      },
+      {
+        "name": "Secretaire",
+        "description": "Secrétaire de service — présences, limité aux services dont elle est staff."
+      },
+      {
+        "name": "Professor",
+        "description": "Professeur / chef de service — évalue les rotations de ses services."
+      },
+      {
+        "name": "Employee",
+        "description": "Personnel, sans portée administrative."
+      },
+      {
+        "name": "SuperUser",
+        "description": "Administrateur de l'application."
+      }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "pgsh-frontend",
+      "name": "PGSH Frontend (React)",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "implicitFlowEnabled": false,
+      "protocol": "openid-connect",
+      "rootUrl": "http://localhost:5173",
+      "baseUrl": "/",
+      "redirectUris": [
+        "http://localhost:5173/*",
+        "https://localhost:7014/*",
+        "http://localhost:5199/*"
+      ],
+      "webOrigins": [
+        "+"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:5173/*##https://localhost:7014/*##http://localhost:5199/*"
+      }
+    }
+  ],
+  "users": [
+    {
+      "username": "admin.pgsh@um5.ac.ma",
+      "email": "admin.pgsh@um5.ac.ma",
+      "firstName": "Ahmed",
+      "lastName": "El Fassi",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "default-roles-pgsh",
+        "Scolarite",
+        "SuperUser",
+        "Employee"
+      ]
+    },
+    {
+      "username": "employee.test@um5.ac.ma",
+      "email": "employee.test@um5.ac.ma",
+      "firstName": "Youssef",
+      "lastName": "Alaoui",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "default-roles-pgsh",
+        "Professor",
+        "Employee"
+      ]
+    },
+    {
+      "username": "chef.cardio@um5.ac.ma",
+      "email": "chef.cardio@um5.ac.ma",
+      "firstName": "Nadia",
+      "lastName": "Benjelloun",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "default-roles-pgsh",
+        "Professor",
+        "Employee"
+      ]
+    },
+    {
+      "username": "secretaire.test@um5.ac.ma",
+      "email": "secretaire.test@um5.ac.ma",
+      "firstName": "Salma",
+      "lastName": "Tazi",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "default-roles-pgsh",
+        "Secretaire",
+        "Employee"
+      ]
+    },
+    {
+      "username": "amine.bennani@um5.ac.ma",
+      "email": "amine.bennani@um5.ac.ma",
+      "firstName": "Amine",
+      "lastName": "Bennani",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "default-roles-pgsh",
+        "Student"
+      ]
+    },
+    {
+      "username": "etudiant.test2@um5.ac.ma",
+      "email": "etudiant.test2@um5.ac.ma",
+      "firstName": "Imane",
+      "lastName": "Chraibi",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "default-roles-pgsh",
+        "Student"
+      ]
+    },
+    {
+      "username": "etudiant.test3@um5.ac.ma",
+      "email": "etudiant.test3@um5.ac.ma",
+      "firstName": "Omar",
+      "lastName": "Sbai",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "default-roles-pgsh",
+        "Student"
+      ]
+    }
+  ]
+}

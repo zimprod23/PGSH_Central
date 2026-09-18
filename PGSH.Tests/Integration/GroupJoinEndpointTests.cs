@@ -71,16 +71,10 @@ public class GroupJoinEndpointTests : IClassFixture<ApiFactory>, IAsyncLifetime
             AcademicProgram = AcademicProgram.Medecine,
         });
 
-        db.AcademicGroups.Add(new AcademicGroup
-        {
-            Id = ThirdYearRoster, Label = "Groupe 1", GroupNumber = 1,
-            AcademicYearId = YearId, LevelId = Level3,
-        });
-        db.AcademicGroups.Add(new AcademicGroup
-        {
-            Id = FourthYearRoster, Label = "Groupe 1", GroupNumber = 1,
-            AcademicYearId = YearId, LevelId = Level4,
-        });
+        db.SeedGroup(
+            ThirdYearRoster, 1, academicYearId: YearId, levelId: Level3, label: "Groupe 1");
+        db.SeedGroup(
+            FourthYearRoster, 1, academicYearId: YearId, levelId: Level4, label: "Groupe 1");
 
         AddStudent(db, NewcomerCne, "Yassine", "Alaoui", groupId: null);
         AddStudent(db, PlacedCne, "Hind", "Chraibi", groupId: ThirdYearRoster);

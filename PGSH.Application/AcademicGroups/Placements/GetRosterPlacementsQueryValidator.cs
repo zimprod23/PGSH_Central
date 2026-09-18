@@ -26,12 +26,18 @@ public sealed class GetRosterPlacementsQueryValidator : AbstractValidator<GetRos
             .WithMessage("La promotion est obligatoire : un numéro de groupe sans sa promotion "
                        + "n'identifie rien.");
 
-        // A service belongs to exactly one hospital, so the pair is either redundant or contradictory
-        // — and contradictory it returns an empty page that reads as « personne n'y va ».
+        // A service belongs to exactly one hospital and a hospital to exactly one city, so any pair of
+        // these is either redundant or contradictory — and contradictory it returns an empty page that
+        // reads as « personne n'y va ».
         RuleFor(x => x)
-            .Must(x => x.ServiceId is null || x.HospitalId is null)
-            .WithMessage("Indiquez un service ou un hôpital, pas les deux : un service appartient "
-                       + "déjà à un hôpital.");
+            .Must(x => new[]
+            {
+                x.ServiceId is not null,
+                x.HospitalId is not null,
+                !string.IsNullOrWhiteSpace(x.City),
+            }.Count(named => named) <= 1)
+            .WithMessage("Indiquez un service, un hôpital ou une ville — un seul des trois : un "
+                       + "service appartient déjà à un hôpital, et un hôpital à une ville.");
 
         // « Exclusivement » has nothing to be exclusive to. Accepted silently it would fall back to
         // listing the promotion, i.e. answer a much weaker question than the one that was asked.

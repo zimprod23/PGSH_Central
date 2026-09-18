@@ -145,12 +145,12 @@ internal sealed class CohortProvisioner(IApplicationDbContext dbContext)
                     continue;
                 }
 
-                newCohorts.Add(new Cohort
-                {
-                    StageId         = mapping.StageId,
-                    AcademicGroupId = group.Id,
-                    Label           = group.Label,
-                });
+                var made = Cohort.For(mapping.StageId, group.Id, group.Label);
+
+                if (made.IsFailure)
+                    return Result.Failure<CohortProvisionResult>(made.Error);
+
+                newCohorts.Add(made.Value);
                 created++;
             }
         }

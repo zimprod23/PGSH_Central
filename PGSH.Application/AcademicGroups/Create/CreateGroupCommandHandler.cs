@@ -65,16 +65,21 @@ internal sealed class CreateGroupCommandHandler(IApplicationDbContext dbContext)
             .Select(g => (int?)g.GroupNumber)
             .MaxAsync(cancellationToken) ?? 0;
 
-        var group = new AcademicGroup
-        {
-            Label          = request.Label,
-            AcademicYearId = request.AcademicYearId,
-            LevelId        = request.LevelId,
-            GroupNumber    = nextNumber + 1,
-            GeographicZone = request.GeographicZone,
-            RotationGroup  = request.RotationGroup,
-            Purpose        = AcademicGroup.NormalisePurpose(request.Purpose),
-        };
+        // ⚠ The one place a human can ask for either shape, so it is the one place the two factories
+        // have to be chosen between rather than merged: a level-less request is « Non réparti », and
+        // saying so here is what keeps « I forgot the promotion » from producing the bucket in
+        // silence. The refusal above has already made a partitioned bucket impossible.
+        var made = request.LevelId is { } levelId
+            ? AcademicGroup.ForPromotion(
+                request.AcademicYearId, levelId, nextNumber + 1, request.Label,
+                request.GeographicZone, request.RotationGroup, request.Purpose)
+            : AcademicGroup.AsUnassignedBucket(
+                request.AcademicYearId, request.Label, request.GeographicZone, request.Purpose);
+
+        if (made.IsFailure)
+            return Result.Failure<int>(made.Error);
+
+        var group = made.Value;
 
         dbContext.AcademicGroups.Add(group);
         await dbContext.SaveChangesAsync(cancellationToken);

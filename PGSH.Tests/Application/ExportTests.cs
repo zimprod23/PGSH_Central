@@ -468,17 +468,25 @@ public class ExportTests
     }
 
     /// <summary>
-    /// ⚠ The control. A note that fires whatever the data says is noise, and noise is dismissed —
-    /// which would put the real one back out of sight.
+    /// ⚠ <b>A column blank on <i>most</i> rows needs the note as much as one blank on all of them</b> —
+    /// and this is now the ordinary case, which is why the old rule stopped working.
+    ///
+    /// <para>Reported 13/09/2026 as « the group number and label do not appear, but on the affectation
+    /// export they do — so it is partially working ». Both exports were right. The affectations one
+    /// reaches the roster through the <i>cohorte</i>, so it can never be blank; the roll reaches it
+    /// through <c>Registration.AcademicGroupId</c>, and only the promotions already cut carry one. On
+    /// 2026-2027 that is the 3ᵉ MED alone: <b>933 lines of 6 839</b>. The column was no longer empty,
+    /// so the note stayed silent, and the reader was handed a column blank on 86% of lines with
+    /// nothing explaining it — which reads as a broken export, the exact failure
+    /// <c>ExportNotes</c> exists to prevent.</para>
     /// </summary>
     [Fact]
-    public async Task A_column_that_carries_a_value_somewhere_is_not_reported_as_empty()
+    public async Task A_column_filled_on_some_rows_says_how_many()
     {
-        using var db = TestHarness.NewContext(nameof(A_column_that_carries_a_value_somewhere_is_not_reported_as_empty));
-        var stage = db.SeedCatalog();
+        using var db = TestHarness.NewContext(nameof(A_column_filled_on_some_rows_says_how_many));
+        db.SeedCatalog();
         var group = db.SeedGroup(groupId: 10, groupNumber: 7, rotationGroup: "C");
         db.SeedRegistration("Amina", "Benali", group);
-        // A second student with no roster: the column is partial, which is not the same as empty.
         db.SeedRegistration("Youssef", "Idrissi");
         await db.SaveChangesAsync();
 
@@ -488,9 +496,37 @@ public class ExportTests
         result.IsSuccess.Should().BeTrue();
         var notes = writer.Captured!.Sheets.Single().Notes ?? [];
 
-        notes.Should().NotContain(n => n.Contains("groupe(s) existent"),
-            "the roster note is for a column empty on *every* row, not a partly-filled one");
+        notes.Should().Contain(n => n.Contains("1 ligne(s) sur 2 portent un groupe"),
+            "the two numbers are what separate « not cut yet » from « the export forgot the column »");
+
+        // ⚠ And still *not* the all-empty sentence: « personne n'y est » and « certains y sont » call
+        // for different acts, so they must not share a phrase.
+        notes.Should().NotContain(n => n.Contains("Aucune inscription n'est rattachée"));
         notes.Should().NotContain(n => n.Contains("Aucune valeur dans cet export pour") && n.Contains("Groupe"));
+    }
+
+    /// <summary>
+    /// ⚠ The control that keeps the note honest. A note firing whatever the data says is noise, and
+    /// noise is dismissed — which puts the real one back out of sight.
+    /// </summary>
+    [Fact]
+    public async Task A_column_filled_on_every_row_says_nothing_at_all()
+    {
+        using var db = TestHarness.NewContext(nameof(A_column_filled_on_every_row_says_nothing_at_all));
+        db.SeedCatalog();
+        var group = db.SeedGroup(groupId: 10, groupNumber: 7, rotationGroup: "C");
+        db.SeedRegistration("Amina", "Benali", group);
+        db.SeedRegistration("Youssef", "Idrissi", group);
+        await db.SaveChangesAsync();
+
+        var writer = new CapturingWriter();
+        var result = await StudentsHandler(db, writer).Handle(new GetStudentsExportQuery(), default);
+
+        result.IsSuccess.Should().BeTrue();
+        var notes = writer.Captured!.Sheets.Single().Notes ?? [];
+
+        notes.Should().NotContain(n => n.Contains("portent un groupe"));
+        notes.Should().NotContain(n => n.Contains("Aucune inscription n'est rattachée"));
     }
 
     /// <summary>An empty file has no columns to call empty — the note must stay silent.</summary>

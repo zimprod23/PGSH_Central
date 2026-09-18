@@ -1,4 +1,4 @@
-using MediatR;
+﻿using MediatR;
 using PGSH.API.Extensions;
 using PGSH.API.Infrastructure;
 using PGSH.Application.Calendar;
@@ -46,7 +46,10 @@ public sealed class UpdateHolidayEndpoint : IEndpoint
         DateOnly EndDate,
         string Name,
         HolidayKind Kind,
-        bool IsConfirmed);
+        bool IsConfirmed,
+        // Omitted leaves the flag where it is. A body-bound bool cannot distinguish an absent field from
+        // a false one, so the distinction has to live in the type.
+        bool? CountsAsWorkingDay = null);
 
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
@@ -55,7 +58,7 @@ public sealed class UpdateHolidayEndpoint : IEndpoint
             {
                 var command = new UpdateHolidayCommand(
                     id, request.StartDate, request.EndDate, request.Name, request.Kind,
-                    request.IsConfirmed);
+                    request.IsConfirmed, request.CountsAsWorkingDay);
 
                 var result = await sender.Send(command, ct);
                 return result.Match(Results.Ok, CustomResults.Problem);

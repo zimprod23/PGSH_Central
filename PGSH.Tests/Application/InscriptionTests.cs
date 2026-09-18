@@ -68,6 +68,57 @@ public class InscriptionTests
     // The intake
     // ---------------------------------------------------------------------------------------------
 
+    /// <summary>
+    /// ⚠ <b>Une colonne vide devient la valeur qui dit « vide », jamais la plus probable.</b> La série
+    /// du bac absente devenait <c>SVT</c> — pas le zéro de l'enum, une supposition <em>choisie</em>, et
+    /// trois lignes après le <c>Gender.None</c> d'à côté dont le commentaire dit « None is the honest
+    /// answer; it is not a guess ». Un canevas dont la colonne est laissée vide écrivait donc, dans le
+    /// dossier, une série que la faculté n'a jamais relevée, et aucun écran ne pouvait la distinguer
+    /// d'une série réellement saisie.
+    /// </summary>
+    [Fact]
+    public async Task A_blank_bac_series_is_recorded_as_unrecorded_rather_than_guessed()
+    {
+        await using var db = TestHarness.NewContext(nameof(A_blank_bac_series_is_recorded_as_unrecorded_rather_than_guessed));
+        SeedPromotions(db);
+        await db.SaveChangesAsync();
+
+        // Même ligne que le témoin ci-dessous, à la colonne « Série du bac » près.
+        var rows = new[]
+        {
+            new InscriptionRow(2, "R130896", null, "Bennali", "Yasmine", null, "y.b@um5.ac.ma",
+                "F", null, null, "2025", null, null, null, null, null, null, null, null),
+        };
+
+        var applied = await ApplyHandler(db).Handle(Apply(rows, confirmed: 1), default);
+        applied.IsSuccess.Should().BeTrue();
+
+        var student = await db.Students.SingleAsync(s => s.CNE == "R130896");
+
+        student.BacSeries.Should().Be(BacSeries.NonRenseigne,
+            "« on ne sait pas » et « SVT » appellent des actes opposés : l'un se corrige, l'autre non");
+    }
+
+    /// <summary>
+    /// ⚠ <b>Le témoin.</b> Sans lui, le cas ci-dessus passerait aussi bien si la colonne avait cessé
+    /// d'être lue du tout.
+    /// </summary>
+    [Fact]
+    public async Task A_bac_series_that_is_filled_in_is_still_read()
+    {
+        await using var db = TestHarness.NewContext(nameof(A_bac_series_that_is_filled_in_is_still_read));
+        SeedPromotions(db);
+        await db.SaveChangesAsync();
+
+        var rows = new[] { Row(2, "R130896", "Yasmine", "Bennali", email: "y.b@um5.ac.ma") };
+
+        var applied = await ApplyHandler(db).Handle(Apply(rows, confirmed: 1), default);
+        applied.IsSuccess.Should().BeTrue();
+
+        var student = await db.Students.SingleAsync(s => s.CNE == "R130896");
+        student.BacSeries.Should().Be(BacSeries.SVT, "la ligne porte « SVT » en toutes lettres");
+    }
+
     [Fact]
     public async Task A_new_first_year_becomes_a_student_and_a_registration()
     {

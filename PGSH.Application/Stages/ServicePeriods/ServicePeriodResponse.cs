@@ -1,3 +1,4 @@
+﻿using PGSH.Application.Calendar.Pauses;
 using PGSH.Domain.Stages;
 
 namespace PGSH.Application.Stages.ServicePeriods;
@@ -27,7 +28,14 @@ public sealed record ServicePeriodResponse(
     // same four-way split in TypeScript, which is the rule stated twice across a network boundary
     // with nothing able to catch them disagreeing. In particular Planned — published but not opened
     // — is the state that was invisible, and it is not something a client should have to work out.
-    ServicePeriodState State = ServicePeriodState.Underway);
+    ServicePeriodState State = ServicePeriodState.Underway,
+    // La fenêtre que la promotion de cet étudiant a déclarée et qui couvre *aujourd'hui* — sinon null.
+    //
+    // ⚠ Sur la liste d'un chef, c'est la ligne qui décide d'un geste : marquer une absence un matin
+    // d'examens est une faute que rien n'aurait signalée, l'étudiant étant parfaitement « en cours »
+    // partout. Dérivé du calendrier de la promotion à chaque lecture, jamais stocké : révoquer la
+    // fenêtre l'éteint partout d'un coup.
+    PromotionSuspension? SuspendedBy = null);
 
 /// <summary>
 /// Overlay marking a worklist row that no longer matches the chef's live roster because

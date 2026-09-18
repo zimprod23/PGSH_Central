@@ -1,4 +1,4 @@
-﻿using PGSH.Application.Abstractions.Messaging;
+using PGSH.Application.Abstractions.Messaging;
 
 namespace PGSH.Application.AcademicGroups.Empty;
 
@@ -22,14 +22,14 @@ namespace PGSH.Application.AcademicGroups.Empty;
 /// groupes ». That act exists, per stage, where its cost is announced stage by stage:
 /// <c>DeleteAllCohortsCommand</c>.</para>
 /// </remarks>
-public sealed record EmptyAllYearGroupsCommand(int AcademicYearId, int? LevelId = null)
+public sealed record EmptyAllYearGroupsCommand(int? AcademicYearId, int? LevelId = null)
     : ICommand<int>, IAuditableCommand
 {
     // Two codes rather than one, because the two acts are not the same size and an audit register
     // that calls them both « YEAR_GROUPS_EMPTIED » cannot answer which one was run.
     public string AuditAction => LevelId is null ? "YEAR_GROUPS_EMPTIED" : "PROMOTION_GROUPS_EMPTIED";
     public string AuditEntityType => "AcademicYear";
-    public string? AuditEntityId => AcademicYearId.ToString();
+    public string? AuditEntityId => AcademicYearId!.Value.ToString();
 
     // The year is already on the entry as EntityId, so at year scope there is nothing further to say
     // and `{}` would claim otherwise. The promotion is not, and it is the whole difference.

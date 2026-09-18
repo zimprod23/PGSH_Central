@@ -11,8 +11,10 @@ public sealed class EmptyAllGroupsEndpoint : IEndpoint
     {
         // `levelId` is optional and narrows the act to one promotion — the scope a re-decoupage works
         // at. Omitting it keeps the year-wide act the page's unfiltered button has always sent.
+        // ⚠ `academicYearId` is nullable for a different reason: it is *required*, but refusing it in
+        // routing gives a bare 400, so EmptyAllYearGroupsCommandValidator refuses it in words.
         app.MapDelete("groups/all/students",
-            async (int academicYearId, int? levelId, ISender sender, CancellationToken ct) =>
+            async (int? academicYearId, int? levelId, ISender sender, CancellationToken ct) =>
             {
                 var result = await sender.Send(new EmptyAllYearGroupsCommand(academicYearId, levelId), ct);
                 return result.Match(count => Results.Ok(new { unassigned = count }), CustomResults.Problem);

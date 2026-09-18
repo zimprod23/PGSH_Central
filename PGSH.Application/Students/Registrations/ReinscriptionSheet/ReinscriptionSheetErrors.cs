@@ -4,6 +4,19 @@ namespace PGSH.Application.Students.Registrations.ReinscriptionSheet;
 
 public static class ReinscriptionSheetErrors
 {
+    /// <summary>
+    /// ⚠ Two sentences, because the two years are two different facts and one of them is destructive.
+    /// Neither may fall back to « l'année en cours »: this act closes a whole promotion's year and
+    /// opens the next, and a year nobody named is a year nobody consented to.
+    /// </summary>
+    public const string FromYearRequiredMessage =
+        "L'année de départ est obligatoire : c'est elle qui est close par ce fichier, et c'est parmi "
+        + "ses inscriptions que les absents du rôle seront comptés comme sortants.";
+
+    public const string ToYearRequiredMessage =
+        "L'année de destination est obligatoire : c'est elle qui reçoit les nouvelles inscriptions, "
+        + "et rien dans le fichier ne permet de la deviner.";
+
     public static readonly Error NotAllowed = Error.Forbidden(
         "ReinscriptionSheet.NotAllowed",
         "Seule la scolarité peut appliquer un fichier de réinscription.");

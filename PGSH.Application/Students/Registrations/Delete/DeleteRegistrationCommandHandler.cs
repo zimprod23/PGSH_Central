@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
 using PGSH.Domain.Students;
@@ -18,9 +18,9 @@ internal sealed class DeleteRegistrationCommandHandler(IApplicationDbContext dbC
     {
         var student = await dbContext.Students
             .Include(s => s.Registrations)
-            .FirstOrDefaultAsync(s => s.Id == request.StudentId, ct);
+            .FirstOrDefaultAsync(s => s.Id == request.StudentId!.Value, ct);
 
-        if (student is null) return Result.Failure(StudentErrors.NotFound(request.StudentId));
+        if (student is null) return Result.Failure(StudentErrors.NotFound(request.StudentId!.Value));
 
         var result = student.RemoveRegistration(request.RegistrationId);
 

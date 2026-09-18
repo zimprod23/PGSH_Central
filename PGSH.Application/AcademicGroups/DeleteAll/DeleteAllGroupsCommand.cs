@@ -23,14 +23,14 @@ namespace PGSH.Application.AcademicGroups.DeleteAll;
 /// leaves it standing and only the year-wide act reaches it. That is the right split: it is not the
 /// named promotion's to destroy.</para>
 /// </remarks>
-public sealed record DeleteAllGroupsCommand(int AcademicYearId, int? LevelId = null)
+public sealed record DeleteAllGroupsCommand(int? AcademicYearId, int? LevelId = null)
     : ICommand<int>, IAuditableCommand
 {
     // Two codes, for the reason EmptyAllYearGroupsCommand has two: a register that calls both acts
     // by one name cannot answer which of them was played.
     public string AuditAction => LevelId is null ? "YEAR_GROUPS_DELETED" : "PROMOTION_GROUPS_DELETED";
     public string AuditEntityType => "AcademicYear";
-    public string? AuditEntityId => AcademicYearId.ToString();
+    public string? AuditEntityId => AcademicYearId!.Value.ToString();
 
     public string? AuditMetadata => LevelId is null
         ? null

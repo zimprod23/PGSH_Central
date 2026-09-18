@@ -30,8 +30,9 @@ planning a change to it, not after a review finds the same defect again.
 | a stage served outside the faculty, `Service.IsExternal`, the mass délocalisation, the dates it is recorded under, how many students *stand* in a service | [`docs/delocalization.md`](docs/delocalization.md) | a délocalisé stays in his cohorte and must stop occupying the service he left — counted per membership, sending sixty students away relieved the grid by **nothing** — and the window is the **cohorte's** passage, never the stage's whole axis |
 | an export sheet, column, or a second export | [`docs/exports.md`](docs/exports.md) | an export is the one read deliberately exempt from pagination, and a column blank on every row reads as a column the export forgot |
 | a bulk act on the live base, a transaction, rebuilding from `Medecine.mdb` | [`docs/operations.md`](docs/operations.md) | the base **is** the faculty's data; the rebuild is not « migrate then import », and it fails silently |
+| **everything is lost and you are starting again from a backup** | [`docs/operations.md` §0](docs/operations.md) | the step-by-step, written after doing it for real on 17/09/2026 — **two resources are *supposed* to fail** on the first boot, `dotnet restore` is not a database restore, and a volume is not a backup |
 | téléverser des affectations, le canevas des affectations, `DeclareRotation`, une période « hors grille » | [`docs/affectation-sheet.md`](docs/affectation-sheet.md) | c'est l'acte le plus destructeur de l'application — un seul refus refuse le fichier entier, **deux** nombres sont confirmés séparément (ce qui s'écrit et ce qui se détruit), et ce qu'il écrit **n'est pas dans la grille** |
-| an audited act or act code, anything measured in worked days, a « suspension d'examens » | [`docs/audit-calendar.md`](docs/audit-calendar.md) | a refused act must write nothing, an empty holiday calendar quietly means "minus weekends" — and there are **two** calendars, the faculty's and each promotion's, so a reader that knows its (année, niveau) must ask for that one |
+| an audited act or act code, anything measured in worked days, a « suspension d'examens » | [`docs/audit-calendar.md`](docs/audit-calendar.md) | a refused act must write nothing, an empty holiday calendar quietly means "minus weekends", there are **two** calendars — the faculty's and each promotion's — so a reader that knows its (année, niveau) must ask for that one, and the calendar answers **two questions** (« compte dans la durée » / « peut borner une fenêtre »), never one |
 
 ### The other documents at the repo root
 
@@ -75,6 +76,29 @@ area, so they are worth carrying in your head on **every** change:
   codebase: « aucune période » and « rien n'est encore réparti » call for opposite acts. A warning
   that fires whatever the data says is noise, and noise is dismissed — which puts the real one out of
   sight.
+  - ⚠ **And « empty on every row » is not the same question as « empty on most rows ».** An export
+    column blank everywhere announced itself; the same column blank on 86% of rows said nothing, and
+    read as a broken export. That is `ExportNotes.ColumnFill` — asked for the one column whose blank
+    has two opposite remedies, never as a blanket « partial column » note, because half a roll's
+    columns are legitimately partial. → [`docs/exports.md`](docs/exports.md)
+  - ⚠ **Et le défaut vit aussi dans le *schéma*, pas seulement dans un écran.** Un enum dont le zéro
+    est une vraie valeur transforme « jamais renseigné » en une réponse : `BacSeries` n'ayant pas de
+    membre « non renseigné », `LegacyImportPlanner` — qui n'écrivait pas ce champ du tout — a laissé
+    **10 203** étudiants se lire « Bac Français », et `InscriptionPlanner` écrivait `SVT` pour chaque
+    canevas à colonne vide : pas le zéro, une supposition **choisie**, trois lignes après le
+    `Gender.None` du même fichier dont le commentaire dit « None is the honest answer; it is not a
+    guess ». Un enum qui peut manquer porte le membre qui le dit, **ajouté en dernier** (la colonne est
+    un `integer` sans conversion, donc réordonner reclasserait la base).
+- **Do not copy onto a child a fact its parent already states.** `Hospital.City` exists and a service
+  belongs to exactly one hospital, so « add a city to Service » is a driftable duplicate — the same
+  objection that kept `AcademicYearId` off `Cohort`, and stronger here because there is not even a
+  join to save: the reader already traverses `Service.Hospital` for the name. Filter through the
+  navigation instead. → [`docs/services.md`](docs/services.md)
+- **A name typed by a human is matched exactly and *suggested* loosely.** `NameSuggestions` names the
+  two or three nearest catalogue entries in the refusal; it never resolves one. This catalogue holds
+  « Médecine A » and « Médecine B », so a one-character tolerance in the *match* would send a cohorte
+  to another hospital in silence. The tolerance belongs in the report.
+  → [`docs/affectation-sheet.md`](docs/affectation-sheet.md)
 - **A cell a human chose is not the arranger's to rewrite.** `CohortSlotAssignment.Source`
   (`Arranged` / `Pinned`) is read as a lock exactly like publication, and the count of what was left
   alone travels in the result (`PinnedCellsKept`). Before it, an auto-arrange destroyed every
@@ -85,6 +109,74 @@ area, so they are worth carrying in your head on **every** change:
   And note what does *not* enforce this: `RotationArranger` computes `saturatedServices` **after**
   `SaveChangesAsync`, as a report — the placement weights by capacity and never reads live occupancy,
   so a service cannot be reserved by filling it first. → [`docs/services.md`](docs/services.md)
+- **Une fenêtre se *déclare*, une date se *déplace* — jamais le même acte.** Déclarer (« la 3ᵉ MED
+  compose du 10/03 au 30/04 ») est une décision ; déplacer les colonnes que cela coupe en est la
+  conséquence. Confondre les deux est ce qui a coûté la pause par étape, **retirée le 18/09/2026**
+  plutôt que réparée : elle écrivait des dates au moment de la pause, et les sept défauts en
+  découlaient tous — allongement en **jours calendaires**, grille laissée derrière (donc
+  `ServiceOccupancyCalculator` lisant l'ancienne fenêtre et le dossier la nouvelle), `UtcNow` aux
+  deux bouts (donc impossible à programmer), aucune garde `Movable` (donc par-dessus des présences
+  pointées), aucun événement, rien au registre, et **accumulation au rejeu**. La forme qui survit est
+  `PromotionPause` (aucune date écrite, révocable, corrigeable) + `InternshipAssignment.Reschedule`
+  (dates **absolues**, donc rejouable sans dériver). ⚠ **Le critère est la rejouabilité** : un acte
+  qui ajoute à ce qui est stocké ne peut être ni corrigé ni annulé, un acte qui dérive d'une fenêtre
+  déclarée le peut toujours. → [`docs/planning-rosters.md`](docs/planning-rosters.md), `PHASES.md` §17.2
+  - ⚠ **Un fait déclaré qui n'agit sur rien doit se *voir*, ou il passe pour n'avoir pas pris.**
+    Déclarer une fenêtre n'écrit aucune date — c'est la propriété qui la rend révocable — donc le seul
+    signe qu'elle existe est ce que les écrans en disent. Le 18/09/2026 une fenêtre posée sur une
+    promotion entièrement publiée coupait **10 colonnes et 1 535 rotations** et l'opérateur a rapporté
+    « aucun impact » : le chiffre n'existait que dans l'**aperçu**, derrière un bouton à presser
+    *avant* d'enregistrer, et vidé à la frappe suivante. La ligne de la liste portait ce que la fenêtre
+    *coûte* (« 29 ouvrables perdus ») et rien de ce qu'elle *coupe*. ⚠ **Coût et portée sont deux
+    faits** : le premier est de l'arithmétique de calendrier, le second dit qu'un plan déjà posé est
+    entaillé.
+  - ⚠ **Et « rien ne traverse » a deux lectures opposées, dont une n'est pas une bonne nouvelle.**
+    Soit la promotion a déclaré ses semaines d'examens et la sélection les évite, soit **personne n'a
+    rien déclaré** — et sur cette base c'est l'état ordinaire (2026-2027 n'a porté qu'une seule fenêtre
+    déclarée). Un compte qui ne sépare pas les deux fait lire l'ignorance comme un feu vert, alors la
+    réponse transporte aussi le nombre de fenêtres déclarées (`WindowsDeclaredForPromotion`). ⚠ Le
+    piège se referme à l'intérieur même du correctif : tirer la promotion de la sélection seule fait
+    répondre « aucune fenêtre » dès que la sélection est vide, donc la promotion du stage entre dans
+    l'union. → `GetStagePauseCrossingsQuery`, `PauseVisibilityTests`
+  - ⚠ **Et un fait déclaré qui n'écrit rien se *dérive* à la lecture — il ne se rattrape pas par un
+    drapeau.** C'est la moitié qui manquait au retrait de la pause par étape : une fenêtre déclarée ne
+    touchant aucune rotation, **472 rotations de la 4ᵉ MED se lisaient « En cours »** un matin
+    d'examens (mesuré 18/09/2026), c'est-à-dire « cet étudiant est dans son service », pendant que la
+    faculté avait écrit le contraire. La réponse est `PromotionSuspensionLookup` : une requête par
+    page, indexée par (année, niveau), pliée en mémoire, et le motif **remplace** le statut à l'écran
+    plutôt que de s'y ajouter — « En cours » est vrai du cycle de vie et faux de l'endroit où
+    l'étudiant est ce matin. ⚠ **La propriété qui justifie la forme est la révocation** : révoquer la
+    fenêtre éteint l'état pour toute la promotion à la lecture suivante, sans un écrit et sans rien à
+    défaire, là où « reprendre » devait repasser sur chaque période et pouvait être oublié. ⚠ Et la
+    date vient de `IDateTimeProvider`, jamais d'un `DateTime.UtcNow` au fond de la classe — c'est ce
+    qui rendait l'ancienne pause impossible à programmer *et* impossible à tester.
+    ⚠ **Et « ouverte » n'est pas « en cours aujourd'hui ».** `InternshipAssignment.Start()` est un
+    *whole-student start* : il pose `IsStarted` sur **toutes** les périodes d'un coup, donc un séjour
+    de mai le porte dès septembre. Une suspension posée sur le seul critère du cycle de vie marque donc
+    « En examens » un stage qui ne commence pas avant deux mois — il faut **en plus** que la fenêtre du
+    séjour contienne le jour. La ligne d'*affectation* garde le critère large (l'étudiant compose,
+    quelles que soient ses dates) ; les trois lectures au niveau *période* portent les deux conditions.
+    → `PromotionSuspensionDisplayTests`
+  - ⚠ **Un état dérivé doit atteindre *tous* les portails, ou il devient une règle à deux réponses
+    selon qui regarde.** Livré d'abord côté administration seulement, il laissait le chef — qui décide
+    de pointer une absence — et l'étudiant lui-même sans rien. Les chemins sont distincts et aucun
+    n'est optionnel : `GetInternshipAssignmentsQuery` (admin), `GetServicePeriodsQuery`,
+    `GetMyServicePeriodsQuery` (chef, arrivées de transfert comprises) et
+    `GetInternshipAssignmentByIdQuery` — **ce dernier est celui que lit le portail étudiant**, et il
+    n'a pas de type partagé avec les autres côté client : trois fichiers TypeScript déclarent leur
+    propre ligne, donc trois à modifier.
+  - ⚠ **Et un acte retiré se dit, avec ce qu'il emporte.** « Suspendre la rotation d'une seule
+    cohorte » n'est plus possible et rien ne le remplace — c'est un retrait, pas une substitution.
+    L'argument qui l'avait sauvé deux fois (« un service qui ferme une semaine, c'est vraiment par
+    stage ») était juste comme énoncé de domaine et comparait un acte idéal à celui du dépôt, lequel
+    n'avait **jamais servi** : 0 période suspendue en base le jour du retrait.
+- **A closure is two facts about a day, not one.** `WorkingDayCalendar` answers
+  `CountsTowardDuration` (is somebody expected in a service) and `CanBoundAWindow` (may a période begin
+  or end here) as **separate** methods; there is no `IsWorkingDay` any more, and reaching for one
+  predicate is how a férié became impossible to *cross* — marking it worked would also have let a stage
+  end on it. The two are nested: every bounding day counts, not every counted day bounds. The flag is
+  `ICalendarClosure.CountsAsWorkingDay`, on the **interface** — `PromotionPause` answers `false` without
+  a column, because an exam week can never be worked. → [`docs/audit-calendar.md`](docs/audit-calendar.md)
 - **A date derived from a stage is not a date about a cohorte.** An axis holds one column per
   partition, so `min`/`max` over *all* a stage's créneaux is as many times too long as there are
   partitions — the délocalisation window wrote **14/09/2026 → 25/03/2027** into twelve dossiers for a
@@ -120,6 +212,17 @@ area, so they are worth carrying in your head on **every** change:
   cohortes » on a virgin promotion and on a published one are the same code and unrelated events, so
   the handler deposits what it actually destroyed through **`IAuditTrail.RecordOutcome`**, before it
   saves. → `docs/audit-calendar.md`
+  - ⚠ **And the `SaveChanges` is *unconditional*, which is the half the first sweep missed.** A save
+    guarded by `if (count > 0)` writes no journal entry on exactly the run where the act had no effect —
+    and that run is **the ordinary one**: re-cutting a promotion already cut, re-seeding a calendar
+    already seeded, re-cloning a text already cloned, setting a placement mode to the one it holds.
+    Six such exits were found on 14/09/2026 (`AssignRotationGroups` ×2, `ClearRotationGroups` ×2,
+    `SeedNationalHolidays`, `CloneCnpnCurricula`, plus `SetAllowedServicePlacementMode`), all in acts
+    whose refusals were tested and whose no-ops were not. **« Personne n'a joué cet acte » and
+    « quelqu'un l'a joué sans effet » are the two states the register exists to separate**, so the
+    zero path records its zeros and saves — the shape `DeleteAllGroupsCommandHandler` established.
+    Pinned by `PGSH.Tests/Integration/NoEffectAuditEndpointTests.cs`, whose witness is that a *refused*
+    act still writes nothing.
 - **A validator describes what a *save* must satisfy, not what a good record looks like.** It is
   applied to rows that already exist; a rule the imported data fails makes those rows read-only.
   → its own section below
@@ -144,10 +247,21 @@ area, so they are worth carrying in your head on **every** change:
   nothing on any of them saying to pick a year. A refusal is `Conflict` (the request meets the state),
   `Validation` (the request is malformed), `NotFound` or `Forbidden`; `Problem` is for an unreachable
   archive or a `pg_dump` out of disk. → `PGSH.Tests/Integration/ErrorStatusMappingEndpointTests.cs`
-  - ⚠ **…with exactly one exception above 500, and it is deliberate: `503`.** A dependency being
-    down is not a fault of the request, and `errorMiddleware` shows a 503's `detail` rather than the
-    fixed sentence — a 500 may carry anything internal, a 503 is written to be read. Nothing else
-    may claim it.
+  - ⚠ **…with exactly one *kind* of exception above 500, and it is deliberate: `503`.** A dependency
+    being down is not a fault of the request, and `errorMiddleware` shows a 503's `detail` rather than
+    the fixed sentence — a 500 may carry anything internal, a 503 is written to be read.
+    - **Two things claim it, and the bar is stated rather than stretched**: the request wrote
+      nothing, the fault is in a **dependency** rather than in the request, and the remedy is an
+      operator action on that dependency. `DatabaseOutage` is the first.
+      `IncompleteIdentityTokenException` is the second — a token the identity provider issued with no
+      subject (measured 17/09/2026: a rebuilt Keycloak client missing the `basic` scope, so every
+      token was valid, signed and named nobody). ⚠ **401 is the tempting status there and it is
+      wrong**: the client turns a 401 into `keycloak.logout()`, so a realm issuing subject-less tokens
+      puts the user in a **login loop** with nothing naming the cause.
+  - ⚠ **`DomainException.Detail` is opt-in, and was `null` for everybody until 17/09/2026** — so no
+    domain exception's sentence ever reached a screen, only its `Title`. A subclass with something
+    worth showing overrides it; `Message` is not used automatically, because a message written for a
+    log is not always the sentence written for a reader.
 - **A database that cannot be reached must not look like a bug** — `DatabaseOutage` +
   `GlobalExceptionHandler` (`PGSH.API/Infrastructure/`). Every non-`DomainException` used to land in
   `_ => 500, "Server failure"`, so on 13/09/2026 — WSL upgraded itself, the Docker distro stopped,
@@ -194,7 +308,22 @@ area, so they are worth carrying in your head on **every** change:
   qui est définitive. `ApplyAffectationSheetCommand` porte `ConfirmedCount` **et**
   `ConfirmedDroppedPeriods` ; un seul nombre aurait laissé passer exactement le cas qui compte.
 - **The base is live.** Take a `pg_dump -Fc` before every bulk act, and never write to the base to
-  verify something. → [`docs/operations.md`](docs/operations.md)
+  verify something — `scripts/pgsh-snapshot.ps1` does it in one line, and `pgsh-restore.ps1` puts it
+  back **and recounts the manifest's census** rather than trusting an exit code.
+  → [`docs/operations.md`](docs/operations.md)
+  - ⚠ **A volume is not a backup, and having backups prevents nothing on its own** — nothing applies
+    them at startup. On 17/09/2026 a Docker factory reset took the `.vhdx` and every volume with it;
+    `%LOCALAPPDATA%\PGSH\backups` survived *because it is outside the volume*, and the Keycloak realm
+    did not survive at all, because it lived only in its volume.
+  - ⚠ **An empty base cannot be rebuilt by running the migrations.** Three are **data** migrations
+    that read the catalogue the legacy import writes, and they `RAISE EXCEPTION` on an empty base by
+    design — « Aucun niveau « 3ᵉ année Médecine » … ». So the answer to a lost volume is **restore**,
+    never « migrate then import ». It is also why the Testcontainers tier uses `EnsureCreated`.
+  - ⚠ **The Keycloak realm is a versioned file** — `keycloak/pgsh-realm.json`, imported by
+    `.WithRealmImport`. A realm written down needs no backup; it rebuilds. **Adding a user there
+    without a matching `User` row gives a 403 « Profile Not Found » that names nothing actionable**,
+    so its accounts and `Seeder.SeedStaticUsersOnlyAsync` are one list.
+    → [`keycloak/README.md`](keycloak/README.md)
 
 ## Build & Run Commands
 
@@ -261,6 +390,19 @@ outcome that way — resolve the value only when it is actually wanted, and keep
 ### Domain Events
 Entities inheriting `Entity` raise events via `entity.Raise(new SomeEvent(...))`. `ApplicationDbContext.SaveChangesAsync` publishes them **after** the transaction commits (eventual consistency). Event handlers live in `PGSH.Application/<domain>/`.
 
+⚠ **Un agrégat qui fait confiance à son appelant n'a pas d'invariant, il a une convention.** Déplacer
+une rotation publiée (phase 17.1) écrivait les dates sur des `ServicePeriod` chargées à plat sur le
+contexte : la règle « une rotation commencée, notée ou pointée ne se déplace pas » reposait
+entièrement sur `PublishedPeriodShifter.PlanAsync`, et l'acte ne levait **aucun** événement alors
+qu'il réécrit des milliers de fenêtres d'un coup. C'est `InternshipAssignment.Reschedule` qui porte
+les deux, et l'événement transporte **les deux fenêtres** — sans l'ancienne, personne ne peut dire de
+combien la rotation a bougé ni dans quel sens.
+- ⚠ **Un événement par changement *réel*, jamais par ligne touchée.** Sous
+  `StageRotationMode.SingleService` une période couvre une suite de colonnes : déplacer celle du
+  *milieu* ne bouge pas le séjour, et lever un événement par période couverte ferait lire « des
+  milliers de rotations déplacées » là où aucune ne l'est. C'est la même distinction que
+  `PeriodsShifted` / `PeriodsCovered` porte dans le résultat.
+
 ### Database
 - **PostgreSQL** via EF Core 9 + Npgsql. Column and table names are **PascalCase** (snake_case naming is not enabled).
 - `ApplicationDbContext` is in `PGSH.Infrastructure/Database/`.
@@ -294,8 +436,25 @@ Scalar UI at `/scalar/v1`, Swagger UI at `/swagger`. Both are configured with Ke
 - **Never encode a known bug as expected behaviour.** If a test would cement an unresolved asymmetry, leave the
   case uncovered with a comment saying why, and raise it.
 - ⚠ **Known blind spot:** `UseInMemoryDatabase` ignores FK constraints, unique indexes, `OnDelete` behaviour and
-  SQL translatability — constraint and query-translation defects remain invisible. **Testcontainers is still
-  not built**; do not read a green suite as proof that a query runs on PostgreSQL.
+  SQL translatability — constraint and query-translation defects remain invisible in the bulk of the
+  suite; do not read a green suite as proof that a query runs on PostgreSQL.
+  - ✅ **Testcontainers exists since 13/09/2026** — `PGSH.Tests/Postgres/`, one `postgres:17-alpine`
+    per run. It is the only tier that can answer « what does the *server* do »: filtered unique
+    indexes, `RESTRICT`/`CASCADE`, and the rows a query actually returns. Write a case here whenever
+    the answer depends on the schema rather than on the code.
+    - **`[PostgresFact]` / `[PostgresTheory]`**, never a bare `[Fact]`: they **skip with a sentence**
+      when Docker is absent, so a machine without it gets skipped tests rather than green ones —
+      one result standing for two states is the defect this repo names everywhere else.
+    - ⚠ **The schema comes from `EnsureCreated`, not from the migration chain**, because three CNPN
+      *data* migrations `RAISE EXCEPTION` on an empty base by design (`docs/operations.md` §1). So it
+      proves the schema the **model** describes, and still proves nothing about migration drift.
+    - ⚠ **Ask the server from a context that has not seen the answer.** EF resolves a `RESTRICT`
+      itself when the dependents are tracked — severing the association client-side before any SQL is
+      sent — so seeding and deleting through one context tests the change tracker. Seed through one,
+      then `database.Connect()` a second to perform the act. That mistake made the first
+      delete-behaviour test pass for the wrong reason.
+    - Each test gets its own database, cloned from a template with `CREATE DATABASE … TEMPLATE …`
+      (milliseconds), so unlike `ApiFactory` nothing leaks between tests.
   - ⚠ **And it *refuses* `ExecuteDelete` / `ExecuteUpdate` outright** — « not supported by the current
     database provider ». A handler that writes only through them therefore has a **success path no
     test in this repository can reach by any route**: the handler tests can assert its refusals and
@@ -444,6 +603,44 @@ behaviour; each caller states its own.**
     all 16 flag combinations.
   - ⚠ **`AwaitingEvaluation` / `Settled` read the `Evaluation` navigation**; in memory it must be
     loaded. `Planned` / `Underway` touch flags only and are always safe.
+  - ⚠ **« Peut-on encore la déplacer ? » is a *fifth* rule in the same class — `Movable` — and it is
+    deliberately not derived from the four states.** It reads `IsStarted`, `IsComplete`, `Evaluation`
+    **and `Attendance`**, and that last one bears on no state at all: a rotation that is `Planned` and
+    carries a journée de présence is a row the lifecycle cannot produce and the store can hold, and
+    moving it would leave those days on dates nobody served. It was written out in
+    `InternshipAssignment.Reschedule` and again in `PublishedPeriodShifter.PlanAsync`, and the pause
+    report wanted it a third time — **a guard that refuses and a report that promises must read one
+    rule**, or a screen offers a move the aggregate then declines.
+    - **A store-side caller composes it rather than restating it** — `ExpressionComposition.Through`
+      substitutes the path (`coverage => coverage.ServicePeriod`) for the predicate's parameter, and
+      `.Not()` inverts the tree. `Invoke` is what EF refuses; pinned by `SqlTranslationTests`.
+  - ⚠ **And « déplacer le début » and « repousser la fin » are *two* questions — `Movable` and
+    `Extendable`, split 18/09/2026.** Conflating them is what made the case that matters
+    unrepairable: a window declared mid-year lands on rotations that have **started**, which
+    `Movable` refuses — rightly, something happened on that start date — so the only rule available
+    answered « rien n'est rattrapable » for exactly the promotions a late window hurts. Pushing the
+    *end* rewrites nothing that took place, so a started rotation extends.
+    - ⚠ **Attendance blocks a move and does not block an extension**, and that asymmetry is the
+      whole of the split: a pointed day lives between the start and the old end, and a window that
+      only grows still contains every one of them. The guard that is therefore *missing* from
+      `Extendable` — pulling the end back — lives in the **name of the act**:
+      `InternshipAssignment.ExtendTo` only ever pushes. Refusing by a state a caller could
+      mis-read is how it would have come back.
+    - ⚠ **The two are nested — `Movable` ⊂ `Extendable` — exactly as `CountsTowardDuration` and
+      `CanBoundAWindow` are, and for the same reason.** Two independent predicates end up
+      disagreeing about one row and a repair act picks the wrong one. Making it a *theorem* rather
+      than a coincidence is why `IsInterrupted` was added to `Movable`: a rotation cut short by a
+      transfer has a window recording what was actually served, so **both** its ends are facts. In
+      practice an interruption implies a start, so nothing the lifecycle produces changes — what it
+      closes is a row the store can hold. Pinned over all 32 flag combinations by
+      `ServicePeriodLifecycleTests`.
+    - ⚠ **`ExtendTo` writes an *absolute* date, never a delta** — the property that lets an axis
+      recompute be replayed after every pause declared, corrected or revoked without the rotation
+      growing a little each time. `ExtendBy(days)` would have been the accumulation that got the
+      stage-scoped pause retired rather than repaired. It reuses
+      `ServicePeriodRescheduledDomainEvent` with an unchanged start: an extension *is* a window
+      change, and two event types for one fact would make every future consumer subscribe twice.
+      → `PGSH.Tests/Domain/PeriodExtensionTests.cs`
   - **The state is sent to the client, never re-derived there.** The chef page had the same four-way
     split written again in TypeScript — one rule, two sides of a network boundary, nothing able to
     catch them disagreeing.
@@ -509,6 +706,50 @@ A global EF query filter was considered and rejected: of ~101 handlers touching 
 tables, ~15 are *deliberately* cross-year — student parcours, level dossier, curriculum comparison,
 revalidation's cross-level retake — and those are the load-bearing reads, not edge cases.
 `IgnoreQueryFilters()` is also all-or-nothing, so the escape hatch would disable unrelated filters.
+
+⚠ **An invariant the caller must remember is not an invariant — close the type.** `StageSlot` is keyed
+`(StageId, AcademicYearId, PeriodNumber)`: the rule was written here, enforced by a unique index in
+PostgreSQL, and **guaranteed nowhere in code**. Three places built one with an object initializer, two
+stamped the year, one forgot — writing a créneau of year **0**. An object initializer cannot demand a
+field; a constructor can. `StageSlot.For(...)` is now the only way to make one, the three keys are
+`private set`, and the change *named its own offenders*: the compiler listed all three handlers plus a
+test fixture that was seeding a slot with no year — an object no real path could produce.
+- ✅ **The other two planning roots are closed too, since 14/09/2026.** `Cohort.For(...)` — identity
+  `(StageId, AcademicGroupId)`, five construction sites — and `AcademicGroup`, identity
+  `(AcademicYearId, LevelId, GroupNumber)`, three. Both named their own offenders exactly as
+  `StageSlot` did: an `AbolishedStageRevalidationTests` fixture omitted its roster's level, so it was
+  seeding **« Non réparti » without meaning to** and building a retake cohorte on it — the state
+  `CreateCohortCommandHandler` refuses; and `RosterTeardownGuardTests` seeded « le panier » as a
+  *promotion* roster numbered 0, which is neither thing.
+- ⚠ **Where a legitimate shape is the absence of a key, it gets its own door — not a nullable
+  parameter.** A roster with no promotion is « Non réparti », the year's holding pen for every
+  promotion's unassigned registrations (4 725 of them in 2025-2026), so `AcademicGroup` has **two**
+  factories: `ForPromotion(yearId, levelId, number, label)` and `AsUnassignedBucket(yearId, label)`.
+  Under one factory with a nullable `levelId`, *forgetting* the promotion and *meaning* the bucket
+  are the same call — and that is the shape the 4 725-student incident came from. The bucket factory
+  also takes no `rotationGroup` at all: a partition label on the bucket is what pulls the whole thing
+  into `CohortProvisioner`, and here there is no parameter to pass it through.
+- ⚠ **Closing the type does not mean the schema agrees.** `StageSlot`'s identity is held by a unique
+  index; `Cohort`'s `(StageId, AcademicGroupId)` is held by **nothing** — `CreateCohortCommandHandler`
+  and `CohortProvisioner` each look for the duplicate themselves. A constructor sees one object, never
+  the table, so say in the XML doc which half the factory actually closes.
+- ⚠ **A graph built before the store numbers anything needs the same demand, by navigation.**
+  `LegacyImportPlanner` creates the année, the roster and the cohorte in one pass, so an id-keyed
+  factory would be satisfied there by two zeros — precisely the row being refused. Both classes carry
+  a navigation overload for that path rather than letting it go round.
+- ⚠ **The dates stay open, the identity does not.** Moving a column is a legitimate edit of
+  `StartDate`/`EndDate`; changing a créneau's year is not a correction, it is a different créneau.
+  Same for a roster's label, zone, partition and purpose — what `UpdateGroupCommand` edits — against
+  its (année, niveau, numéro), and for a cohorte's label against its two keys.
+- **Fixtures go through the factories too**, via `TestHarness.NewSlot` / `NewGroup` / `NewCohort`
+  (the id is the store's, so the helper sets it after). ⚠ `SeedUnassignedBucket` is deliberately a
+  *separate* helper for the same reason the factory is: a fixture reaching for `SeedGroup` and
+  leaving the level out would be seeding the bucket by accident. A fixture that violates an identity
+  throws on the spot — it would be posing a row no real path can produce, and the test built on it
+  proves nothing.
+- → `PGSH.Tests/Application/PlanningIdentityTests.cs`, which covers what the compiler cannot: a key
+  that is present but meaningless (`0`, negative), which an `int` still lets you write — and the
+  witness that the two roster shapes are not the same object.
 
 ⚠ **Filtering by level *and* year is one `Any`, never two.** Both predicates have to hold on the
 **same** `Registration`, because a student past his second year satisfies each on a different row —
@@ -577,11 +818,38 @@ Every rule on an update path is applied to rows that already exist. If the impor
 satisfy it, those rows become **read-only** — and the refusal names a field the user was not editing,
 so it reads as a broken button rather than as a rule.
 
-- **It has happened twice.** `StudentIdentifierRules` rejected 5,646 of 10,204 students (above). And
+- **It has happened five times.** `StudentIdentifierRules` rejected 5,646 of 10,204 students (above). And
   `UpdateStageCommandValidator` required `Objectives.NotEmpty()` while the Access import carried no
   objectives at all — **0 of 27 stages** satisfied it, so the entire stage catalogue could not be
   saved. Reported as « switching the rotation mode gives an error »; the actual message was
   *« At least one stage objective is required »*.
+  - ⚠ **Three more found on 14/09/2026, all on `UpdateStudentCommandValidator`, all against values the
+    write paths produce *deliberately*.** `Gender.NotEqual(Gender.None)` — `LegacyIdentityMapper.MapGender`
+    writes `None` for the 1 050 blank rows and 3 « C » rows, its own comment reading « None is the honest
+    answer; it is not a guess », and `InscriptionPlanner` writes it for every canvas row with an empty
+    Sexe column, so the base **keeps acquiring them**. `DateOfBirth.NotEmpty()` — the column is
+    `DateOnly?` and both paths store `null` when the source carries no date. `FirstName/LastName
+    .NotEmpty().MaximumLength(50)` — `SplitName` gives a single-token name an empty *first* name by
+    design, and the import truncates to **100**, the column's real width, so a 51–100-character name
+    imported fine and never saved again. Pinned by `ImportedRowsStaySaveableEndpointTests`.
+  - ⚠ **Read the write path, not the form.** Each of the three is refuted by one file — the importer or
+    the planner — saying in a comment *why* it stores that value. The question a new rule has to answer
+    is never « should a good record have this? » but « does anything already in the base lack it? », and
+    the answer is in whatever wrote the rows.
+  - ⚠ **The create side may be stricter, and saying so is part of the fix.** Nothing stored is judged by
+    a create validator, so `CreateStudentCommandValidator` keeps demanding a gender and a date of birth:
+    a human at a form can be asked, an imported row cannot. The asymmetry is documented on both classes
+    rather than left to look like an oversight.
+- ⚠ **A validator *looser* than its column is the same defect upside down, and it produces a 500.**
+  Both hospital and both centre validators allowed a **200**-character name against `varchar(100)` and a
+  **100**-character city against `varchar(50)`; description, e-mail and the three coordinates were
+  bounded **nowhere**. An over-long value passed validation and PostgreSQL answered
+  `22001 string_data_right_truncation` → `DbUpdateException` → **500**, whose `detail` the client
+  discards — the screen says « Une erreur serveur est survenue » and never that a name is too long.
+  It is « a delete asks the schema first, or the constraint answers for it », reached through a length.
+  The widths are named once in `HospitalTextLengths` / `StudentIdentifierRules.MaxNameLength` and pinned
+  from both sides by `TextLengthBoundsEndpointTests` — every refusal paired with the value that must
+  still be accepted.
 - **Ask where the requirement is really true.** Objectives are needed only by
   `EvaluationMode.ValidateObjectives`, and that is already enforced by the evaluation validators and
   `EvaluationObjectiveResolver`. A stage-level `NotEmpty()` asserted it for every stage, in every
@@ -702,9 +970,26 @@ Let the store generate the key (see the comments at `InternshipAssignment.cs` `D
     endpoint and fails on any required query-string value type. It was written because the hand sweep
     was run twice and was wrong once: it scanned a single project for the declarations, so the types
     declared *inside* endpoint classes (`OccupantsRequest`, `ImportOptions`) were reported as « not
-    found » and read as noise rather than as the answer. The pre-existing offenders are an explicit
+    found » and read as noise rather than as the answer. The pre-existing offenders were an explicit
     **shrinking** list in that file — nothing may be added to it, and an entry that is fixed must be
-    removed (a second test enforces that, so the list cannot become a lie). → HANDOFF item 0bs
+    removed (a second test enforces that, so the list cannot become a lie).
+    ✅ **The list is empty since 13/09/2026**: all 24 routes bind nullable and refuse the omission in
+    words. It is kept as an empty set rather than deleted, because the ratchet is the two tests and
+    they have to outlive the list — a new offender now fails immediately with no amnesty to join.
+  - **The refusal is written through `RequiredParameterRules`** (`Application/Extensions/`):
+    `.IsARequiredReference(…)`, `.IsARequiredDate(…)`, `.IsARequiredChoice<TEnum>(…)`. ⚠ Unlike
+    `PaginationRules` it **takes the sentence** rather than supplying one — there is one page ceiling
+    and one thing to say about it, but « la promotion est obligatoire » and « précisez l'année de
+    départ » are different facts, and twenty routes sharing one sentence would say no more than the
+    bare 400 they replaced. What is shared is the *mechanics*: one `Must` predicate covering both
+    absence and a meaningless value, so the `NotNull().GreaterThan(0).WithMessage(…)` trap — which
+    leaves the null case on FluentValidation's default text — is structurally impossible.
+  - ⚠ **A write act refuses its year; it does not resolve one.** An omitted academic year means « the
+    current one » on a *read* (`AcademicYearResolver`) and that stays right. It is the wrong rule for
+    an act that destroys: the four roster acts (`groups/assign-partitions`, `groups/partitions`,
+    `groups/all`, `groups/all/students`) name their own year or are refused, because the current one
+    is precisely the promotion everybody is working on. An omitted `levelId` on the two teardowns is
+    different — it is the year-wide scope, deliberately chosen — and that asymmetry is the point.
 - **Error mapping** — always use `result.Match(Results.Ok/Created/NoContent, CustomResults.Problem)`. Never return `Results.Ok` unconditionally on a command that can fail.
 - **DomainException subclasses** — `GlobalExceptionHandler` catches all `DomainException` subclasses automatically via the base class. Add new exception types by inheriting `DomainException` — no handler changes needed.
 

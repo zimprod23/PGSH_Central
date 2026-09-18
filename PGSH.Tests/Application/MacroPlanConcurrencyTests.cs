@@ -35,8 +35,7 @@ public class MacroPlanConcurrencyTests
     private static readonly string[] Labels = ["A", "B", "C"];
 
     private static GenerateMacroPlanCommandHandler Handler(ApplicationDbContext db) =>
-        new(db,
-            new RecordingAuditTrail(),
+        new(new RecordingAuditTrail(),
             new CohortProvisioner(db),
             new StudentAffectationService(db),
             db.Arranger(),

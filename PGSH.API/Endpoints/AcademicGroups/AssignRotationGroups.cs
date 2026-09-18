@@ -19,10 +19,13 @@ public sealed class AssignRotationGroupsEndpoint : IEndpoint
 
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
-        // levelId is required: a partition divides one promotion, and year-wide this reached every
-        // promotion of the year plus « Non réparti ». See AssignRotationGroupsCommand.
+        // ⚠ Both are bound nullable and refused *in words* by AssignRotationGroupsCommandValidator —
+        // not because either is optional (a partition divides one promotion, and year-wide this
+        // reached every promotion of the year plus « Non réparti »), but because a non-nullable value
+        // type bound from the query string throws in routing before any validator runs, leaving a
+        // blank selector to render as a bare 400. See AssignRotationGroupsCommand.
         app.MapPost("groups/assign-partitions",
-            async (int academicYearId, int levelId, Request request, ISender sender, CancellationToken ct) =>
+            async (int? academicYearId, int? levelId, Request request, ISender sender, CancellationToken ct) =>
             {
                 var command = new AssignRotationGroupsCommand(
                     academicYearId, request.PartitionCount, levelId, request.Strategy, request.Reassign);

@@ -337,3 +337,67 @@ dise qu'elle a existé ; celle-ci laisse l'entrée d'audit.
 | L'agrégat | `InternshipAssignment.DeclareRotation` / `.RestoreRotation` — l'un l'inverse de l'autre |
 | Le schéma | migration `AffectationImportJournal` — trois tables, purement additive |
 | Tests | `AffectationSheetTests` (25), `AffectationImportReversalTests` (13), `AffectationSheetEndpointTests` (9), `SqlTranslationTests` (10 cas) |
+
+---
+
+## Comment une ligne retrouve son service, et pourquoi la tolérance est dans le rapport
+
+Une ligne du fichier nomme son service **en toutes lettres**. La correspondance se fait sur le nom
+replié — minuscules, accents retirés (`SearchTerms.Fold`) — puis par **égalité exacte**. Un caractère
+manquant ne correspond à rien : la ligne part en `UnknownService`, et un seul refus refuse le fichier
+entier.
+
+**Est-ce praticable ? Oui, et l'inverse ne l'est pas.** Rapprocher « au plus proche » serait
+désastreux ici précisément parce que le catalogue de cette faculté contient des noms qui ne diffèrent
+que d'un caractère — « Médecine A » et « Médecine B », « Chirurgie 1 » et « Chirurgie 2 ». Accepter un
+écart d'un caractère, c'est envoyer une cohorte dans un autre hôpital **en silence**, sur un acte qui
+est déjà le plus destructeur de l'application. Un import qui refuse tout un fichier pour une faute de
+frappe est ennuyeux ; un import qui place trente étudiants ailleurs sans le dire ne se rattrape pas.
+
+⚠ **Mais un refus juste et inutilisable reste un défaut.** « Aucun service ne porte ce nom » sur la
+ligne 412 d'un fichier de 900 laissait l'opérateur chercher à l'œil la différence entre ce qu'il avait
+tapé et l'une des 148 entrées du catalogue. Depuis le 13/09/2026 la tolérance est dépensée **dans le
+rapport** : `NameSuggestions` nomme les deux ou trois entrées les plus proches.
+
+> `CHIRURGIE VISCERAL` → « Aucun service ne porte ce nom. Vouliez-vous dire « Chirurgie viscérale » ? »
+
+- **Suggérer, jamais choisir.** Le rapprochement n'entre à aucun moment dans la décision : il n'écrit
+  rien dans le plan, il complète une phrase. C'est la même séparation que partout ailleurs ici — on
+  montre un nombre, l'opérateur confirme.
+- ⚠ **Le budget d'écart est proportionnel à la longueur**, pas fixe. Un caractère faux dans « ORL »
+  est un autre mot ; un caractère faux dans « Chirurgie thoracique » est une faute de frappe. Un seuil
+  fixe doit se tromper sur l'un des deux.
+- ⚠ **Rien n'est suggéré quand rien n'est proche.** Trois services sans rapport proposés à côté d'un
+  refus correct sont pires que pas de suggestion : ils invitent à les accepter.
+- Même traitement pour un **stage** inconnu (`UnknownStage`), pour la même raison.
+- ⚠ **La colonne « Hôpital » reste la vraie réponse à l'ambiguïté.** Deux services portant exactement
+  le même nom (`AmbiguousService`) ne sont pas un problème d'orthographe : la feuille doit dire dans
+  quel hôpital, et aucune suggestion ne remplace cela.
+- → `NameSuggestionTests`
+
+## Plusieurs périodes pour un stage : une ligne par **période**, pas par stage
+
+C'est la question que le canevas pose le plus souvent, et l'en-tête du fichier le dit :
+**une ligne = une période**. Un stage qui occupe trois créneaux s'écrit sur trois lignes portant le
+même étudiant et le même stage.
+
+Ce que la feuille écrit dépend alors du mode du stage (`Stage.RotationMode`, voir
+[`planning-rotation.md`](planning-rotation.md) « Several périodes is not several services ») :
+
+| Le stage est… | Ce que la faculté écrit dans le fichier | Ce que PGSH enregistre |
+|---|---|---|
+| **`PerPeriod`** (3ᵉ, 4ᵉ année) | une ligne par période, **le service pouvant changer** d'une ligne à l'autre | une `ServicePeriod` par ligne, **une évaluation chacune** |
+| **`SingleService`** (5ᵉ, 6ᵉ année — 51 923 placements sur 51 924) | une ligne par période avec **le même service** partout, ou une seule ligne couvrant toute la durée | l'une ou l'autre écriture donne le même séjour ; une évaluation pour l'ensemble |
+
+⚠ **Ce que la feuille écrit n'est pas replié par `CohortStayFolder`.** Ce repli-là est celui de la
+*publication*, qui part des cellules de la grille. Le canevas des affectations écrit des périodes
+**hors grille** : chaque ligne devient sa propre `ServicePeriod`. Donc trois lignes « même service »
+pour un stage `SingleService` donnent **trois** périodes et trois évaluations, là où une publication en
+aurait donné une. Si c'est un séjour continu qui est voulu, **écrivez une seule ligne** couvrant du
+premier au dernier jour — c'est ce que fait la délocalisation, et c'est pourquoi elle n'écrit qu'une
+période.
+
+⚠ **Et le rappel qui va avec** : ces périodes n'apparaissent pas dans la grille ni dans la charge que
+la grille affiche, parce que `ServiceOccupancyCalculator` lit les **cellules**. Le rapport le dit à
+chaque application. Voir « Une rotation qui ne vient pas de la grille » dans
+[`planning-rotation.md`](planning-rotation.md).

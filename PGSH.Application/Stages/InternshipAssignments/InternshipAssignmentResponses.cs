@@ -1,3 +1,4 @@
+﻿using PGSH.Application.Calendar.Pauses;
 using PGSH.Domain.Common.Utils;
 using PGSH.Domain.Stages;
 
@@ -23,7 +24,20 @@ public sealed record InternshipAssignmentSummaryResponse(
     // True when the stage is served outside the faculty. Carried on the row because the two acts a
     // screen can offer are opposites — délocaliser, or annuler la délocalisation — and the status
     // alone cannot tell them apart: a délocalisation is Completed, exactly like a stage served here.
-    bool IsDelocalized = false);
+    bool IsDelocalized = false,
+    // La fenêtre que la promotion a déclarée et qui couvre *aujourd'hui*, quand la rotation est en
+    // cours — sinon null.
+    //
+    // ⚠ Ce n'est pas IsPaused sous un autre nom, et les deux coexistent exprès. IsPaused est un
+    // drapeau *stocké* que plus aucun acte ne pose depuis le 18/09/2026 et qu'une annulation de
+    // téléversement peut encore remettre ; celui-ci est **dérivé** du calendrier de la promotion à
+    // chaque lecture. Révoquer la fenêtre l'éteint pour toute la promotion d'un coup, sans un écrit —
+    // ce qui est exactement ce que l'acte retiré la veille ne savait pas faire.
+    //
+    // ⚠ Et il remplace le statut à l'écran plutôt que de s'y ajouter : « En cours » est vrai du cycle
+    // de vie et faux de l'endroit où l'étudiant est ce matin. Mesuré le 18/09/2026 : 472 rotations se
+    // lisaient « en service » pendant une fenêtre d'examens déclarée.
+    PromotionSuspension? SuspendedBy = null);
 
 public sealed record InternshipAssignmentResponse(
     Guid Id,
@@ -51,4 +65,10 @@ public sealed record ServicePeriodSummary(
     // The whole stage was served outside the faculty: this is an ad-hoc, pre-completed period
     // evaluated from the paper fiche de validation. No in-app chef supervises it.
     bool IsDelocalized = false,
-    string? DelocalizationReason = null);
+    string? DelocalizationReason = null,
+    // La fenêtre déclarée par la promotion de cet étudiant qui couvre *aujourd'hui* — sinon null.
+    //
+    // ⚠ C'est la même donnée que sur la ligne d'affectation, portée jusqu'ici parce que le portail
+    // étudiant lit ce chemin et aucun autre : une suspension visible côté administration et muette sur
+    // le dossier de l'étudiant serait la règle avec deux réponses selon qui regarde.
+    PromotionSuspension? SuspendedBy = null);

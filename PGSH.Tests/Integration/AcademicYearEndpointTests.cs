@@ -211,11 +211,9 @@ public class AcademicYearEndpointTests : IClassFixture<ApiFactory>, IAsyncLifeti
     [Fact]
     public async Task Narrowing_a_year_reports_the_periodes_left_outside_it()
     {
-        await _factory.SeedAsync(db => db.StageSlots.Add(new StageSlot
-        {
-            Id = 77, StageId = StageId, AcademicYearId = FutureYear, PeriodNumber = 1,
-            StartDate = new DateOnly(2027, 7, 1), EndDate = new DateOnly(2027, 7, 31),
-        }));
+        await _factory.SeedAsync(db => db.StageSlots.Add(TestHarness.NewSlot(
+            77, StageId, FutureYear, 1,
+            new DateOnly(2027, 7, 1), new DateOnly(2027, 7, 31))));
 
         using var client = _factory.CreateApiClient(null, Roles.Scolarite);
 

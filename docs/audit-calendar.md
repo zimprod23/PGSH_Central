@@ -122,6 +122,32 @@
     *in-memory* **refuse** `ExecuteDelete`, donc le chemin de succès de ces actes n'était atteignable
     par aucun test du dépôt. C'est `TestHarness.NewSqliteContext` qui l'ouvre — voir `CLAUDE.md`,
     « Known blind spot », et `ExecuteDeleteAuditTests`.
+- ⚠ **Six sorties de plus, trouvées le 14/09/2026 — le `SaveChanges` *conditionnel*.** Le balayage du
+  10/09 n'avait retenu que les handlers n'appelant **jamais** `SaveChanges`. Restaient ceux dont
+  l'appel est sous une garde, et la garde est toujours la même : `if (count > 0)`. L'entrée ne
+  s'écrit alors pas sur le run où l'acte n'a **rien changé** — c'est-à-dire sur le **rejeu ordinaire
+  du bouton**.
+
+  | Acte | La sortie muette |
+  |---|---|
+  | `AssignRotationGroupsCommandHandler` | promotion sans roster ; **et** promotion dont chaque roster porte déjà sa partition |
+  | `ClearRotationGroupsCommandHandler` | promotion sans roster ; **et** promotion déjà non partitionnée |
+  | `SeedNationalHolidaysCommandHandler` | année déjà semée — resemer après une correction à la main est la façon normale de s'en servir |
+  | `CloneCnpnCurriculaCommandHandler` | texte cible portant déjà ses programmes |
+  | `SetAllowedServicePlacementModeCommandHandler` | mode reposé à l'identique — ce que fait un double-clic |
+
+  - ⚠ **`PARTITIONS_ASSIGNED` est le cas qui pique le plus.** Le code d'acte avait été ajouté
+    *exprès* pour que « qui a découpé cette promotion, et quand ? » ait une réponse — la question
+    qu'ont soulevée 66 rosters apparus sur la 7ᵉ MED le 02/09/2026 — et c'est justement le rejeu,
+    celui qui n'étiquette plus rien, qui ne laissait aucune ligne.
+  - **Corrigé de la même façon partout** : le chemin zéro dépose ses zéros par `RecordOutcome` puis
+    sauvegarde, la forme que `DeleteAllGroupsCommandHandler` avait déjà. Les deux actes de partition
+    ne déposaient d'ailleurs **aucun** constat, même sur le chemin normal : l'entrée disait ce qui
+    avait été *demandé* (`partitionCount`, `strategy`) et jamais ce qui avait été *fait*.
+  - ⚠ **Le défaut reste invisible à la compilation et aux tests de handler**, pour la raison dite
+    plus haut : rien ne relie l'entrée mise en attente au `SaveChanges` qui la valide. Le filet est
+    `PGSH.Tests/Integration/NoEffectAuditEndpointTests.cs`, et son témoin — un acte **refusé**
+    n'écrit toujours rien — est ce qui l'empêche de passer pour une raison inverse.
 - ⚠ **Une entrée doit dire *combien*, et la commande ne peut pas le savoir — `IAuditTrail`.**
   `IAuditableCommand` décrit ce qui a été **demandé** ; sur un acte destructeur la question posée au
   registre trois mois plus tard est « combien cela a-t-il emporté ». « Réinitialiser les cohortes »
@@ -207,9 +233,48 @@
 
 ## Jours ouvrables — the calendar is entered, and half of it cannot be computed
 `WorkingDayCalendar` in `Domain/Calendar/` is the single answer to "how long is this really": calendar
-days minus the weekly rest days (`WorkingWeek.Moroccan` = Sat + Sun) minus every declared
-`ICalendarClosure`. Pure and immutable, built once by `WorkingDayProvider`, which loads the **whole**
+days minus the weekly rest days (`WorkingWeek.Moroccan` = Sat + Sun) minus the declared
+`ICalendarClosure`s. Pure and immutable, built once by `WorkingDayProvider`, which loads the **whole**
 holiday table (~15 rows a year — a date range would need an unknowable forward margin anyway).
+
+### ⚠ It answers **two** questions, and they are two methods — not one `IsWorkingDay`
+The faculty's rule, given 10/09/2026: **the only planning constraint is that a période neither begins
+nor ends on a rest day or a closure.** A closure may therefore be *crossed* — and crossing it need not
+lengthen the window that crosses it. That is two different facts about a day, and a single predicate
+could not hold them both:
+
+| | `CountsTowardDuration` | `CanBoundAWindow` |
+|---|---|---|
+| asks | is somebody expected in a service | may a période begin or end here |
+| rest day | no | no |
+| closure, ordinary | no | no |
+| closure, `CountsAsWorkingDay` | **yes** | **no** |
+
+- ⚠ **The two are nested, never independent**: every bounding day counts, not every counted day bounds.
+  A day that could bound a window without counting would be a window whose own last day is not in it.
+  Pinned by a sweep over seven months in `WorkingDayCalendarTests`.
+- **`ICalendarClosure.CountsAsWorkingDay` is on the interface, not on `Holiday` alone.** The interface's
+  own sentence is that the two implementations « differ in scope and in nothing else »; a flag on one of
+  them would have quietly made that false. `PromotionPause` answers `false` **unconditionally and
+  without a column** — a promotion sitting an exam is not in a service, and a settable flag there would
+  allow a window that suspends nobody. `ProposedClosure` computes it from the scope for the same reason:
+  it exists so a preview cannot report what the act it previews is unable to be.
+- ⚠ **`false` everywhere is the old arithmetic line for line**, and it is what every row in the base
+  says. The migration is additive with `DEFAULT false`, so no date already posed moves — which is what
+  lets it land on a base carrying a published promotion.
+- ⚠ **`Lay` can now return a window holding *more* than was asked, and it says so.** If the Nᵗʰ counted
+  day falls on a worked closure — counted, never bounding — `End` advances to the next day that can
+  bound, and the worked days crossed on the way are **counted** rather than dropped. Dropping them
+  would leave `Count(Start, End)` disagreeing with `WorkingDays` *for the same window*: one number
+  standing for two facts, the defect class this repository is measured against. The divergence is
+  carried by `WorkingDayWindow.RunsLongerThanAsked`, so a caller sees a wider column instead of
+  discovering it on a published table.
+  - ⚠ **This revises the sketch the item was written from**, which said to extend « sans le compter ».
+    Taken literally that is what produces the contradiction its own next clause warns about — the day
+    the window ends on is itself a worked day, so it cannot be excluded from the count of a window that
+    contains it. The reason is kept; the mechanism is the other one.
+  - Unreachable on the base as it stands: nothing is flagged, so every window holds exactly what it was
+    asked for.
 
 ### ⚠ There are **two** calendars, and which one a caller gets is decided by whether it holds a promotion
 Two things are "days on which the people covered are not in a service", and they differ in **scope and
@@ -229,8 +294,53 @@ in nothing else** — so both implement `ICalendarClosure` rather than growing a
 - ⚠ **Declaring a window moves no date.** It is a calendar fact: the axis laid afterwards steps over
   it, in worked days, and the grid and the périodes published from it are laid against the same days.
   Declared *after* a grid exists it leaves every créneau where it is — the preview counts what each one
-  then loses, and re-laying the axis is the act that catches up. Full reasoning in
-  [`planning-rotation.md`](planning-rotation.md) and `PHASES.md` §17.
+  then loses. Full reasoning in [`planning-rotation.md`](planning-rotation.md) and `PHASES.md` §17.
+- ⚠ **The preview therefore has to say what the remedy *is*, and it depends on the promotion — three
+  cases, not two.** ① Nothing published: re-lay the axis, and it steps over the window by itself.
+  ② Published: re-laying is refused for the whole year, and the repair is moving the crossed columns
+  one at a time (§17.1) — so the report carries **`SlotsMovable`**, how many of them that act would
+  accept, counted against `ServicePeriodLifecycle.Movable`, the rule the aggregate itself refuses on.
+  ③ Rotations crossing the window with **no créneau** crossing it — périodes written *hors grille* —
+  which **neither** remedy reaches; those are corrected by re-sending the canevas des affectations.
+  - ⚠ **Case ② said « pas encore possible » for a year after it became possible**, and case ③ had no
+    branch at all: on a promotion at rest it produced *no warning*, and on one with rotations under way
+    it prescribed « reposez l'axe », a gesture that succeeds and changes nothing for them. Both fixed
+    17/09/2026. **Naming no remedy where one exists reads as « les jours sont perdus »** — the same
+    defect as prescribing a refused button, arrived at from the other side.
+  - ⚠ **And « déplaçable » is not « réparé ».** A move shifts one column; nothing cascades to the ones
+    after it. The warning says so, because an operator who moves P7 expecting P8 to follow will have
+    the next move refused for breaking the run's order.
+  - ⚠ **Et « déplaçable » n'était que la moitié de la question — la moitié qui ne couvre pas le cas
+    qui compte.** Une fenêtre déclarée en cours d'année tombe sur des rotations **commencées**, que
+    `ServicePeriodLifecycle.Movable` refuse, donc sur cette promotion-là le compte des déplaçables
+    est petit ou nul et le rapport disait en substance « rien n'est rattrapable ». Depuis le
+    18/09/2026 la classe pose **deux** questions : `Movable` (« puis-je déplacer le début ? ») et
+    `Extendable` (« puis-je repousser la fin ? »). Allonger une rotation en cours ne réécrit rien de
+    ce qui a eu lieu, donc le remède existe là où le rapport n'en voyait aucun.
+    - ⚠ **Les présences interdisent le déplacement et pas l'allongement** — une journée pointée vit
+      entre le début et l'ancienne fin, et une fenêtre qui ne fait que croître la contient toujours.
+      Le refus du raccourcissement n'est donc pas une garde d'état mais le **nom de l'acte** :
+      `InternshipAssignment.ExtendTo` ne sait que repousser.
+    - ⚠ **Les deux règles sont emboîtées** (`Movable` ⊂ `Extendable`), comme `CountsTowardDuration`
+      et `CanBoundAWindow` — et c'est un théorème vérifié sur les 32 combinaisons, pas une
+      coïncidence : `IsInterrupted` a été ajouté à `Movable` pour cela, une rotation coupée par un
+      transfert ayant ses **deux** bouts pour faits.
+  - ⚠ **A column the window *empties* is a fourth thing, and it is not a variant of the three.**
+    `SlotsEmptied` + `CellsInEmptiedSlots`: how many crossed columns come out with **no worked day at
+    all**, and how many cells sit in them. A column keeping 12 of its 15 days is caught up by a shift; a
+    column keeping **0** is a rotation during which its students serve nothing while its cells and its
+    périodes still stand — a hole, not a short week, and the remedy differs in kind.
+    - **Found by driving the real screen, 17/09/2026.** A window over December 2026 on the 3ᵉ MED — 23
+      worked days against columns of 15 — empties **one column of every one of the 8 stages** (3 × 15 =
+      45, less 23, split 0 + 12 + 10). `Warnings()` was never given `MinWorkingDaysAfter`, so the only
+      trace was the left end of a « 0 – 10 » range in a per-stage table cell.
+    - ⚠ **The sentence is *added* to the remedy, never substituted for it** — an emptied column happens
+      whether the axis is published, under way or at rest. And the count is taken on the **whole** slot
+      list, before the `MaxSlotRows` truncation: a column emptied past the display cap is exactly the one
+      nobody would see.
+    - ⚠ **`CellsInEmptiedSlots` travels beside the count** for the usual reason: « an emptied column
+      nobody is in » and « an emptied column holding a hundred students » are the two states the count
+      alone does not separate.
 - ⚠ **A window's cost is measured on a calendar that does *not* contain it.** Asked of one that does,
   every window ever declared costs zero — the same trap `HolidayResponse.WorkingDaysLost` avoids by
   counting against the weekend-only calendar. Hence `ForPromotionAsync(..., excludingPauseId)` and
@@ -271,8 +381,26 @@ in nothing else** — so both implement `ICalendarClosure` rather than growing a
   multi-day: Aïd is two, vacances are two weeks. `WorkingDaysLost` is counted against the
   *weekend-only* calendar — measured against a calendar that already contains the holiday, every
   holiday costs zero — so a férié falling on a Sunday correctly reads 0.
-- **A window opens and closes on a worked day.** Asked to start on a Saturday it starts Monday, and it
-  never swallows a trailing weekend, so consecutive columns cannot overlap the rest day between them.
+  - ⚠ **And it is a *difference* rather than a count**: `weekendsOnly.Count(span)` minus
+    `weekendsOnly.With(holiday).Count(span)`. A worked férié removes nothing, and the subtraction takes
+    that from the calendar's own rule instead of restating it as an `if` that would drift.
+  - ⚠ **`WorkingDaysLost = 0` now has two opposite meanings, so the flag travels beside it.** « férié
+    chômé tombé un dimanche » is a row to leave alone; « férié travaillé » is a row somebody flagged and
+    may want to unflag. `HolidayResponse.CountsAsWorkingDay` and `HolidayCoverageResponse
+    .WorkedThroughCount` are what separate them — the number alone would read as a broken count.
+  - ⚠ **Toggling the flag opens the `SlotsSpanning` report exactly as moving the dates does**, and
+    `UpdateHolidayResult` names the two separately (`DatesMoved`, `CountingChanged`) because the
+    sentences differ. Gating on `DatesMoved` alone would have made the one change that gives days
+    *back* the only silent one.
+  - ⚠ **`UpdateHolidayCommand.CountsAsWorkingDay` is `bool?`, and null means « unchanged ».** This is a
+    full-replace PUT and the screen lives in another repository: a plain `bool` could not tell a client
+    asking for « chômé » from one that has never heard of the field, so saving a holiday's *name* from
+    an older screen would silently undo a flag somebody set. `IsConfirmed` beside it is not nullable,
+    because every client that exists already sends it.
+- **A window opens and closes on a day that can *bound* one.** Asked to start on a Saturday it starts
+  Monday, and it never swallows a trailing weekend, so consecutive columns cannot overlap the rest day
+  between them. ⚠ Never merely "a worked day": a closure the faculty works through is worked and still
+  bounds nothing.
 - 📋 **La règle de la faculté, dite le 10/09/2026 : la *seule* contrainte de planification est qu'une
   période ne commence ni ne finisse un week-end ou un jour férié.** Un férié peut donc être
   **traversé** sans allonger la fenêtre — ce que le modèle ne sait pas encore dire, un `Holiday` étant

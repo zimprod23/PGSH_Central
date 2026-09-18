@@ -68,18 +68,12 @@ public class PartitionEndpointTests : IClassFixture<ApiFactory>, IAsyncLifetime
         });
 
         foreach (var n in Enumerable.Range(1, 4))
-            db.AcademicGroups.Add(new AcademicGroup
-            {
-                Id = n, Label = $"Groupe {n}", GroupNumber = n,
-                AcademicYearId = YearId, LevelId = PromotionId,
-            });
+            db.SeedGroup(n, n, academicYearId: YearId, levelId: PromotionId, label: $"Groupe {n}");
 
         foreach (var n in Enumerable.Range(1, 2))
-            db.AcademicGroups.Add(new AcademicGroup
-            {
-                Id = 100 + n, Label = $"Groupe {50 + n}", GroupNumber = 50 + n,
-                AcademicYearId = YearId, LevelId = RetraitId,
-            });
+            db.SeedGroup(
+                100 + n, 50 + n, academicYearId: YearId, levelId: RetraitId,
+                label: $"Groupe {50 + n}");
     });
 
     private static string Url(int levelId, int yearId = YearId) =>

@@ -77,10 +77,7 @@ public class AffectationSheetEndpointTests : IClassFixture<ApiFactory>, IAsyncLi
             Id = ServiceId, Name = "Chirurgie A", Description = "", HospitalId = 1,
         });
 
-        db.AcademicGroups.Add(new AcademicGroup
-        {
-            Id = GroupId, Label = "G10", GroupNumber = 10, AcademicYearId = YearId, LevelId = LevelId,
-        });
+        db.SeedGroup(GroupId, 10, academicYearId: YearId, levelId: LevelId, label: "G10");
 
         var student = new Student
         {

@@ -212,9 +212,15 @@ qui ne ramasse que les inscriptions sans groupe) → découper en partitions →
 **cohorte**, so it survives untouched — which is why « j'ai supprimé le bloc » leaves « Vider » still
 refusing. Only « Réinitialiser les cohortes » deletes affectations, and it is per (stage, année).
 
-## ⚠ A pause is stage-scoped, compensates in calendar days, and does not move the grid
-`StagePauseRunner` (`Stages/Planning/`) + `InternshipAssignment.PausePeriod` / `ResumePeriod`. Read
-this before building anything on top of it — the mechanism is right and **its unit is not**.
+## ⚠ ~~A pause is stage-scoped, compensates in calendar days, and does not move the grid~~ — retired 18/09/2026
+`StagePauseRunner` (`Stages/Planning/`) + `InternshipAssignment.PausePeriod` / `ResumePeriod` **no
+longer exist**, nor do `POST stages/{id}/schedule/pause` and `.../resume`, nor the two buttons on
+« Suivi des affectations ». The section is kept because every bullet below is why, and because the
+same mistake is available to anyone writing the cascade: **the four faults are one fault, which is
+writing dates at pause time.**
+
+⚠ **The earlier verdict here was « the stage-scoped pause stays ».** It was reversed, not forgotten —
+the reasoning and the honest statement of what was *lost* are in `PHASES.md` §17.2.
 
 - **Scope is one stage, one academic year** (both mandatory — pausing "Chirurgie" must not reach a
   promotion that sat those exams six years ago), then optionally cohortes, a partition label, or
@@ -238,9 +244,17 @@ this before building anything on top of it — the mechanism is right and **its 
 The replacement is a **promotion-scoped calendar**, not a second date-pushing mechanism:
 `WorkingDayProvider.ForPromotionAsync(yearId, levelId, ct)` = faculty holidays ∪ that promotion's
 declared pauses, so every existing reader compensates in worked days and the grid and the périodes
-stay laid from one calendar. Plan and guards: `PHASES.md` §17. **The stage-scoped pause stays** — a
-service closing for a week really is per stage; the promotion pause is a second act, not a
-replacement.
+stay laid from one calendar. Plan and guards: `PHASES.md` §17.
+
+⚠ **And it is now the *only* act**, since 18/09/2026: the promotion pause turned out to be a
+replacement after all, not a second act. A window is **declared** — no date written, revocable,
+correctable — and the columns it cuts are moved one at a time by
+`InternshipAssignment.Reschedule`, which writes **absolute** dates and therefore does nothing when
+replayed with the same window. Declaration and displacement are two acts on purpose: the first is a
+decision, the second a consequence, and the retired pause was both at once.
+
+⚠ **What this withdrew, said plainly:** suspending a single cohorte's rotation is something PGSH can
+no longer do. Nothing replaces it. When it is asked for, it is built on the declarative shape above.
 
 ### …and a published period cannot be moved mid-flight
 « On est en P3, peut-on changer P7 ? » — no, and one of the three obstacles is a trap rather than a
@@ -298,6 +312,15 @@ a column mid-run splits a stay rather than editing a row. `PHASES.md` §17.1.
     `SplitAcademicGroupsPerLevel` had to repair across 1,003 rows.
   - `CreateCohortCommand` — a roster paired with a stage of another promotion. `CohortProvisioner`
     always checked this on the bulk path; the hand-built path had no equivalent.
+- ⚠ **The bucket is asked for by its own name — `AcademicGroup.AsUnassignedBucket(yearId, label)`.**
+  Since 14/09/2026 the type is closed: the three keys are `private set` and there is no constructor,
+  so a promotion's roster goes through `ForPromotion(yearId, levelId, number, label)`, which demands
+  all three. **Two factories rather than one with a nullable `levelId`**, because under a single one
+  *forgetting* the promotion and *meaning* the bucket are the same call — and that is the shape the
+  4 725-student incident came from. The bucket factory also takes no `rotationGroup` at all, so the
+  next rule is not only refused at runtime, it has no parameter to pass through. The same treatment
+  closed `Cohort` — `(StageId, AcademicGroupId)`, `Cohort.For(...)` — and `StageSlot` before it.
+  → `PGSH.Tests/Application/PlanningIdentityTests.cs`
 - ⚠ **« Non réparti » must never acquire a partition label or a cohorte.** Either turns the bucket
   into a roster and moves every promotion in it as one body. `AssignRotationGroups` can no longer
   reach it, but `CreateGroup`/`UpdateGroup` write `RotationGroup` directly and are refused

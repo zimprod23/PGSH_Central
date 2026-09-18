@@ -1,8 +1,9 @@
+using System.Text.Json;
 using FluentValidation;
 using PGSH.Application.Abstractions.Authorization;
 using PGSH.Application.Abstractions.Messaging;
+using PGSH.Application.Extensions;
 using PGSH.SharedKernel;
-using System.Text.Json;
 
 namespace PGSH.Application.Students.Registrations.Inscription;
 
@@ -28,15 +29,18 @@ namespace PGSH.Application.Students.Registrations.Inscription;
 /// </param>
 public sealed record ApplyInscriptionCommand(
     IReadOnlyList<InscriptionRow> Rows,
-    int LevelId,
+    int? LevelId,
     int? AcademicYearId = null,
     int? ConfirmedStudentCount = null) : ICommand<InscriptionReport>, IAuditableCommand
 {
-    public InscriptionScope Scope => new(LevelId, AcademicYearId);
+    // Nullable only so an omitted query-string value reaches the validator instead of throwing in
+    // routing. Validation runs before the audit behaviour, so both members below read a command whose
+    // promotion has already been refused if it was missing.
+    public InscriptionScope Scope => new(LevelId!.Value, AcademicYearId);
 
     public string AuditAction => "INSCRIPTION_APPLIED";
     public string AuditEntityType => "Level";
-    public string? AuditEntityId => LevelId.ToString();
+    public string? AuditEntityId => LevelId!.Value.ToString();
 
     public string? AuditMetadata =>
         JsonSerializer.Serialize(new
@@ -52,7 +56,7 @@ internal sealed class ApplyInscriptionCommandValidator : AbstractValidator<Apply
 {
     public ApplyInscriptionCommandValidator()
     {
-        RuleFor(x => x.LevelId).GreaterThan(0);
+        RuleFor(x => x.LevelId).IsARequiredReference(InscriptionErrors.PromotionRequiredMessage);
         RuleFor(x => x.Rows).NotEmpty().WithMessage(InscriptionErrors.EmptySheetMessage);
     }
 }

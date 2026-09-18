@@ -76,7 +76,11 @@ internal sealed class InscribeStudentCommandValidator : AbstractValidator<Inscri
 {
     public InscribeStudentCommandValidator()
     {
-        RuleFor(x => x.LevelId).GreaterThan(0);
+        // Bound from the *body*, so an omission arrives as 0 rather than throwing in routing — this
+        // rule has always been reachable. What it lacked was a sentence: « 'Level Id' doit être
+        // supérieur à '0' » names a property and no remedy.
+        RuleFor(x => x.LevelId).GreaterThan(0)
+            .WithMessage(InscriptionErrors.PromotionRequiredMessage);
 
         // ⚠ Nothing further is asserted here, and that is the point. Whether the row names anybody,
         // whether a transfer carries its équivalence, whether a date is readable — all of it is the

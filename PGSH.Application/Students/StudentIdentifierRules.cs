@@ -93,8 +93,58 @@ public static class StudentIdentifierRules
     /// </summary>
     public const int MaxAppogeeLength = 50;
 
+    /// <summary>
+    /// The column width of <c>Users.FirstName</c> / <c>Users.LastName</c>.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ <b>It is the column's width, and that is the whole point.</b> Both validators capped names at
+    /// <b>50</b> while the column holds <b>100</b> and <c>LegacyImportPlanner</c> truncates to 100 — so
+    /// a name of 51 to 100 characters was stored happily and then refused on every later save, naming a
+    /// field nobody was editing. Moroccan compound names reach that length readily
+    /// (<c>MLIHA TOUATI MOHAMED YASSINE</c> splits into a 20-character surname, but the base holds
+    /// longer). A validator that is stricter than the column is the same defect as the old CNE regex,
+    /// just quieter.
+    /// </remarks>
+    public const int MaxNameLength = 100;
+
+    public const string NameMissingMessage =
+        "Un étudiant doit porter au moins un nom — prénom ou nom de famille.";
+
+    /// <summary>
+    /// Whether a student is nameable at all: <b>at least one</b> of the two columns carries something.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ <b>Not « both are present », because neither write path produces that.</b>
+    /// <c>LegacyIdentityMapper.SplitName</c> hands a single-token name — <c>"BENNANI"</c> — back as
+    /// <c>("", "Bennani")</c>, deliberately: the whole string is preserved across the two columns and
+    /// which half a lone token belongs to is not decidable. <c>InscriptionPlanner</c> refuses a row only
+    /// when <em>both</em> names are blank, so the canvas keeps creating such students today. Requiring
+    /// both made every one of them read-only, which is this file's founding mistake in a second column.
+    /// </remarks>
+    public static bool HasAName(string? firstName, string? lastName) =>
+        !string.IsNullOrWhiteSpace(firstName) || !string.IsNullOrWhiteSpace(lastName);
+
     /// <summary>Where an address PGSH had to manufacture lives.</summary>
     public const string DefaultEmailDomain = "um5.ac.ma";
+
+    public static readonly string UniversityEmailMessage =
+        $"L'adresse doit appartenir au domaine de l'université (@{DefaultEmailDomain}).";
+
+    /// <summary>
+    /// The university address rule, stated once for create and edit.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ <b>It reads <see cref="DefaultEmailDomain"/> rather than repeating the literal</b>, and the two
+    /// are the same fact: <c>LegacyIdentityMapper</c> and <c>InscriptionPlanner</c> both
+    /// <em>manufacture</em> addresses at that domain, so a validator spelling its own copy is a rule
+    /// that can drift away from the data it is judging. <c>PGSH.LegacyImport --email-domain</c> can
+    /// write another one, and every row it wrote would then be read-only — the same shape as the CNE
+    /// regex, reached from the opposite side.
+    /// </remarks>
+    public static IRuleBuilderOptions<T, string> UniversityEmail<T>(this IRuleBuilder<T, string> rule) =>
+        rule.Must(email => email is not null
+                        && email.EndsWith($"@{DefaultEmailDomain}", StringComparison.OrdinalIgnoreCase))
+            .WithMessage(UniversityEmailMessage);
 
     /// <summary>
     /// The local part of a manufactured address — <c>prenom_nom</c>, lower-cased, unaccented, letters

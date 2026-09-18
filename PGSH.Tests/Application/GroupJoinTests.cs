@@ -176,12 +176,7 @@ public class GroupJoinTests
         db.SeedCatalog();
         db.SeedLevel(levelId: 4, "4ème année", year: 4);
 
-        var otherPromotion = new AcademicGroup
-        {
-            Id = 12, Label = "G12", GroupNumber = 12,
-            AcademicYearId = TestHarness.CurrentYearId, LevelId = 4,
-        };
-        db.AcademicGroups.Add(otherPromotion);
+        db.SeedGroup(12, 12, levelId: 4);
 
         var registration = db.SeedRegistration("Sara", "Bennani");
         await db.SaveChangesAsync();

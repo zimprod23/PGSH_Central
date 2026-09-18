@@ -203,11 +203,7 @@ public class StudentParcoursTests
 
         var sixthLevel = new Level { Id = 9, Label = "6ème année", Year = 6 };
         db.Levels.Add(sixthLevel);
-        var sixthGroup = new AcademicGroup
-        {
-            Id = 60, Label = "Groupe 60", GroupNumber = 60, AcademicYearId = TestHarness.CurrentYearId,
-        };
-        db.AcademicGroups.Add(sixthGroup);
+        var sixthGroup = db.SeedGroup(60, 60, levelId: sixthLevel.Id, label: "Groupe 60");
         var sixthReg = db.SeedRegistration("Omar", "Tazi", sixthGroup, levelId: 9);
         sixthReg.StudentId = s.Previous.StudentId;
         sixthReg.Student   = s.Previous.Student;
