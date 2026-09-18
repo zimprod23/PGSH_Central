@@ -2129,6 +2129,40 @@ nommé, là où une cellule épinglée se contente d'être laissée tranquille. 
 **purement additive, `DEFAULT 'Laid'`** — elle atterrit sur la base vivante sans reclasser une ligne.
 → `PGSH.Tests/Domain/SlotSourceTests.cs`, `PublishedColumnMoveTests`
 
+### 🚧 17.5 — l'arithmétique du rattrapage, posée pure (18/09/2026)
+
+Le cœur de l'item 0ce : **reposer les colonnes d'un axe sur le calendrier de sa promotion**, à partir
+de la première que la fenêtre ampute. `AxisRelayPlanner` — pur, ni base ni horloge, comme
+`RotationCyclePlanner` et pour la même raison : les cas pénibles s'éprouvent directement.
+
+**Le modèle, vérifié dans le code plutôt que supposé** : un axe est `T` colonnes de `n` jours
+ouvrables posées bout à bout (`WorkingDayCalendar.LaySeries`), et **chaque stage du bloc porte une
+colonne par numéro** (`RotationCyclePlanner` : `tilings.SelectMany(columns)`), donc « P3 » est *une*
+date et non une date par stage. Reposer l'axe est refaire cette pose sur le calendrier courant.
+
+⚠ **La première colonne recalculée garde son début.** Toute la différence avec « reposer depuis le
+départ » : la fenêtre tombe au milieu d'une colonne déjà commencée et les étudiants y sont entrés à
+cette date. On la **prolonge**, puis les suivantes s'enchaînent — ce que `Extendable` autorise là où
+`Movable` refuse (§17.4).
+
+⚠ **Une colonne déplacée à la main ancre.** La cascade reprend après elle ; si la précédente vient
+mordre dessus, c'est `RelayOverlapsAnchoredColumn` — nommer les deux colonnes et la date, plutôt que
+pousser (effacer la décision) ou enjamber (casser l'ordre).
+
+⚠ **Idempotent, et le test le dit** : reposer deux fois donne le même axe, et *révoquer la fenêtre
+puis reposer rend exactement les dates d'origine* — sans table d'historique et sans rien à défaire.
+C'est la propriété entière pour laquelle la pause par étape a été retirée plutôt que réparée.
+
+⚠ **`WorkingDaysRecovered` est le chiffre qui justifie l'acte**, distinct de `ColumnsMoved` qui n'en
+dit que l'ampleur ; et `AxisEndsOn` dit jusqu'où l'année s'allonge, qui est une décision et non un
+détail d'arithmétique.
+
+**Reste à faire pour clore 0ce** : le planificateur côté magasin (lire l'axe, dériver `n`, appliquer
+par `StageSlot.RelayTo` puis `ExtendTo`/`Reschedule` sur les périodes publiées), l'aperçu, la
+confirmation sur un compte, l'enveloppe `IAuditTrail.RunAtomicallyAsync`, et — après — le rapport
+d'occupation **inter-promotions**, qui est un rapport et non une garde (règle du 12/09).
+→ `PGSH.Tests/Application/AxisRelayPlannerTests.cs`
+
 ### ✅ 17.1 — moving P7 while P3 runs (built 13/09/2026)
 
 « Ten periods, we are in P3, can we change P7 — and therefore P8-P10 — without republishing

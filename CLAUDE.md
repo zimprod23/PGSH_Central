@@ -546,6 +546,13 @@ problem-details mapping. A handler test sees none of that.
   `BaseIntermediateOutputPath` — one shared `obj` across projects gives MSB4006 (circular dependency).
 - **Prove a new guard test bites**: break the guard, confirm the test fails, restore it. A pipeline
   test has many ways to pass for the wrong reason.
+  - ⚠ **Restore from a scratch copy, never with `git checkout <file>`.** Whole sessions of work live
+    in this repo's working tree — 223 files were uncommitted on 18/09/2026 — so `git checkout` is not
+    an undo, it is a delete, and it takes every *other* unstaged change in that file with it. It cost
+    ~130 lines of session 73 that day (`InternshipAssignment.Reschedule`, plus the removal of
+    `PausePeriod`/`ResumePeriod`), recovered only because the method had been read verbatim earlier
+    and a pre-incident build artifact survived in another project's `bin` to check the result against.
+    `cp <file> <scratchpad>/` before breaking it, `cp` back after.
 
 ## Application Layer Conventions
 

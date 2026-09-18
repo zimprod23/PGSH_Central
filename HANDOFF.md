@@ -195,10 +195,23 @@ base vivante, 3ᵉ MED publiée comprise, sans reclasser une ligne ni déplacer 
 redémarrage de l'AppHost, tout ce qui lit un créneau répond 500** : le modèle interroge une colonne
 qui n'existe pas encore.
 
-**Vert : 2 291 tests, 0 échec, 0 ignoré** (Docker présent, donc le palier Testcontainers a tourné).
-Morsure vérifiée dans les deux sens, trois fois : retirer `!IsInterrupted` d'`Extendable` fait tomber
-**9** tests, retirer la garde du raccourcissement **1**, et retirer le marquage de `MoveTo` **4** —
-dont celui qui passe par le handler réel, le seul à prouver que le chemin de production marque.
+**Troisième pièce : `AxisRelayPlanner`, l'arithmétique du rattrapage, pure.** Le modèle a été
+**vérifié dans le code** plutôt que supposé : chaque stage du bloc porte une colonne par numéro, donc
+« P3 » est une date et non une date par stage, et un axe est `T` colonnes de `n` jours ouvrables
+posées par `LaySeries`. Reposer l'axe est refaire cette pose sur le calendrier courant. La première
+colonne recalculée **garde son début** et se prolonge ; les suivantes s'enchaînent ; une colonne
+déplacée à la main **ancre** et un chevauchement est un refus nommé. Idempotent, et deux tests le
+disent — reposer deux fois ne bouge rien, et révoquer puis reposer **rend exactement les dates
+d'origine**.
+
+**Vert : 2 304 tests, 0 échec, 0 ignoré** (Docker présent, donc le palier Testcontainers a tourné).
+Morsure vérifiée quatre fois : retirer `!IsInterrupted` d'`Extendable` fait tomber **9** tests,
+retirer la garde du raccourcissement **1**, retirer le marquage de `MoveTo` **4** — dont celui qui
+passe par le handler réel, le seul à prouver que le chemin de production marque — et casser les deux
+règles porteuses du planificateur (le début préservé, le refus sur ancre) **5**.
+
+⚠ **Ce qui reste pour clore 0ce** : le planificateur côté magasin, l'aperçu, la confirmation sur un
+compte, l'enveloppe atomique, puis le rapport d'occupation inter-promotions.
 
 ⚠ **Incident à consigner, parce qu'il a failli coûter une session entière.** Pour éprouver la morsure
 d'un test j'ai cassé une garde dans `InternshipAssignment.cs`, puis je l'ai « rétablie » par

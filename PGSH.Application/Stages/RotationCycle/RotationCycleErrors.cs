@@ -1,4 +1,4 @@
-using PGSH.SharedKernel;
+﻿using PGSH.SharedKernel;
 
 namespace PGSH.Application.Stages.RotationCycle;
 
@@ -74,6 +74,26 @@ public static class RotationCycleErrors
         "RotationCycle.AxisDoesNotFit",
         $"Seules {laid} colonne(s) sur {requested} ont pu être placées : le calendrier ne contient pas "
         + "assez de jours ouvrables. Vérifiez les jours fériés et les vacances enregistrés.");
+
+    public static readonly Error NoColumnsToRelay = Error.Validation(
+        "RotationCycle.NoColumnsToRelay",
+        "Aucune colonne à recalculer : cette promotion n'a pas d'axe, ou toutes ses colonnes sont "
+        + "antérieures à celle demandée.");
+
+    /// <summary>
+    /// ⚠ Un refus plutôt qu'un saut. Une colonne déplacée à la main est une décision — prise le plus
+    /// souvent pour une raison que la grille ne connaît pas — et un axe est <b>ordonné</b> : la
+    /// pousser serait effacer la décision, l'enjamber serait écrire un ordre incohérent. Nommer les
+    /// deux colonnes et la date laisse à l'opérateur le seul choix qui lui appartient : déplacer son
+    /// ancre lui-même, ou recalculer à partir d'après elle.
+    /// </summary>
+    public static Error RelayOverlapsAnchoredColumn(
+        int anchoredColumn, DateOnly anchorStart, DateOnly precedingEnd) => Error.Conflict(
+        "RotationCycle.RelayOverlapsAnchoredColumn",
+        $"Le recalcul pousse la colonne précédente jusqu'au {precedingEnd:dd/MM/yyyy}, or P{anchoredColumn} "
+        + $"a été déplacée à la main et commence le {anchorStart:dd/MM/yyyy}. Reposer l'axe par-dessus "
+        + "effacerait cette décision, l'enjamber casserait l'ordre des colonnes. Déplacez P"
+        + $"{anchoredColumn} vous-même, ou recalculez à partir de la colonne suivante.");
 
     public static Error CannotDeletePublished(int publishedCells) => Error.Conflict(
         "RotationCycle.CannotDeletePublished",
