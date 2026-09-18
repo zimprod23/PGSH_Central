@@ -113,6 +113,15 @@ internal sealed class StageSlotConfiguration : IEntityTypeConfiguration<StageSlo
                .HasForeignKey(s => s.AcademicYearId)
                .OnDelete(DeleteBehavior.Restrict);
 
+        // Qui a décidé des dates. Défaut « Laid » — comme CellSource.Arranged et pour la même
+        // raison : toute colonne écrite avant l'existence de cette colonne garde le sens qu'elle
+        // avait, donc la migration ne reclasse aucune ligne de la base vivante.
+        builder.Property(s => s.Source)
+               .IsRequired()
+               .HasMaxLength(20)
+               .HasConversion<string>()
+               .HasDefaultValue(SlotSource.Laid);
+
         builder.HasIndex(s => new { s.StageId, s.AcademicYearId, s.PeriodNumber })
                .IsUnique()
                .HasDatabaseName("IX_StageSlot_Stage_Year_Period");

@@ -130,9 +130,15 @@ internal sealed class UpdateStageSlotCommandHandler(
             ("periodsCovered", plan.Value.PeriodsAffected),
             ("periodsShifted", plan.Value.PeriodsWhoseWindowChanges));
 
-        slot.Label     = request.Label;
-        slot.StartDate = request.StartDate;
-        slot.EndDate   = request.EndDate;
+        slot.Label = request.Label;
+
+        // ⚠ Par l'agrégat : déplacer marque la colonne « déplacée à la main » dans le même geste, et
+        // c'est ce marqueur qui la met hors de portée d'un recalcul d'axe. Écrire les deux dates à la
+        // main laisserait le marquage facultatif, donc oubliable — et la moitié manquante est
+        // silencieuse jusqu'au recalcul qui écrase la correction.
+        var moved = slot.MoveTo(request.StartDate, request.EndDate);
+        if (moved.IsFailure)
+            return Result.Failure<StageSlotMoveResult>(moved.Error);
 
         var shifted = await shifter.ApplyAsync(plan.Value, cancellationToken);
         if (shifted.IsFailure)

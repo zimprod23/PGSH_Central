@@ -442,8 +442,21 @@ the year is part of the identity, not decoration.
 | `Label` | varchar(50) | nullable — optional human-readable name (e.g., "Janvier") |
 | `StartDate` | date | NOT NULL |
 | `EndDate` | date | NOT NULL |
+| `Source` | varchar(20) | NOT NULL, enum: `Laid`, `MovedByHand`, default `Laid` |
 
 **Indexes:** `IX_StageSlot_Stage_Year_Period` (StageId, AcademicYearId, PeriodNumber) UNIQUE
+
+> ⚠ **`Source` says who decided the *dates*, and it is `CohortSlotAssignments.Source` one level
+> up.** That column stops the arranger rewriting a cell a human chose; this one stops an axis
+> recompute rewriting the dates a human chose — the same fault from the other end, and a column is
+> usually moved for a reason the grid does not hold (a service shut that week, a jury moved).
+> `StartDate`/`EndDate` are `private set` in the model: a column moves through `StageSlot.MoveTo`,
+> which marks it in the same gesture, or `StageSlot.RelayTo`, which is the axis writing and refuses a
+> hand-moved column. Migration `StageSlotSource` — **purely additive, `DEFAULT 'Laid'`**, so it lands
+> on the live base with the 3ᵉ MED published without reclassifying a single row or moving a date.
+>
+> ⚠ A hand-moved column **anchors** rather than being skipped: an axis is ordered, so a recompute
+> resumes its cascade after it, and an overlap that results is a named refusal.
 
 ---
 

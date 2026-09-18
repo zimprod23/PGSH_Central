@@ -1,4 +1,4 @@
-using PGSH.Domain.Hospitals;
+﻿using PGSH.Domain.Hospitals;
 using PGSH.SharedKernel;
 using PGSH.Domain.Registrations;
 
@@ -67,9 +67,80 @@ public sealed class StageSlot
     public AcademicYear AcademicYear { get; set; } = default!;
     public int PeriodNumber { get; private set; }
     public string? Label { get; set; }
-    public DateOnly StartDate { get; set; }
-    public DateOnly EndDate { get; set; }
+
+    /// <summary>
+    /// ⚠ <c>private set</c> : une colonne ne change pas de dates par affectation, mais par
+    /// <see cref="MoveTo"/> ou <see cref="RelayTo"/> — et le choix entre les deux <b>est</b>
+    /// l'information que <see cref="Source"/> porte. Sous une propriété ouverte, écrire la date en
+    /// oubliant le marqueur serait la voie la plus courte, et un recalcul effacerait ensuite la
+    /// décision d'un humain sans que rien ne l'ait signalé.
+    /// </summary>
+    public DateOnly StartDate { get; private set; }
+    public DateOnly EndDate { get; private set; }
+
+    /// <summary>
+    /// Qui a décidé de ces dates. ⚠ <see cref="SlotSource.Laid"/> par défaut, donc toute colonne
+    /// écrite avant l'existence de cette colonne garde le sens qu'elle avait.
+    /// </summary>
+    public SlotSource Source { get; private set; } = SlotSource.Laid;
+
+    /// <summary>
+    /// Un recalcul d'axe laisse cette colonne où elle est et reprend sa cascade après elle.
+    /// </summary>
+    public bool IsMovedByHand => Source == SlotSource.MovedByHand;
+
     public ICollection<CohortSlotAssignment> Assignments { get; set; } = new List<CohortSlotAssignment>();
+
+    /// <summary>
+    /// Un humain déplace la colonne — et cela la <b>marque</b>, indissociablement.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ <b>Le marquage n'est pas un paramètre.</b> « Déplacer à la main » et « marquer comme
+    /// déplacée à la main » sont un seul fait ; deux instructions séparées, c'est une occasion
+    /// d'en écrire une sans l'autre — et la moitié qui manquerait est silencieuse, puisque la
+    /// colonne aurait l'air normale jusqu'au recalcul qui l'écrase. Même raison que
+    /// <see cref="For"/> : un invariant que l'appelant doit se rappeler n'en est pas un.
+    ///
+    /// <para>Les gardes d'ordre et de chevauchement ne sont <b>pas</b> ici : elles interrogent les
+    /// autres colonnes et les périodes publiées, que cet objet ne voit pas. <c>SlotOverlapGuard</c>,
+    /// <c>GroupScheduleConflictGuard</c> et <c>PublishedPeriodShifter</c> les portent, avant
+    /// l'appel.</para>
+    /// </remarks>
+    public Result MoveTo(DateOnly startDate, DateOnly endDate)
+    {
+        if (endDate < startDate)
+            return Result.Failure(StageErrors.PeriodWindowReversed(startDate, endDate));
+
+        StartDate = startDate;
+        EndDate   = endDate;
+        Source    = SlotSource.MovedByHand;
+        return Result.Success();
+    }
+
+    /// <summary>
+    /// L'axe repose la colonne. Ne marque rien : c'est la machine qui écrit, et c'est l'état par
+    /// défaut.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ <b>Elle refuse une colonne déplacée à la main plutôt que de la reposer.</b> Le refus vit
+    /// ici, dans l'objet qui porte le marqueur, et non seulement dans le planificateur qui l'appelle :
+    /// c'est la leçon de <c>InternshipAssignment.Reschedule</c>, dont l'invariant reposait
+    /// entièrement sur la bonne volonté de <c>PublishedPeriodShifter.PlanAsync</c>. Le planificateur
+    /// écarte ces colonnes <i>et</i> les compte ; ce refus-ci est le filet, et l'atteindre signale une
+    /// incohérence, pas un cas d'usage.
+    /// </remarks>
+    public Result RelayTo(DateOnly startDate, DateOnly endDate)
+    {
+        if (IsMovedByHand)
+            return Result.Failure(StageErrors.SlotMovedByHandCannotBeRelaid(PeriodNumber));
+
+        if (endDate < startDate)
+            return Result.Failure(StageErrors.PeriodWindowReversed(startDate, endDate));
+
+        StartDate = startDate;
+        EndDate   = endDate;
+        return Result.Success();
+    }
 }
 
 /// <summary>

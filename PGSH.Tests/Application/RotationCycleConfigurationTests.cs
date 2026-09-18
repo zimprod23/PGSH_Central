@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using FluentAssertions;
 using PGSH.Application.Stages.RotationCycle;
 using PGSH.Domain.Audit;
@@ -176,7 +176,7 @@ public class RotationCycleConfigurationTests
         SeedAxis(db, Gyneco, Neuro, Orl);
 
         var moved = db.StageSlots.Local.First(s => s.StageId == Orl && s.PeriodNumber == 1);
-        moved.StartDate = moved.StartDate.AddDays(3);
+        moved.MoveTo(moved.StartDate.AddDays(3), moved.EndDate);
         await db.SaveChangesAsync();
 
         var result = await Handler(db).Handle(Query, default);

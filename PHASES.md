@@ -2115,9 +2115,19 @@ inchangé des deux côtés — parce qu'un allongement *est* un changement de fe
 pour un fait obligeraient chaque futur consommateur à s'abonner deux fois.
 
 ⚠ **Rien n'en dépend encore**, et c'est volontaire : c'est la clé de voûte du recalcul promotion-wide
-(item 0ce), posée et éprouvée seule pour que la suite n'ait pas à la redécider. Aucune migration,
-aucun écran, aucun changement de comportement pour un appelant existant.
+(item 0ce), posée et éprouvée seule pour que la suite n'ait pas à la redécider. Aucun écran, aucun
+changement de comportement pour un appelant existant.
 → `PGSH.Tests/Domain/PeriodExtensionTests.cs`, `ServicePeriodLifecycleTests`
+
+**Et la seconde pièce, `StageSlot.Source`** — la seule migration que l'item 0ce annonçait. Pendant de
+`CellSource` d'un cran plus haut : celui-là empêche l'arrangeur de réécrire une *cellule* choisie par
+un humain, celui-ci empêche un recalcul d'axe de réécrire les *dates* choisies par un humain.
+`StartDate`/`EndDate` en `private set`, deux portes — `MoveTo` (marque dans le même geste) et
+`RelayTo` (l'axe écrit, et refuse une colonne déplacée à la main). ⚠ Une colonne déplacée à la main
+**ancre** : un axe est ordonné, donc la cascade reprend après elle et un chevauchement est un refus
+nommé, là où une cellule épinglée se contente d'être laissée tranquille. Migration `StageSlotSource`,
+**purement additive, `DEFAULT 'Laid'`** — elle atterrit sur la base vivante sans reclasser une ligne.
+→ `PGSH.Tests/Domain/SlotSourceTests.cs`, `PublishedColumnMoveTests`
 
 ### ✅ 17.1 — moving P7 while P3 runs (built 13/09/2026)
 

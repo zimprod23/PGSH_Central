@@ -446,6 +446,23 @@ stage », with the arrange reporting `Assigned = N` and looking entirely normal.
 - ⚠ **`SetCohortSlotAssignment` pins on overwrite too, not only on create.** Overwriting the service
   the arranger chose *is* the human decision; left `Arranged`, the correction just made would be
   undone by the next arrange — the same defect reached from the other end.
+- ⚠ **Et le même besoin existe un cran plus haut, sur la *colonne* — `StageSlot.Source`
+  (`Laid` / `MovedByHand`), 18/09/2026.** `CellSource` protège le *service* qu'un humain a choisi ;
+  rien ne protégeait les *dates* qu'un humain a choisies, et un recalcul d'axe les aurait réécrites
+  en silence. Une colonne est déplacée le plus souvent pour une raison que la grille n'a pas — un
+  service fermé cette semaine-là, un jury décalé — donc la perdre, c'est perdre l'information elle-même.
+  - **`StartDate`/`EndDate` sont en `private set`, et il y a deux portes** : `MoveTo` (un humain
+    déplace, et cela **marque** dans le même geste) et `RelayTo` (l'axe repose, et refuse une colonne
+    déplacée à la main). Le marquage n'est pas un paramètre : deux instructions séparées, c'est une
+    occasion d'écrire les dates sans le drapeau, et la moitié qui manque est **silencieuse** jusqu'au
+    recalcul qui l'écrase. Même raison que `StageSlot.For` — un invariant que l'appelant doit se
+    rappeler n'en est pas un.
+  - ⚠ **La différence avec une cellule épinglée : une colonne déplacée à la main *ancre*.** Un axe
+    est **ordonné**. Laisser une cellule tranquille ne dérange pas ses voisines ; laisser une colonne
+    tranquille contraint les siennes. Un recalcul reprend donc sa cascade *après* elle, et un
+    chevauchement qui en résulterait est un refus nommé plutôt qu'un ordre cassé en silence.
+  - Migration `StageSlotSource` : **purement additive, `DEFAULT 'Laid'`**, donc aucune ligne de la
+    base n'est reclassée et aucune date ne bouge.
 - **`StageAllowedService.PlacementMode` — `Rotation` / `Reserved`.** Reserved leaves the pool
   entirely, so only a pin puts anybody there. ⚠ **Its capacity leaves `totalCapacity` with it**, which
   is why `ReservedServices` is reported beside it: « il manque N places » is measured against a

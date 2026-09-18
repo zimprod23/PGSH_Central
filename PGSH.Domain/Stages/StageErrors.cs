@@ -626,6 +626,17 @@ public static class StageErrors
             $"Allonger une rotation ne peut que repousser sa fin : elle se termine le "
             + $"{currentEnd:dd/MM/yyyy} et la fenêtre demandée s'arrête le {requestedEnd:dd/MM/yyyy}.");
 
+    /// <summary>
+    /// ⚠ Le filet de <c>StageSlot.RelayTo</c>. L'atteindre signale une incohérence entre le
+    /// planificateur — qui écarte et compte ces colonnes — et ce qu'il a fini par écrire, jamais un
+    /// cas d'usage : un opérateur ne demande pas « repose l'axe sauf là où je l'ai corrigé », il
+    /// demande un recalcul, et c'est l'acte qui sait quoi épargner.
+    /// </summary>
+    public static Error SlotMovedByHandCannotBeRelaid(int periodNumber) => Error.Conflict(
+        "Schedule.SlotMovedByHandCannotBeRelaid",
+        $"La colonne P{periodNumber} a été déplacée à la main : reposer l'axe par-dessus effacerait "
+        + "cette décision. Un recalcul la laisse où elle est et enchaîne les suivantes après elle.");
+
     public static Error SlotMoveBreaksRun(int fromPeriodNumber, int toPeriodNumber) =>
         Error.Conflict(
             "Schedule.SlotMoveBreaksRun",

@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Stages.Planning;
 using PGSH.Application.Stages.Slots;
@@ -97,6 +97,37 @@ public class PublishedColumnMoveTests
     }
 
     /// <summary>And the edge case: moving the last column really does extend the stay.</summary>
+    /// <summary>
+    /// ⚠ <b>Le marqueur doit arriver par le chemin réel, pas seulement depuis l'agrégat.</b> Un test
+    /// de domaine prouve que <c>MoveTo</c> marque ; il ne prouve pas que le handler passe par
+    /// <c>MoveTo</c>. Avant cette garde le handler écrivait les deux dates à la main, donc un
+    /// recalcul d'axe aurait réécrit par-dessus la correction d'un humain sans rien signaler.
+    /// </summary>
+    [Fact]
+    public async Task Moving_a_column_through_the_command_marks_it_moved_by_hand()
+    {
+        await using var holder = await SeedRunAsync(
+            nameof(Moving_a_column_through_the_command_marks_it_moved_by_hand));
+        var db = holder.Db;
+
+        (await db.StageSlots.AsNoTracking().SingleAsync(s => s.Id == SlotP3))
+            .IsMovedByHand.Should().BeFalse("the control: the axis laid it");
+
+        var result = await db.UpdateSlotHandler().Handle(
+            new UpdateStageSlotCommand(SlotP3, TestHarness.StageId, null,
+                P3Start.AddDays(7), P3End.AddDays(7), ConfirmedPeriodCount: 1),
+            default);
+
+        result.IsSuccess.Should().BeTrue();
+
+        var moved = await db.StageSlots.AsNoTracking().SingleAsync(s => s.Id == SlotP3);
+        moved.IsMovedByHand.Should().BeTrue();
+        moved.StartDate.Should().Be(P3Start.AddDays(7));
+
+        (await db.StageSlots.AsNoTracking().SingleAsync(s => s.Id == SlotP1))
+            .IsMovedByHand.Should().BeFalse("only the column that was moved is marked");
+    }
+
     [Fact]
     public async Task Moving_the_last_column_of_a_run_moves_the_end_of_the_stay()
     {

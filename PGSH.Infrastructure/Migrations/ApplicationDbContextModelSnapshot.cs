@@ -1407,6 +1407,13 @@ namespace PGSH.Infrastructure.Migrations
                     b.Property<int>("PeriodNumber")
                         .HasColumnType("integer");
 
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("Laid");
+
                     b.Property<int>("StageId")
                         .HasColumnType("integer");
 

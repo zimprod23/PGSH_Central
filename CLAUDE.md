@@ -104,6 +104,20 @@ area, so they are worth carrying in your head on **every** change:
   alone travels in the result (`PinnedCellsKept`). Before it, an auto-arrange destroyed every
   nominative placement in its reach reporting a perfectly normal `Assigned = N`. Any new act writing
   or deleting cells has to make the same distinction. → [`docs/planning-rotation.md`](docs/planning-rotation.md)
+  - ⚠ **And the same rule one level up: `StageSlot.Source` (`Laid` / `MovedByHand`), added
+    18/09/2026.** `CellSource` stopped the arranger rewriting a *cell* a human chose; nothing stopped
+    an axis recompute rewriting the *dates* a human chose — the same fault reached from the other
+    end, and a column is usually moved for a reason the grid does not know (a service shut that
+    week, a jury rescheduled). `StartDate`/`EndDate` are now `private set`: a column moves through
+    **`MoveTo`**, which marks it in the same gesture, or **`RelayTo`**, which is the axis writing and
+    refuses a hand-moved column outright. Two statements — write the dates, then set the flag — is
+    one occasion to write the first without the second, and the missing half is silent until the
+    recompute that overwrites it. The change named its own offenders: the handler plus two fixtures.
+  - ⚠ **A hand-moved column *anchors*; it is not merely skipped.** That is where it differs from a
+    pinned cell: an axis is **ordered**, so leaving a cell alone disturbs no neighbour while leaving
+    a column alone constrains its own. A recompute resumes the cascade *after* it, and an overlap
+    that results is a named refusal rather than a silently broken order.
+    → `PGSH.Tests/Domain/SlotSourceTests.cs`
 - **A service can be held out of the rotation** — `StageAllowedService.PlacementMode = Reserved`.
   ⚠ Its capacity leaves `TotalCapacity` with it, so whatever withholds places must **say how many**.
   And note what does *not* enforce this: `RotationArranger` computes `saturatedServices` **after**

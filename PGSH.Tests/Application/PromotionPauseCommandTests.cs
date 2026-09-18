@@ -390,8 +390,7 @@ public class PromotionPauseCommandTests
 
         // The promotion's only column moved off the window, so nothing of the grid crosses it.
         var slot = db.StageSlots.Local.First();
-        slot.StartDate = new DateOnly(2026, 3, 2);
-        slot.EndDate = new DateOnly(2026, 4, 3);
+        slot.MoveTo(new DateOnly(2026, 3, 2), new DateOnly(2026, 4, 3));
 
         // …and an off-grid rotation laid straight across it: no cell, no coverage.
         var registration = db.SeedRegistration("Salma", "Idrissi", cohort.AcademicGroup);
