@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Domain.Stages;
 using PGSH.SharedKernel;
@@ -44,7 +44,7 @@ internal sealed class PublishedPeriodShifter(IApplicationDbContext dbContext)
     /// from it — computed without writing anything, so the preview and the act cannot disagree.
     /// </summary>
     public async Task<Result<SlotMovePlan>> PlanAsync(
-        int slotId, DateOnly newStart, DateOnly newEnd, CancellationToken ct)
+        int slotId, DateOnly newStart, DateOnly newEnd, DateOnly on, CancellationToken ct)
     {
         var cells = await CoveredCellsQuery(dbContext, slotId).ToListAsync(ct);
 
@@ -54,8 +54,9 @@ internal sealed class PublishedPeriodShifter(IApplicationDbContext dbContext)
         var periods = await AffectedPeriodsQuery(dbContext, slotId).ToListAsync(ct);
 
         var blocked = periods
-            .Where(p => !ServicePeriodLifecycle.IsMovable(
-                p.IsStarted, p.IsComplete, p.HasEvaluation, p.AttendanceCount > 0))
+            .Where(p => !ServicePeriodLifecycle.IsMovableOn(
+                p.IsComplete, p.IsInterrupted, p.HasEvaluation, p.AttendanceCount > 0,
+                p.StartDate, on))
             .ToList();
 
         if (blocked.Count > 0)
@@ -108,7 +109,7 @@ internal sealed class PublishedPeriodShifter(IApplicationDbContext dbContext)
     /// période évaluée entre l'aperçu et l'application — exactement le cas que la double confirmation
     /// existe pour attraper — et l'acte est atomique, donc rendre le refus annule tout.</para>
     /// </remarks>
-    public async Task<Result> ApplyAsync(SlotMovePlan plan, CancellationToken ct)
+    public async Task<Result> ApplyAsync(SlotMovePlan plan, DateOnly on, CancellationToken ct)
     {
         if (plan.Windows.Count == 0)
             return Result.Success();
@@ -133,7 +134,7 @@ internal sealed class PublishedPeriodShifter(IApplicationDbContext dbContext)
             if (owner is null)
                 return Result.Failure(StageErrors.PeriodNotFound(window.ServicePeriodId));
 
-            var moved = owner.Reschedule(window.ServicePeriodId, window.StartDate, window.EndDate);
+            var moved = owner.Reschedule(window.ServicePeriodId, window.StartDate, window.EndDate, on);
             if (moved.IsFailure)
                 return moved;
         }
@@ -178,6 +179,7 @@ internal sealed class PublishedPeriodShifter(IApplicationDbContext dbContext)
                 p.StartDate,
                 p.EndDate,
                 p.IsStarted,
+                p.IsInterrupted,
                 p.IsComplete,
                 p.Evaluation != null,
                 p.Attendance.Count));
@@ -187,7 +189,7 @@ internal sealed class PublishedPeriodShifter(IApplicationDbContext dbContext)
 
     internal sealed record AffectedPeriod(
         Guid Id, DateOnly StartDate, DateOnly EndDate,
-        bool IsStarted, bool IsComplete, bool HasEvaluation, int AttendanceCount);
+        bool IsStarted, bool IsInterrupted, bool IsComplete, bool HasEvaluation, int AttendanceCount);
 }
 
 /// <param name="PeriodsWhoseWindowChanges">

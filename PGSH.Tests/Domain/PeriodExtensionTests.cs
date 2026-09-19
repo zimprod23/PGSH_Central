@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using PGSH.Domain.Stages;
 using Xunit;
 
@@ -55,16 +55,22 @@ public class PeriodExtensionTests
         period.StartDate.Should().Be(Start, "an extension never touches the start");
     }
 
+    /// <summary>Un jour à l'intérieur du séjour : il a réellement commencé.</summary>
+    private static readonly DateOnly Underway = new(2026, 2, 2);
+
     /// <summary>
     /// ⚠ Le contrôle qui donne son sens au précédent : le <i>déplacement</i> de la même rotation est
     /// toujours refusé. Sans lui, ce fichier prouverait seulement qu'une garde a été desserrée.
+    ///
+    /// <para>⚠ La date compte depuis que la mobilité est datée : « commencée » veut dire que sa
+    /// <b>fenêtre</b> a commencé, pas que quelqu'un a cliqué « Démarrer » sur l'étudiant entier.</para>
     /// </summary>
     [Fact]
     public void The_same_started_rotation_still_cannot_be_moved()
     {
         var assignment = WithPeriod(out var period);
 
-        var result = assignment.Reschedule(period.Id, Start.AddDays(7), Later);
+        var result = assignment.Reschedule(period.Id, Start.AddDays(7), Later, Underway);
 
         result.IsFailure.Should().BeTrue();
         result.Error.Should().Be(StageErrors.PeriodCannotBeRescheduled);

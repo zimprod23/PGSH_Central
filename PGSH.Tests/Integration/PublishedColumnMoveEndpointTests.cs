@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using FluentAssertions;
@@ -34,12 +34,25 @@ public class PublishedColumnMoveEndpointTests : IClassFixture<ApiFactory>, IAsyn
     private const int CellP1 = 6201, CellP2 = 6202;
     private const int ServiceId = 30;
 
-    private static readonly DateOnly P1Start = new(2026, 3, 2),  P1End = new(2026, 3, 13);
-    private static readonly DateOnly P2Start = new(2026, 3, 16), P2End = new(2026, 3, 27);
+    /// <summary>
+    /// ⚠ <b>Les colonnes sont semées dans l'avenir, relativement au jour où la suite tourne.</b>
+    /// Depuis que la mobilité est datée (<c>ServicePeriodLifecycle.MovableOn</c>), une colonne dont la
+    /// fenêtre est passée ne se déplace plus — à raison. Des dates fixes faisaient donc pourrir ce
+    /// fichier : écrites en mars 2026, elles passaient jusqu'à ce jour-là puis refusaient pour une
+    /// raison qui n'avait rien à voir avec ce que le test vérifie. Ici la fixture dit ce qu'elle veut
+    /// dire — « une colonne encore à venir » — au lieu de l'espérer du calendrier.
+    ///
+    /// <para>⚠ Les écarts entre les quatre dates sont ceux d'origine, au jour près : c'est eux que la
+    /// garde d'ordre du séjour et le contrôle de chevauchement lisent.</para>
+    /// </summary>
+    private static readonly DateOnly Anchor = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(60);
+
+    private static readonly DateOnly P1Start = Anchor,            P1End = Anchor.AddDays(11);
+    private static readonly DateOnly P2Start = Anchor.AddDays(14), P2End = Anchor.AddDays(25);
 
     // Where P2 is moved to: later, so it cannot collide with P1. Nothing follows it, which is the only
     // shape a single move can take — the act deliberately does not cascade.
-    private static readonly DateOnly MovedStart = new(2026, 3, 23), MovedEnd = new(2026, 4, 3);
+    private static readonly DateOnly MovedStart = Anchor.AddDays(21), MovedEnd = Anchor.AddDays(32);
 
     private readonly ApiFactory _factory;
 

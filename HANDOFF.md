@@ -226,7 +226,24 @@ calculées à la main avant d'écrire le code, férié par férié, et l'axe fin
 cela — un calendrier incomplet ment dans le sens rassurant, en faisant paraître les colonnes plus
 longues qu'elles ne sont.
 
-**Vert : 2 375 tests, 0 échec, 0 ignoré** (Docker présent, donc le palier Testcontainers a tourné).
+**Sixième pièce : l'acte lui-même** — `PreviewAxisRelayQuery` + `ApplyAxisRelayCommand`, deux routes
+sous `levels/{levelId}/axis-relay`. Tout passe par les agrégats (`StageSlot.RelayTo`, puis
+`Reschedule` ou `ExtendTo`), une seule transaction par `IAuditTrail.RunAtomicallyAsync`, le rapport
+**recalculé dans la transaction** et comparé à **deux** comptes confirmés — la grille et les dossiers
+bougent pour des raisons différentes.
+
+⚠ **Et un défaut latent découvert en branchant : l'agrégat refusait ce que le planificateur
+promettait.** `Reschedule` gardait sur `Movable` (sans date) pendant que le lecteur classait sur
+`MovableOn` (datée) — exactement le défaut « deux règles » que `CLAUDE.md` nomme partout ailleurs.
+`Reschedule` prend désormais la date, et `PublishedPeriodShifter` la fait passer. ⚠ **Cela corrige
+aussi le déplacement manuel de colonne** (phase 17.1), qui portait le même défaut sans le savoir :
+déplacer une colonne future était refusé pour toute rotation démarrée par un whole-student start.
+
+⚠ **Conséquence pour les fixtures** : une colonne dont la fenêtre est passée ne se déplace plus, donc
+un test d'intégration écrit avec des dates fixes de mars pourrissait à partir de mars.
+`PublishedColumnMoveEndpointTests` sème désormais relativement à aujourd'hui.
+
+**Vert : 2 385 tests, 0 échec, 0 ignoré** (Docker présent, donc le palier Testcontainers a tourné).
 Morsure vérifiée quatre fois : retirer `!IsInterrupted` d'`Extendable` fait tomber **9** tests,
 retirer la garde du raccourcissement **1**, retirer le marquage de `MoveTo` **4** — dont celui qui
 passe par le handler réel, le seul à prouver que le chemin de production marque — et casser les deux

@@ -245,9 +245,19 @@ public static class TestHarness
     /// precisely the interplay between the publication guard and the overlap/conflict ones, and a
     /// stubbed guard would make the ordering untestable.
     /// </summary>
-    internal static UpdateStageSlotCommandHandler UpdateSlotHandler(this ApplicationDbContext db) =>
+    /// <summary>
+    /// Une date antérieure à toute fenêtre qu'une fixture pose, donc « rien n'a encore commencé ».
+    /// ⚠ Nommée plutôt que glissée en littéral : depuis que la mobilité est <b>datée</b>
+    /// (<c>ServicePeriodLifecycle.MovableOn</c>), le jour où l'acte est joué décide de ce qu'il
+    /// accepte, et un test qui ne le dit pas dépend du calendrier de la machine.
+    /// </summary>
+    internal static readonly DateOnly BeforeAnyWindow = new(2000, 1, 1);
+
+    internal static UpdateStageSlotCommandHandler UpdateSlotHandler(
+        this ApplicationDbContext db, DateOnly? on = null) =>
         new(db, new SlotOverlapGuard(db), new GroupScheduleConflictGuard(db),
-            new PublishedPeriodShifter(db), new RecordingAuditTrail());
+            new PublishedPeriodShifter(db), new RecordingAuditTrail(),
+            ClockOn(on ?? BeforeAnyWindow));
 
     internal static SetCohortSlotAssignmentCommandHandler SetCellHandler(this ApplicationDbContext db) =>
         new(db, new GroupScheduleConflictGuard(db), new RecordingAuditTrail());

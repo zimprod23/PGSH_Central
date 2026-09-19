@@ -5,6 +5,7 @@ using PGSH.Application.Abstractions.Messaging;
 using PGSH.Application.Audit;
 using PGSH.Application.Stages.Planning;
 using PGSH.Domain.Stages;
+using PGSH.Domain.Common.Utils;
 using PGSH.SharedKernel;
 
 namespace PGSH.Application.Stages.Slots;
@@ -58,7 +59,8 @@ internal sealed class UpdateStageSlotCommandHandler(
     SlotOverlapGuard overlapGuard,
     GroupScheduleConflictGuard groupGuard,
     PublishedPeriodShifter shifter,
-    IAuditTrail auditTrail)
+    IAuditTrail auditTrail,
+    IDateTimeProvider clock)
     : ICommandHandler<UpdateStageSlotCommand, StageSlotMoveResult>
 {
     /// <remarks>
@@ -89,7 +91,10 @@ internal sealed class UpdateStageSlotCommandHandler(
         // vraie. Le seul remède offert était « dépubliez d'abord », ce qui sur une promotion publiée
         // en entier veut dire détruire l'année pour décaler une semaine. C'est la phase 17.1 : les
         // deux moitiés bougent ensemble ou rien ne bouge.
-        var plan = await shifter.PlanAsync(slot.Id, request.StartDate, request.EndDate, cancellationToken);
+        var today = DateOnly.FromDateTime(clock.UtcNow);
+
+        var plan = await shifter.PlanAsync(
+            slot.Id, request.StartDate, request.EndDate, today, cancellationToken);
         if (plan.IsFailure)
             return Result.Failure<StageSlotMoveResult>(plan.Error);
 
@@ -140,7 +145,7 @@ internal sealed class UpdateStageSlotCommandHandler(
         if (moved.IsFailure)
             return Result.Failure<StageSlotMoveResult>(moved.Error);
 
-        var shifted = await shifter.ApplyAsync(plan.Value, cancellationToken);
+        var shifted = await shifter.ApplyAsync(plan.Value, today, cancellationToken);
         if (shifted.IsFailure)
             return Result.Failure<StageSlotMoveResult>(shifted.Error);
 

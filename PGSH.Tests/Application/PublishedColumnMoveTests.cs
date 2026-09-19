@@ -36,6 +36,14 @@ public class PublishedColumnMoveTests
     private static readonly DateOnly P3Start = new(2026, 3, 30), P3End = new(2026, 4, 10);
 
     /// <summary>
+    /// Un jour <b>à l'intérieur</b> du séjour. ⚠ Depuis que la mobilité est datée
+    /// (<c>ServicePeriodLifecycle.MovableOn</c>), « cette rotation a commencé » ne se pose plus par
+    /// <c>IsStarted</c> — <c>Start()</c> est un whole-student start et pose le drapeau sur des séjours
+    /// encore à des mois. Ce qui la rend immobile est que sa fenêtre a commencé.
+    /// </summary>
+    private static readonly DateOnly Underway = new(2026, 3, 10);
+
+    /// <summary>
     /// One cohorte standing in one service for three consecutive columns: a single
     /// <c>ServicePeriod</c> spanning P1→P3, with one coverage row per column.
     /// </summary>
@@ -244,7 +252,8 @@ public class PublishedColumnMoveTests
         await using var holder = await SeedRunAsync(nameof(The_preview_reports_what_the_act_would_do));
         var db = holder.Db;
 
-        var preview = await new GetStageSlotMovePreviewQueryHandler(db, new PublishedPeriodShifter(db))
+        var preview = await new GetStageSlotMovePreviewQueryHandler(
+                db, new PublishedPeriodShifter(db), TestHarness.ClockOn(TestHarness.BeforeAnyWindow))
             .Handle(new GetStageSlotMovePreviewQuery(SlotP3, P3Start.AddDays(7), P3End.AddDays(7)), default);
 
         preview.IsSuccess.Should().BeTrue();
@@ -277,7 +286,8 @@ public class PublishedColumnMoveTests
         started.IsStarted = true;
         await db.SaveChangesAsync();
 
-        var preview = await new GetStageSlotMovePreviewQueryHandler(db, new PublishedPeriodShifter(db))
+        var preview = await new GetStageSlotMovePreviewQueryHandler(
+                db, new PublishedPeriodShifter(db), TestHarness.ClockOn(Underway))
             .Handle(new GetStageSlotMovePreviewQuery(SlotP3, P3Start.AddDays(7), P3End.AddDays(7)), default);
 
         preview.IsSuccess.Should().BeTrue("a read that cannot be acted on is still a read");
@@ -357,7 +367,7 @@ public class PublishedColumnMoveTests
         var period = assignment.ServicePeriods.Single();
         period.IsStarted = true;
 
-        var moved = assignment.Reschedule(period.Id, P1Start.AddDays(7), P3End.AddDays(7));
+        var moved = assignment.Reschedule(period.Id, P1Start.AddDays(7), P3End.AddDays(7), Underway);
 
         moved.IsFailure.Should().BeTrue();
         moved.Error.Code.Should().Be("Schedule.PeriodCannotBeRescheduled");
@@ -380,7 +390,7 @@ public class PublishedColumnMoveTests
 
         var period = assignment.ServicePeriods.Single();
 
-        var moved = assignment.Reschedule(period.Id, P3End, P1Start);
+        var moved = assignment.Reschedule(period.Id, P3End, P1Start, TestHarness.BeforeAnyWindow);
 
         moved.IsFailure.Should().BeTrue();
         moved.Error.Code.Should().Be("Schedule.PeriodWindowReversed");

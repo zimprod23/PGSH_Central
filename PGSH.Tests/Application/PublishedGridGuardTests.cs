@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Stages.Slots;
 using PGSH.Domain.Stages;
@@ -150,7 +150,10 @@ public class PublishedGridGuardTests
         started.IsStarted = true;
         await db.SaveChangesAsync();
 
-        var result = await db.UpdateSlotHandler().Handle(
+        // ⚠ Le jour où l'acte est joué tombe *dans* la fenêtre. Depuis que la mobilité est datée,
+        // « cette colonne a commencé » ne se pose plus par IsStarted seul : Start() est un
+        // whole-student start, et une colonne de mai le porte dès septembre sans avoir commencé.
+        var result = await db.UpdateSlotHandler(on: P1Start.AddDays(1)).Handle(
             new UpdateStageSlotCommand(SlotP1, TestHarness.StageId, "P1",
                 P1Start.AddDays(-7), P1End.AddDays(-7), ConfirmedPeriodCount: 1),
             default);

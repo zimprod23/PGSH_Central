@@ -111,6 +111,17 @@ public static class RotationCycleErrors
         "Aucune colonne de cet axe n'est amputée : toutes tiennent leur compte de jours ouvrables. "
         + "Il n'y a rien à rattraper.");
 
+    /// <summary>
+    /// ⚠ Le compte montré, comparé à ce qu'on retrouve — jamais une case à cocher. Une rotation notée
+    /// entre l'aperçu et l'application est exactement le cas qu'un booléen laisse passer, et le
+    /// libellé nomme <em>lequel</em> des deux comptes a bougé : « la grille a changé » et « un dossier
+    /// a changé » appellent des gestes différents.
+    /// </summary>
+    public static Error RelayCountMismatch(string what, int confirmed, int found) => Error.Conflict(
+        "RotationCycle.RelayCountMismatch",
+        $"Vous avez confirmé {confirmed} {what}, l'acte en trouve {found} : la promotion a changé "
+        + "depuis l'aperçu. Rien n'a été écrit — rouvrez l'aperçu et vérifiez ce qui a bougé.");
+
     public static Error CannotDeletePublished(int publishedCells) => Error.Conflict(
         "RotationCycle.CannotDeletePublished",
         $"{publishedCells} créneau(x) de ce bloc sont déjà publiés — des étudiants y ont été envoyés. "

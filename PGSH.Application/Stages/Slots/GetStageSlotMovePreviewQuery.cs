@@ -1,10 +1,11 @@
-using FluentValidation;
+﻿using FluentValidation;
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
 using PGSH.Application.Extensions;
 using PGSH.Application.Stages.Planning;
 using PGSH.Domain.Stages;
+using PGSH.Domain.Common.Utils;
 using PGSH.SharedKernel;
 
 namespace PGSH.Application.Stages.Slots;
@@ -73,7 +74,8 @@ internal sealed class GetStageSlotMovePreviewQueryValidator
 
 internal sealed class GetStageSlotMovePreviewQueryHandler(
     IApplicationDbContext dbContext,
-    PublishedPeriodShifter shifter)
+    PublishedPeriodShifter shifter,
+    IDateTimeProvider clock)
     : IQueryHandler<GetStageSlotMovePreviewQuery, StageSlotMovePreview>
 {
     public async Task<Result<StageSlotMovePreview>> Handle(
@@ -93,7 +95,8 @@ internal sealed class GetStageSlotMovePreviewQueryHandler(
         if (slot is null)
             return Result.Failure<StageSlotMovePreview>(StageErrors.SlotNotFound(request.SlotId));
 
-        var plan = await shifter.PlanAsync(slot.Id, start, end, cancellationToken);
+        var plan = await shifter.PlanAsync(
+            slot.Id, start, end, DateOnly.FromDateTime(clock.UtcNow), cancellationToken);
 
         return new StageSlotMovePreview(
             slot.Id,

@@ -665,6 +665,18 @@ behaviour; each caller states its own.**
       nested**: a never-opened période whose window is *past* is `Movable` and not `MovableOn`. Two
       questions, not two strengths of one. The date comes from `IDateTimeProvider`, never a `UtcNow`
       inside the class. `MovableOn ⊂ Extendable` does hold.
+    - ⚠ **And it is the rule the *aggregate* enforces, since 19/09/2026 —
+      `InternshipAssignment.Reschedule(id, start, end, on)` takes the date.** Leaving the aggregate on
+      the date-free rule while a planner classified on the dated one is the two-rules defect this
+      file names elsewhere, and it surfaced immediately: the recompute promised a move the aggregate
+      then refused. `PublishedPeriodShifter.PlanAsync`/`ApplyAsync` take the date for the same
+      reason. ⚠ It also **fixed the manual column move**, which had the same latent defect — moving a
+      future column was refused for every whole-student-started rotation.
+    - ⚠ **A fixture that seeds fixed dates now rots.** A column whose window has passed is correctly
+      immovable, so an integration test written with March dates passes until March and then refuses
+      for a reason unrelated to what it checks. Seed relative to now
+      (`PublishedColumnMoveEndpointTests.Anchor`), or freeze the clock
+      (`TestHarness.ClockOn` / `BeforeAnyWindow`).
     - ⚠ **`ExtendTo` writes an *absolute* date, never a delta** — the property that lets an axis
       recompute be replayed after every pause declared, corrected or revoked without the rotation
       growing a little each time. `ExtendBy(days)` would have been the accumulation that got the

@@ -1,4 +1,4 @@
-using PGSH.Application.Abstractions.Behaviors;
+﻿using PGSH.Application.Abstractions.Behaviors;
 using FluentValidation;
 using Microsoft.Extensions.DependencyInjection;
 using PGSH.Application.Abstractions.Authorization;
@@ -55,6 +55,7 @@ public static class DependencyInjection
         services.AddScoped<ServiceLevelCapacityResolver>();
         services.AddScoped<RotationArranger>();
         services.AddScoped<PublishedPeriodShifter>();
+        services.AddScoped<AxisRelayReader>();
         services.AddScoped<PGSH.Application.Stages.AllowedServices.ServiceRankWriter>();
         services.AddScoped<PromotionPartitioning>();
         services.AddScoped<StudentAffectationService>();

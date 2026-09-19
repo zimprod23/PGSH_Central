@@ -399,17 +399,23 @@ public sealed class InternshipAssignment : Entity
     /// Les deux actes sont séparés parce que la déclaration est une décision et le déplacement une
     /// conséquence ; les confondre est ce qui a coûté les quatre défauts ci-dessus.</para>
     /// </remarks>
-    public AppResult Reschedule(Guid servicePeriodId, DateOnly startDate, DateOnly endDate)
+    public AppResult Reschedule(
+        Guid servicePeriodId, DateOnly startDate, DateOnly endDate, DateOnly on)
     {
         var period = ServicePeriods.FirstOrDefault(p => p.Id == servicePeriodId);
 
         if (period is null)
             return AppResult.Failure(StageErrors.PeriodNotFound(servicePeriodId));
 
-        // ⚠ La règle est celle de ServicePeriodLifecycle.Movable, pas une copie : l'aperçu d'une pause
-        // annonce combien de colonnes sont déplaçables en la posant au magasin, et une garde qui
-        // diverge de ce rapport propose un geste que l'agrégat refuse ensuite.
-        if (!ServicePeriodLifecycle.IsMovable(period))
+        // ⚠ La règle est celle de ServicePeriodLifecycle.MovableOn, pas une copie : tout rapport qui
+        // annonce « déplaçable » la pose au magasin, et une garde qui diverge du rapport propose un
+        // geste que l'agrégat refuse ensuite.
+        //
+        // ⚠ Datée depuis le 19/09/2026, et c'est une correction. La version sans date lisait
+        // IsStarted, or Start() est un whole-student start : 305 périodes de la 4ᵉ MED le portent avec
+        // une fenêtre entièrement à venir. Déplacer une colonne future était donc refusé pour tout
+        // étudiant démarré — y compris par le déplacement manuel de la phase 17.1.
+        if (!ServicePeriodLifecycle.IsMovableOn(period, on))
             return AppResult.Failure(StageErrors.PeriodCannotBeRescheduled);
 
         if (endDate < startDate)
