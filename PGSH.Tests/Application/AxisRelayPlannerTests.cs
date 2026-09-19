@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using PGSH.Application.Stages.RotationCycle;
 using PGSH.Domain.Calendar;
 using PGSH.Domain.Stages;
@@ -279,6 +279,94 @@ public class AxisRelayPlannerTests
 
         found.Should().NotBe(1);
     }
+
+    // ─── La 4ᵉ MED réelle ───────────────────────────────────────────────────────
+
+    /// <summary>
+    /// ⚠ <b>L'axe réel de la 4ᵉ MED 2026-2027, lu en base le 19/09/2026, avec la fenêtre que la
+    /// faculté y a déclarée.</b> Les six colonnes portent 22 jours ouvrables pour 30 à 35 jours
+    /// <em>calendaires</em> — ce qui est précisément pourquoi la longueur d'une colonne se mesure en
+    /// jours ouvrables et ne se lit pas sur un écart de dates.
+    ///
+    /// <para>Les dates attendues ont été calculées <b>avant</b> d'écrire le planificateur, à la main
+    /// sur le calendrier : sans cela le test ne vérifierait que la capacité du code à se reproduire
+    /// lui-même.</para>
+    /// </summary>
+    [Fact]
+    public void The_real_fourth_year_axis_recovers_exactly_the_five_days_the_window_takes()
+    {
+        var axis = new List<AxisColumn>
+        {
+            new(1, new(2026, 9, 14),  new(2026, 10, 13), false),
+            new(2, new(2026, 10, 14), new(2026, 11, 13), false),
+            new(3, new(2026, 11, 16), new(2026, 12, 16), false),
+            new(4, new(2026, 12, 17), new(2027, 1, 20),  false),
+            new(5, new(2027, 1, 21),  new(2027, 2, 19),  false),
+            new(6, new(2027, 2, 22),  new(2027, 3, 25),  false),
+        };
+
+        // ⚠ Les SIX fériés que la base porte sur cette étendue, pas seulement celui qu'on avait en
+        // tête. Un calendrier incomplet fait mentir l'arithmétique dans le sens rassurant : les
+        // colonnes paraissent tenir plus de jours qu'elles n'en tiennent, donc le recalcul a l'air
+        // d'en perdre. La première version de ce test n'en portait qu'un et échouait pour cela.
+        var calendar = WorkingDayCalendar.Build(
+        [
+            Ferie(1, "Marche Verte",                new(2026, 11, 6)),
+            Ferie(2, "Fête de l'Indépendance",      new(2026, 11, 18)),
+            Ferie(3, "Nouvel An",                   new(2027, 1, 1)),
+            Ferie(4, "Manifeste de l'Indépendance", new(2027, 1, 11)),
+            Ferie(5, "Nouvel An Amazigh",           new(2027, 1, 14)),
+            Ferie(6, "Aïd al-Fitr (estimation)",    new(2027, 3, 9), new(2027, 3, 10)),
+            new PromotionPause
+            {
+                Id = 8, AcademicYearId = 22, LevelId = 4,
+                StartDate = new(2026, 10, 5), EndDate = new(2026, 10, 9),
+                Kind = PauseKind.Exam, Reason = "Examens du 1er semestre",
+            },
+        ]);
+
+        // La longueur de colonne que la base porte réellement.
+        const int Length = 22;
+
+        AxisRelayPlanner.FirstShortColumn(axis, calendar, Length)
+            .Should().Be(1, "the window falls inside P1");
+
+        var result = AxisRelayPlanner.Plan(axis, calendar, Length, fromColumn: 1);
+        result.IsSuccess.Should().BeTrue(result.IsFailure ? result.Error.Description : "");
+        var plan = result.Value;
+
+        // ⚠ Calculé à la main : 14/09 + 22 ouvrables en sautant la semaine du 05 au 09/10.
+        var p1 = plan.Columns.Single(c => c.Number == 1);
+        p1.ToStart.Should().Be(new DateOnly(2026, 9, 14), "P1 is underway — its start is a fact");
+        p1.ToEnd.Should().Be(new DateOnly(2026, 10, 20));
+        p1.FromWorkingDays.Should().Be(17, "the window took five of its twenty-two");
+        p1.ToWorkingDays.Should().Be(22);
+
+        // ⚠ P2 saute en plus le férié du 06/11, qui n'a rien à voir avec la fenêtre.
+        var p2 = plan.Columns.Single(c => c.Number == 2);
+        p2.ToStart.Should().Be(new DateOnly(2026, 10, 21));
+        p2.ToEnd.Should().Be(new DateOnly(2026, 11, 23), "it also steps over the 6th and the 18th");
+
+        // Toute la cascade, calculée à la main férié par férié.
+        plan.Columns.Select(c => (c.Number, c.ToStart, c.ToEnd)).Should().Equal(
+            (1, new DateOnly(2026, 9, 14),  new DateOnly(2026, 10, 20)),
+            (2, new DateOnly(2026, 10, 21), new DateOnly(2026, 11, 23)),
+            (3, new DateOnly(2026, 11, 24), new DateOnly(2026, 12, 23)),
+            (4, new DateOnly(2026, 12, 24), new DateOnly(2027, 1, 27)),
+            (5, new DateOnly(2027, 1, 28),  new DateOnly(2027, 2, 26)),
+            (6, new DateOnly(2027, 3, 1),   new DateOnly(2027, 4, 1)));
+
+        plan.AxisEndsOn.Should().Be(new DateOnly(2027, 4, 1),
+            "the year now runs a week later than the 25/03 it was planned to end on");
+
+        plan.ColumnsMoved.Should().Be(6);
+        plan.ColumnsAnchored.Should().Be(0);
+        plan.WorkingDaysRecovered.Should().Be(5);
+        plan.Columns.Should().OnlyContain(c => c.ToWorkingDays == Length);
+    }
+
+    private static Holiday Ferie(int id, string name, DateOnly from, DateOnly? to = null) =>
+        new() { Id = id, Name = name, StartDate = from, EndDate = to ?? from };
 
     [Fact]
     public void The_first_shortened_column_is_the_one_reported()

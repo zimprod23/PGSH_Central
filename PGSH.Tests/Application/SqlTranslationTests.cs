@@ -7,6 +7,7 @@ using PGSH.Application.AcademicGroups.BulkAssignment;
 using PGSH.Application.AcademicGroups.Placements;
 using PGSH.Application.Audit;
 using PGSH.Application.Extensions;
+using PGSH.Application.Stages.RotationCycle;
 using PGSH.Application.Calendar;
 using PGSH.Application.Calendar.Pauses;
 using PGSH.Application.Hospitals.Chefs;
@@ -1286,6 +1287,28 @@ public class SqlTranslationTests
         unmovable.Should().Contain("ServicePeriodSlotCoverage");
         unmovable.Should().Contain("Attendance");
         unmovable.Should().Contain("DISTINCT");
+    }
+
+    /// <summary>
+    /// The axis recompute's two store reads. ⚠ <c>CoverageQuery</c> is the one that could have gone
+    /// wrong: it reaches three navigations deep to scope by promotion and projects
+    /// <c>Attendance.Count</c>, and a collection in a projection is the exact shape Npgsql refuses —
+    /// it killed the macro plan once with the whole suite green. A scalar aggregate is not that
+    /// shape, and this is what says so.
+    /// </summary>
+    [Fact]
+    public void The_axis_recompute_reads_become_SQL()
+    {
+        using var db = TestHarness.NewNpgsqlContext();
+
+        string slots = AxisRelayReader.SlotsQuery(db, 22, 4).ToQueryString();
+        slots.Should().Contain("StageSlots");
+        slots.Should().Contain("Source");
+
+        string coverage = AxisRelayReader.CoverageQuery(db, 22, 4).ToQueryString();
+        coverage.Should().Contain("ServicePeriodSlotCoverage");
+        coverage.Should().Contain("Attendance");
+        coverage.Should().Contain("LevelId");
     }
 
     /// <summary>

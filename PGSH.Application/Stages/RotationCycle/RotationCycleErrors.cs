@@ -95,6 +95,22 @@ public static class RotationCycleErrors
         + "effacerait cette décision, l'enjamber casserait l'ordre des colonnes. Déplacez P"
         + $"{anchoredColumn} vous-même, ou recalculez à partir de la colonne suivante.");
 
+    public static readonly Error ColumnLengthNotDerivable = Error.Conflict(
+        "RotationCycle.ColumnLengthNotDerivable",
+        "Aucune colonne de cet axe ne tient un seul jour ouvrable : impossible d'en déduire la "
+        + "longueur d'une colonne, donc impossible de le reposer. Vérifiez le calendrier de la "
+        + "promotion — une fenêtre couvrant l'année entière produit exactement cela.");
+
+    /// <summary>
+    /// ⚠ Un refus plutôt qu'un succès à zéro. « L'acte n'a rien trouvé à rattraper » et « l'acte a
+    /// rattrapé zéro colonne » se liraient pareil dans un résultat, et le premier veut dire que la
+    /// promotion va bien.
+    /// </summary>
+    public static readonly Error NothingToRecover = Error.Conflict(
+        "RotationCycle.NothingToRecover",
+        "Aucune colonne de cet axe n'est amputée : toutes tiennent leur compte de jours ouvrables. "
+        + "Il n'y a rien à rattraper.");
+
     public static Error CannotDeletePublished(int publishedCells) => Error.Conflict(
         "RotationCycle.CannotDeletePublished",
         $"{publishedCells} créneau(x) de ce bloc sont déjà publiés — des étudiants y ont été envoyés. "

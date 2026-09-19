@@ -214,7 +214,19 @@ commencé », en gardant le veto des faits enregistrés. ⚠ **Les deux règles 
 une période jamais ouverte dont la fenêtre est *passée* est `Movable` et n'est pas `MovableOn`.
 Traduction SQL vérifiée, composition par `Through` comprise.
 
-**Vert : 2 373 tests, 0 échec, 0 ignoré** (Docker présent, donc le palier Testcontainers a tourné).
+**Cinquième pièce : `AxisRelayReader`, le lecteur côté magasin**, avec ses deux requêtes nommées
+(traduction SQL vérifiée — `CoverageQuery` va chercher le niveau à trois navigations de profondeur et
+projette `Attendance.Count`, un agrégat scalaire et non une collection). La longueur d'une colonne est
+**dérivée par le mode**, jamais demandée ni lue sur les dates courantes.
+
+⚠ **Vérifié contre la base vivante**, sur l'axe réel de la 4ᵉ MED et la fenêtre que l'utilisateur a
+déclarée le 19/09 (05→09/10, id 8) : les six colonnes recalculées tombent **exactement** sur les dates
+calculées à la main avant d'écrire le code, férié par férié, et l'axe finit au 01/04/2027 au lieu du
+25/03. ⚠ La première version du test ne portait qu'**un** des six fériés de l'étendue et a échoué pour
+cela — un calendrier incomplet ment dans le sens rassurant, en faisant paraître les colonnes plus
+longues qu'elles ne sont.
+
+**Vert : 2 375 tests, 0 échec, 0 ignoré** (Docker présent, donc le palier Testcontainers a tourné).
 Morsure vérifiée quatre fois : retirer `!IsInterrupted` d'`Extendable` fait tomber **9** tests,
 retirer la garde du raccourcissement **1**, retirer le marquage de `MoveTo` **4** — dont celui qui
 passe par le handler réel, le seul à prouver que le chemin de production marque — et casser les deux

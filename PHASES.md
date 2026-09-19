@@ -2157,11 +2157,34 @@ C'est la propriété entière pour laquelle la pause par étape a été retirée
 dit que l'ampleur ; et `AxisEndsOn` dit jusqu'où l'année s'allonge, qui est une décision et non un
 détail d'arithmétique.
 
-**Reste à faire pour clore 0ce** : le planificateur côté magasin (lire l'axe, dériver `n`, appliquer
-par `StageSlot.RelayTo` puis `ExtendTo`/`Reschedule` sur les périodes publiées), l'aperçu, la
-confirmation sur un compte, l'enveloppe `IAuditTrail.RunAtomicallyAsync`, et — après — le rapport
-d'occupation **inter-promotions**, qui est un rapport et non une garde (règle du 12/09).
-→ `PGSH.Tests/Application/AxisRelayPlannerTests.cs`
+**Et le lecteur côté magasin, `AxisRelayReader`** — il lit les créneaux, **dérive** la longueur d'une
+colonne, passe l'arithmétique au planificateur, puis traduit le déplacement des colonnes en ce qu'il
+faut faire à chaque rotation publiée (`Move` / `Extend` / `Blocked`).
+
+⚠ **La longueur d'une colonne est dérivée, jamais demandée — et pas depuis les dates courantes**, qui
+sont précisément ce que la fenêtre a abîmé : une colonne amputée de 5 jours se reposerait à 17 et la
+perte deviendrait définitive. Elle se mesure sur le calendrier **courant** de la promotion, par le
+**mode** : une colonne posée en enjambant une fenêtre déjà déclarée tient toujours ses `n` jours
+(définition de `Lay`), seules celles qu'une fenêtre *postérieure* traverse en tiennent moins. La
+moyenne serait tirée vers le bas par ce que l'acte vient réparer ; le maximum casserait sur une
+colonne rallongée à la main. `ColumnsAgreeingOnLength` dit à quel point on peut s'y fier, et une
+majorité discordante avertit plutôt que de deviner.
+
+⚠ **Une rotation bloquée n'arrête pas l'acte** : une note est un fait, et le reste de la promotion a
+besoin d'être poussé. Elles se comptent (`PeriodsBlocked`), sinon rattrapé et non-rattrapé se lisent
+pareil.
+
+**Vérifié contre la base vivante (19/09/2026).** L'axe réel de la 4ᵉ MED — six colonnes de 22 jours
+ouvrables pour 30 à 35 jours calendaires — et la fenêtre 05→09/10 déclarée par la faculté : les six
+colonnes recalculées tombent exactement sur les dates calculées **à la main avant d'écrire le
+planificateur**, férié par férié, et `WorkingDaysRecovered = 5`. ⚠ La première version du test n'a
+porté qu'un des six fériés de l'étendue et a échoué pour cela — un calendrier incomplet ment dans le
+sens rassurant.
+
+**Reste à faire pour clore 0ce** : l'aperçu exposé, la confirmation sur deux comptes, l'application
+(`StageSlot.RelayTo` puis `ExtendTo`/`Reschedule`), l'enveloppe `IAuditTrail.RunAtomicallyAsync`, et
+— après — le rapport d'occupation **inter-promotions**, qui est un rapport et non une garde.
+→ `PGSH.Tests/Application/AxisRelayPlannerTests.cs`, `SqlTranslationTests`
 
 ### ✅ 17.1 — moving P7 while P3 runs (built 13/09/2026)
 
