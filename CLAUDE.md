@@ -655,6 +655,16 @@ behaviour; each caller states its own.**
       practice an interruption implies a start, so nothing the lifecycle produces changes — what it
       closes is a row the store can hold. Pinned over all 32 flag combinations by
       `ServicePeriodLifecycleTests`.
+    - ⚠ **And a third rule, dated: `MovableOn(DateOnly)`.** `Movable` reads `IsStarted`, but
+      `InternshipAssignment.Start()` is a **whole-student start** — it flags every période at once,
+      so a February séjour carries it from September. Measured on the live base 19/09/2026:
+      **305 périodes of the 4ᵉ MED are `IsStarted` with a window entirely in the future**, so an axis
+      recompute reading `Movable` would refuse to push exactly the future rotations it exists to
+      push. `MovableOn` replaces the flag with « its window has not begun », keeping the recorded-fact
+      vetoes (a mark, a présence) whatever the date. ⚠ **It is not a loosening and the two are *not*
+      nested**: a never-opened période whose window is *past* is `Movable` and not `MovableOn`. Two
+      questions, not two strengths of one. The date comes from `IDateTimeProvider`, never a `UtcNow`
+      inside the class. `MovableOn ⊂ Extendable` does hold.
     - ⚠ **`ExtendTo` writes an *absolute* date, never a delta** — the property that lets an axis
       recompute be replayed after every pause declared, corrected or revoked without the rotation
       growing a little each time. `ExtendBy(days)` would have been the accumulation that got the

@@ -204,7 +204,17 @@ déplacée à la main **ancre** et un chevauchement est un refus nommé. Idempot
 disent — reposer deux fois ne bouge rien, et révoquer puis reposer **rend exactement les dates
 d'origine**.
 
-**Vert : 2 304 tests, 0 échec, 0 ignoré** (Docker présent, donc le palier Testcontainers a tourné).
+**Quatrième pièce, et c'est une mesure qui a changé la conception : `ServicePeriodLifecycle.MovableOn(date)`.**
+En branchant le planificateur sur la base vivante, `Movable` refusait de pousser les rotations
+futures — parce qu'il lit `IsStarted`, et que `Start()` est un *whole-student start* qui pose le
+drapeau sur toutes les périodes d'un coup. **Mesuré le 19/09/2026 : 305 périodes de la 4ᵉ MED sont
+`IsStarted` avec une fenêtre entièrement à venir.** Le recalcul aurait donc refusé exactement les
+rotations qu'il existe pour pousser. `MovableOn` remplace le drapeau par « sa fenêtre n'a pas
+commencé », en gardant le veto des faits enregistrés. ⚠ **Les deux règles ne sont pas emboîtées** :
+une période jamais ouverte dont la fenêtre est *passée* est `Movable` et n'est pas `MovableOn`.
+Traduction SQL vérifiée, composition par `Through` comprise.
+
+**Vert : 2 373 tests, 0 échec, 0 ignoré** (Docker présent, donc le palier Testcontainers a tourné).
 Morsure vérifiée quatre fois : retirer `!IsInterrupted` d'`Extendable` fait tomber **9** tests,
 retirer la garde du raccourcissement **1**, retirer le marquage de `MoveTo` **4** — dont celui qui
 passe par le handler réel, le seul à prouver que le chemin de production marque — et casser les deux

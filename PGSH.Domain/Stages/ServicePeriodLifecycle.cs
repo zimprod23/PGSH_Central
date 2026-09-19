@@ -150,6 +150,41 @@ public static class ServicePeriodLifecycle
     public static readonly Expression<Func<ServicePeriod, bool>> Extendable =
         p => !p.IsInterrupted && !p.IsComplete && p.Evaluation == null;
 
+    /// <summary>
+    /// « Peut-on déplacer le début de cette rotation <b>au {on}</b> ? » — la version datée de
+    /// <see cref="Movable"/>, pour l'appelant qui connaît le jour.
+    /// </summary>
+    /// <remarks>
+    /// <para>⚠ <b>Elle remplace <c>IsStarted</c> par « sa fenêtre n'a pas encore commencé », et c'est
+    /// une correction, pas un assouplissement.</b> <c>InternshipAssignment.Start()</c> est un
+    /// <i>whole-student start</i> : il pose <c>IsStarted</c> sur <b>toutes</b> les périodes d'un
+    /// coup, donc un séjour de février le porte dès septembre. Mesuré sur la base vivante le
+    /// 19/09/2026 : <b>305 périodes</b> de la 4ᵉ MED sont <c>IsStarted</c> avec une fenêtre
+    /// entièrement à venir. Un recalcul d'axe lisant <see cref="Movable"/> refuserait donc de
+    /// pousser précisément les rotations futures qu'il existe pour pousser.</para>
+    ///
+    /// <para>⚠ <b>Les deux règles ne sont pas emboîtées, et il ne faut pas le prétendre.</b> Une
+    /// rotation <c>IsStarted = false</c> dont la fenêtre est <i>passée</i> est
+    /// <see cref="Movable"/> et n'est pas <c>MovableOn</c> — plus strict, et à raison : ses dates
+    /// ont eu lieu, ouverte ou non. Une rotation <c>IsStarted = true</c> dont la fenêtre est à venir
+    /// est l'inverse. Ce sont deux questions, pas deux forces de la même.</para>
+    ///
+    /// <para>⚠ <b>Les faits enregistrés gardent leur droit de veto.</b> Une note ou une journée de
+    /// présence refuse le déplacement quelle que soit la date : le magasin peut porter une présence
+    /// sur une rotation dont la fenêtre est à venir, et la déplacer laisserait cette journée sur une
+    /// date que personne n'a servie.</para>
+    ///
+    /// <para>⚠ <b>La date entre, elle ne se lit pas ici</b> — <c>IDateTimeProvider</c> chez
+    /// l'appelant. Un <c>UtcNow</c> au fond d'une classe est ce qui rendait l'ancienne pause
+    /// impossible à programmer et impossible à tester.</para>
+    ///
+    /// <para><c>MovableOn ⊂ <see cref="Extendable"/></c> reste vrai : elle exige les trois conditions
+    /// de l'allongement, plus la sienne.</para>
+    /// </remarks>
+    public static Expression<Func<ServicePeriod, bool>> MovableOn(DateOnly on) =>
+        p => !p.IsInterrupted && !p.IsComplete && p.Evaluation == null
+          && !p.Attendance.Any() && p.StartDate > on;
+
     private static readonly Func<ServicePeriod, bool> PlannedFn = Planned.Compile();
     private static readonly Func<ServicePeriod, bool> UnderwayFn = Underway.Compile();
     private static readonly Func<ServicePeriod, bool> AwaitingFn = AwaitingEvaluation.Compile();
@@ -201,6 +236,23 @@ public static class ServicePeriodLifecycle
     /// </summary>
     public static bool IsExtendable(bool isComplete, bool isInterrupted, bool hasEvaluation) =>
         !isInterrupted && !isComplete && !hasEvaluation;
+
+    /// <summary>
+    /// La version datée, sur une entité chargée. ⚠ Lit <see cref="ServicePeriod.Evaluation"/> et
+    /// <see cref="ServicePeriod.Attendance"/> : les deux doivent être chargées.
+    /// </summary>
+    public static bool IsMovableOn(ServicePeriod period, DateOnly on) =>
+        !period.IsInterrupted && !period.IsComplete && period.Evaluation is null
+        && period.Attendance.Count == 0 && period.StartDate > on;
+
+    /// <summary>
+    /// La même décision depuis une projection plate. ⚠ <c>isStarted</c> n'y figure pas — c'est tout
+    /// le propos : le drapeau est posé sur l'étudiant entier, pas sur la rotation.
+    /// </summary>
+    public static bool IsMovableOn(
+        bool isComplete, bool isInterrupted, bool hasEvaluation, bool hasAttendance,
+        DateOnly startDate, DateOnly on) =>
+        !isInterrupted && !isComplete && !hasEvaluation && !hasAttendance && startDate > on;
 
     /// <summary>
     /// The state of a loaded period. ⚠ Requires <see cref="ServicePeriod.Evaluation"/> to be loaded;

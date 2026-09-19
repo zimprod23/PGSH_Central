@@ -1,10 +1,12 @@
-﻿using FluentAssertions;
+﻿using System.Linq.Expressions;
+using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using PGSH.Application.Employees.MyServices;
 using PGSH.Application.AcademicGroups;
 using PGSH.Application.AcademicGroups.BulkAssignment;
 using PGSH.Application.AcademicGroups.Placements;
 using PGSH.Application.Audit;
+using PGSH.Application.Extensions;
 using PGSH.Application.Calendar;
 using PGSH.Application.Calendar.Pauses;
 using PGSH.Application.Hospitals.Chefs;
@@ -1284,6 +1286,51 @@ public class SqlTranslationTests
         unmovable.Should().Contain("ServicePeriodSlotCoverage");
         unmovable.Should().Contain("Attendance");
         unmovable.Should().Contain("DISTINCT");
+    }
+
+    /// <summary>
+    /// The two dated rules the axis recompute reads — <c>MovableOn</c> and <c>Extendable</c> — put
+    /// straight into a <c>Where</c>, which is where a provider refuses rather than quietly evaluating
+    /// on the client.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ <c>MovableOn</c> is an expression <b>factory</b>: the date is captured in a closure, so the
+    /// tree carries a field access rather than a constant and EF has to parameterise it. It also
+    /// reads a collection under a negation (<c>!Attendance.Any()</c>). Neither is exotic on its own;
+    /// together they are exactly the shape that has killed a query in this repo before, with the
+    /// whole suite green.
+    /// </remarks>
+    [Fact]
+    public void The_dated_movability_rules_become_SQL()
+    {
+        using var db = TestHarness.NewNpgsqlContext();
+        var today = new DateOnly(2026, 9, 19);
+
+        string movable = db.ServicePeriods
+            .Where(ServicePeriodLifecycle.MovableOn(today))
+            .Select(p => p.Id)
+            .ToQueryString();
+
+        movable.Should().Contain("Attendance");
+        movable.Should().Contain("StartDate");
+
+        string extendable = db.ServicePeriods
+            .Where(ServicePeriodLifecycle.Extendable)
+            .Select(p => p.Id)
+            .ToQueryString();
+
+        extendable.Should().Contain("IsComplete");
+
+        // ⚠ The control: both must also survive *composition*, because the recompute asks them of
+        // périodes reached through their coverage rows rather than of ServicePeriod directly.
+        Expression<Func<ServicePeriodSlotCoverage, ServicePeriod>> toPeriod = c => c.ServicePeriod;
+
+        string throughCoverage = db.ServicePeriodSlotCoverage
+            .Where(toPeriod.Through(ServicePeriodLifecycle.MovableOn(today)))
+            .Select(c => c.Id)
+            .ToQueryString();
+
+        throughCoverage.Should().Contain("Attendance");
     }
 
     /// <summary>

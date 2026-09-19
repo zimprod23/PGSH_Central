@@ -327,6 +327,94 @@ public class ServicePeriodLifecycleTests
     /// toujours. La garde qui manquerait — ramener la fin en arrière — vit dans le nom de l'acte
     /// (<c>ExtendTo</c>), pas ici.
     /// </summary>
+    // ─── MovableOn: the dated question ───────────────────────────────────────────
+
+    private static readonly DateOnly Today = new(2026, 9, 19);
+
+    private static ServicePeriod Windowed(
+        DateOnly start, bool started, bool complete = false,
+        bool interrupted = false, bool evaluated = false, bool attended = false)
+    {
+        var period = FullPeriod(started, complete, interrupted, evaluated, attended);
+        period.StartDate = start;
+        period.EndDate = start.AddDays(30);
+        return period;
+    }
+
+    /// <summary>
+    /// ⚠ <b>Le cas mesuré sur la base vivante le 19/09/2026 : 305 périodes de la 4ᵉ MED.</b>
+    /// <c>Start()</c> est un <i>whole-student start</i>, donc un séjour de février porte
+    /// <c>IsStarted</c> dès septembre. Un recalcul lisant <see cref="ServicePeriodLifecycle.Movable"/>
+    /// refuserait de pousser précisément les rotations futures qu'il existe pour pousser.
+    /// </summary>
+    [Fact]
+    public void A_future_rotation_flagged_started_by_a_whole_student_start_may_still_move()
+    {
+        var february = Windowed(new DateOnly(2027, 2, 1), started: true);
+
+        ServicePeriodLifecycle.IsMovable(february).Should().BeFalse("the flag alone refuses it");
+        ServicePeriodLifecycle.IsMovableOn(february, Today).Should().BeTrue(
+            "nothing has happened in it and it does not begin for months");
+    }
+
+    /// <summary>
+    /// ⚠ L'autre sens, et c'est pourquoi les deux règles ne sont pas emboîtées : une rotation jamais
+    /// ouverte dont la fenêtre est <i>passée</i> est `Movable` et n'est pas `MovableOn`. Plus strict,
+    /// et à raison — ses dates ont eu lieu, ouverte ou non.
+    /// </summary>
+    [Fact]
+    public void A_past_rotation_nobody_opened_is_Movable_and_not_movable_today()
+    {
+        var june = Windowed(new DateOnly(2026, 6, 1), started: false);
+
+        ServicePeriodLifecycle.IsMovable(june).Should().BeTrue();
+        ServicePeriodLifecycle.IsMovableOn(june, Today).Should().BeFalse();
+    }
+
+    /// <summary>
+    /// ⚠ Les faits enregistrés gardent leur veto quelle que soit la date : le magasin peut porter une
+    /// présence sur une rotation à venir, et la déplacer laisserait cette journée sur une date que
+    /// personne n'a servie.
+    /// </summary>
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void A_recorded_fact_refuses_the_move_however_far_away_the_window_is(
+        bool evaluated, bool attended)
+    {
+        var future = Windowed(
+            new DateOnly(2027, 2, 1), started: false, evaluated: evaluated, attended: attended);
+
+        ServicePeriodLifecycle.IsMovableOn(future, Today).Should().BeFalse();
+    }
+
+    /// <summary>The nesting that does hold: everything movable today may be extended.</summary>
+    [Theory]
+    [MemberData(nameof(AllExtendFactCombinations))]
+    public void Everything_movable_today_is_extendable(
+        bool started, bool complete, bool interrupted, bool evaluated, bool attended)
+    {
+        var period = Windowed(new DateOnly(2027, 2, 1), started, complete, interrupted, evaluated, attended);
+
+        if (ServicePeriodLifecycle.IsMovableOn(period, Today))
+            ServicePeriodLifecycle.IsExtendable(period).Should().BeTrue();
+    }
+
+    /// <summary>⚠ The entity form and the projection form must not diverge here either.</summary>
+    [Theory]
+    [MemberData(nameof(AllExtendFactCombinations))]
+    public void The_entity_form_and_the_projection_form_agree_on_movable_today(
+        bool started, bool complete, bool interrupted, bool evaluated, bool attended)
+    {
+        var start = new DateOnly(2027, 2, 1);
+        var period = Windowed(start, started, complete, interrupted, evaluated, attended);
+
+        ServicePeriodLifecycle.IsMovableOn(period, Today)
+            .Should()
+            .Be(ServicePeriodLifecycle.IsMovableOn(
+                complete, interrupted, evaluated, attended, start, Today));
+    }
+
     [Fact]
     public void Attendance_blocks_a_move_and_does_not_block_an_extension()
     {
