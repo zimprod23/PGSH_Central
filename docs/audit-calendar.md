@@ -438,3 +438,37 @@ publiée sont le même code et deux événements sans rapport.
 `Reversed`, avec sa date et ses entrées. Le registre d'audit dit **qui** a annulé ; le registre d'import
 dit **quoi**, et les deux sont nécessaires — une ligne qui disparaît en se défaisant répond « il ne
 s'est rien passé » à la question du dossier.
+
+## Rattraper une fenêtre déclarée trop tard (20/09/2026)
+
+Déclarer une suspension n'écrit **aucune date** — c'est ce qui la rend révocable — donc une fenêtre
+posée après que la grille a été bâtie laisse les colonnes où elles sont, plus courtes de ce qu'elle
+leur prend. `POST levels/{id}/axis-relay` les repose, et fait suivre les rotations publiées.
+
+- ⚠ **Ce n'est pas une annulation, dans aucun des deux sens.** L'axe est un **calcul** — date
+  d'ancrage + longueur de colonne + calendrier de la promotion — et l'acte **écrase** ce qui est
+  stocké par ce que ce calcul rend aujourd'hui. Supprimer la fenêtre de janvier ne défait rien : le
+  même calcul, sur un calendrier qui ne la contient plus, rend des dates antérieures, et on les
+  réécrit. Il n'y a ni historique ni état précédent stocké.
+- ⚠ **Ce qui manquait n'était que la capacité d'écrire dans ce sens.** `ExtendTo` repousse une fin et
+  jamais ne la ramène — à raison : les journées pointées entre la nouvelle fin et l'ancienne
+  seraient des présences à des dates que la rotation ne couvre plus. D'où `ShortenTo`, **avec sa
+  propre garde**, et `FirstDivergentColumn` qui cherche désormais une colonne trop longue autant
+  qu'une trop courte.
+- **La longueur d'une colonne est dérivée, jamais demandée** — par le **mode** des colonnes mesurées
+  sur le calendrier courant. Elle ne se lit pas sur les dates stockées : ce sont elles que la fenêtre
+  a abîmées, donc une colonne amputée de cinq jours se reposerait à dix-sept et la perte deviendrait
+  définitive.
+- **Deux comptes se confirment, pas un** : ce que l'acte réécrit dans la grille et ce qu'il réécrit
+  dans les dossiers bougent pour des raisons différentes.
+- ⚠ **Pourquoi c'est un acte séparé, et non un effet de la déclaration.** Déclarer écrirait alors
+  ~4 600 lignes, et révoquer devrait les défaire — toute la propriété qui fait tenir `PromotionPause`
+  s'effondre. Trois raisons de plus : une fenêtre déclarée **avant** la pose de l'axe n'appelle aucun
+  recalcul (l'axe l'enjambe) ; deux fenêtres déclarées de suite doivent donner **un** recalcul et non
+  deux ; et l'acte change la date de fin de l'année universitaire, qui est une décision.
+- **Mais les deux écrans se tiennent par un lien** : le compte des colonnes traversées, dans le
+  panneau des suspensions, pointe sur « Recalcul de l'axe » avec la promotion déjà choisie. Nommer un
+  dégât sans montrer le remède est ce que ce document reproche ailleurs aux rapports de pause.
+
+→ `AxisRelayPlanner` (pur), `AxisRelayReader`, `AxisRelayCrossingReader`, `PGSH.Frontend`
+  → `AxisRelayPage`

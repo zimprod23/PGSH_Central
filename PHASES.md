@@ -2202,8 +2202,15 @@ promotions qui partageront ce pic. ⚠ Un rapport, pas une garde. ⚠ Et il ne r
 d'occupation : `OccupancyTimeline` reçoit les dates proposées à la place des dates stockées, ce qui
 évite la troisième copie et le piège du 03/09 (le pic, jamais la somme).
 
-**Reste pour clore 0ce** : l'écran. `PGSH.Frontend` est un dépôt séparé et ne consomme encore rien
-de tout cela — le contrat côté serveur est désormais figé.
+**L'écran est livré** (`AxisRelayPage`, dépôt `PGSH_Frontend`), et le panneau des suspensions y
+pointe avec la promotion déjà choisie. ⚠ **Pourquoi un acte séparé plutôt qu'un effet de la
+déclaration** : déclarer écrirait alors ~4 600 lignes et révoquer devrait les défaire, ce qui
+détruit la propriété même de `PromotionPause` ; une fenêtre déclarée avant la pose de l'axe n'appelle
+aucun recalcul ; deux fenêtres doivent donner un seul recalcul ; et l'acte déplace la fin de l'année
+universitaire, qui est une décision.
+
+**§17.5 est close.** Reste, hors de cette phase : `0cl` (la génération des présences ignore le
+calendrier) et le pilotage humain de la fenêtre de confirmation.
 → `PGSH.Tests/Application/AxisRelayPlannerTests.cs`, `AxisRelayCommandTests`, `SqlTranslationTests`
 
 ### ✅ 17.1 — moving P7 while P3 runs (built 13/09/2026)
