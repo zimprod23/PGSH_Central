@@ -2181,10 +2181,21 @@ planificateur**, férié par férié, et `WorkingDaysRecovered = 5`. ⚠ La prem
 porté qu'un des six fériés de l'étendue et a échoué pour cela — un calendrier incomplet ment dans le
 sens rassurant.
 
-**Reste à faire pour clore 0ce** : l'aperçu exposé, la confirmation sur deux comptes, l'application
-(`StageSlot.RelayTo` puis `ExtendTo`/`Reschedule`), l'enveloppe `IAuditTrail.RunAtomicallyAsync`, et
-— après — le rapport d'occupation **inter-promotions**, qui est un rapport et non une garde.
-→ `PGSH.Tests/Application/AxisRelayPlannerTests.cs`, `SqlTranslationTests`
+**L'acte est livré** — `PreviewAxisRelayQuery` + `ApplyAxisRelayCommand`, deux routes sous
+`levels/{levelId}/axis-relay`, tout par les agrégats, une transaction, deux comptes confirmés.
+Vérifié contre la base vivante le 19/09/2026 : 30 créneaux, 4 625 rotations (925 allongées, 3 700
+déplacées, 0 bloquée), les six colonnes exactement sur les dates prédites à la main.
+
+**Et il est réversible depuis le 20/09/2026.** La détection cherchait seulement les colonnes trop
+*courtes*, donc révoquer une fenêtre après un rattrapage laissait l'axe étiré sans retour possible.
+`FirstDivergentColumn` regarde les deux sens ; `WorkingDaysChanged` est **signé** ; et surtout
+`InternshipAssignment.ShortenTo` existe, parce que revenir en arrière veut dire raccourcir et
+qu'`ExtendTo` refuse cela par construction. ⚠ **Les deux directions n'ont pas la même garde** :
+allonger ne peut rien orpheliner, raccourcir le peut, et c'est pourquoi ce sont deux actes.
+
+**Reste pour clore 0ce** : le rapport d'occupation **inter-promotions** (un rapport, pas une garde),
+puis l'écran — `PGSH.Frontend` est un dépôt séparé et ne consomme encore rien de tout cela.
+→ `PGSH.Tests/Application/AxisRelayPlannerTests.cs`, `AxisRelayCommandTests`, `SqlTranslationTests`
 
 ### ✅ 17.1 — moving P7 while P3 runs (built 13/09/2026)
 

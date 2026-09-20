@@ -677,6 +677,14 @@ behaviour; each caller states its own.**
       for a reason unrelated to what it checks. Seed relative to now
       (`PublishedColumnMoveEndpointTests.Anchor`), or freeze the clock
       (`TestHarness.ClockOn` / `BeforeAnyWindow`).
+    - ⚠ **And `ShortenTo` is its counterpart, added 20/09/2026 — without it the axis recompute is
+      one-way.** Revoking a window has to give the original dates back, and the column whose start
+      was held can only get there by shortening. ⚠ **The two directions do not share a guard, which
+      is why they are two acts**: lengthening can orphan nothing (a pointed day lives between the
+      start and the *old* end, so a growing window still holds it), shortening can — the days
+      between the new end and the old one would be présences on dates the rotation no longer
+      covers. `ShortenTo` counts them and names the date, because « impossible » without the number
+      indicates no gesture; a rotation pointed only in its first week shortens to that week fine.
     - ⚠ **`ExtendTo` writes an *absolute* date, never a delta** — the property that lets an axis
       recompute be replayed after every pause declared, corrected or revoked without the rotation
       growing a little each time. `ExtendBy(days)` would have been the accumulation that got the

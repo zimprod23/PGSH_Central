@@ -16,6 +16,13 @@ internal enum AxisRelayAction
     /// <summary>Son début reste, sa fin est repoussée : elle a commencé, on ne réécrit pas cela.</summary>
     Extend,
 
+    /// <summary>
+    /// Son début reste, sa fin revient en arrière — le retour d'une fenêtre révoquée. ⚠ Distinct de
+    /// <see cref="Extend"/> parce que la garde ne l'est pas : raccourcir peut orpheliner une journée
+    /// pointée, allonger ne le peut pas.
+    /// </summary>
+    Shorten,
+
     /// <summary>Rien n'est possible : close, notée, pointée, ou interrompue.</summary>
     Blocked,
 }
@@ -37,6 +44,11 @@ internal sealed record AxisRelayPeriodChange(
 /// discordante est normale (ce sont les colonnes que la fenêtre ampute) ; une majorité discordante
 /// veut dire que l'axe n'a pas été posé en jours ouvrables et que le recalcul n'est pas l'outil.
 /// </param>
+/// <param name="PeriodsToShorten">
+/// Celles dont la fin revient en arrière — l'axe revient d'une fenêtre révoquée. Comptées à part de
+/// <paramref name="PeriodsToExtend"/> : ce sont deux directions, et l'opérateur doit voir laquelle
+/// il applique.
+/// </param>
 /// <param name="PeriodsBlocked">
 /// ⚠ Celles que l'acte ne peut pas rattraper. Elles ne font pas échouer le recalcul — une note est un
 /// fait, et le reste de la promotion a quand même besoin d'être poussé — mais elles se comptent, sinon
@@ -53,13 +65,20 @@ internal sealed record AxisRelayReport(
     int SlotsToRelay,
     int PeriodsToMove,
     int PeriodsToExtend,
+    int PeriodsToShorten,
     int PeriodsBlocked,
-    int WorkingDaysRecovered,
+    int WorkingDaysChanged,
     DateOnly AxisEndsOn,
     IReadOnlyList<string> Warnings)
 {
     /// <summary>Ce que l'opérateur confirme côté écriture.</summary>
-    public int PeriodsAffected => PeriodsToMove + PeriodsToExtend;
+    public int PeriodsAffected => PeriodsToMove + PeriodsToExtend + PeriodsToShorten;
+
+    /// <summary>
+    /// L'axe revient-il en arrière ? ⚠ Lu du <b>signe</b> des jours, pas d'un drapeau séparé : deux
+    /// sources pour un même fait finissent par se contredire.
+    /// </summary>
+    public bool IsRollingBack => WorkingDaysChanged < 0;
 }
 
 /// <summary>
@@ -139,7 +158,7 @@ internal sealed class AxisRelayReader(IApplicationDbContext dbContext, WorkingDa
                 + "forme — vérifiez la longueur avant d'appliquer.");
 
         int from = fromPeriodNumber
-            ?? AxisRelayPlanner.FirstShortColumn(columns, calendar, length)
+            ?? AxisRelayPlanner.FirstDivergentColumn(columns, calendar, length)
             ?? columns[^1].Number + 1;
 
         if (from > columns[^1].Number)
@@ -166,8 +185,9 @@ internal sealed class AxisRelayReader(IApplicationDbContext dbContext, WorkingDa
             SlotsToRelay: slots.Count(s => moved.ContainsKey(s.PeriodNumber)),
             PeriodsToMove: periods.Count(p => p.Action == AxisRelayAction.Move),
             PeriodsToExtend: periods.Count(p => p.Action == AxisRelayAction.Extend),
+            PeriodsToShorten: periods.Count(p => p.Action == AxisRelayAction.Shorten),
             PeriodsBlocked: periods.Count(p => p.Action == AxisRelayAction.Blocked),
-            plan.Value.WorkingDaysRecovered,
+            plan.Value.WorkingDaysChanged,
             plan.Value.AxisEndsOn,
             warnings);
     }
@@ -224,7 +244,7 @@ internal sealed class AxisRelayReader(IApplicationDbContext dbContext, WorkingDa
                 covered.Key, first.InternshipAssignmentId,
                 first.StartDate, first.EndDate,
                 toStart, toEnd,
-                Classify(first, toStart, today)));
+                Classify(first, toStart, toEnd, today)));
         }
 
         return changes;
@@ -236,21 +256,31 @@ internal sealed class AxisRelayReader(IApplicationDbContext dbContext, WorkingDa
     /// (mesuré 19/09/2026) : sous <c>Movable</c> le recalcul refuserait de pousser exactement les
     /// rotations futures qu'il existe pour pousser.
     /// </summary>
-    private static AxisRelayAction Classify(CoverageRow row, DateOnly toStart, DateOnly today)
+    private static AxisRelayAction Classify(
+        CoverageRow row, DateOnly toStart, DateOnly toEnd, DateOnly today)
     {
         if (ServicePeriodLifecycle.IsMovableOn(
                 row.IsComplete, row.IsInterrupted, row.HasEvaluation,
                 row.AttendanceCount > 0, row.StartDate, today))
             return AxisRelayAction.Move;
 
-        // Le début ne peut plus bouger. Repousser la fin reste possible tant que rien n'est clos,
-        // noté ni interrompu — et seulement si le début ne bougeait pas de toute façon.
+        // Le début ne peut plus bouger. Ne reste que sa fin, et le sens compte : allonger ne peut
+        // rien orpheliner, raccourcir le peut — d'où deux actes et deux gardes.
         bool startHolds = toStart == row.StartDate;
+        bool open = ServicePeriodLifecycle.IsExtendable(
+            row.IsComplete, row.IsInterrupted, row.HasEvaluation);
 
-        return startHolds
-            && ServicePeriodLifecycle.IsExtendable(row.IsComplete, row.IsInterrupted, row.HasEvaluation)
-                ? AxisRelayAction.Extend
-                : AxisRelayAction.Blocked;
+        if (!startHolds || !open)
+            return AxisRelayAction.Blocked;
+
+        if (toEnd >= row.EndDate)
+            return AxisRelayAction.Extend;
+
+        // ⚠ Une journée pointée après la nouvelle fin se retrouverait hors de la fenêtre. L'agrégat
+        // refuse, et le rapport doit le dire *avant* plutôt que de laisser l'acte échouer.
+        return row.AttendanceCount > 0
+            ? AxisRelayAction.Blocked
+            : AxisRelayAction.Shorten;
     }
 
     /// <summary>

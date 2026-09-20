@@ -64,7 +64,7 @@ public class AxisRelayPlannerTests
         var plan = PlanOf(axis, calendar);
 
         plan.ColumnsMoved.Should().Be(0);
-        plan.WorkingDaysRecovered.Should().Be(0);
+        plan.WorkingDaysChanged.Should().Be(0);
         plan.Columns.Should().OnlyContain(c => !c.Moved);
     }
 
@@ -80,7 +80,7 @@ public class AxisRelayPlannerTests
         // Samedi 10 et dimanche 11 janvier 2026.
         var calendar = WithWindow(new DateOnly(2026, 1, 10), new DateOnly(2026, 1, 11));
 
-        AxisRelayPlanner.FirstShortColumn(axis, calendar, ColumnLength).Should().BeNull();
+        AxisRelayPlanner.FirstDivergentColumn(axis, calendar, ColumnLength).Should().BeNull();
     }
 
     // ─── Le cas pour lequel l'acte existe ───────────────────────────────────────
@@ -120,7 +120,7 @@ public class AxisRelayPlannerTests
         var plan = PlanOf(axis, calendar);
 
         plan.ColumnsMoved.Should().Be(4);
-        plan.WorkingDaysRecovered.Should().Be(5);
+        plan.WorkingDaysChanged.Should().Be(5);
 
         for (int i = 1; i < plan.Columns.Count; i++)
             plan.Columns[i].ToStart.Should().BeAfter(plan.Columns[i - 1].ToEnd,
@@ -217,7 +217,7 @@ public class AxisRelayPlannerTests
         var twice = PlanOf(applied, calendar);
 
         twice.ColumnsMoved.Should().Be(0, "the axis is derived from the calendar, never added to");
-        twice.WorkingDaysRecovered.Should().Be(0);
+        twice.WorkingDaysChanged.Should().Be(0);
         twice.AxisEndsOn.Should().Be(once.AxisEndsOn);
     }
 
@@ -245,6 +245,33 @@ public class AxisRelayPlannerTests
     }
 
     // ─── Refus ──────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// ⚠ <b>Le trou que la détection avait : elle ne cherchait que les colonnes trop <i>courtes</i>.</b>
+    /// Après un rattrapage, révoquer la fenêtre laisse une colonne trop <i>longue</i> — que rien ne
+    /// voyait, donc l'acte répondait « rien à rattraper » et l'axe restait étiré. Un acte de masse
+    /// qui ne sait pas se défaire est ce que ce dépôt refuse partout ailleurs.
+    /// </summary>
+    [Fact]
+    public void A_column_left_too_long_by_a_revoked_window_is_detected()
+    {
+        var weekends = Weekends();
+        var original = Axis(4, weekends);
+
+        var withWindow = WithWindow(new DateOnly(2026, 1, 12), new DateOnly(2026, 1, 16));
+        var pushed = PlanOf(original, withWindow).Columns
+            .Select(c => new AxisColumn(c.Number, c.ToStart, c.ToEnd, IsMovedByHand: false))
+            .ToList();
+
+        // La fenêtre est révoquée. P1 tient maintenant quinze jours ouvrables au lieu de dix.
+        AxisRelayPlanner.FirstDivergentColumn(pushed, weekends, ColumnLength)
+            .Should().Be(1, "it is too long now, and that is just as much a divergence");
+
+        var back = PlanOf(pushed, weekends);
+        back.WorkingDaysChanged.Should().BeNegative("the axis is giving days back");
+        back.Columns.Select(c => (c.ToStart, c.ToEnd))
+            .Should().Equal(original.Select(c => (c.StartDate, c.EndDate)));
+    }
 
     [Fact]
     public void An_axis_with_no_column_after_the_starting_one_is_refused()
@@ -275,7 +302,7 @@ public class AxisRelayPlannerTests
         var axis = Axis(4);
         axis[0] = axis[0] with { EndDate = axis[0].EndDate.AddDays(-7), IsMovedByHand = true };
 
-        var found = AxisRelayPlanner.FirstShortColumn(axis, Weekends(), ColumnLength);
+        var found = AxisRelayPlanner.FirstDivergentColumn(axis, Weekends(), ColumnLength);
 
         found.Should().NotBe(1);
     }
@@ -328,7 +355,7 @@ public class AxisRelayPlannerTests
         // La longueur de colonne que la base porte réellement.
         const int Length = 22;
 
-        AxisRelayPlanner.FirstShortColumn(axis, calendar, Length)
+        AxisRelayPlanner.FirstDivergentColumn(axis, calendar, Length)
             .Should().Be(1, "the window falls inside P1");
 
         var result = AxisRelayPlanner.Plan(axis, calendar, Length, fromColumn: 1);
@@ -361,7 +388,7 @@ public class AxisRelayPlannerTests
 
         plan.ColumnsMoved.Should().Be(6);
         plan.ColumnsAnchored.Should().Be(0);
-        plan.WorkingDaysRecovered.Should().Be(5);
+        plan.WorkingDaysChanged.Should().Be(5);
         plan.Columns.Should().OnlyContain(c => c.ToWorkingDays == Length);
     }
 
@@ -374,6 +401,6 @@ public class AxisRelayPlannerTests
         var axis = Axis(4);
         var calendar = WithWindow(new DateOnly(2026, 2, 9), new DateOnly(2026, 2, 13));
 
-        AxisRelayPlanner.FirstShortColumn(axis, calendar, ColumnLength).Should().Be(3);
+        AxisRelayPlanner.FirstDivergentColumn(axis, calendar, ColumnLength).Should().Be(3);
     }
 }

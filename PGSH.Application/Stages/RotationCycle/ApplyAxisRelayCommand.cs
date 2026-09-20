@@ -146,8 +146,9 @@ internal sealed class ApplyAxisRelayCommandHandler(
             ("slotsRelaid", slotsRelaid.Value),
             ("periodsMoved", written.Value.Moved),
             ("periodsExtended", written.Value.Extended),
+            ("periodsShortened", written.Value.Shortened),
             ("periodsBlocked", report.Value.PeriodsBlocked),
-            ("workingDaysRecovered", report.Value.WorkingDaysRecovered),
+            ("workingDaysChanged", report.Value.WorkingDaysChanged),
             ("axisEndsOn", report.Value.AxisEndsOn.ToString("yyyy-MM-dd")));
 
         await dbContext.SaveChangesAsync(ct);
@@ -156,8 +157,9 @@ internal sealed class ApplyAxisRelayCommandHandler(
             slotsRelaid.Value,
             written.Value.Moved,
             written.Value.Extended,
+            written.Value.Shortened,
             report.Value.PeriodsBlocked,
-            report.Value.WorkingDaysRecovered,
+            report.Value.WorkingDaysChanged,
             report.Value.AxisEndsOn);
     }
 
@@ -198,7 +200,7 @@ internal sealed class ApplyAxisRelayCommandHandler(
     /// l'oubli, PostgreSQL la verrait comme « rien à signaler » et laisserait déplacer une rotation
     /// pointée.
     /// </remarks>
-    private async Task<Result<(int Moved, int Extended)>> ApplyToAssignmentsAsync(
+    private async Task<Result<(int Moved, int Extended, int Shortened)>> ApplyToAssignmentsAsync(
         IReadOnlyList<AxisRelayPeriodChange> changes, DateOnly on, CancellationToken ct)
     {
         var actionable = changes
@@ -206,7 +208,7 @@ internal sealed class ApplyAxisRelayCommandHandler(
             .ToList();
 
         if (actionable.Count == 0)
-            return (0, 0);
+            return (0, 0, 0);
 
         var assignmentIds = actionable.Select(c => c.InternshipAssignmentId).Distinct().ToList();
 
@@ -217,23 +219,37 @@ internal sealed class ApplyAxisRelayCommandHandler(
             .ToListAsync(ct);
 
         var byId = assignments.ToDictionary(a => a.Id);
-        int moved = 0, extended = 0;
+        int moved = 0, extended = 0, shortened = 0;
 
         foreach (var change in actionable)
         {
             if (!byId.TryGetValue(change.InternshipAssignmentId, out var assignment))
-                return Result.Failure<(int, int)>(StageErrors.PeriodNotFound(change.ServicePeriodId));
+                return Result.Failure<(int, int, int)>(
+                    StageErrors.PeriodNotFound(change.ServicePeriodId));
 
-            var applied = change.Action == AxisRelayAction.Move
-                ? assignment.Reschedule(change.ServicePeriodId, change.ToStart, change.ToEnd, on)
-                : assignment.ExtendTo(change.ServicePeriodId, change.ToEnd);
+            // ⚠ Trois portes, trois gardes. Le rapport a déjà choisi laquelle ; l'agrégat la
+            // re-vérifie, parce qu'un invariant que l'appelant garantit n'en est pas un.
+            var applied = change.Action switch
+            {
+                AxisRelayAction.Move =>
+                    assignment.Reschedule(change.ServicePeriodId, change.ToStart, change.ToEnd, on),
+                AxisRelayAction.Extend =>
+                    assignment.ExtendTo(change.ServicePeriodId, change.ToEnd),
+                _ =>
+                    assignment.ShortenTo(change.ServicePeriodId, change.ToEnd),
+            };
 
             if (applied.IsFailure)
-                return Result.Failure<(int, int)>(applied.Error);
+                return Result.Failure<(int, int, int)>(applied.Error);
 
-            if (change.Action == AxisRelayAction.Move) moved++; else extended++;
+            switch (change.Action)
+            {
+                case AxisRelayAction.Move: moved++; break;
+                case AxisRelayAction.Extend: extended++; break;
+                default: shortened++; break;
+            }
         }
 
-        return (moved, extended);
+        return (moved, extended, shortened);
     }
 }

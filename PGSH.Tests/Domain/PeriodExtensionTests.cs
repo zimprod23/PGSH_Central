@@ -190,6 +190,116 @@ public class PeriodExtensionTests
         raised.ToEndDate.Should().Be(Later);
     }
 
+    // ─── ShortenTo : le retour ──────────────────────────────────────────────────
+
+    /// <summary>
+    /// ⚠ <b>Ce qui rend un recalcul d'axe réversible.</b> Révoquer une fenêtre doit rendre les dates
+    /// d'origine ; or la colonne dont le début a été retenu ne peut y revenir qu'en raccourcissant.
+    /// </summary>
+    [Fact]
+    public void A_started_rotation_can_have_its_end_pulled_back()
+    {
+        var assignment = WithPeriod(out var period);
+
+        var result = assignment.ShortenTo(period.Id, End.AddDays(-7));
+
+        result.IsSuccess.Should().BeTrue();
+        period.EndDate.Should().Be(End.AddDays(-7));
+        period.StartDate.Should().Be(Start, "shortening never touches the start either");
+    }
+
+    /// <summary>
+    /// ⚠ <b>L'asymétrie qui justifie deux actes plutôt qu'un.</b> Allonger ne peut rien laisser
+    /// dehors ; raccourcir le peut. Une journée pointée après la nouvelle fin serait une présence à
+    /// une date que la rotation ne couvre plus.
+    /// </summary>
+    [Fact]
+    public void Shortening_past_a_pointed_day_is_refused_and_says_how_many()
+    {
+        var assignment = WithPeriod(out var period);
+        period.Attendance.Add(new AttendanceRecord
+        {
+            Id = Guid.NewGuid(), ServicePeriodId = period.Id, Date = new DateOnly(2026, 3, 3),
+        });
+
+        var result = assignment.ShortenTo(period.Id, new DateOnly(2026, 2, 27));
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be("Schedule.PeriodShorteningOrphansAttendance");
+        result.Error.Description.Should().Contain("1");
+        period.EndDate.Should().Be(End, "a refused shortening writes nothing");
+    }
+
+    /// <summary>
+    /// ⚠ Le contrôle : ce ne sont pas « des présences » qui refusent, ce sont celles qui tomberaient
+    /// <em>après</em> la nouvelle fin. Une rotation pointée sur sa première semaine se raccourcit
+    /// très bien jusque-là.
+    /// </summary>
+    [Fact]
+    public void A_pointed_day_before_the_new_end_does_not_refuse()
+    {
+        var assignment = WithPeriod(out var period);
+        period.Attendance.Add(new AttendanceRecord
+        {
+            Id = Guid.NewGuid(), ServicePeriodId = period.Id, Date = new DateOnly(2026, 1, 12),
+        });
+
+        var result = assignment.ShortenTo(period.Id, new DateOnly(2026, 2, 27));
+
+        result.IsSuccess.Should().BeTrue();
+        period.EndDate.Should().Be(new DateOnly(2026, 2, 27));
+    }
+
+    [Fact]
+    public void Shortening_forwards_is_refused()
+    {
+        var assignment = WithPeriod(out var period);
+
+        var result = assignment.ShortenTo(period.Id, Later);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be("Schedule.PeriodShorteningGoesForwards");
+        period.EndDate.Should().Be(End);
+    }
+
+    [Fact]
+    public void Shortening_past_the_start_is_refused()
+    {
+        var assignment = WithPeriod(out var period);
+
+        var result = assignment.ShortenTo(period.Id, Start.AddDays(-1));
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be("Schedule.PeriodWindowReversed");
+    }
+
+    [Fact]
+    public void A_marked_rotation_cannot_be_shortened_either()
+    {
+        var assignment = WithPeriod(out var period);
+        period.Evaluation = new ServiceEvaluation { Mode = EvaluationMode.Numeric, TotalScore = 11m };
+
+        var result = assignment.ShortenTo(period.Id, End.AddDays(-7));
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Be(StageErrors.PeriodCannotBeShortened);
+    }
+
+    /// <summary>⚠ Rejouable dans ce sens aussi : la même fin demandée deux fois ne fait rien.</summary>
+    [Fact]
+    public void Shortening_twice_to_the_same_date_is_not_shortening_twice()
+    {
+        var assignment = WithPeriod(out var period);
+        var target = End.AddDays(-7);
+
+        assignment.ShortenTo(period.Id, target);
+        assignment.ClearDomainEvents();
+
+        assignment.ShortenTo(period.Id, target).IsSuccess.Should().BeTrue();
+        period.EndDate.Should().Be(target);
+        assignment.DomainEvents.Should().BeEmpty();
+    }
+
     /// <summary>
     /// Une rotation non démarrée s'allonge aussi. Les deux actes se recouvrent là, et c'est voulu :
     /// l'emboîtement des deux règles est ce qui permet au recalcul de n'en choisir qu'un par colonne

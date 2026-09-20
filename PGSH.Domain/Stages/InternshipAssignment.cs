@@ -501,6 +501,67 @@ public sealed class InternshipAssignment : Entity
     }
 
     /// <summary>
+    /// Ramène la <b>fin</b> d'une rotation en arrière — le pendant de <see cref="ExtendTo"/>, et ce
+    /// qui rend un recalcul d'axe <b>réversible</b>.
+    /// </summary>
+    /// <remarks>
+    /// <para>⚠ <b>Pourquoi ce n'est pas <c>ExtendTo</c> avec une date plus petite.</b> Allonger ne
+    /// peut rien orpheliner : toute journée pointée vit entre le début et l'ancienne fin, et une
+    /// fenêtre qui croît la contient encore. Raccourcir le peut — les journées comprises entre la
+    /// nouvelle fin et l'ancienne se retrouveraient hors de la fenêtre, c'est-à-dire présentes à des
+    /// dates que la rotation ne couvre plus. Les deux sens n'ont donc pas la même garde, et un seul
+    /// acte à deux sens aurait forcé la plus faible des deux.</para>
+    ///
+    /// <para>⚠ <b>La garde est comptée, pas devinée.</b> Ce ne sont pas « des présences » qui
+    /// refusent, ce sont celles qui tomberaient <em>après</em> la nouvelle fin : une rotation pointée
+    /// sur sa première semaine se raccourcit très bien jusqu'à cette semaine-là. Le refus les compte
+    /// et donne la date, parce que « impossible » sans le nombre n'indique aucun geste.</para>
+    ///
+    /// <para>⚠ <b>Sans lui, le recalcul d'axe est à sens unique.</b> Révoquer une fenêtre et reposer
+    /// l'axe doit rendre les dates d'origine ; or la colonne dont le début a été retenu ne peut y
+    /// revenir qu'en raccourcissant. Un acte de masse qui ne sait pas se défaire est ce que ce dépôt
+    /// refuse ailleurs — l'annulation d'un import, la révocation d'une fenêtre — et il n'y a pas de
+    /// raison qu'il en aille autrement ici.</para>
+    /// </remarks>
+    public AppResult ShortenTo(Guid servicePeriodId, DateOnly newEndDate)
+    {
+        var period = ServicePeriods.FirstOrDefault(p => p.Id == servicePeriodId);
+
+        if (period is null)
+            return AppResult.Failure(StageErrors.PeriodNotFound(servicePeriodId));
+
+        // Mêmes trois refus que l'allongement : close, notée, interrompue — sa fin est un fait.
+        if (!ServicePeriodLifecycle.IsExtendable(period))
+            return AppResult.Failure(StageErrors.PeriodCannotBeShortened);
+
+        if (newEndDate > period.EndDate)
+            return AppResult.Failure(
+                StageErrors.PeriodShorteningGoesForwards(period.EndDate, newEndDate));
+
+        if (newEndDate < period.StartDate)
+            return AppResult.Failure(
+                StageErrors.PeriodWindowReversed(period.StartDate, newEndDate));
+
+        int orphaned = period.Attendance.Count(a => a.Date > newEndDate);
+        if (orphaned > 0)
+            return AppResult.Failure(
+                StageErrors.PeriodShorteningOrphansAttendance(orphaned, newEndDate));
+
+        if (newEndDate == period.EndDate)
+            return AppResult.Success();
+
+        var fromEnd = period.EndDate;
+        period.EndDate = newEndDate;
+
+        Raise(new ServicePeriodRescheduledDomainEvent(
+            Id, RegistrationId, period.Id,
+            period.StartDate, fromEnd,
+            period.StartDate, newEndDate));
+
+        return AppResult.Success();
+    }
+
+    /// <summary>
     /// Puts back the rotation an import replaced, exactly as it stood. The inverse of
     /// <see cref="DeclareRotation"/>, and deliberately written as its mirror.
     /// </summary>

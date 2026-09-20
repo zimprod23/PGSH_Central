@@ -38,9 +38,20 @@ public sealed record AxisRelayColumnResponse(
 /// mais elles se comptent, sinon « 4 010 rotations déplacées » laisserait croire que tout le monde a
 /// été rattrapé.
 /// </param>
-/// <param name="WorkingDaysRecovered">
-/// Ce que l'acte rend aux étudiants. ⚠ C'est le chiffre qui dit <em>pourquoi</em> le jouer ;
-/// <paramref name="ColumnsMoved"/> n'en dit que l'ampleur.
+/// <param name="PeriodsToShorten">
+/// Rotations dont la fin <b>revient en arrière</b> : l'axe revient d'une fenêtre révoquée. Comptées à
+/// part de <paramref name="PeriodsToExtend"/> parce que ce sont deux directions, et que l'opérateur
+/// doit voir laquelle il s'apprête à appliquer. ⚠ La garde n'est pas la même non plus : raccourcir
+/// peut orpheliner une journée pointée, allonger ne le peut pas.
+/// </param>
+/// <param name="WorkingDaysChanged">
+/// Ce que l'acte rend aux étudiants — ou leur reprend. ⚠ C'est le chiffre qui dit <em>pourquoi</em>
+/// le jouer ; <paramref name="ColumnsMoved"/> n'en dit que l'ampleur.
+///
+/// <para>⚠ <b>Signé, et les deux signes sont des actes légitimes.</b> Positif : une fenêtre a été
+/// déclarée et l'axe rattrape ce qu'elle a pris. Négatif : la fenêtre a été <em>révoquée</em> et
+/// l'axe revient où il était. Zéro n'arrive pas — il est refusé en amont, parce que « l'acte n'a
+/// rien trouvé à faire » et « l'acte n'a rien fait » sont deux états qu'un zéro confondrait.</para>
 /// </param>
 /// <param name="AxisEndsOn">
 /// Jusqu'où l'année court après recalcul. ⚠ Repousser des colonnes allonge l'année universitaire, et
@@ -59,8 +70,9 @@ public sealed record AxisRelayPreviewResponse(
     int SlotsToRelay,
     int PeriodsToMove,
     int PeriodsToExtend,
+    int PeriodsToShorten,
     int PeriodsBlocked,
-    int WorkingDaysRecovered,
+    int WorkingDaysChanged,
     DateOnly AxisEndsOn,
     IReadOnlyList<string> Warnings)
 {
@@ -68,7 +80,13 @@ public sealed record AxisRelayPreviewResponse(
     public int SlotsAffected => SlotsToRelay;
 
     /// <summary>Le second : ce que l'acte réécrit dans les dossiers des étudiants.</summary>
-    public int PeriodsAffected => PeriodsToMove + PeriodsToExtend;
+    public int PeriodsAffected => PeriodsToMove + PeriodsToExtend + PeriodsToShorten;
+
+    /// <summary>
+    /// L'axe revient-il en arrière ? Pour que l'écran dise « rattraper » ou « revenir » plutôt que
+    /// « recalculer », qui ne dit ni l'un ni l'autre.
+    /// </summary>
+    public bool IsRollingBack => WorkingDaysChanged < 0;
 }
 
 /// <param name="PeriodsBlocked">
@@ -78,6 +96,7 @@ public sealed record AxisRelayResult(
     int SlotsRelaid,
     int PeriodsMoved,
     int PeriodsExtended,
+    int PeriodsShortened,
     int PeriodsBlocked,
-    int WorkingDaysRecovered,
+    int WorkingDaysChanged,
     DateOnly AxisEndsOn);

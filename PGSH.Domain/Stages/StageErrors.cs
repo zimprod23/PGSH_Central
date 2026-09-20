@@ -632,6 +632,30 @@ public static class StageErrors
     /// cas d'usage : un opérateur ne demande pas « repose l'axe sauf là où je l'ai corrigé », il
     /// demande un recalcul, et c'est l'acte qui sait quoi épargner.
     /// </summary>
+    public static readonly Error PeriodCannotBeShortened = Error.Conflict(
+        "Schedule.PeriodCannotBeShortened",
+        "Cette rotation est close, notée, ou a été coupée par un transfert : sa fin est un fait et ne "
+        + "peut plus être ramenée en arrière.");
+
+    public static Error PeriodShorteningGoesForwards(DateOnly currentEnd, DateOnly requestedEnd) =>
+        Error.Validation(
+            "Schedule.PeriodShorteningGoesForwards",
+            $"Raccourcir une rotation ne peut que ramener sa fin en arrière : elle se termine le "
+            + $"{currentEnd:dd/MM/yyyy} et la fenêtre demandée va jusqu'au {requestedEnd:dd/MM/yyyy}.");
+
+    /// <summary>
+    /// ⚠ Le refus qui n'a pas d'équivalent du côté de l'allongement, et c'est toute l'asymétrie des
+    /// deux actes : une fenêtre qui croît ne peut rien laisser dehors, une fenêtre qui décroît le
+    /// peut. Le compte et la date sont dans la phrase parce que « impossible » tout court n'indique
+    /// aucun geste — avec eux, l'opérateur sait qu'il doit d'abord retirer ces journées.
+    /// </summary>
+    public static Error PeriodShorteningOrphansAttendance(int days, DateOnly newEnd) =>
+        Error.Conflict(
+            "Schedule.PeriodShorteningOrphansAttendance",
+            $"{days} journée(s) de présence sont pointées après le {newEnd:dd/MM/yyyy} : raccourcir "
+            + "cette rotation jusque-là les laisserait sur des dates qu'elle ne couvre plus. Retirez "
+            + "ces journées d'abord, ou choisissez une fin postérieure.");
+
     public static Error SlotMovedByHandCannotBeRelaid(int periodNumber) => Error.Conflict(
         "Schedule.SlotMovedByHandCannotBeRelaid",
         $"La colonne P{periodNumber} a été déplacée à la main : reposer l'axe par-dessus effacerait "

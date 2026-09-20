@@ -86,8 +86,9 @@ internal static class AxisRelayPresentation
             report.SlotsToRelay,
             report.PeriodsToMove,
             report.PeriodsToExtend,
+            report.PeriodsToShorten,
             report.PeriodsBlocked,
-            report.WorkingDaysRecovered,
+            report.WorkingDaysChanged,
             report.AxisEndsOn,
             report.Warnings);
 }

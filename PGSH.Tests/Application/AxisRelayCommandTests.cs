@@ -115,7 +115,7 @@ public class AxisRelayCommandTests
         preview.ColumnLength.Should().Be(10, "P2 and P3 still hold their full ten");
         preview.ColumnsAgreeingOnLength.Should().Be(2);
         preview.FromPeriodNumber.Should().Be(1, "the window falls inside P1");
-        preview.WorkingDaysRecovered.Should().Be(5);
+        preview.WorkingDaysChanged.Should().Be(5);
 
         var slot = await f.Db.StageSlots.AsNoTracking().SingleAsync(s => s.Id == SlotP1);
         slot.EndDate.Should().Be(P1End, "a preview writes nothing");
@@ -154,7 +154,7 @@ public class AxisRelayCommandTests
         result.IsSuccess.Should().BeTrue(result.IsFailure ? result.Error.Description : "");
         result.Value.PeriodsExtended.Should().Be(1);
         result.Value.PeriodsMoved.Should().Be(2);
-        result.Value.WorkingDaysRecovered.Should().Be(5);
+        result.Value.WorkingDaysChanged.Should().Be(5);
 
         var slots = await f.Db.StageSlots.AsNoTracking().OrderBy(s => s.PeriodNumber).ToListAsync();
         slots[0].StartDate.Should().Be(P1Start, "P1 is underway — its start must not move");
@@ -200,7 +200,7 @@ public class AxisRelayCommandTests
 
         f.Audit.Fields["periodsExtended"].Should().Be(1);
         f.Audit.Fields["periodsMoved"].Should().Be(2);
-        f.Audit.Fields["workingDaysRecovered"].Should().Be(5);
+        f.Audit.Fields["workingDaysChanged"].Should().Be(5);
         f.Audit.Fields["columnLength"].Should().Be(10);
     }
 

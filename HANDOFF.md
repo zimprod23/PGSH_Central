@@ -243,7 +243,24 @@ déplacer une colonne future était refusé pour toute rotation démarrée par u
 un test d'intégration écrit avec des dates fixes de mars pourrissait à partir de mars.
 `PublishedColumnMoveEndpointTests` sème désormais relativement à aujourd'hui.
 
-**Vert : 2 385 tests, 0 échec, 0 ignoré** (Docker présent, donc le palier Testcontainers a tourné).
+**Septième pièce : la réversibilité.** Le recalcul était à sens unique, et c'est sorti en
+l'expliquant à l'utilisateur plutôt qu'en le testant : la détection ne cherchait que les colonnes
+trop **courtes**, donc après un rattrapage, révoquer la fenêtre laissait une colonne trop **longue**
+que rien ne voyait — l'acte répondait « rien à rattraper » et l'axe restait étiré, sans autre retour
+que de nommer la colonne à la main.
+
+⚠ **Et ce n'était pas qu'un défaut de détection.** Revenir en arrière veut dire **raccourcir** la
+colonne dont le début a été retenu, et `ExtendTo` refuse cela par construction — à raison : les
+journées pointées entre la nouvelle fin et l'ancienne se retrouveraient hors de la fenêtre. D'où
+`InternshipAssignment.ShortenTo`, avec **sa propre garde** : ce ne sont pas « des présences » qui
+refusent, ce sont celles qui tombent *après* la nouvelle fin, et le refus les compte.
+
+`FirstShortColumn` devient `FirstDivergentColumn` (les deux sens), `WorkingDaysRecovered` devient
+`WorkingDaysChanged` (**signé** : positif on rattrape, négatif on revient), et le rapport porte
+`PeriodsToShorten` à part de `PeriodsToExtend` — deux directions, deux gardes, l'opérateur doit voir
+laquelle il applique.
+
+**Vert : 2 393 tests, 0 échec, 0 ignoré** (Docker présent, donc le palier Testcontainers a tourné).
 Morsure vérifiée quatre fois : retirer `!IsInterrupted` d'`Extendable` fait tomber **9** tests,
 retirer la garde du raccourcissement **1**, retirer le marquage de `MoveTo` **4** — dont celui qui
 passe par le handler réel, le seul à prouver que le chemin de production marque — et casser les deux

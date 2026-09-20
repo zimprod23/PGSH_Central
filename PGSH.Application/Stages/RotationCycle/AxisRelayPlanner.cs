@@ -26,10 +26,16 @@ internal sealed record RelaidColumn(
     public bool Moved => FromStart != ToStart || FromEnd != ToEnd;
 }
 
-/// <param name="WorkingDaysRecovered">
-/// Ce que l'opération rend aux étudiants : la somme, sur les colonnes recalculées, des jours
-/// ouvrables regagnés. ⚠ C'est le chiffre qui dit <em>pourquoi</em> jouer l'acte ; « 14 colonnes
-/// déplacées » dit seulement son ampleur.
+/// <param name="WorkingDaysChanged">
+/// Ce que l'opération fait gagner — ou rend — aux étudiants, sur les colonnes recalculées.
+/// ⚠ C'est le chiffre qui dit <em>pourquoi</em> jouer l'acte ; « 14 colonnes déplacées » dit seulement
+/// son ampleur.
+///
+/// <para>⚠ <b>Signé, et les deux signes sont des actes légitimes.</b> Positif : une fenêtre a été
+/// déclarée et l'axe rattrape ce qu'elle a pris. Négatif : la fenêtre a été <em>révoquée</em> et
+/// l'axe revient où il était. Zéro n'arrive pas — il est refusé en amont
+/// (<c>RotationCycleErrors.NothingToRecover</c>), parce que « l'acte n'a rien trouvé à faire » et
+/// « l'acte n'a rien fait » sont deux états qu'un résultat à zéro confondrait.</para>
 /// </param>
 /// <param name="AxisEndsOn">
 /// Jusqu'où l'axe court après recalcul. Repousser des colonnes allonge l'année, et une promotion qui
@@ -39,7 +45,7 @@ internal sealed record AxisRelayPlan(
     IReadOnlyList<RelaidColumn> Columns,
     int ColumnsMoved,
     int ColumnsAnchored,
-    int WorkingDaysRecovered,
+    int WorkingDaysChanged,
     DateOnly AxisEndsOn)
 {
     public static readonly AxisRelayPlan Empty =
@@ -152,27 +158,36 @@ internal static class AxisRelayPlanner
             relaid,
             ColumnsMoved: relaid.Count(c => c.Moved),
             ColumnsAnchored: relaid.Count(c => c.Anchored),
-            // ⚠ Sur les colonnes recalculées seulement, et jamais négatif par construction : une
-            // colonne reposée tient toujours ses n jours ouvrables, c'est la définition de Lay.
-            WorkingDaysRecovered: relaid.Sum(c => c.ToWorkingDays - c.FromWorkingDays),
+            // ⚠ Sur les colonnes recalculées seulement, et signé : une colonne reposée tient
+            // toujours ses n jours (définition de Lay), donc le signe dit si l'axe rattrape une
+            // fenêtre déclarée ou revient d'une fenêtre révoquée.
+            WorkingDaysChanged: relaid.Sum(c => c.ToWorkingDays - c.FromWorkingDays),
             AxisEndsOn: relaid[^1].ToEnd);
     }
 
     /// <summary>
-    /// La première colonne que <paramref name="calendar"/> ampute — celle par laquelle un rattrapage
-    /// commence quand l'appelant n'en nomme pas.
+    /// La première colonne qui ne tient pas son compte de jours ouvrables — <b>dans un sens ou dans
+    /// l'autre</b> — et par laquelle un recalcul commence quand l'appelant n'en nomme pas.
     /// </summary>
     /// <remarks>
-    /// ⚠ <b>« Amputée » se mesure, elle ne se déduit pas d'un chevauchement avec la fenêtre.</b> Une
-    /// fenêtre posée sur un week-end ne prend aucun jour ouvrable à personne, et la signaler ferait
-    /// proposer un acte qui ne changerait rien — du bruit, et le bruit se fait ignorer.
+    /// <para>⚠ <b>« Ne tient pas son compte » se mesure, elle ne se déduit pas d'un chevauchement
+    /// avec une fenêtre.</b> Une fenêtre posée sur un week-end ne prend aucun jour ouvrable à
+    /// personne, et la signaler ferait proposer un acte sans effet — du bruit, et le bruit se fait
+    /// ignorer.</para>
+    ///
+    /// <para>⚠ <b>Les deux sens, et c'est ce qui manquait.</b> Ne chercher que les colonnes
+    /// <i>trop courtes</i> rendait le recalcul à sens unique : après un rattrapage, révoquer la
+    /// fenêtre laisse une colonne <i>trop longue</i> que rien ne détectait, donc l'acte répondait
+    /// « rien à rattraper » et l'axe restait étiré, sans autre retour que de nommer la colonne à la
+    /// main. Un acte de masse qui ne sait pas se défaire est ce que ce dépôt refuse partout
+    /// ailleurs.</para>
     /// </remarks>
-    public static int? FirstShortColumn(
+    public static int? FirstDivergentColumn(
         IReadOnlyList<AxisColumn> columns, WorkingDayCalendar calendar, int workingDaysPerColumn) =>
         columns
             .OrderBy(c => c.Number)
             .Where(c => !c.IsMovedByHand)
-            .Where(c => calendar.Count(c.StartDate, c.EndDate) < workingDaysPerColumn)
+            .Where(c => calendar.Count(c.StartDate, c.EndDate) != workingDaysPerColumn)
             .Select(c => (int?)c.Number)
             .FirstOrDefault();
 
