@@ -277,7 +277,15 @@ l'arithmétique : `OccupancyTimeline` découpe déjà l'année aux frontières e
 simultanée exacte, on lui donne simplement les dates *proposées*. Un test tient le piège du 03/09 —
 deux fenêtres consécutives ne s'additionnent pas.
 
-**Vert : 2 400 tests, 0 échec, 0 ignoré** (Docker présent, donc le palier Testcontainers a tourné).
+⚠ **Et la base vivante a corrigé le rapport avant qu'il n'atteigne un écran.** Interrogé sur la
+4ᵉ MED, il répondait **0 service plus chargé** sur 23 — ce qui aurait pu passer pour un bon résultat.
+Vérification : les deux promotions partagent **17** services et leurs axes tournent en même temps,
+donc zéro demandait une explication. Elle est en Dermatologie : la colonne de la 4ᵉ chevauchait
+**déjà** celles de la 3ᵉ, et l'allonger ne fait que prolonger la même coïncidence — 73 étudiants,
+plus longtemps. Le pic ne monte pas, le service reste plein davantage. `BusiestDaysBefore` /
+`BusiestDaysAfter` (au **même seuil**) et `ServicesWhereBusyLasts` disent désormais cette moitié-là.
+
+**Vert : 2 402 tests, 0 échec, 0 ignoré** (Docker présent, donc le palier Testcontainers a tourné).
 Morsure vérifiée quatre fois : retirer `!IsInterrupted` d'`Extendable` fait tomber **9** tests,
 retirer la garde du raccourcissement **1**, retirer le marquage de `MoveTo` **4** — dont celui qui
 passe par le handler réel, le seul à prouver que le chemin de production marque — et casser les deux

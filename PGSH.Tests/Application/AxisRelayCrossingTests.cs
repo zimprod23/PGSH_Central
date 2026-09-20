@@ -31,7 +31,9 @@ public class AxisRelayCrossingTests
     /// Notre P1 dans un service, et une autre promotion dans le <b>même</b> service juste après.
     /// Tant que les deux fenêtres ne se touchent pas, personne ne se croise.
     /// </summary>
-    private static ApplicationDbContext Seed(string name, int ourStudents, int theirStudents)
+    private static ApplicationDbContext Seed(
+        string name, int ourStudents, int theirStudents,
+        DateOnly? ourStart = null, DateOnly? ourEnd = null)
     {
         var db = TestHarness.NewContext(name);
 
@@ -39,7 +41,7 @@ public class AxisRelayCrossingTests
         var service = db.SeedService(SharedService, "Cardiologie A");
 
         var ourCohort = db.SeedCohort(ours, groupId: 1, groupLabel: "G1");
-        var ourSlot = db.SeedSlot(ours, 8101, 1, OursStart, OursEnd);
+        var ourSlot = db.SeedSlot(ours, 8101, 1, ourStart ?? OursStart, ourEnd ?? OursEnd);
         db.SeedSlotAssignment(8201, ourCohort, ourSlot, service);
 
         for (int i = 0; i < ourStudents; i++)
@@ -153,6 +155,54 @@ public class AxisRelayCrossingTests
 
         report.Listed.Single().PeakAfter.Should().Be(500);
         report.ServicesWherePeakRises.Should().Be(1);
+    }
+
+    /// <summary>
+    /// ⚠ <b>La moitié qu'un compte de pics seul ne dit pas — et qui a failli manquer.</b> Mesuré sur
+    /// la base vivante le 20/09/2026 : pousser la 4ᵉ MED de cinq jours ne fait monter le pic
+    /// d'<i>aucun</i> de ses 23 services, parce qu'en Dermatologie la colonne de la 4ᵉ chevauchait
+    /// déjà celles de la 3ᵉ et que l'allonger ne fait que prolonger la même coïncidence. Un rapport
+    /// qui n'aurait annoncé que « 0 service plus chargé » se serait lu « rien ne change ».
+    /// </summary>
+    [Fact]
+    public async Task A_service_that_stays_busy_longer_is_reported_even_when_the_peak_holds()
+    {
+        // ⚠ Les deux fenêtres se chevauchent **déjà** de quatre jours : c'est ce qui rend le cas
+        // intéressant. Sans chevauchement préalable, allonger crée un pic et le test ne mesurerait
+        // que la hausse — ce que le cas précédent couvre déjà.
+        var overlapStart = new DateOnly(2026, 1, 14);
+        await using var db = Seed(
+            nameof(A_service_that_stays_busy_longer_is_reported_even_when_the_peak_holds), 10, 8,
+            ourStart: overlapStart, ourEnd: new DateOnly(2026, 1, 22));
+
+        // On allonge la nôtre sans bouger son début : la charge simultanée reste 18, elle dure
+        // simplement plus longtemps.
+        var report = await ReadAsync(db, overlapStart, new DateOnly(2026, 1, 28));
+
+        report.ServicesWherePeakRises.Should().Be(0, "18 was already reached before");
+        report.ServicesWhereBusyLasts.Should().Be(1);
+
+        var crossing = report.Listed.Single();
+        crossing.Increase.Should().Be(0);
+        crossing.StaysBusyLonger.Should().BeTrue();
+        crossing.BusiestDaysAfter.Should().BeGreaterThan(crossing.BusiestDaysBefore);
+    }
+
+    /// <summary>
+    /// ⚠ Le contrôle de la précédente : une colonne qui ne touche toujours personne n'apparaît dans
+    /// aucun des deux comptes. Sans lui, un lecteur qui signalerait tout la satisferait.
+    /// </summary>
+    [Fact]
+    public async Task A_move_that_changes_neither_height_nor_duration_is_silent()
+    {
+        await using var db = Seed(
+            nameof(A_move_that_changes_neither_height_nor_duration_is_silent), 10, 8);
+
+        var report = await ReadAsync(db, new DateOnly(2026, 3, 2), new DateOnly(2026, 3, 13));
+
+        report.ServicesWherePeakRises.Should().Be(0);
+        report.ServicesWhereBusyLasts.Should().Be(0);
+        report.Listed.Should().BeEmpty();
     }
 
     /// <summary>Rien à déplacer, rien à examiner — et surtout pas une requête pour le découvrir.</summary>

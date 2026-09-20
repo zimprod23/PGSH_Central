@@ -14,6 +14,9 @@ public sealed record ServiceCrossingResponse(
     int Increase,
     DateOnly PeakStartDate,
     DateOnly PeakEndDate,
+    int BusiestDaysBefore,
+    int BusiestDaysAfter,
+    bool StaysBusyLonger,
     IReadOnlyList<string> OtherPromotions);
 
 /// <summary>
@@ -23,9 +26,16 @@ public sealed record ServiceCrossingResponse(
 /// Les pires, par ampleur de hausse, <b>bornés</b> — le total est à côté. Une réponse à objet unique
 /// cache une collection non paginée à tout grep de <c>List&lt;T&gt;</c>.
 /// </param>
+/// <param name="ServicesWhereBusyLasts">
+/// ⚠ Les services dont le pic ne monte <b>pas</b> mais dure plus longtemps. À part, parce que « 0
+/// service plus chargé » se lit comme « rien ne change » — et sur la 4ᵉ MED, mesuré le 20/09/2026,
+/// c'est exactement le cas : aucun pic ne monte, et des services tiennent leur charge de pointe des
+/// semaines de plus.
+/// </param>
 public sealed record AxisRelayCrossingsResponse(
     int ServicesExamined,
     int ServicesWherePeakRises,
+    int ServicesWhereBusyLasts,
     IReadOnlyList<ServiceCrossingResponse> Listed);
 
 /// <summary>Ce qu'une colonne devient si l'axe est reposé.</summary>

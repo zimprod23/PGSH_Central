@@ -190,6 +190,14 @@ internal sealed class AxisRelayReader(
                 + "pas un refus — le dépassement est le fonctionnement de cette faculté — mais les "
                 + "cohortes concernées croiseront d'autres promotions.");
 
+        // ⚠ La moitié qu'un compte de pics seul ne dit pas : allonger une colonne qui chevauchait
+        // déjà celle d'une autre promotion ne fait pas monter la charge, elle la fait durer. Sans
+        // cette phrase, « aucun service plus chargé » se lirait « rien ne change ».
+        if (crossed.ServicesWhereBusyLasts > 0)
+            warnings.Add(
+                $"{crossed.ServicesWhereBusyLasts} service(s) ne porteront pas plus de monde, mais "
+                + "resteront à leur charge de pointe plus longtemps qu'aujourd'hui.");
+
         return new AxisRelayReport(
             academicYearId,
             levelId,

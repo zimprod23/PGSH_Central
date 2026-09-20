@@ -9,6 +9,20 @@ namespace PGSH.Application.Stages.RotationCycle;
 /// pic. ⚠ C'est l'information que rien d'autre ne donne : la charge d'un service se lit déjà page
 /// par page, mais « qui d'autre est là quand j'aurai poussé » ne se lit nulle part.
 /// </param>
+/// <param name="BusiestDaysBefore">
+/// Combien de jours le service passe à sa charge la plus haute <b>actuelle</b>, avant l'acte.
+/// </param>
+/// <param name="BusiestDaysAfter">
+/// Combien il y en passera après — mesuré au <b>même seuil</b>, sans quoi les deux nombres ne se
+/// compareraient pas.
+///
+/// <para>⚠ <b>C'est la moitié que le pic seul ne dit pas, et elle a failli manquer.</b> Mesuré sur
+/// la base vivante le 20/09/2026 : pousser la 4ᵉ MED de cinq jours ne fait monter le pic d'aucun des
+/// 23 services — parce qu'en Dermatologie, par exemple, la colonne de la 4ᵉ chevauchait déjà celles
+/// de la 3ᵉ, et l'allonger ne fait que <i>prolonger</i> la même coïncidence. Un rapport qui n'aurait
+/// annoncé que « 0 service plus chargé » aurait laissé lire « rien ne change », alors que dix-sept
+/// services tiennent leur charge de pointe des semaines de plus.</para>
+/// </param>
 internal sealed record ServiceCrossing(
     int ServiceId,
     string ServiceName,
@@ -17,9 +31,14 @@ internal sealed record ServiceCrossing(
     int PeakAfter,
     DateOnly PeakStart,
     DateOnly PeakEnd,
+    int BusiestDaysBefore,
+    int BusiestDaysAfter,
     IReadOnlyList<string> OtherPromotions)
 {
     public int Increase => PeakAfter - PeakBefore;
+
+    /// <summary>Le service ne porte pas plus de monde, il le porte plus longtemps.</summary>
+    public bool StaysBusyLonger => Increase == 0 && BusiestDaysAfter > BusiestDaysBefore;
 }
 
 /// <param name="Listed">
@@ -27,9 +46,14 @@ internal sealed record ServiceCrossing(
 /// unique cache une collection non paginée à tout <c>grep</c> de <c>List&lt;T&gt;</c>, et c'est ce
 /// qui a mis 4 725 étudiants dans un seul objet.
 /// </param>
+/// <param name="ServicesWhereBusyLasts">
+/// ⚠ Les services dont le pic ne monte <b>pas</b> mais dure plus longtemps. Compté à part parce que
+/// « zéro service plus chargé » se lit comme « rien ne change », et que ce n'est pas la même chose.
+/// </param>
 internal sealed record AxisRelayCrossings(
     int ServicesExamined,
     int ServicesWherePeakRises,
+    int ServicesWhereBusyLasts,
     IReadOnlyList<ServiceCrossing> Listed);
 
 /// <summary>
@@ -68,7 +92,7 @@ internal sealed class AxisRelayCrossingReader(IApplicationDbContext dbContext)
         CancellationToken ct)
     {
         if (movedColumns.Count == 0)
-            return new AxisRelayCrossings(0, 0, []);
+            return new AxisRelayCrossings(0, 0, 0, []);
 
         var numbers = movedColumns.Keys.ToList();
 
@@ -76,7 +100,7 @@ internal sealed class AxisRelayCrossingReader(IApplicationDbContext dbContext)
             .AsNoTracking().ToListAsync(ct);
 
         if (services.Count == 0)
-            return new AxisRelayCrossings(0, 0, []);
+            return new AxisRelayCrossings(0, 0, 0, []);
 
         var serviceIds = services.Select(s => s.ServiceId).Distinct().ToList();
 
@@ -106,10 +130,16 @@ internal sealed class AxisRelayCrossingReader(IApplicationDbContext dbContext)
             if (peakAfter is null || peakBefore is null)
                 continue;
 
-            int loadBefore = peakBefore.Occupants.Sum(o => o.Students);
-            int loadAfter = peakAfter.Occupants.Sum(o => o.Students);
+            int loadBefore = Load(peakBefore);
+            int loadAfter = Load(peakAfter);
 
-            if (loadAfter <= loadBefore)
+            // ⚠ Le même seuil des deux côtés — celui d'aujourd'hui. Compter « les jours au pic
+            // d'après » contre « les jours au pic d'avant » comparerait deux mesures différentes et
+            // rendrait la hausse illisible dès que le pic change.
+            int busyBefore = DaysAtOrAbove(before, loadBefore);
+            int busyAfter = DaysAtOrAbove(after, loadBefore);
+
+            if (loadAfter <= loadBefore && busyAfter <= busyBefore)
                 continue;
 
             var service = services.First(s => s.ServiceId == group.Key);
@@ -122,6 +152,8 @@ internal sealed class AxisRelayCrossingReader(IApplicationDbContext dbContext)
                 loadAfter,
                 peakAfter.StartDate,
                 peakAfter.EndDate,
+                busyBefore,
+                busyAfter,
                 peakAfter.Occupants
                     .Where(o => o.LevelId != levelId)
                     .Select(o => o.LevelLabel)
@@ -132,8 +164,13 @@ internal sealed class AxisRelayCrossingReader(IApplicationDbContext dbContext)
 
         return new AxisRelayCrossings(
             serviceIds.Count,
-            crossings.Count,
-            crossings.OrderByDescending(c => c.Increase).Take(MaxListed).ToList());
+            crossings.Count(c => c.Increase > 0),
+            crossings.Count(c => c.StaysBusyLonger),
+            crossings
+                .OrderByDescending(c => c.Increase)
+                .ThenByDescending(c => c.BusiestDaysAfter - c.BusiestDaysBefore)
+                .Take(MaxListed)
+                .ToList());
     }
 
     /// <summary>
@@ -143,8 +180,24 @@ internal sealed class AxisRelayCrossingReader(IApplicationDbContext dbContext)
     /// </summary>
     private static OccupancySegment? Peak(IReadOnlyList<OccupancyPlacement> placements) =>
         OccupancyTimeline.Build(placements)
-            .OrderByDescending(s => s.Occupants.Sum(o => o.Students))
+            .OrderByDescending(Load)
             .FirstOrDefault();
+
+    private static int Load(OccupancySegment segment) => segment.Occupants.Sum(o => o.Students);
+
+    /// <summary>
+    /// Combien de jours le service porte au moins <paramref name="threshold"/> personnes.
+    /// </summary>
+    /// <remarks>
+    /// ⚠ <b>Ce que le pic seul ne dit pas.</b> Allonger une colonne qui chevauchait déjà celle d'une
+    /// autre promotion ne fait pas monter la charge simultanée — elle la fait <i>durer</i>. Sans ce
+    /// nombre, le rapport annoncerait « 0 service plus chargé » sur une opération qui laisse
+    /// dix-sept services à leur charge de pointe des semaines de plus.
+    /// </remarks>
+    private static int DaysAtOrAbove(IReadOnlyList<OccupancyPlacement> placements, int threshold) =>
+        OccupancyTimeline.Build(placements)
+            .Where(s => Load(s) >= threshold)
+            .Sum(s => s.EndDate.DayNumber - s.StartDate.DayNumber + 1);
 
     /// <summary>
     /// Les services que les colonnes déplacées de cette promotion occupent.

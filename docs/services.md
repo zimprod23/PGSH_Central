@@ -518,6 +518,14 @@ d'un service montre sa charge telle qu'elle est aujourd'hui, la grille montre un
 - ⚠ **Le compte d'étudiants est exactement celui de la page du service** et de
   `ServiceOccupancyCalculator`, délocalisés exclus. Une lecture qui compterait autrement expliquerait
   un pic par un nombre que personne d'autre ne produit.
+- ⚠ **Le pic seul ne suffit pas, et c'est la base vivante qui l'a montré.** Mesuré le 20/09/2026 :
+  pousser la 4ᵉ MED de cinq jours ne fait monter le pic d'**aucun** de ses 23 services. Pas parce que
+  les promotions ne se croisent pas — elles partagent **17** services — mais parce qu'en Dermatologie
+  la colonne de la 4ᵉ chevauchait déjà celles de la 3ᵉ : l'allonger ne fait que *prolonger* la même
+  coïncidence (73 étudiants, plus longtemps). Un rapport qui n'aurait annoncé que « 0 service plus
+  chargé » se serait lu « rien ne change ». D'où `BusiestDaysBefore` / `BusiestDaysAfter`, comptés au
+  **même seuil** — celui d'aujourd'hui, sinon les deux nombres ne se compareraient pas — et
+  `ServicesWhereBusyLasts` à côté de `ServicesWherePeakRises`.
 - ⚠ **La liste est bornée** (les vingt pires hausses) et le total voyage à côté : une réponse à objet
   unique cache une collection non paginée à tout grep de `List<T>`, et c'est ce qui a mis 4 725
   étudiants dans un seul objet.
