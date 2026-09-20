@@ -2186,15 +2186,24 @@ sens rassurant.
 Vérifié contre la base vivante le 19/09/2026 : 30 créneaux, 4 625 rotations (925 allongées, 3 700
 déplacées, 0 bloquée), les six colonnes exactement sur les dates prédites à la main.
 
-**Et il est réversible depuis le 20/09/2026.** La détection cherchait seulement les colonnes trop
+**Et il écrit dans les deux sens depuis le 20/09/2026.** ⚠ Ce n'est **pas** une annulation, et le
+dire ainsi induit en erreur : il n'y a ni historique, ni état précédent stocké, rien à rejouer.
+L'axe est un calcul, et l'acte écrase le stocké par ce que ce calcul rend. Supprimer une fenêtre
+déclarée fait rendre au même calcul des dates antérieures — on les réécrit, voilà tout. La détection cherchait seulement les colonnes trop
 *courtes*, donc révoquer une fenêtre après un rattrapage laissait l'axe étiré sans retour possible.
 `FirstDivergentColumn` regarde les deux sens ; `WorkingDaysChanged` est **signé** ; et surtout
 `InternshipAssignment.ShortenTo` existe, parce que revenir en arrière veut dire raccourcir et
 qu'`ExtendTo` refuse cela par construction. ⚠ **Les deux directions n'ont pas la même garde** :
 allonger ne peut rien orpheliner, raccourcir le peut, et c'est pourquoi ce sont deux actes.
 
-**Reste pour clore 0ce** : le rapport d'occupation **inter-promotions** (un rapport, pas une garde),
-puis l'écran — `PGSH.Frontend` est un dépôt séparé et ne consomme encore rien de tout cela.
+**Le rapport inter-promotions est livré** — `AxisRelayCrossingReader`, porté par l'aperçu. Il dit
+combien de services porteront plus de monde qu'aujourd'hui à leur heure de pointe, et **nomme** les
+promotions qui partageront ce pic. ⚠ Un rapport, pas une garde. ⚠ Et il ne refait pas l'arithmétique
+d'occupation : `OccupancyTimeline` reçoit les dates proposées à la place des dates stockées, ce qui
+évite la troisième copie et le piège du 03/09 (le pic, jamais la somme).
+
+**Reste pour clore 0ce** : l'écran. `PGSH.Frontend` est un dépôt séparé et ne consomme encore rien
+de tout cela — le contrat côté serveur est désormais figé.
 → `PGSH.Tests/Application/AxisRelayPlannerTests.cs`, `AxisRelayCommandTests`, `SqlTranslationTests`
 
 ### ✅ 17.1 — moving P7 while P3 runs (built 13/09/2026)

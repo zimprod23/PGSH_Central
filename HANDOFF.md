@@ -260,7 +260,24 @@ refusent, ce sont celles qui tombent *après* la nouvelle fin, et le refus les c
 `PeriodsToShorten` à part de `PeriodsToExtend` — deux directions, deux gardes, l'opérateur doit voir
 laquelle il applique.
 
-**Vert : 2 393 tests, 0 échec, 0 ignoré** (Docker présent, donc le palier Testcontainers a tourné).
+⚠ **Et une correction de vocabulaire, demandée par l'utilisateur et juste** : parler de
+« rollback » laissait croire à un mécanisme d'annulation. Il n'y en a pas, et il n'en faut pas.
+L'axe est un **calcul** — date d'ancrage + longueur de colonne + calendrier de la promotion — et
+l'acte **écrase** ce qui est stocké par ce que ce calcul rend aujourd'hui. Supprimer la fenêtre de
+janvier ne « défait » rien : le même calcul, sur un calendrier qui ne la contient plus, rend des
+dates antérieures, et on les réécrit. Ce qui manquait n'était que la capacité d'**écrire** dans ce
+sens-là.
+
+**Huitième pièce : `AxisRelayCrossingReader`** — « une fois l'axe poussé, où mes étudiants
+tombent-ils sur une autre promotion ? ». Le recalcul ne change pas *quel* service une cohorte
+occupe, seulement *quand*, donc elle arrive là où une autre promotion est déjà debout — et aucune
+lecture existante ne regardait ce croisement. ⚠ **Un rapport, jamais une garde** (règle du 12/09) :
+il ne refuse rien, et il **nomme** les promotions qui partagent le pic. ⚠ Il ne refait pas
+l'arithmétique : `OccupancyTimeline` découpe déjà l'année aux frontières et rend une charge
+simultanée exacte, on lui donne simplement les dates *proposées*. Un test tient le piège du 03/09 —
+deux fenêtres consécutives ne s'additionnent pas.
+
+**Vert : 2 400 tests, 0 échec, 0 ignoré** (Docker présent, donc le palier Testcontainers a tourné).
 Morsure vérifiée quatre fois : retirer `!IsInterrupted` d'`Extendable` fait tomber **9** tests,
 retirer la garde du raccourcissement **1**, retirer le marquage de `MoveTo` **4** — dont celui qui
 passe par le handler réel, le seul à prouver que le chemin de production marque — et casser les deux

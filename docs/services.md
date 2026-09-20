@@ -494,3 +494,32 @@ Donc : **aucune migration**, et `GetRosterPlacementsQuery` prend un `City` lu pa
 - ⚠ **Côté client, rien n'est fait** : le filtre est un paramètre de requête, la page des placements ne
   l'offre pas encore. Le dépôt frontend est séparé.
 - → `RosterPlacementTests` (« Par ville »), `SqlTranslationTests`
+
+## Où un recalcul d'axe fait se croiser deux promotions (20/09/2026)
+
+`AxisRelayCrossingReader`, lu par l'aperçu du recalcul d'axe.
+
+Reposer l'axe d'une promotion ne change pas **quel** service une cohorte occupe — seulement
+**quand**. Mais décaler des milliers de rotations de quelques semaines les fait arriver là où une
+autre promotion est déjà debout, et **aucune lecture existante ne regardait ce croisement** : la page
+d'un service montre sa charge telle qu'elle est aujourd'hui, la grille montre un plan à la fois.
+
+- ⚠ **Un rapport, jamais une garde.** Règle du 12/09/2026 : cette faculté dépasse la capacité de ses
+  services dans la plupart des cas, et c'est son fonctionnement. Rien ici ne refuse ; l'acte se joue
+  et le chiffre se voit. Un test le tient explicitement — un croisement de 500 étudiants reste un
+  rapport.
+- ⚠ **Il nomme les promotions**, pas seulement le nombre. « Ce service portera 94 au lieu de 62 » est
+  une alerte ; « …dont la 3ᵉ MED, du 21/10 au 23/11 » est une décision que quelqu'un peut prendre.
+- ⚠ **Il ne refait pas l'arithmétique d'occupation.** `OccupancyTimeline` découpe déjà l'année aux
+  frontières des fenêtres et rend une charge simultanée exacte par segment ; le lecteur lui donne les
+  dates **proposées** à la place des dates stockées, et lit le pic. Une troisième copie de ce calcul
+  aurait été la quatrième occasion de retomber sur le défaut du 03/09 — additionner deux créneaux
+  consécutifs qui ne se touchent pas, et afficher 118 sur un service qui n'a jamais porté plus de 62.
+- ⚠ **Le compte d'étudiants est exactement celui de la page du service** et de
+  `ServiceOccupancyCalculator`, délocalisés exclus. Une lecture qui compterait autrement expliquerait
+  un pic par un nombre que personne d'autre ne produit.
+- ⚠ **La liste est bornée** (les vingt pires hausses) et le total voyage à côté : une réponse à objet
+  unique cache une collection non paginée à tout grep de `List<T>`, et c'est ce qui a mis 4 725
+  étudiants dans un seul objet.
+
+→ `PGSH.Tests/Application/AxisRelayCrossingTests.cs`, `SqlTranslationTests`

@@ -677,14 +677,21 @@ behaviour; each caller states its own.**
       for a reason unrelated to what it checks. Seed relative to now
       (`PublishedColumnMoveEndpointTests.Anchor`), or freeze the clock
       (`TestHarness.ClockOn` / `BeforeAnyWindow`).
-    - ⚠ **And `ShortenTo` is its counterpart, added 20/09/2026 — without it the axis recompute is
-      one-way.** Revoking a window has to give the original dates back, and the column whose start
-      was held can only get there by shortening. ⚠ **The two directions do not share a guard, which
+    - ⚠ **And `ShortenTo` is its counterpart, added 20/09/2026.** ⚠ **It is not an undo, and calling
+      it one misleads**: there is no history, no stored previous state, nothing to replay. The axis
+      is a *calculation* — anchor date + column length + the promotion's calendar — and the act
+      **overwrites** whatever is stored with what that calculation now yields. Delete a declared
+      window and the same calculation simply produces earlier dates. What was missing was only the
+      ability to *write* in that direction: `ExtendTo` pushes an end later and never earlier, so
+      nothing could put a shortened column down. ⚠ **The two directions do not share a guard, which
       is why they are two acts**: lengthening can orphan nothing (a pointed day lives between the
       start and the *old* end, so a growing window still holds it), shortening can — the days
       between the new end and the old one would be présences on dates the rotation no longer
       covers. `ShortenTo` counts them and names the date, because « impossible » without the number
       indicates no gesture; a rotation pointed only in its first week shortens to that week fine.
+      Detection had the same one-way hole: `FirstDivergentColumn` now looks for a column that is too
+      **long** as well as one too short, or a deleted window leaves the axis stretched with the act
+      answering « rien à rattraper ».
     - ⚠ **`ExtendTo` writes an *absolute* date, never a delta** — the property that lets an axis
       recompute be replayed after every pause declared, corrected or revoked without the rotation
       growing a little each time. `ExtendBy(days)` would have been the accumulation that got the
@@ -707,6 +714,17 @@ behaviour; each caller states its own.**
   they go through `OccupancyTimeline`. `LoadOn` now sweeps the same way. It cannot miss a real
   breach — a real one is an instant where the sum crosses the ceiling, and that instant is one of the
   evaluated candidates.
+- **Where a recompute lands a promotion on *another* one** — `AxisRelayCrossingReader`. Pushing a
+  promotion's columns does not change *which* service a cohorte occupies, only *when*, so it lands
+  where another promotion is already standing — and no existing read looks at that crossing: a
+  service's page shows the load as it is, the grid shows one plan at a time.
+  ⚠ **A report, never a guard** (12/09 rule): it refuses nothing, and it names *which* promotions
+  share the peak, which is the part nothing else can answer. ⚠ It does **not** re-derive the
+  arithmetic — `OccupancyTimeline` already cuts the year at window boundaries and yields one exact
+  simultaneous load per segment, so the reader just feeds it the *proposed* dates instead of the
+  stored ones. Summing windows that touch the asked-for range instead of taking the **peak inside
+  it** is the 03/09 defect that showed 118 on a service that never held more than 62.
+  → [`docs/services.md`](docs/services.md)
 - **Service capacity** — two numbers, never one. `ServiceOccupancyCalculator` says how many students are
   *there*; `ServiceIntakeCalculator` says how many are *allowed*. Every capacity decision compares the two.
   - ⚠ **…and the comparison is *shown*, never enforced.** Settled 12/09/2026: ~10 000 students over 148

@@ -69,6 +69,7 @@ internal sealed record AxisRelayReport(
     int PeriodsBlocked,
     int WorkingDaysChanged,
     DateOnly AxisEndsOn,
+    AxisRelayCrossings Crossings,
     IReadOnlyList<string> Warnings)
 {
     /// <summary>Ce que l'opérateur confirme côté écriture.</summary>
@@ -108,7 +109,10 @@ internal sealed record AxisRelayReport(
 /// épargne des lignes doit dire combien, sinon ce qui a été rattrapé et ce qui ne l'a pas été se
 /// lisent pareil.</para>
 /// </remarks>
-internal sealed class AxisRelayReader(IApplicationDbContext dbContext, WorkingDayProvider workingDays)
+internal sealed class AxisRelayReader(
+    IApplicationDbContext dbContext,
+    WorkingDayProvider workingDays,
+    AxisRelayCrossingReader crossings)
 {
     public async Task<Result<AxisRelayReport>> ReadAsync(
         int academicYearId, int levelId, int? fromPeriodNumber, DateOnly today, CancellationToken ct)
@@ -174,6 +178,18 @@ internal sealed class AxisRelayReader(IApplicationDbContext dbContext, WorkingDa
 
         var periods = await PlanPeriodsAsync(academicYearId, levelId, columns, moved, today, ct);
 
+        // ⚠ Un rapport, jamais une garde (règle du 12/09/2026) : cette faculté dépasse la capacité
+        // de ses services dans la plupart des cas, et rien ici ne refuse. Ce que personne ne pouvait
+        // voir jusqu'ici est où la promotion poussée arrive sur une autre.
+        var crossed = await crossings.ReadAsync(levelId, moved, ct);
+
+        if (crossed.ServicesWherePeakRises > 0)
+            warnings.Add(
+                $"{crossed.ServicesWherePeakRises} service(s) sur {crossed.ServicesExamined} porteront "
+                + "plus de monde qu'aujourd'hui à leur heure de pointe une fois l'axe poussé. Ce n'est "
+                + "pas un refus — le dépassement est le fonctionnement de cette faculté — mais les "
+                + "cohortes concernées croiseront d'autres promotions.");
+
         return new AxisRelayReport(
             academicYearId,
             levelId,
@@ -189,6 +205,7 @@ internal sealed class AxisRelayReader(IApplicationDbContext dbContext, WorkingDa
             PeriodsBlocked: periods.Count(p => p.Action == AxisRelayAction.Blocked),
             plan.Value.WorkingDaysChanged,
             plan.Value.AxisEndsOn,
+            crossed,
             warnings);
     }
 

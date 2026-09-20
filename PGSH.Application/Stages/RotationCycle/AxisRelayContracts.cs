@@ -1,5 +1,33 @@
 namespace PGSH.Application.Stages.RotationCycle;
 
+/// <param name="OtherPromotions">
+/// Les promotions <b>autres</b> que celle recalculée présentes dans le service au moment du pic.
+/// ⚠ C'est l'information que rien d'autre ne donne : la charge d'un service se lit déjà page par
+/// page, mais « qui d'autre sera là une fois que j'aurai poussé » ne se lit nulle part.
+/// </param>
+public sealed record ServiceCrossingResponse(
+    int ServiceId,
+    string ServiceName,
+    string HospitalName,
+    int PeakBefore,
+    int PeakAfter,
+    int Increase,
+    DateOnly PeakStartDate,
+    DateOnly PeakEndDate,
+    IReadOnlyList<string> OtherPromotions);
+
+/// <summary>
+/// Où le recalcul ferait arriver cette promotion sur une autre.
+/// </summary>
+/// <param name="Listed">
+/// Les pires, par ampleur de hausse, <b>bornés</b> — le total est à côté. Une réponse à objet unique
+/// cache une collection non paginée à tout grep de <c>List&lt;T&gt;</c>.
+/// </param>
+public sealed record AxisRelayCrossingsResponse(
+    int ServicesExamined,
+    int ServicesWherePeakRises,
+    IReadOnlyList<ServiceCrossingResponse> Listed);
+
 /// <summary>Ce qu'une colonne devient si l'axe est reposé.</summary>
 /// <param name="Anchored">
 /// Elle n'a pas bougé <b>parce qu'un humain l'avait placée</b>. ⚠ À distinguer d'une colonne qui n'a
@@ -74,6 +102,7 @@ public sealed record AxisRelayPreviewResponse(
     int PeriodsBlocked,
     int WorkingDaysChanged,
     DateOnly AxisEndsOn,
+    AxisRelayCrossingsResponse Crossings,
     IReadOnlyList<string> Warnings)
 {
     /// <summary>Le premier des deux nombres à confirmer : ce que l'acte réécrit dans la grille.</summary>

@@ -55,6 +55,7 @@ public static class DependencyInjection
         services.AddScoped<ServiceLevelCapacityResolver>();
         services.AddScoped<RotationArranger>();
         services.AddScoped<PublishedPeriodShifter>();
+        services.AddScoped<AxisRelayCrossingReader>();
         services.AddScoped<AxisRelayReader>();
         services.AddScoped<PGSH.Application.Stages.AllowedServices.ServiceRankWriter>();
         services.AddScoped<PromotionPartitioning>();

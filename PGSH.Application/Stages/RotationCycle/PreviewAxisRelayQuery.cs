@@ -90,5 +90,14 @@ internal static class AxisRelayPresentation
             report.PeriodsBlocked,
             report.WorkingDaysChanged,
             report.AxisEndsOn,
+            new AxisRelayCrossingsResponse(
+                report.Crossings.ServicesExamined,
+                report.Crossings.ServicesWherePeakRises,
+                report.Crossings.Listed
+                    .Select(c => new ServiceCrossingResponse(
+                        c.ServiceId, c.ServiceName, c.HospitalName,
+                        c.PeakBefore, c.PeakAfter, c.Increase,
+                        c.PeakStart, c.PeakEnd, c.OtherPromotions))
+                    .ToList()),
             report.Warnings);
 }

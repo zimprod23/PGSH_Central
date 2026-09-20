@@ -88,7 +88,7 @@ public class AxisRelayCommandTests
     }
 
     private static AxisRelayReader Reader(ApplicationDbContext db) =>
-        new(db, new WorkingDayProvider(db));
+        new(db, new WorkingDayProvider(db), new AxisRelayCrossingReader(db));
 
     private static ApplyAxisRelayCommandHandler Handler(Fixture f) =>
         new(f.Db, new AcademicYearResolver(f.Db), Reader(f.Db), f.Audit, TestHarness.ClockOn(Today));

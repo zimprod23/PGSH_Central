@@ -1312,6 +1312,31 @@ public class SqlTranslationTests
     }
 
     /// <summary>
+    /// The crossing report's two reads. ⚠ <c>PlacementsQuery</c> is the risky one: it projects a
+    /// nested record (<c>OccupancyPlacement</c>) whose last-but-two member is a correlated
+    /// <c>Count</c> over a collection that itself filters on a nested collection
+    /// (<c>Assignments.Count(x =&gt; !x.ServicePeriods.Any(...))</c>). Scalar aggregates translate;
+    /// a projected collection does not, and the difference has killed a query here before with the
+    /// whole suite green.
+    /// </summary>
+    [Fact]
+    public void The_crossing_report_reads_become_SQL()
+    {
+        using var db = TestHarness.NewNpgsqlContext();
+
+        string services = AxisRelayCrossingReader
+            .AffectedServicesQuery(db, 4, [1, 2, 3]).ToQueryString();
+        services.Should().Contain("CohortSlotAssignments");
+        services.Should().Contain("DISTINCT");
+
+        string placements = AxisRelayCrossingReader
+            .PlacementsQuery(db, [30, 31], new DateOnly(2026, 1, 1), new DateOnly(2027, 1, 1))
+            .ToQueryString();
+        placements.Should().Contain("StageSlots");
+        placements.Should().Contain("IsDelocalized");
+    }
+
+    /// <summary>
     /// The two dated rules the axis recompute reads — <c>MovableOn</c> and <c>Extendable</c> — put
     /// straight into a <c>Where</c>, which is where a provider refuses rather than quietly evaluating
     /// on the client.
