@@ -72,6 +72,21 @@ area, so they are worth carrying in your head on **every** change:
 - **An un-Included collection is indistinguishable from an empty one** — and the in-memory provider
   fixes navigations up from the change tracker, so this suite *cannot see* the mistake. Ask the store
   for the fact and let the aggregate decide what to do about it.
+  - ⚠ **It shipped, and the loud half was not where the damage was done.** Measured 23/09/2026:
+    neither chef handler Included `Service.ChefHistory`, which the aggregate **modifies**.
+    `RemoveChef` therefore nulled the pointer, closed nothing, and **saved successfully** — leaving a
+    service with no chef and an open tenure. The next assign added a second open row and hit
+    `IX_ServiceChefAssignment_ServiceId` (`UNIQUE … WHERE "EndDate" IS NULL`) → **23505** → « Une
+    erreur serveur est survenue », and Pédiatrie1/Pédiatrie2 could never be given a chef again.
+    **The rule to carry: if the aggregate writes to a collection, the handler Includes it** —
+    reading it is not the only reason.
+  - ⚠ **And only the Postgres tier can test it.** In-memory rebuilds the navigation and passes on the
+    broken code; SQLite has no *filtered* indexes so it refuses two tenures even correctly closed and
+    fails on the right code. → `PGSH.Tests/Postgres/ServiceChefTenureTests.cs`
+  - ⚠ **A repair that self-heals hides its own cause.** The first test walked assign → remove →
+    assign and passed with `RemoveChef` still broken, because the *fixed* assign closes whatever open
+    tenure it finds and repairs the mess on the way past. Each Include needs the assertion that looks
+    at the state **immediately after its own act**, or one handler's correctness masks the other's.
 - **Say what a blank means.** One number standing for two states is the recurring defect in this
   codebase: « aucune période » and « rien n'est encore réparti » call for opposite acts. A warning
   that fires whatever the data says is noise, and noise is dismissed — which puts the real one out of

@@ -48,7 +48,19 @@ public sealed record InternshipAssignmentResponse(
     InternshipStatus Status,
     decimal? FinalScore,
     StageAssignmentResult? Result,
-    IReadOnlyList<ServicePeriodSummary> ServicePeriods);
+    IReadOnlyList<ServicePeriodSummary> ServicePeriods,
+    // La fenêtre déclarée par la promotion de cet étudiant qui couvre *aujourd'hui* — sinon null.
+    //
+    // ⚠ <b>Au niveau de l'affectation, et pas seulement de ses périodes.</b> Signalé depuis l'écran le
+    // 23/09/2026 : « sur la rotation on voit En examens, sur le badge du stage on ne voit qu'En
+    // cours ». Les périodes la portaient, l'affectation non — donc le même dossier donnait deux
+    // réponses à une ligne d'intervalle, et celle du haut était la fausse.
+    //
+    // ⚠ Le critère est celui de la *ligne d'affectation*, pas celui d'une période : l'étudiant compose
+    // quelles que soient les dates de tel ou tel séjour. Même règle que
+    // <c>InternshipAssignmentSummaryResponse</c>, et c'est voulu — une seule question, une seule
+    // réponse, quel que soit l'écran qui la pose.
+    PromotionSuspension? SuspendedBy = null);
 
 public sealed record ServicePeriodSummary(
     Guid Id,

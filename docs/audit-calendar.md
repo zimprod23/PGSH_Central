@@ -472,3 +472,22 @@ leur prend. `POST levels/{id}/axis-relay` les repose, et fait suivre les rotatio
 
 → `AxisRelayPlanner` (pur), `AxisRelayReader`, `AxisRelayCrossingReader`, `PGSH.Frontend`
   → `AxisRelayPage`
+
+### ⚠ Le badge du stage et celui de la rotation ne doivent pas se contredire (23/09/2026)
+
+Signalé depuis l'écran : « sur la rotation on voit *En examens*, sur le badge du stage on ne voit
+qu'*En cours* ». `InternshipAssignmentSummaryResponse` — la ligne de l'administration — portait la
+fenêtre depuis le début ; `InternshipAssignmentResponse`, le **dossier** que lit le portail étudiant,
+ne la posait que sur ses périodes. Le même écran se contredisait donc à une ligne d'intervalle, et
+celle du haut était la fausse.
+
+- **Deux portées, deux critères, et il faut les deux.** L'affectation dit « cet étudiant compose
+  cette semaine » — vrai de tout le dossier tant qu'il est `Ongoing`, quelles que soient les dates de
+  tel séjour. La période dit « il n'est pas dans ce service ce matin » — ce qui demande **en plus**
+  que sa fenêtre contienne le jour.
+- ⚠ **Le critère de l'affectation est celui de la liste d'administration, à dessein** : une seule
+  question, une seule réponse, quel que soit l'écran qui la pose.
+- Les lectures *historiques* — `GetRecord`, `GetDossier`, `GetParcours` — ne la portent volontairement
+  pas : elles répondent à « où en est cet étudiant sur l'année », et une fenêtre d'aujourd'hui y
+  serait du bruit sur des lignes closes ou à venir.
+→ `PromotionSuspensionDisplayTests`

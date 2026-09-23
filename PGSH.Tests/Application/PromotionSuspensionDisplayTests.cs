@@ -222,6 +222,60 @@ public class PromotionSuspensionDisplayTests
     }
 
     /// <summary>
+    /// ⚠ <b>Et le dossier la porte aussi au niveau de l'affectation, pas seulement de ses périodes.</b>
+    /// Signalé depuis l'écran le 23/09/2026 : « sur la rotation on voit En examens, sur le badge du
+    /// stage on ne voit qu'En cours ». La ligne d'affectation de l'administration la portait depuis le
+    /// début ; le dossier — que lit le portail étudiant — ne la posait que sur les périodes, donc le
+    /// même écran se contredisait à une ligne d'intervalle, et celle du haut était la fausse.
+    ///
+    /// <para>⚠ Le critère est celui de l'<i>affectation</i> et non d'une période : l'étudiant compose
+    /// quelles que soient les dates de tel séjour. C'est le même que
+    /// <c>InternshipAssignmentSummaryResponse</c>, à dessein — une seule question, une seule réponse,
+    /// quel que soit l'écran qui la pose.</para>
+    /// </summary>
+    [Fact]
+    public async Task The_students_file_carries_the_window_on_the_stage_itself_not_only_its_rotations()
+    {
+        await using var db = Seed(
+            nameof(The_students_file_carries_the_window_on_the_stage_itself_not_only_its_rotations));
+        Declare(db);
+        await db.SaveChangesAsync();
+
+        var assignment = db.InternshipAssignments.Single();
+        var handler = new GetInternshipAssignmentByIdQueryHandler(
+            db, new PromotionSuspensionLookup(db), TestHarness.ClockOn(DuringExams));
+
+        var result = await handler.Handle(
+            new GetInternshipAssignmentByIdQuery(assignment.Id), default);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.SuspendedBy.Should().NotBeNull(
+            "the stage badge and the rotation badge must not disagree on the same screen");
+        result.Value.SuspendedBy!.Reason.Should().Be("Examens du 1er semestre");
+    }
+
+    /// <summary>
+    /// ⚠ Le contrôle du précédent : hors fenêtre, le badge du stage ne dit rien non plus. Sans lui,
+    /// un handler qui poserait la fenêtre sur toute affectation satisferait l'assertion ci-dessus.
+    /// </summary>
+    [Fact]
+    public async Task The_stage_badge_says_nothing_once_the_window_has_passed()
+    {
+        await using var db = Seed(nameof(The_stage_badge_says_nothing_once_the_window_has_passed));
+        Declare(db);
+        await db.SaveChangesAsync();
+
+        var assignment = db.InternshipAssignments.Single();
+        var handler = new GetInternshipAssignmentByIdQueryHandler(
+            db, new PromotionSuspensionLookup(db), TestHarness.ClockOn(AfterExams));
+
+        var result = await handler.Handle(
+            new GetInternshipAssignmentByIdQuery(assignment.Id), default);
+
+        result.Value.SuspendedBy.Should().BeNull();
+    }
+
+    /// <summary>
     /// ⚠ Le contrôle : hors fenêtre, le dossier ne dit rien de particulier — et la même lecture le
     /// prouve, plutôt qu'un second fichier qui pourrait diverger.
     /// </summary>

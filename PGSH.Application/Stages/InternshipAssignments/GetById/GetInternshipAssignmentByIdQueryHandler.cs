@@ -2,6 +2,7 @@
 using PGSH.Application.Abstractions.Data;
 using PGSH.Application.Abstractions.Messaging;
 using PGSH.Application.Calendar.Pauses;
+using PGSH.Domain.Common.Utils;
 using PGSH.Domain.Stages;
 using PGSH.SharedKernel;
 
@@ -59,7 +60,10 @@ internal sealed class GetInternshipAssignmentByIdQueryHandler(
                         // Explicite : un argument facultatif est interdit dans une arborescence
                         // d'expression, et la fenêtre est de toute façon pliée après la requête.
                         null))
-                    .ToList()))
+                    .ToList(),
+                // ⚠ Explicite, et non par défaut : une arborescence d'expression refuse un argument
+                // facultatif. La fenêtre est pliée après la requête, comme celle des périodes.
+                null))
             .SingleOrDefaultAsync(cancellationToken);
 
         if (assignment is null || promotion is null)
@@ -79,6 +83,14 @@ internal sealed class GetInternshipAssignmentByIdQueryHandler(
             ? assignment
             : assignment with
             {
+                // ⚠ Deux portées, deux critères, et il faut les deux. L'affectation dit « cet étudiant
+                // compose cette semaine » — vrai de tout le dossier tant qu'il est en cours, quelles
+                // que soient les dates de tel séjour. La période dit « il n'est pas dans ce service ce
+                // matin » — ce qui demande en plus que sa fenêtre contienne le jour. Ne poser que la
+                // seconde laissait le badge du stage afficher « En cours » au-dessus de rotations
+                // marquées « En examens » : un dossier qui se contredit à une ligne d'intervalle.
+                SuspendedBy = assignment.Status == InternshipStatus.Ongoing ? window : null,
+
                 ServicePeriods = assignment.ServicePeriods
                     .Select(p => IsRunningOn(p, today) ? p with { SuspendedBy = window } : p)
                     .ToList(),
